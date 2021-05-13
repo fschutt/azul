@@ -1064,8 +1064,8 @@ pub fn set_attributes(dom: &mut StyledDom, xml_attributes: &XmlAttributeMap, fil
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
-            true => node_data.set_tab_index(Some(TabIndex::Auto).into()),
-            false => node_data.set_tab_index(Some(TabIndex::NoKeyboardFocus.into()).into()),
+            true => node_data.set_tab_index(TabIndex::Auto),
+            false => node_data.set_tab_index(TabIndex::NoKeyboardFocus.into()),
         }
     }
 
@@ -1074,9 +1074,9 @@ pub fn set_attributes(dom: &mut StyledDom, xml_attributes: &XmlAttributeMap, fil
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => node_data.set_tab_index(Some(TabIndex::Auto).into()),
-            i if i > 0 => node_data.set_tab_index(Some(TabIndex::OverrideInParent(i as u32)).into()),
-            _ => node_data.set_tab_index(Some(TabIndex::NoKeyboardFocus).into()),
+            0 => node_data.set_tab_index(TabIndex::Auto),
+            i if i > 0 => node_data.set_tab_index(TabIndex::OverrideInParent(i as u32)),
+            _ => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
         }
     }
 }

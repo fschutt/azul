@@ -2018,6 +2018,70 @@
                 }
             }
         },
+        "menu": {
+            "classes": {
+                "Menu": {
+                    "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
+                    "external": "azul_impl::window::Menu",
+                    "struct_fields": [
+                        {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}}
+                    ]
+                },
+                "MenuItem": {
+                    "doc": "Item entry in a menu or menu bar",
+                    "external": "azul_impl::window::MenuItem",
+                    "enum_fields": [
+                        {"Label": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
+                        {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
+                        {"BreakLine": {"doc": "Breaks items in a menu onto separate lines, usually only rendered in horizontal menu bars"}}
+                    ]
+                },
+                "StringMenuItem": {
+                    "doc": "Regular labeled menu item",
+                    "external": "azul_impl::window::StringMenuItem",
+                    "struct_fields": [
+                        {"label": {"type": "String", "doc": "Label of the menu entry"}},
+                        {"accelerator": {"type": "OptionVirtualKeyCodeCombo", "doc": "Optional accelerator combination, (ex. \"CTRL + X\" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut"}},
+                        {"callback": {"type": "OptionMenuCallback", "doc": "Optional callback to call when the item is activated"}},
+                        {"state": {"type": "MenuItemState", "doc": "State of the menu entry (normal, greyed, disabled)"}},
+                        {"icon": {"type": "OptionMenuItemIcon", "doc": "Optional icon (checkbox or custom image) of the menu entry"}},
+                        {"children": {"type": "MenuItemVec", "doc": "Sub-menus of the window (empty by default)"}}
+                    ]
+                },
+                "VirtualKeyCodeCombo": {
+                    "doc": "Combination of virtual key codes that have to be pressed together",
+                    "external": "azul_impl::window::VirtualKeyCodeCombo",
+                    "struct_fields": [
+                        {"keys": {"type": "VirtualKeyCodeVec"}}
+                    ]
+                },
+                "MenuCallback": {
+                    "doc": "Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated",
+                    "external": "azul_impl::window::MenuCallback",
+                    "struct_fields": [
+                        {"callback": {"type": "Callback", "doc": "Callback to be called when the menu item is clicked"}},
+                        {"data": {"type": "RefAny", "doc": "Data of the callback to be called on"}}
+                    ]
+                },
+                "MenuItemIcon": {
+                    "doc": "Icon of a menu entry",
+                    "external": "azul_impl::window::MenuItemIcon",
+                    "enum_fields": [
+                        {"Checkbox": {"type": "bool", "doc": "Menu item shows a checkbox (either checked or not)"}},
+                        {"Image": {"type": "ImageRef", "doc": "Menu item shows a custom image, usually in 16x16 format"}}
+                    ]
+                },
+                "MenuItemState": {
+                    "doc": "Describes the state of a menu item",
+                    "external": "azul_impl::window::MenuItemState",
+                    "enum_fields": [
+                        {"Normal": {"doc": "Normal menu item (default)"}},
+                        {"Greyed": {"doc": "Menu item is greyed out and clicking it does nothing"}},
+                        {"Disabled": {"doc": "Menu item is disabled, clicking it does nothing - but NOT greyed out"}}
+                    ]
+                }
+            }
+        },
         "dom": {
             "doc": "`Dom` construction and configuration",
             "classes": {
@@ -2072,9 +2136,54 @@
                         {"ids_and_classes": {"type": "IdOrClassVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
                         {"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
                         {"inline_css_props": {"type": "NodeDataInlineCssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
-                        {"clip_mask": {"type": "OptionImageMask", "doc": "Optional clip mask for this DOM node"}},
-                        {"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
-                    ]
+                        {"extra": {"type": "*const c_void", "doc": "Extra data relevant for this node: Necessary to extend the NodeData without breaking ABI as well as to efficiently store less commonly set options. Default set to `nullptr` (= `None` internally)"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "doc": "Creates an new, empty `NodeData` struct",
+                            "fn_args": [
+                                {"node_type": "NodeType"}
+                            ],
+                            "fn_body": "AzNodeData::new(node_type)"
+                        }
+                    },
+                    "functions": {
+                        "set_clip_mask": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"image_mask": "ImageMask"}
+                            ],
+                            "fn_body": "nodedata.set_clip_mask(image_mask)"
+                        },
+                        "set_tab_index": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"tab_index": "TabIndex"}
+                            ],
+                            "fn_body": "nodedata.set_tab_index(tab_index)"
+                        },
+                        "set_accessibility_info": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"accessibility_info": "AccessibilityInfo"}
+                            ],
+                            "fn_body": "nodedata.set_accessibility_info(accessibility_info)"
+                        },
+                        "set_menu_bar": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"menu_bar": "Menu"}
+                            ],
+                            "fn_body": "nodedata.set_menu_bar(menu_bar)"
+                        },
+                        "set_context_menu": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"context_menu": "Menu"}
+                            ],
+                            "fn_body": "nodedata.set_context_menu(context_menu)"
+                        }
+                    }
                 },
                 "NodeType": {
                     "doc": "List of core DOM node types built-into by `azul`",
@@ -2240,9 +2349,11 @@
                     "external": "azul_impl::dom::ComponentEventFilter",
                     "derive": ["Copy"],
                     "enum_fields": [
-                        {"AfterMount": {}},
-                        {"BeforeUnmount": {}},
-                        {"NodeResized": {}}
+                        {"AfterMount": {"doc": "Node has been added. Internally the DOM tree is diffed and this event fires only once."}},
+                        {"BeforeUnmount": {"doc": "Node has been removed (DOM tree has been exchanged)"}},
+                        {"NodeResized": {"doc": "Item has been resized"}},
+                        {"DefaultAction": {"doc": "Performs the \"default action\", necessary for accessibility"}},
+                        {"Selected": {"doc": "Item has been selected using assistive technology (e.g. screen reader)"}}
                     ]
                 },
                 "ApplicationEventFilter": {
@@ -2251,6 +2362,110 @@
                     "enum_fields": [
                         {"DeviceConnected": {}},
                         {"DeviceDisconnected": {}}
+                    ]
+                },
+                "AccessibilityInfo": {
+                    "doc": "Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`",
+                    "external": "azul_impl::dom::AccessibilityInfo",
+                    "struct_fields": [
+                        {"name": {"type": "OptionString", "doc": "Get the \"name\" of the `IAccessible`, for example the name of a button, checkbox or menu item. Try to use unique names for each item in a dialog so that voice dictation software doesn't have to deal with extra ambiguity"}},
+                        {"value": {"type": "OptionString", "doc": "Get the \"value\" of the `IAccessible`, for example a number in a slider, a URL for a link, the text a user entered in a field."}},
+                        {"role": {"type": "AccessibilityRole", "doc": "Get an enumerated value representing what this IAccessible is used for, for example is it a link, static text, editable text, a checkbox, or a table cell, etc."}},
+                        {"states": {"type": "AccessibilityStateVec", "doc": "Possible on/off states, such as focused, focusable, selected, selectable, visible, protected (for passwords), checked, etc."}},
+                        {"accelerator": {"type": "OptionVirtualKeyCodeCombo", "doc": "Optional keyboard accelerator"}},
+                        {"default_action": {"type": "OptionString", "doc": "Optional \"default action\" description. Only used when there is at least one `ComponentEventFilter::DefaultAction` callback present on this node"}}
+                    ]
+                },
+                "AccessibilityRole": {
+                    "doc": "MSAA Accessibility role constants. For information on what each role does, see the <a href=\"https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles\">MSDN Role Constants page</a>",
+                    "external": "azul_impl::dom::AccessibilityRole",
+                    "enum_fields": [
+                        {"TitleBar": {"doc": "Inserted by operating system"}},
+                        {"MenuBar": {}},
+                        {"ScrollBar": {}},
+                        {"Grip": {}},
+                        {"Sound": {}},
+                        {"Cursor": {}},
+                        {"Caret": {}},
+                        {"Alert": {}},
+                        {"Window": {"doc": "Inserted by operating system"}},
+                        {"Client": {}},
+                        {"MenuPopup": {}},
+                        {"MenuItem": {}},
+                        {"Tooltip": {}},
+                        {"Application": {}},
+                        {"Document": {}},
+                        {"Pane": {}},
+                        {"Chart": {}},
+                        {"Dialog" : {}},
+                        {"Border": {}},
+                        {"Grouping": {}},
+                        {"Separator": {}},
+                        {"Toolbar": {}},
+                        {"StatusBar": {}},
+                        {"Table": {}},
+                        {"ColumnHeader": {}},
+                        {"RowHeader": {}},
+                        {"Column": {}},
+                        {"Row": {}},
+                        {"Cell": {}},
+                        {"Link": {}},
+                        {"HelpBalloon": {}},
+                        {"Character"  : {}},
+                        {"List": {}},
+                        {"ListItem": {}},
+                        {"Outline": {}},
+                        {"OutlineItem": {}},
+                        {"Pagetab": {}},
+                        {"PropertyPage": {}},
+                        {"Indicator": {}},
+                        {"Graphic": {}},
+                        {"StaticText": {}},
+                        {"Text": {}},
+                        {"PushButton": {}},
+                        {"CheckButton": {}},
+                        {"RadioButton": {}},
+                        {"ComboBox": {}},
+                        {"DropList": {}},
+                        {"ProgressBar": {}},
+                        {"Dial": {}},
+                        {"HotkeyField": {}},
+                        {"Slider": {}},
+                        {"SpinButton": {}},
+                        {"Diagram": {}},
+                        {"Animation": {}},
+                        {"Equation": {}},
+                        {"ButtonDropdown": {}},
+                        {"ButtonMenu": {}},
+                        {"ButtonDropdownGrid": {}},
+                        {"Whitespace": {}},
+                        {"PageTabList": {}},
+                        {"Clock": {}},
+                        {"SplitButton": {}},
+                        {"IpAddress": {}},
+                        {"Nothing": {}}
+                    ]
+                },
+                "AccessibilityState": {
+                    "doc": "MSAA accessibility state. For information on what each state does, see the <a href=\"https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants\">MSDN State Constants page</a>.",
+                    "external": "azul_impl::dom::AccessibilityState",
+                    "enum_fields": [
+                        {"Unavailable": {}},
+                        {"Selected": {}},
+                        {"Focused": {}},
+                        {"Checked": {}},
+                        {"Readonly": {}},
+                        {"Default": {}},
+                        {"Expanded": {}},
+                        {"Collapsed": {}},
+                        {"Busy": {}},
+                        {"Offscreen": {}},
+                        {"Focusable": {}},
+                        {"Selectable": {}},
+                        {"Linked": {}},
+                        {"Traversed": {}},
+                        {"Multiselectable": {}},
+                        {"Protected": {}}
                     ]
                 },
                 "TabIndex": {
@@ -9775,6 +9990,28 @@
         "vec": {
             "doc": "Definition of azuls internal `Vec<*>` wrappers",
             "classes": {
+                "AccessibilityStateVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<AccessibilityState>`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::dom::AccessibilityStateVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const AccessibilityState" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "AccessibilityStateVecDestructor" } }
+                    ]
+                },
+                "MenuItemVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<MenuItem>`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::window::MenuItemVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const MenuItem" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "MenuItemVecDestructor" } }
+                    ]
+                },
                 "TesselatedSvgNodeVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`",
                     "custom_destructor": true,
@@ -10369,6 +10606,38 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "AccessibilityStateVecDestructor": {
+                    "external": "azul_impl::dom::AccessibilityStateVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "AccessibilityStateVecDestructorType"}}
+                    ]
+                },
+                "AccessibilityStateVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "AccessibilityStateVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "MenuItemVecDestructor": {
+                    "external": "azul_impl::window::MenuItemVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "MenuItemVecDestructorType"}}
+                    ]
+                },
+                "MenuItemVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "MenuItemVec", "ref": "refmut"}
                         ]
                     }
                 },
@@ -11161,6 +11430,27 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionMenuItemIcon": {
+                    "external": "azul_impl::window::OptionMenuItemIcon",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "MenuItemIcon" }}
+                    ]
+                },
+                "OptionMenuCallback": {
+                    "external": "azul_impl::window::OptionMenuCallback",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "MenuCallback" }}
+                    ]
+                },
+                "OptionVirtualKeyCodeCombo": {
+                    "external": "azul_impl::window::OptionVirtualKeyCodeCombo",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": { "type": "VirtualKeyCodeCombo" }}
+                    ]
+                },
                 "OptionCssProperty": {
                     "external": "azul_impl::css::OptionCssProperty",
                     "enum_fields": [

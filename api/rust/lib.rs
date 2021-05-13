@@ -1360,6 +1360,17 @@ mod dll {
         pub(crate) ptr: *const c_void,
     }
 
+    /// Describes the state of a menu item
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzMenuItemState {
+        Normal,
+        Greyed,
+        Disabled,
+    }
+
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)]
     #[derive(Debug)]
@@ -1499,6 +1510,8 @@ mod dll {
         AfterMount,
         BeforeUnmount,
         NodeResized,
+        DefaultAction,
+        Selected,
     }
 
     /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
@@ -1510,6 +1523,102 @@ mod dll {
     pub enum AzApplicationEventFilter {
         DeviceConnected,
         DeviceDisconnected,
+    }
+
+    /// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzAccessibilityRole {
+        TitleBar,
+        MenuBar,
+        ScrollBar,
+        Grip,
+        Sound,
+        Cursor,
+        Caret,
+        Alert,
+        Window,
+        Client,
+        MenuPopup,
+        MenuItem,
+        Tooltip,
+        Application,
+        Document,
+        Pane,
+        Chart,
+        Dialog,
+        Border,
+        Grouping,
+        Separator,
+        Toolbar,
+        StatusBar,
+        Table,
+        ColumnHeader,
+        RowHeader,
+        Column,
+        Row,
+        Cell,
+        Link,
+        HelpBalloon,
+        Character,
+        List,
+        ListItem,
+        Outline,
+        OutlineItem,
+        Pagetab,
+        PropertyPage,
+        Indicator,
+        Graphic,
+        StaticText,
+        Text,
+        PushButton,
+        CheckButton,
+        RadioButton,
+        ComboBox,
+        DropList,
+        ProgressBar,
+        Dial,
+        HotkeyField,
+        Slider,
+        SpinButton,
+        Diagram,
+        Animation,
+        Equation,
+        ButtonDropdown,
+        ButtonMenu,
+        ButtonDropdownGrid,
+        Whitespace,
+        PageTabList,
+        Clock,
+        SplitButton,
+        IpAddress,
+        Nothing,
+    }
+
+    /// MSAA accessibility state. For information on what each state does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants">MSDN State Constants page</a>.
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzAccessibilityState {
+        Unavailable,
+        Selected,
+        Focused,
+        Checked,
+        Readonly,
+        Default,
+        Expanded,
+        Collapsed,
+        Busy,
+        Offscreen,
+        Focusable,
+        Selectable,
+        Linked,
+        Traversed,
+        Multiselectable,
+        Protected,
     }
 
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
@@ -2771,6 +2880,32 @@ mod dll {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzAccessibilityStateVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzAccessibilityStateVecDestructorType),
+    }
+
+    /// `AzAccessibilityStateVecDestructorType` struct
+    pub type AzAccessibilityStateVecDestructorType = extern "C" fn(&mut AzAccessibilityStateVec);
+
+    /// Re-export of rust-allocated (stack based) `MenuItemVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzMenuItemVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzMenuItemVecDestructorType),
+    }
+
+    /// `AzMenuItemVecDestructorType` struct
+    pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
+
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
@@ -3739,6 +3874,26 @@ mod dll {
     pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
+    }
+
+    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzMenuCallback {
+        pub callback: AzCallback,
+        pub data: AzRefAny,
+    }
+
+    /// Icon of a menu entry
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzMenuItemIcon {
+        Checkbox(bool),
+        Image(AzImageRef),
     }
 
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -5521,6 +5676,24 @@ mod dll {
         pub callback: AzWriteBackCallback,
     }
 
+    /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
+    #[repr(C)]
+    pub struct AzAccessibilityStateVec {
+        pub(crate) ptr: *const AzAccessibilityState,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzAccessibilityStateVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<MenuItem>`
+    #[repr(C)]
+    pub struct AzMenuItemVec {
+        pub(crate) ptr: *const AzMenuItem,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzMenuItemVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     #[repr(C)]
     pub struct AzXmlNodeVec {
@@ -5735,6 +5908,26 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionMenuItemIcon {
+        None,
+        Some(AzMenuItemIcon),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionMenuCallback` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionMenuCallback {
+        None,
+        Some(AzMenuCallback),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionPositionInfo` struct
@@ -6312,6 +6505,24 @@ mod dll {
         pub _reserved_mut: *mut c_void,
     }
 
+    /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzMenu {
+        pub items: AzMenuItemVec,
+    }
+
+    /// Combination of virtual key codes that have to be pressed together
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzVirtualKeyCodeCombo {
+        pub keys: AzVirtualKeyCodeVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -6697,6 +6908,16 @@ mod dll {
         pub destructor: AzTagIdToNodeIdMappingVecDestructor,
     }
 
+    /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionVirtualKeyCodeCombo {
+        None,
+        Some(AzVirtualKeyCodeCombo),
+    }
+
     /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -6960,6 +7181,20 @@ mod dll {
         Word(AzInlineTextContents),
     }
 
+    /// Regular labeled menu item
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzStringMenuItem {
+        pub label: AzString,
+        pub accelerator: AzOptionVirtualKeyCodeCombo,
+        pub callback: AzOptionMenuCallback,
+        pub state: AzMenuItemState,
+        pub icon: AzOptionMenuItemIcon,
+        pub children: AzMenuItemVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -6983,6 +7218,20 @@ mod dll {
         Text(AzString),
         Image(AzImageRef),
         IFrame(AzIFrameNode),
+    }
+
+    /// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzAccessibilityInfo {
+        pub name: AzOptionString,
+        pub value: AzOptionString,
+        pub role: AzAccessibilityRole,
+        pub states: AzAccessibilityStateVec,
+        pub accelerator: AzOptionVirtualKeyCodeCombo,
+        pub default_action: AzOptionString,
     }
 
     /// Re-export of rust-allocated (stack based) `IdOrClass` struct
@@ -7460,6 +7709,17 @@ mod dll {
     pub struct AzInlineLine {
         pub words: AzInlineWordVec,
         pub bounds: AzLogicalRect,
+    }
+
+    /// Item entry in a menu or menu bar
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzMenuItem {
+        Label(AzStringMenuItem),
+        Separator,
+        BreakLine,
     }
 
     /// Re-export of rust-allocated (stack based) `CssPath` struct
@@ -7947,8 +8207,7 @@ mod dll {
         pub ids_and_classes: AzIdOrClassVec,
         pub callbacks: AzCallbackDataVec,
         pub inline_css_props: AzNodeDataInlineCssPropertyVec,
-        pub clip_mask: AzOptionImageMask,
-        pub tab_index: AzOptionTabIndex,
+        pub extra: *const c_void,
     }
 
     /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
@@ -8237,6 +8496,12 @@ mod dll {
         pub(crate) fn AzLayoutCallbackInfo_getImage(_:  &AzLayoutCallbackInfo, _:  AzString) -> AzOptionImageRef;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
         pub(crate) fn AzDom_style(_:  &mut AzDom, _:  AzCss) -> AzStyledDom;
+        pub(crate) fn AzNodeData_new(_:  AzNodeType) -> AzNodeData;
+        pub(crate) fn AzNodeData_setClipMask(_:  &mut AzNodeData, _:  AzImageMask);
+        pub(crate) fn AzNodeData_setTabIndex(_:  &mut AzNodeData, _:  AzTabIndex);
+        pub(crate) fn AzNodeData_setAccessibilityInfo(_:  &mut AzNodeData, _:  AzAccessibilityInfo);
+        pub(crate) fn AzNodeData_setMenuBar(_:  &mut AzNodeData, _:  AzMenu);
+        pub(crate) fn AzNodeData_setContextMenu(_:  &mut AzNodeData, _:  AzMenu);
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
@@ -8586,6 +8851,8 @@ mod dll {
         pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzAccessibilityStateVec_delete(_:  &mut AzAccessibilityStateVec);
+        pub(crate) fn AzMenuItemVec_delete(_:  &mut AzMenuItemVec);
         pub(crate) fn AzTesselatedSvgNodeVec_asRefVec(_:  &AzTesselatedSvgNodeVec) -> AzTesselatedSvgNodeVecRef;
         pub(crate) fn AzTesselatedSvgNodeVec_delete(_:  &mut AzTesselatedSvgNodeVec);
         pub(crate) fn AzStyleFontFamilyVec_delete(_:  &mut AzStyleFontFamilyVec);
@@ -9414,6 +9681,33 @@ pub mod callbacks {
 
 }
 
+pub mod menu {
+    #![allow(dead_code, unused_imports)]
+    use crate::dll::*;
+    use core::ffi::c_void;
+    /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+    
+#[doc(inline)] pub use crate::dll::AzMenu as Menu;
+    /// Item entry in a menu or menu bar
+    
+#[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
+    /// Regular labeled menu item
+    
+#[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
+    /// Combination of virtual key codes that have to be pressed together
+    
+#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;
+    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+    
+#[doc(inline)] pub use crate::dll::AzMenuCallback as MenuCallback;
+    /// Icon of a menu entry
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemIcon as MenuItemIcon;
+    /// Describes the state of a menu item
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemState as MenuItemState;
+}
+
 pub mod dom {
     #![allow(dead_code, unused_imports)]
     //! `Dom` construction and configuration
@@ -9436,7 +9730,7 @@ pub mod dom {
         /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
         /// doesn't allocate, it only allocates once you add at least one child node.
         #[inline]
-        pub const fn new(node_type: NodeType) -> Self {
+        pub const fn const_new(node_type: NodeType) -> Self {
             const DEFAULT_VEC: DomVec = DomVec::from_const_slice(&[]);
             Self {
                 root: NodeData::new(node_type),
@@ -9446,60 +9740,18 @@ pub mod dom {
         }
 
         #[inline(always)]
-        pub const fn div() -> Self { Self::new(NodeType::Div) }
+        pub const fn const_div() -> Self { Self::new(NodeType::Div) }
         #[inline(always)]
-        pub const fn body() -> Self { Self::new(NodeType::Body) }
+        pub const fn const_body() -> Self { Self::new(NodeType::Body) }
         #[inline(always)]
-        pub const fn br() -> Self { Self::new(NodeType::Br) }
-        #[inline(always)]
-        pub fn text<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
-        #[inline(always)]
-        pub fn image(image: ImageRef) -> Self { Self::new(NodeType::Image(image)) }
-        #[inline(always)]
-        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
-
-        #[inline(always)]
-        pub fn with_dataset(mut self, data: RefAny) -> Self { self.set_dataset(data); self }
-        #[inline(always)]
-        pub fn with_ids_and_classes(mut self, ids: IdOrClassVec) -> Self { self.set_ids_and_classes(ids); self }
-        #[inline(always)]
-        pub fn with_inline_css_props(mut self, properties: NodeDataInlineCssPropertyVec) -> Self { self.set_inline_css_props(properties); self }
-        #[inline(always)]
-        pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self { self.set_callbacks(callbacks); self }
-        #[inline(always)]
-        pub fn with_children(mut self, children: DomVec) -> Self { self.set_children(children); self }
-        #[inline(always)]
-        pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self { self.set_clip_mask(clip_mask); self }
-        #[inline(always)]
-        pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
-
-        #[inline(always)]
-        pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(OptionRefAny::Some(data)); }
-        #[inline(always)]
-        pub fn set_ids_and_classes(&mut self, ids: IdOrClassVec) { self.root.set_ids_and_classes(ids); }
-        #[inline(always)]
-        pub fn set_inline_css_props(&mut self, properties: NodeDataInlineCssPropertyVec) { self.root.set_inline_css_props(properties); }
-        #[inline(always)]
-        pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.root.set_callbacks(callbacks); }
-        #[inline(always)]
-        pub fn set_children(&mut self, children: DomVec) {
-            self.total_children = 0;
-            for c in children.iter() {
-                self.total_children += c.total_children + 1;
-            }
-            self.children = children;
-        }
-        #[inline(always)]
-        pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
-        #[inline(always)]
-        pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
+        pub const fn const_br() -> Self { Self::new(NodeType::Br) }
     }
 
     impl NodeData {
 
         /// Creates a new `NodeData` instance from a given `NodeType`
         #[inline]
-        pub const fn new(node_type: NodeType) -> Self {
+        pub const fn const_new(node_type: NodeType) -> Self {
             Self {
                 node_type,
                 dataset: OptionRefAny::None,
@@ -9513,87 +9765,39 @@ pub mod dom {
 
         /// Shorthand for `NodeData::new(NodeType::Body)`.
         #[inline(always)]
-        pub const fn body() -> Self {
+        pub const fn const_body() -> Self {
             Self::new(NodeType::Body)
         }
 
         /// Shorthand for `NodeData::new(NodeType::Div)`.
         #[inline(always)]
-        pub const fn div() -> Self {
+        pub const fn const_div() -> Self {
             Self::new(NodeType::Div)
         }
 
         /// Shorthand for `NodeData::new(NodeType::Br)`.
         #[inline(always)]
-        pub const fn br() -> Self {
+        pub const fn const_br() -> Self {
             Self::new(NodeType::Br)
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Text(value.into()))`
-        #[inline(always)]
-        pub fn text<S: Into<AzString>>(value: S) -> Self {
-            Self::new(NodeType::Text(value.into()))
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
-        #[inline(always)]
-        pub fn image(image: ImageRef) -> Self {
-            Self::new(NodeType::Image(image))
-        }
-
-        #[inline(always)]
-        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
-            Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
         }
 
         // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
         // in the future (which is why the fields are all private).
 
         #[inline(always)]
-        pub const fn get_node_type(&self) -> &NodeType { &self.node_type }
+        pub const fn const_get_node_type(&self) -> &NodeType { &self.node_type }
         #[inline(always)]
-        pub const fn get_dataset(&self) -> &OptionRefAny { &self.dataset }
+        pub const fn const_get_dataset(&self) -> &OptionRefAny { &self.dataset }
         #[inline(always)]
-        pub const fn get_ids_and_classes(&self) -> &IdOrClassVec { &self.ids_and_classes }
+        pub const fn const_get_ids_and_classes(&self) -> &IdOrClassVec { &self.ids_and_classes }
         #[inline(always)]
-        pub const fn get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
+        pub const fn const_get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
         #[inline(always)]
-        pub const fn get_inline_css_props(&self) -> &NodeDataInlineCssPropertyVec { &self.inline_css_props }
+        pub const fn const_get_inline_css_props(&self) -> &NodeDataInlineCssPropertyVec { &self.inline_css_props }
         #[inline(always)]
-        pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
+        pub const fn const_get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
         #[inline(always)]
-        pub const fn get_tab_index(&self) -> OptionTabIndex { self.tab_index }
-
-        #[inline(always)]
-        pub fn set_node_type(&mut self, node_type: NodeType) { self.node_type = node_type; }
-        #[inline(always)]
-        pub fn set_dataset(&mut self, data: OptionRefAny) { self.dataset = data; }
-        #[inline(always)]
-        pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) { self.ids_and_classes = ids_and_classes; }
-        #[inline(always)]
-        pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.callbacks = callbacks; }
-        #[inline(always)]
-        pub fn set_inline_css_props(&mut self, inline_css_props: NodeDataInlineCssPropertyVec) { self.inline_css_props = inline_css_props; }
-        #[inline(always)]
-        pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
-        #[inline(always)]
-        pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.tab_index = tab_index; }
-
-        #[inline(always)]
-        pub fn with_node_type(self, node_type: NodeType) -> Self { Self { node_type, .. self } }
-        #[inline(always)]
-        pub fn with_dataset(self, data: OptionRefAny) -> Self { Self { dataset: data, .. self } }
-        #[inline(always)]
-        pub fn with_ids_and_classes(self, ids_and_classes: IdOrClassVec) -> Self { Self { ids_and_classes, .. self } }
-        #[inline(always)]
-        pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
-        #[inline(always)]
-        pub fn with_inline_css_props(self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { Self { inline_css_props, .. self } }
-        #[inline(always)]
-        pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
-        #[inline(always)]
-        pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
-
+        pub const fn const_get_tab_index(&self) -> OptionTabIndex { self.tab_index }
     }
 
     impl Default for Dom {
@@ -9664,6 +9868,8 @@ pub mod dom {
             on.into_event_filter()
         }
     }    use crate::css::Css;
+    use crate::image::ImageMask;
+    use crate::menu::Menu;
     /// `Dom` struct
     
 #[doc(inline)] pub use crate::dll::AzDom as Dom;
@@ -9683,6 +9889,21 @@ pub mod dom {
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     
 #[doc(inline)] pub use crate::dll::AzNodeData as NodeData;
+    impl NodeData {
+        /// Creates an new, empty `NodeData` struct
+        pub fn new(node_type: NodeType) -> Self { unsafe { crate::dll::AzNodeData_new(node_type) } }
+        /// Calls the `NodeData::set_clip_mask` function.
+        pub fn set_clip_mask(&mut self, image_mask: ImageMask)  { unsafe { crate::dll::AzNodeData_setClipMask(self, image_mask) } }
+        /// Calls the `NodeData::set_tab_index` function.
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { unsafe { crate::dll::AzNodeData_setTabIndex(self, tab_index) } }
+        /// Calls the `NodeData::set_accessibility_info` function.
+        pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  { unsafe { crate::dll::AzNodeData_setAccessibilityInfo(self, accessibility_info) } }
+        /// Calls the `NodeData::set_menu_bar` function.
+        pub fn set_menu_bar(&mut self, menu_bar: Menu)  { unsafe { crate::dll::AzNodeData_setMenuBar(self, menu_bar) } }
+        /// Calls the `NodeData::set_context_menu` function.
+        pub fn set_context_menu(&mut self, context_menu: Menu)  { unsafe { crate::dll::AzNodeData_setContextMenu(self, context_menu) } }
+    }
+
     /// List of core DOM node types built-into by `azul`
     
 #[doc(inline)] pub use crate::dll::AzNodeType as NodeType;
@@ -9715,6 +9936,15 @@ pub mod dom {
     /// `ApplicationEventFilter` struct
     
 #[doc(inline)] pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
+    /// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+    
+#[doc(inline)] pub use crate::dll::AzAccessibilityInfo as AccessibilityInfo;
+    /// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
+    
+#[doc(inline)] pub use crate::dll::AzAccessibilityRole as AccessibilityRole;
+    /// MSAA accessibility state. For information on what each state does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants">MSDN State Constants page</a>.
+    
+#[doc(inline)] pub use crate::dll::AzAccessibilityState as AccessibilityState;
     /// `TabIndex` struct
     
 #[doc(inline)] pub use crate::dll::AzTabIndex as TabIndex;
@@ -12811,7 +13041,13 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
+    }    /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
+    
+#[doc(inline)] pub use crate::dll::AzAccessibilityStateVec as AccessibilityStateVec;
+    /// Wrapper over a Rust-allocated `Vec<MenuItem>`
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemVec as MenuItemVec;
+    /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
     
 #[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVec as TesselatedSvgNodeVec;
     impl TesselatedSvgNodeVec {
@@ -12979,6 +13215,18 @@ pub mod vec {
     /// `StyleFontFamilyVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    /// `AccessibilityStateVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructor as AccessibilityStateVecDestructor;
+    /// `AccessibilityStateVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructorType as AccessibilityStateVecDestructorType;
+    /// `MenuItemVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemVecDestructor as MenuItemVecDestructor;
+    /// `MenuItemVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemVecDestructorType as MenuItemVecDestructorType;
     /// `TesselatedSvgNodeVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVecDestructor as TesselatedSvgNodeVecDestructor;
@@ -13445,6 +13693,15 @@ pub mod option {
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
     impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
+    /// `OptionMenuItemIcon` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionMenuItemIcon as OptionMenuItemIcon;
+    /// `OptionMenuCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionMenuCallback as OptionMenuCallback;
+    /// `OptionVirtualKeyCodeCombo` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCodeCombo as OptionVirtualKeyCodeCombo;
     /// `OptionCssProperty` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionCssProperty as OptionCssProperty;

@@ -744,7 +744,7 @@ pub(crate) fn fullhittest_new_webrender(
                     is_iframe_hit: layout_result.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
                         (*iframe_dom_id, relative_to_item)
                     }),
-                    is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().into_option().is_some(),
+                    is_focusable: layout_result.styled_dom.node_data.as_container().get(node_id)?.get_tab_index().is_some(),
                 }))
             }).collect::<Vec<_>>();
 

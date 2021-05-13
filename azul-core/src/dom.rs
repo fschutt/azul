@@ -1,5 +1,6 @@
 use core::{
     fmt,
+    mem,
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
 };
@@ -14,14 +15,15 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
-    app_resources::OptionImageMask,
+    app_resources::ImageMask,
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
         NodeDataContainerRefMut
     },
+    window::{Menu, OptionVirtualKeyCodeCombo},
     styled_dom::{StyledDom, AzNodeId},
 };
-use azul_css::{Css, AzString, NodeTypeTag, CssProperty};
+use azul_css::{Css, OptionAzString, AzString, NodeTypeTag, CssProperty};
 
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
@@ -519,6 +521,8 @@ pub enum ComponentEventFilter {
     AfterMount,
     BeforeUnmount,
     NodeResized,
+    DefaultAction,
+    Selected,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -631,13 +635,163 @@ pub struct NodeData {
     pub(crate) callbacks: CallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
+    /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index, etc.
+    ///
+    /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
+    /// to the node without breaking the ABI
+    extra: Option<Box<NodeDataExt>>,
+}
+
+/// NOTE: NOT EXPOSED IN THE API! Stores extra,
+/// not commonly used information for the NodeData.
+#[repr(C)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct NodeDataExt {
     /// Optional clip mask for this DOM node
-    pub(crate) clip_mask: OptionImageMask,
+    pub(crate) clip_mask: Option<ImageMask>,
     /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
-    pub(crate) tab_index: OptionTabIndex,
+    pub(crate) tab_index: Option<TabIndex>,
+    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA)
+    pub(crate) accessibility: Option<Box<AccessibilityInfo>>,
+    /// Menu bar that should be displayed at the top of this nodes rect
+    pub(crate) menu_bar: Option<Box<Menu>>,
+    /// Context menu that should be opened when the item is left-clicked
+    pub(crate) context_menu: Option<Box<Menu>>,
+
+    // ... insert further API extensions here...
 }
+
+/// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct AccessibilityInfo {
+    /// Get the "name" of the `IAccessible`, for example the
+    /// name of a button, checkbox or menu item. Try to use unique names
+    /// for each item in a dialog so that voice dictation software doesn't
+    /// have to deal with extra ambiguity
+    pub name: OptionAzString,
+    /// Get the "value" of the `IAccessible`, for example a number in a slider,
+    /// a URL for a link, the text a user entered in a field.
+    pub value: OptionAzString,
+    /// Get an enumerated value representing what this IAccessible is used for,
+    /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
+    pub role: AccessibilityRole,
+    /// Possible on/off states, such as focused, focusable, selected, selectable,
+    /// visible, protected (for passwords), checked, etc.
+    pub states: AccessibilityStateVec,
+    /// Optional keyboard accelerator
+    pub accelerator: OptionVirtualKeyCodeCombo,
+    /// Optional "default action" description. Only used when there is at least
+    /// one `ComponentEventFilter::DefaultAction` callback present on this node
+    pub default_action: OptionAzString,
+}
+
+/// MSAA Accessibility role constants. For information on what each role does,
+/// see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum AccessibilityRole {
+    /// Inserted by operating system
+    TitleBar,
+    MenuBar,
+    ScrollBar,
+    Grip,
+    Sound,
+    Cursor,
+    Caret,
+    Alert,
+    /// Inserted by operating system
+    Window,
+    Client,
+    MenuPopup,
+    MenuItem,
+    Tooltip,
+    Application,
+    Document,
+    Pane,
+    Chart,
+    Dialog,
+    Border,
+    Grouping,
+    Separator,
+    Toolbar,
+    StatusBar,
+    Table,
+    ColumnHeader,
+    RowHeader,
+    Column,
+    Row,
+    Cell,
+    Link,
+    HelpBalloon,
+    Character,
+    List,
+    ListItem,
+    Outline,
+    OutlineItem,
+    Pagetab,
+    PropertyPage,
+    Indicator,
+    Graphic,
+    StaticText,
+    Text,
+    PushButton,
+    CheckButton,
+    RadioButton,
+    ComboBox,
+    DropList,
+    ProgressBar,
+    Dial,
+    HotkeyField,
+    Slider,
+    SpinButton,
+    Diagram,
+    Animation,
+    Equation,
+    ButtonDropdown,
+    ButtonMenu,
+    ButtonDropdownGrid,
+    Whitespace,
+    PageTabList,
+    Clock,
+    SplitButton,
+    IpAddress,
+    Nothing,
+}
+
+/// MSAA accessibility state. For information on what each state does, see the
+/// [MSDN State Constants](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants\) page.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum AccessibilityState {
+    Unavailable,
+    Selected,
+    Focused,
+    Checked,
+    Readonly,
+    Default,
+    Expanded,
+    Collapsed,
+    Busy,
+    Offscreen,
+    Focusable,
+    Selectable,
+    Linked,
+    Traversed,
+    Multiselectable,
+    Protected,
+}
+
+impl_vec!(AccessibilityState, AccessibilityStateVec, AccessibilityStateVecDestructor);
+impl_vec_clone!(AccessibilityState, AccessibilityStateVec, AccessibilityStateVecDestructor);
+impl_vec_debug!(AccessibilityState, AccessibilityStateVec);
+impl_vec_partialeq!(AccessibilityState, AccessibilityStateVec);
+impl_vec_partialord!(AccessibilityState, AccessibilityStateVec);
+impl_vec_eq!(AccessibilityState, AccessibilityStateVec);
+impl_vec_ord!(AccessibilityState, AccessibilityStateVec);
+impl_vec_hash!(AccessibilityState, AccessibilityStateVec);
 
 impl Clone for NodeData {
     #[inline]
@@ -651,8 +805,7 @@ impl Clone for NodeData {
             ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
             inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
             callbacks: self.callbacks.clone(),
-            clip_mask: self.clip_mask.clone(),
-            tab_index: self.tab_index.clone(),
+            extra: self.extra.clone(),
         }
     }
 }
@@ -670,14 +823,16 @@ impl NodeData {
             ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
             inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
             callbacks: self.callbacks.clone(),
-            clip_mask: self.clip_mask.clone(),
-            tab_index: self.tab_index.clone(),
+            extra: self.extra.clone(),
         }
     }
 
     pub fn is_focusable(&self) -> bool {
         // TODO: do some better analysis of next / first / item
-        self.tab_index.is_some() || self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback())
+        self.get_tab_index().is_some() ||
+        self.get_callbacks().iter().any(|cb| {
+            cb.event.is_focus_callback()
+        })
     }
 
     pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
@@ -829,19 +984,23 @@ impl fmt::Display for NodeData {
 fn node_data_to_string(node_data: &NodeData) -> String {
 
     let mut id_string = String::new();
-    let ids = node_data.ids_and_classes.as_ref().iter().filter_map(|s| s.as_id()).collect::<Vec<_>>().join(" ");
+    let ids = node_data.ids_and_classes.as_ref().iter()
+    .filter_map(|s| s.as_id()).collect::<Vec<_>>().join(" ");
+
     if !ids.is_empty() {
         id_string = format!(" id=\"{}\" ", ids);
     }
 
     let mut class_string = String::new();
-    let classes = node_data.ids_and_classes.as_ref().iter().filter_map(|s| s.as_class()).collect::<Vec<_>>().join(" ");
+    let classes = node_data.ids_and_classes.as_ref().iter()
+    .filter_map(|s| s.as_class()).collect::<Vec<_>>().join(" ");
+
     if !classes.is_empty() {
         class_string = format!(" class=\"{}\" ", classes);
     }
 
     let mut tabindex_string = String::new();
-    if let OptionTabIndex::Some(tab_index) = node_data.tab_index {
+    if let Some(tab_index) = node_data.get_tab_index() {
         tabindex_string = format!(" tabindex=\"{}\" ", tab_index.get_index());
     };
 
@@ -859,25 +1018,8 @@ impl NodeData {
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
             callbacks: CallbackDataVec::from_const_slice(&[]),
             inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
-            clip_mask: OptionImageMask::None,
-            tab_index: OptionTabIndex::None,
+            extra: None,
         }
-    }
-
-    /// Checks whether this node is of the given node type (div, image, text)
-    #[inline]
-    pub fn is_node_type(&self, searched_type: NodeType) -> bool {
-        self.node_type == searched_type
-    }
-
-    /// Checks whether this node has the searched ID attached
-    pub fn has_id(&self, id: &str) -> bool {
-        self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_id() == Some(id))
-    }
-
-    /// Checks whether this node has the searched class attached
-    pub fn has_class(&self, class: &str) -> bool {
-        self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_class() == Some(class))
     }
 
     /// Shorthand for `NodeData::new(NodeType::Body)`.
@@ -915,6 +1057,22 @@ impl NodeData {
         Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
     }
 
+    /// Checks whether this node is of the given node type (div, image, text)
+    #[inline]
+    pub fn is_node_type(&self, searched_type: NodeType) -> bool {
+        self.node_type == searched_type
+    }
+
+    /// Checks whether this node has the searched ID attached
+    pub fn has_id(&self, id: &str) -> bool {
+        self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_id() == Some(id))
+    }
+
+    /// Checks whether this node has the searched class attached
+    pub fn has_class(&self, class: &str) -> bool {
+        self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_class() == Some(class))
+    }
+
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
     // in the future (which is why the fields are all private).
 
@@ -928,10 +1086,17 @@ impl NodeData {
     pub const fn get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
     #[inline(always)]
     pub const fn get_inline_css_props(&self) -> &NodeDataInlineCssPropertyVec { &self.inline_css_props }
-    #[inline(always)]
-    pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
-    #[inline(always)]
-    pub const fn get_tab_index(&self) -> OptionTabIndex { self.tab_index }
+
+    #[inline]
+    pub fn get_clip_mask(&self) -> Option<&ImageMask> { self.extra.as_ref().and_then(|e| e.clip_mask.as_ref()) }
+    #[inline]
+    pub fn get_tab_index(&self) -> Option<&TabIndex> { self.extra.as_ref().and_then(|e| e.tab_index.as_ref()) }
+    #[inline]
+    pub fn get_accessibility_info(&self) -> Option<&Box<AccessibilityInfo>> { self.extra.as_ref().and_then(|e| e.accessibility.as_ref()) }
+    #[inline]
+    pub fn get_menu_bar(&self) -> Option<&Box<Menu>> { self.extra.as_ref().and_then(|e| e.menu_bar.as_ref()) }
+    #[inline]
+    pub fn get_context_menu(&self) -> Option<&Box<Menu>> { self.extra.as_ref().and_then(|e| e.context_menu.as_ref()) }
 
     #[inline(always)]
     pub fn set_node_type(&mut self, node_type: NodeType) { self.node_type = node_type; }
@@ -943,26 +1108,79 @@ impl NodeData {
     pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.callbacks = callbacks; }
     #[inline(always)]
     pub fn set_inline_css_props(&mut self, inline_css_props: NodeDataInlineCssPropertyVec) { self.inline_css_props = inline_css_props; }
-    #[inline(always)]
-    pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
-    #[inline(always)]
-    pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.tab_index = tab_index; }
-
-    #[inline(always)]
-    pub fn with_node_type(self, node_type: NodeType) -> Self { Self { node_type, .. self } }
-    #[inline(always)]
-    pub fn with_dataset(self, data: OptionRefAny) -> Self { Self { dataset: data, .. self } }
-    #[inline(always)]
-    pub fn with_ids_and_classes(self, ids_and_classes: IdOrClassVec) -> Self { Self { ids_and_classes, .. self } }
-    #[inline(always)]
-    pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
-    #[inline(always)]
-    pub fn with_inline_css_props(self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { Self { inline_css_props, .. self } }
-    #[inline(always)]
-    pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
-    #[inline(always)]
-    pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
-
+    #[inline]
+    pub fn set_clip_mask(&mut self, clip_mask: ImageMask) {
+        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
+        .clip_mask = Some(clip_mask);
+    }
+    #[inline]
+    pub fn set_tab_index(&mut self, tab_index: TabIndex) {
+        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
+        .tab_index = Some(tab_index);
+    }
+    #[inline]
+    pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo) {
+        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
+        .accessibility = Some(Box::new(accessibility_info));
+    }
+    #[inline]
+    pub fn set_menu_bar(&mut self, menu_bar: Menu) {
+        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
+        .menu_bar = Some(Box::new(menu_bar));
+    }
+    #[inline]
+    pub fn set_context_menu(&mut self, context_menu: Menu) {
+        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
+        .context_menu = Some(Box::new(context_menu));
+    }
+    #[inline]
+    pub fn add_id(&mut self, s: AzString) {
+        let mut v: IdOrClassVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.ids_and_classes);
+        let mut v = v.into_library_owned_vec();
+        v.push(IdOrClass::Id(s));
+        self.ids_and_classes = v.into();
+    }
+    #[inline]
+    pub fn add_class(&mut self, s: AzString) {
+        let mut v: IdOrClassVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.ids_and_classes);
+        let mut v = v.into_library_owned_vec();
+        v.push(IdOrClass::Class(s));
+        self.ids_and_classes = v.into();
+    }
+    #[inline]
+    pub fn add_normal_css_property(&mut self, p: CssProperty) {
+        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.inline_css_props);
+        let mut v = v.into_library_owned_vec();
+        v.push(NodeDataInlineCssProperty::Normal(p));
+        self.inline_css_props = v.into();
+    }
+    #[inline]
+    pub fn add_hover_css_property(&mut self, p: CssProperty) {
+        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.inline_css_props);
+        let mut v = v.into_library_owned_vec();
+        v.push(NodeDataInlineCssProperty::Hover(p));
+        self.inline_css_props = v.into();
+    }
+    #[inline]
+    pub fn add_active_css_property(&mut self, p: CssProperty) {
+        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.inline_css_props);
+        let mut v = v.into_library_owned_vec();
+        v.push(NodeDataInlineCssProperty::Active(p));
+        self.inline_css_props = v.into();
+    }
+    #[inline]
+    pub fn add_focus_css_property(&mut self, p: CssProperty) {
+        let mut v: NodeDataInlineCssPropertyVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.inline_css_props);
+        let mut v = v.into_library_owned_vec();
+        v.push(NodeDataInlineCssProperty::Focus(p));
+        self.inline_css_props = v.into();
+    }
     pub fn calculate_node_data_hash(&self) -> DomNodeHash {
 
         use ahash::AHasher as HashAlgorithm;
@@ -998,19 +1216,6 @@ pub struct Dom {
     estimated_total_children: usize,
 }
 
-impl Dom {
-    pub fn copy_except_for_root(&mut self) -> Self {
-        Self {
-            root: self.root.copy_special(),
-            children: self.children.clone(),
-            estimated_total_children: self.estimated_total_children,
-        }
-    }
-    pub fn node_count(&self) -> usize {
-        self.estimated_total_children + 1
-    }
-}
-
 impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(Dom, DomVec, DomVecDestructor);
@@ -1025,66 +1230,56 @@ impl_vec_hash!(Dom, DomVec);
 
 impl Dom {
 
+    // ----- DOM CONSTRUCTORS
+
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
-    #[inline]
-    pub const fn new(node_type: NodeType) -> Self {
-        const DEFAULT_VEC: DomVec = DomVec::from_const_slice(&[]);
+    #[inline(always)]
+    pub fn new(node_type: NodeType) -> Self {
         Self {
             root: NodeData::new(node_type),
-            children: DEFAULT_VEC,
+            children: Vec::new().into(),
             estimated_total_children: 0,
         }
     }
-
     #[inline(always)]
-    pub const fn div() -> Self { Self::new(NodeType::Div) }
+    pub fn div() -> Self { Self::new(NodeType::Div) }
     #[inline(always)]
-    pub const fn body() -> Self { Self::new(NodeType::Body) }
+    pub fn body() -> Self { Self::new(NodeType::Body) }
     #[inline(always)]
-    pub const fn br() -> Self { Self::new(NodeType::Br) }
+    pub fn br() -> Self { Self::new(NodeType::Br) }
     #[inline(always)]
     pub fn text<S: Into<AzString>>(value: S) -> Self { Self::new(NodeType::Text(value.into())) }
     #[inline(always)]
     pub fn image(image: ImageRef) -> Self { Self::new(NodeType::Image(image)) }
     #[inline(always)]
-    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data })) }
-
-    #[inline]
-    pub fn with_dataset(mut self, data: RefAny) -> Self { self.set_dataset(data); self }
-    #[inline]
-    pub fn with_ids_and_classes(mut self, ids: IdOrClassVec) -> Self { self.set_ids_and_classes(ids); self }
-    #[inline]
-    pub fn with_inline_css_props(mut self, properties: NodeDataInlineCssPropertyVec) -> Self { self.set_inline_css_props(properties); self }
-    #[inline]
-    pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self { self.set_callbacks(callbacks); self }
-    #[inline]
-    pub fn with_children(mut self, children: DomVec) -> Self { self.set_children(children); self }
-    #[inline]
-    pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self { self.set_clip_mask(clip_mask); self }
-    #[inline]
-    pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self { self.set_tab_index(tab_index); self }
-
-    #[inline]
-    pub fn set_dataset(&mut self, data: RefAny) { self.root.set_dataset(Some(data).into()); }
-    #[inline(always)]
-    pub fn set_ids_and_classes(&mut self, ids: IdOrClassVec) { self.root.set_ids_and_classes(ids); }
-    #[inline]
-    pub fn set_inline_css_props(&mut self, properties: NodeDataInlineCssPropertyVec) { self.root.set_inline_css_props(properties); }
-    #[inline]
-    pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.root.set_callbacks(callbacks); }
-    #[inline]
-    pub fn set_children(&mut self, children: DomVec) {
-        self.estimated_total_children = 0;
-        for c in children.iter() {
-            self.estimated_total_children += c.estimated_total_children + 1;
-        }
-        self.children = children;
+    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
+        Self::new(NodeType::IFrame(IFrameNode {
+            callback: IFrameCallback { cb: callback },
+            data
+        }))
     }
-    #[inline(always)]
-    pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
+
     #[inline]
-    pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.root.set_tab_index(tab_index); }
+    pub fn add_child(&mut self, child: Dom) {
+        let mut v: DomVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.children);
+        let mut v = v.into_library_owned_vec();
+        v.push(child);
+        self.children = v.into();
+        self.estimated_total_children += 1;
+    }
+
+    pub fn copy_except_for_root(&mut self) -> Self {
+        Self {
+            root: self.root.copy_special(),
+            children: self.children.clone(),
+            estimated_total_children: self.estimated_total_children,
+        }
+    }
+    pub fn node_count(&self) -> usize {
+        self.estimated_total_children + 1
+    }
 
     #[cfg(feature = "multithreading")]
     pub fn style(&mut self, css: &mut Css) -> StyledDom {
@@ -1112,44 +1307,6 @@ impl fmt::Debug for Dom {
     }
 }
 
-impl FromIterator<Dom> for Dom {
-    fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
-
-        let mut estimated_total_children = 0;
-        let children = iter.into_iter().map(|c| {
-            estimated_total_children += c.estimated_total_children + 1;
-            c
-        }).collect();
-
-        Dom {
-            root: NodeData::div(),
-            children,
-            estimated_total_children,
-        }
-    }
-}
-
-impl FromIterator<NodeData> for Dom {
-    fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
-
-        let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
-        let estimated_total_children = children.len();
-
-        Dom {
-            root: NodeData::div(),
-            children: children,
-            estimated_total_children,
-        }
-    }
-}
-
-impl FromIterator<NodeType> for Dom {
-    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
-        iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
-    }
-}
-
-
 /// Same as `Dom`, but arena-based for more efficient memory layout
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub(crate) struct CompactDom {
@@ -1168,75 +1325,75 @@ impl CompactDom {
 
 impl From<Dom> for CompactDom {
     fn from(dom: Dom) -> Self {
-        fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
-
-            // note: somehow convert this into a non-recursive form later on!
-            fn convert_dom_into_compact_dom_internal(
-                dom: &mut Dom,
-                node_hierarchy: &mut [Node],
-                node_data: &mut Vec<NodeData>,
-                parent_node_id: NodeId,
-                node: Node,
-                cur_node_id: &mut usize
-            ) {
-
-                // - parent [0]
-                //    - child [1]
-                //    - child [2]
-                //        - child of child 2 [2]
-                //        - child of child 2 [4]
-                //    - child [5]
-                //    - child [6]
-                //        - child of child 4 [7]
-
-                // Write node into the arena here!
-                node_hierarchy[parent_node_id.index()] = node.clone();
-                node_data[parent_node_id.index()] = dom.root.copy_special();
-                *cur_node_id += 1;
-
-                let mut previous_sibling_id = None;
-                let children_len = dom.children.len();
-                for (child_index, child_dom) in dom.children.as_mut().iter_mut().enumerate() {
-                    let child_node_id = NodeId::new(*cur_node_id);
-                    let is_last_child = (child_index + 1) == children_len;
-                    let child_dom_is_empty = child_dom.children.is_empty();
-                    let child_node = Node {
-                        parent: Some(parent_node_id),
-                        previous_sibling: previous_sibling_id,
-                        next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
-                        last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
-                    };
-                    previous_sibling_id = Some(child_node_id);
-                    // recurse BEFORE adding the next child
-                    convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
-                }
-            }
-
-            // Pre-allocate all nodes (+ 1 root node)
-            const DEFAULT_NODE_DATA: NodeData = NodeData::div();
-
-            let mut node_hierarchy = vec![Node::ROOT; dom.estimated_total_children + 1];
-            let mut node_data = (0..dom.estimated_total_children + 1).map(|_| DEFAULT_NODE_DATA).collect::<Vec<_>>();
-            let mut cur_node_id = 0;
-
-            let root_node_id = NodeId::ZERO;
-            let root_node = Node {
-                parent: None,
-                previous_sibling: None,
-                next_sibling: None,
-                last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
-            };
-
-            convert_dom_into_compact_dom_internal(&mut dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
-
-            CompactDom {
-                node_hierarchy: NodeHierarchy { internal: node_hierarchy },
-                node_data: NodeDataContainer { internal: node_data },
-                root: root_node_id,
-            }
-        }
-
         convert_dom_into_compact_dom(dom)
+    }
+}
+
+fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
+
+    // note: somehow convert this into a non-recursive form later on!
+    fn convert_dom_into_compact_dom_internal(
+        dom: &mut Dom,
+        node_hierarchy: &mut [Node],
+        node_data: &mut Vec<NodeData>,
+        parent_node_id: NodeId,
+        node: Node,
+        cur_node_id: &mut usize
+    ) {
+
+        // - parent [0]
+        //    - child [1]
+        //    - child [2]
+        //        - child of child 2 [2]
+        //        - child of child 2 [4]
+        //    - child [5]
+        //    - child [6]
+        //        - child of child 4 [7]
+
+        // Write node into the arena here!
+        node_hierarchy[parent_node_id.index()] = node.clone();
+        node_data[parent_node_id.index()] = dom.root.copy_special();
+        *cur_node_id += 1;
+
+        let mut previous_sibling_id = None;
+        let children_len = dom.children.len();
+        for (child_index, child_dom) in dom.children.as_mut().iter_mut().enumerate() {
+            let child_node_id = NodeId::new(*cur_node_id);
+            let is_last_child = (child_index + 1) == children_len;
+            let child_dom_is_empty = child_dom.children.is_empty();
+            let child_node = Node {
+                parent: Some(parent_node_id),
+                previous_sibling: previous_sibling_id,
+                next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
+                last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
+            };
+            previous_sibling_id = Some(child_node_id);
+            // recurse BEFORE adding the next child
+            convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
+        }
+    }
+
+    // Pre-allocate all nodes (+ 1 root node)
+    const DEFAULT_NODE_DATA: NodeData = NodeData::div();
+
+    let mut node_hierarchy = vec![Node::ROOT; dom.estimated_total_children + 1];
+    let mut node_data = (0..dom.estimated_total_children + 1).map(|_| DEFAULT_NODE_DATA).collect::<Vec<_>>();
+    let mut cur_node_id = 0;
+
+    let root_node_id = NodeId::ZERO;
+    let root_node = Node {
+        parent: None,
+        previous_sibling: None,
+        next_sibling: None,
+        last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
+    };
+
+    convert_dom_into_compact_dom_internal(&mut dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
+
+    CompactDom {
+        node_hierarchy: NodeHierarchy { internal: node_hierarchy },
+        node_data: NodeDataContainer { internal: node_data },
+        root: root_node_id,
     }
 }
 

@@ -126,6 +126,14 @@ struct AzStyleFontFamilyVec;
 typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
 
+struct AzAccessibilityStateVec;
+typedef struct AzAccessibilityStateVec AzAccessibilityStateVec;
+typedef void (*AzAccessibilityStateVecDestructorType)(AzAccessibilityStateVec* restrict A);
+
+struct AzMenuItemVec;
+typedef struct AzMenuItemVec AzMenuItemVec;
+typedef void (*AzMenuItemVecDestructorType)(AzMenuItemVec* restrict A);
+
 struct AzTesselatedSvgNodeVec;
 typedef struct AzTesselatedSvgNodeVec AzTesselatedSvgNodeVec;
 typedef void (*AzTesselatedSvgNodeVecDestructorType)(AzTesselatedSvgNodeVec* restrict A);
@@ -849,6 +857,13 @@ struct AzRefCount {
 };
 typedef struct AzRefCount AzRefCount;
 
+enum AzMenuItemState {
+   AzMenuItemState_Normal,
+   AzMenuItemState_Greyed,
+   AzMenuItemState_Disabled,
+};
+typedef enum AzMenuItemState AzMenuItemState;
+
 enum AzOn {
    AzOn_MouseOver,
    AzOn_MouseDown,
@@ -962,6 +977,8 @@ enum AzComponentEventFilter {
    AzComponentEventFilter_AfterMount,
    AzComponentEventFilter_BeforeUnmount,
    AzComponentEventFilter_NodeResized,
+   AzComponentEventFilter_DefaultAction,
+   AzComponentEventFilter_Selected,
 };
 typedef enum AzComponentEventFilter AzComponentEventFilter;
 
@@ -970,6 +987,94 @@ enum AzApplicationEventFilter {
    AzApplicationEventFilter_DeviceDisconnected,
 };
 typedef enum AzApplicationEventFilter AzApplicationEventFilter;
+
+enum AzAccessibilityRole {
+   AzAccessibilityRole_TitleBar,
+   AzAccessibilityRole_MenuBar,
+   AzAccessibilityRole_ScrollBar,
+   AzAccessibilityRole_Grip,
+   AzAccessibilityRole_Sound,
+   AzAccessibilityRole_Cursor,
+   AzAccessibilityRole_Caret,
+   AzAccessibilityRole_Alert,
+   AzAccessibilityRole_Window,
+   AzAccessibilityRole_Client,
+   AzAccessibilityRole_MenuPopup,
+   AzAccessibilityRole_MenuItem,
+   AzAccessibilityRole_Tooltip,
+   AzAccessibilityRole_Application,
+   AzAccessibilityRole_Document,
+   AzAccessibilityRole_Pane,
+   AzAccessibilityRole_Chart,
+   AzAccessibilityRole_Dialog,
+   AzAccessibilityRole_Border,
+   AzAccessibilityRole_Grouping,
+   AzAccessibilityRole_Separator,
+   AzAccessibilityRole_Toolbar,
+   AzAccessibilityRole_StatusBar,
+   AzAccessibilityRole_Table,
+   AzAccessibilityRole_ColumnHeader,
+   AzAccessibilityRole_RowHeader,
+   AzAccessibilityRole_Column,
+   AzAccessibilityRole_Row,
+   AzAccessibilityRole_Cell,
+   AzAccessibilityRole_Link,
+   AzAccessibilityRole_HelpBalloon,
+   AzAccessibilityRole_Character,
+   AzAccessibilityRole_List,
+   AzAccessibilityRole_ListItem,
+   AzAccessibilityRole_Outline,
+   AzAccessibilityRole_OutlineItem,
+   AzAccessibilityRole_Pagetab,
+   AzAccessibilityRole_PropertyPage,
+   AzAccessibilityRole_Indicator,
+   AzAccessibilityRole_Graphic,
+   AzAccessibilityRole_StaticText,
+   AzAccessibilityRole_Text,
+   AzAccessibilityRole_PushButton,
+   AzAccessibilityRole_CheckButton,
+   AzAccessibilityRole_RadioButton,
+   AzAccessibilityRole_ComboBox,
+   AzAccessibilityRole_DropList,
+   AzAccessibilityRole_ProgressBar,
+   AzAccessibilityRole_Dial,
+   AzAccessibilityRole_HotkeyField,
+   AzAccessibilityRole_Slider,
+   AzAccessibilityRole_SpinButton,
+   AzAccessibilityRole_Diagram,
+   AzAccessibilityRole_Animation,
+   AzAccessibilityRole_Equation,
+   AzAccessibilityRole_ButtonDropdown,
+   AzAccessibilityRole_ButtonMenu,
+   AzAccessibilityRole_ButtonDropdownGrid,
+   AzAccessibilityRole_Whitespace,
+   AzAccessibilityRole_PageTabList,
+   AzAccessibilityRole_Clock,
+   AzAccessibilityRole_SplitButton,
+   AzAccessibilityRole_IpAddress,
+   AzAccessibilityRole_Nothing,
+};
+typedef enum AzAccessibilityRole AzAccessibilityRole;
+
+enum AzAccessibilityState {
+   AzAccessibilityState_Unavailable,
+   AzAccessibilityState_Selected,
+   AzAccessibilityState_Focused,
+   AzAccessibilityState_Checked,
+   AzAccessibilityState_Readonly,
+   AzAccessibilityState_Default,
+   AzAccessibilityState_Expanded,
+   AzAccessibilityState_Collapsed,
+   AzAccessibilityState_Busy,
+   AzAccessibilityState_Offscreen,
+   AzAccessibilityState_Focusable,
+   AzAccessibilityState_Selectable,
+   AzAccessibilityState_Linked,
+   AzAccessibilityState_Traversed,
+   AzAccessibilityState_Multiselectable,
+   AzAccessibilityState_Protected,
+};
+typedef enum AzAccessibilityState AzAccessibilityState;
 
 enum AzTabIndexTag {
    AzTabIndexTag_Auto,
@@ -1821,6 +1926,52 @@ typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
 #define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
 #define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
 #define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+
+enum AzAccessibilityStateVecDestructorTag {
+   AzAccessibilityStateVecDestructorTag_DefaultRust,
+   AzAccessibilityStateVecDestructorTag_NoDestructor,
+   AzAccessibilityStateVecDestructorTag_External,
+};
+typedef enum AzAccessibilityStateVecDestructorTag AzAccessibilityStateVecDestructorTag;
+
+struct AzAccessibilityStateVecDestructorVariant_DefaultRust { AzAccessibilityStateVecDestructorTag tag; };
+typedef struct AzAccessibilityStateVecDestructorVariant_DefaultRust AzAccessibilityStateVecDestructorVariant_DefaultRust;
+struct AzAccessibilityStateVecDestructorVariant_NoDestructor { AzAccessibilityStateVecDestructorTag tag; };
+typedef struct AzAccessibilityStateVecDestructorVariant_NoDestructor AzAccessibilityStateVecDestructorVariant_NoDestructor;
+struct AzAccessibilityStateVecDestructorVariant_External { AzAccessibilityStateVecDestructorTag tag; AzAccessibilityStateVecDestructorType payload; };
+typedef struct AzAccessibilityStateVecDestructorVariant_External AzAccessibilityStateVecDestructorVariant_External;
+union AzAccessibilityStateVecDestructor {
+    AzAccessibilityStateVecDestructorVariant_DefaultRust DefaultRust;
+    AzAccessibilityStateVecDestructorVariant_NoDestructor NoDestructor;
+    AzAccessibilityStateVecDestructorVariant_External External;
+};
+typedef union AzAccessibilityStateVecDestructor AzAccessibilityStateVecDestructor;
+#define AzAccessibilityStateVecDestructor_DefaultRust { .DefaultRust = { .tag = AzAccessibilityStateVecDestructorTag_DefaultRust } }
+#define AzAccessibilityStateVecDestructor_NoDestructor { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor } }
+#define AzAccessibilityStateVecDestructor_External(v) { .External = { .tag = AzAccessibilityStateVecDestructorTag_External, .payload = v } }
+
+enum AzMenuItemVecDestructorTag {
+   AzMenuItemVecDestructorTag_DefaultRust,
+   AzMenuItemVecDestructorTag_NoDestructor,
+   AzMenuItemVecDestructorTag_External,
+};
+typedef enum AzMenuItemVecDestructorTag AzMenuItemVecDestructorTag;
+
+struct AzMenuItemVecDestructorVariant_DefaultRust { AzMenuItemVecDestructorTag tag; };
+typedef struct AzMenuItemVecDestructorVariant_DefaultRust AzMenuItemVecDestructorVariant_DefaultRust;
+struct AzMenuItemVecDestructorVariant_NoDestructor { AzMenuItemVecDestructorTag tag; };
+typedef struct AzMenuItemVecDestructorVariant_NoDestructor AzMenuItemVecDestructorVariant_NoDestructor;
+struct AzMenuItemVecDestructorVariant_External { AzMenuItemVecDestructorTag tag; AzMenuItemVecDestructorType payload; };
+typedef struct AzMenuItemVecDestructorVariant_External AzMenuItemVecDestructorVariant_External;
+union AzMenuItemVecDestructor {
+    AzMenuItemVecDestructorVariant_DefaultRust DefaultRust;
+    AzMenuItemVecDestructorVariant_NoDestructor NoDestructor;
+    AzMenuItemVecDestructorVariant_External External;
+};
+typedef union AzMenuItemVecDestructor AzMenuItemVecDestructor;
+#define AzMenuItemVecDestructor_DefaultRust { .DefaultRust = { .tag = AzMenuItemVecDestructorTag_DefaultRust } }
+#define AzMenuItemVecDestructor_NoDestructor { .NoDestructor = { .tag = AzMenuItemVecDestructorTag_NoDestructor } }
+#define AzMenuItemVecDestructor_External(v) { .External = { .tag = AzMenuItemVecDestructorTag_External, .payload = v } }
 
 enum AzTesselatedSvgNodeVecDestructorTag {
    AzTesselatedSvgNodeVecDestructorTag_DefaultRust,
@@ -3381,6 +3532,30 @@ struct AzRefAny {
     AzRefCount sharing_info;
 };
 typedef struct AzRefAny AzRefAny;
+
+struct AzMenuCallback {
+    AzCallback callback;
+    AzRefAny data;
+};
+typedef struct AzMenuCallback AzMenuCallback;
+
+enum AzMenuItemIconTag {
+   AzMenuItemIconTag_Checkbox,
+   AzMenuItemIconTag_Image,
+};
+typedef enum AzMenuItemIconTag AzMenuItemIconTag;
+
+struct AzMenuItemIconVariant_Checkbox { AzMenuItemIconTag tag; bool payload; };
+typedef struct AzMenuItemIconVariant_Checkbox AzMenuItemIconVariant_Checkbox;
+struct AzMenuItemIconVariant_Image { AzMenuItemIconTag tag; AzImageRef payload; };
+typedef struct AzMenuItemIconVariant_Image AzMenuItemIconVariant_Image;
+union AzMenuItemIcon {
+    AzMenuItemIconVariant_Checkbox Checkbox;
+    AzMenuItemIconVariant_Image Image;
+};
+typedef union AzMenuItemIcon AzMenuItemIcon;
+#define AzMenuItemIcon_Checkbox(v) { .Checkbox = { .tag = AzMenuItemIconTag_Checkbox, .payload = v } }
+#define AzMenuItemIcon_Image(v) { .Image = { .tag = AzMenuItemIconTag_Image, .payload = v } }
 
 struct AzIFrameNode {
     AzIFrameCallback callback;
@@ -6007,6 +6182,24 @@ struct AzThreadWriteBackMsg {
 };
 typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
+struct AzAccessibilityStateVec {
+    AzAccessibilityState* ptr;
+    size_t len;
+    size_t cap;
+    AzAccessibilityStateVecDestructor destructor;
+};
+typedef struct AzAccessibilityStateVec AzAccessibilityStateVec;
+
+struct AzMenuItem;
+typedef struct AzMenuItem AzMenuItem;
+struct AzMenuItemVec {
+    AzMenuItem* ptr;
+    size_t len;
+    size_t cap;
+    AzMenuItemVecDestructor destructor;
+};
+typedef struct AzMenuItemVec AzMenuItemVec;
+
 struct AzXmlNode;
 typedef struct AzXmlNode AzXmlNode;
 struct AzXmlNodeVec {
@@ -6202,6 +6395,42 @@ struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepthVecDestructor destructor;
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
+
+enum AzOptionMenuItemIconTag {
+   AzOptionMenuItemIconTag_None,
+   AzOptionMenuItemIconTag_Some,
+};
+typedef enum AzOptionMenuItemIconTag AzOptionMenuItemIconTag;
+
+struct AzOptionMenuItemIconVariant_None { AzOptionMenuItemIconTag tag; };
+typedef struct AzOptionMenuItemIconVariant_None AzOptionMenuItemIconVariant_None;
+struct AzOptionMenuItemIconVariant_Some { AzOptionMenuItemIconTag tag; AzMenuItemIcon payload; };
+typedef struct AzOptionMenuItemIconVariant_Some AzOptionMenuItemIconVariant_Some;
+union AzOptionMenuItemIcon {
+    AzOptionMenuItemIconVariant_None None;
+    AzOptionMenuItemIconVariant_Some Some;
+};
+typedef union AzOptionMenuItemIcon AzOptionMenuItemIcon;
+#define AzOptionMenuItemIcon_None { .None = { .tag = AzOptionMenuItemIconTag_None } }
+#define AzOptionMenuItemIcon_Some(v) { .Some = { .tag = AzOptionMenuItemIconTag_Some, .payload = v } }
+
+enum AzOptionMenuCallbackTag {
+   AzOptionMenuCallbackTag_None,
+   AzOptionMenuCallbackTag_Some,
+};
+typedef enum AzOptionMenuCallbackTag AzOptionMenuCallbackTag;
+
+struct AzOptionMenuCallbackVariant_None { AzOptionMenuCallbackTag tag; };
+typedef struct AzOptionMenuCallbackVariant_None AzOptionMenuCallbackVariant_None;
+struct AzOptionMenuCallbackVariant_Some { AzOptionMenuCallbackTag tag; AzMenuCallback payload; };
+typedef struct AzOptionMenuCallbackVariant_Some AzOptionMenuCallbackVariant_Some;
+union AzOptionMenuCallback {
+    AzOptionMenuCallbackVariant_None None;
+    AzOptionMenuCallbackVariant_Some Some;
+};
+typedef union AzOptionMenuCallback AzOptionMenuCallback;
+#define AzOptionMenuCallback_None { .None = { .tag = AzOptionMenuCallbackTag_None } }
+#define AzOptionMenuCallback_Some(v) { .Some = { .tag = AzOptionMenuCallbackTag_Some, .payload = v } }
 
 enum AzOptionPositionInfoTag {
    AzOptionPositionInfoTag_None,
@@ -6985,6 +7214,16 @@ struct AzLayoutCallbackInfo {
 };
 typedef struct AzLayoutCallbackInfo AzLayoutCallbackInfo;
 
+struct AzMenu {
+    AzMenuItemVec items;
+};
+typedef struct AzMenu AzMenu;
+
+struct AzVirtualKeyCodeCombo {
+    AzVirtualKeyCodeVec keys;
+};
+typedef struct AzVirtualKeyCodeCombo AzVirtualKeyCodeCombo;
+
 enum AzEventFilterTag {
    AzEventFilterTag_Hover,
    AzEventFilterTag_Not,
@@ -7554,6 +7793,24 @@ struct AzTagIdToNodeIdMappingVec {
 };
 typedef struct AzTagIdToNodeIdMappingVec AzTagIdToNodeIdMappingVec;
 
+enum AzOptionVirtualKeyCodeComboTag {
+   AzOptionVirtualKeyCodeComboTag_None,
+   AzOptionVirtualKeyCodeComboTag_Some,
+};
+typedef enum AzOptionVirtualKeyCodeComboTag AzOptionVirtualKeyCodeComboTag;
+
+struct AzOptionVirtualKeyCodeComboVariant_None { AzOptionVirtualKeyCodeComboTag tag; };
+typedef struct AzOptionVirtualKeyCodeComboVariant_None AzOptionVirtualKeyCodeComboVariant_None;
+struct AzOptionVirtualKeyCodeComboVariant_Some { AzOptionVirtualKeyCodeComboTag tag; AzVirtualKeyCodeCombo payload; };
+typedef struct AzOptionVirtualKeyCodeComboVariant_Some AzOptionVirtualKeyCodeComboVariant_Some;
+union AzOptionVirtualKeyCodeCombo {
+    AzOptionVirtualKeyCodeComboVariant_None None;
+    AzOptionVirtualKeyCodeComboVariant_Some Some;
+};
+typedef union AzOptionVirtualKeyCodeCombo AzOptionVirtualKeyCodeCombo;
+#define AzOptionVirtualKeyCodeCombo_None { .None = { .tag = AzOptionVirtualKeyCodeComboTag_None } }
+#define AzOptionVirtualKeyCodeCombo_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeComboTag_Some, .payload = v } }
+
 enum AzOptionMouseStateTag {
    AzOptionMouseStateTag_None,
    AzOptionMouseStateTag_Some,
@@ -7873,6 +8130,16 @@ typedef union AzInlineWord AzInlineWord;
 #define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
 #define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
 
+struct AzStringMenuItem {
+    AzString label;
+    AzOptionVirtualKeyCodeCombo accelerator;
+    AzOptionMenuCallback callback;
+    AzMenuItemState state;
+    AzOptionMenuItemIcon icon;
+    AzMenuItemVec children;
+};
+typedef struct AzStringMenuItem AzStringMenuItem;
+
 struct AzCallbackData {
     AzEventFilter event;
     AzCallback callback;
@@ -7917,6 +8184,16 @@ typedef union AzNodeType AzNodeType;
 #define AzNodeType_Text(v) { .Text = { .tag = AzNodeTypeTag_Text, .payload = v } }
 #define AzNodeType_Image(v) { .Image = { .tag = AzNodeTypeTag_Image, .payload = v } }
 #define AzNodeType_IFrame(v) { .IFrame = { .tag = AzNodeTypeTag_IFrame, .payload = v } }
+
+struct AzAccessibilityInfo {
+    AzOptionString name;
+    AzOptionString value;
+    AzAccessibilityRole role;
+    AzAccessibilityStateVec states;
+    AzOptionVirtualKeyCodeCombo accelerator;
+    AzOptionString default_action;
+};
+typedef struct AzAccessibilityInfo AzAccessibilityInfo;
 
 enum AzIdOrClassTag {
    AzIdOrClassTag_Id,
@@ -8590,6 +8867,29 @@ struct AzInlineLine {
     AzLogicalRect bounds;
 };
 typedef struct AzInlineLine AzInlineLine;
+
+enum AzMenuItemTag {
+   AzMenuItemTag_Label,
+   AzMenuItemTag_Separator,
+   AzMenuItemTag_BreakLine,
+};
+typedef enum AzMenuItemTag AzMenuItemTag;
+
+struct AzMenuItemVariant_Label { AzMenuItemTag tag; AzStringMenuItem payload; };
+typedef struct AzMenuItemVariant_Label AzMenuItemVariant_Label;
+struct AzMenuItemVariant_Separator { AzMenuItemTag tag; };
+typedef struct AzMenuItemVariant_Separator AzMenuItemVariant_Separator;
+struct AzMenuItemVariant_BreakLine { AzMenuItemTag tag; };
+typedef struct AzMenuItemVariant_BreakLine AzMenuItemVariant_BreakLine;
+union AzMenuItem {
+    AzMenuItemVariant_Label Label;
+    AzMenuItemVariant_Separator Separator;
+    AzMenuItemVariant_BreakLine BreakLine;
+};
+typedef union AzMenuItem AzMenuItem;
+#define AzMenuItem_Label(v) { .Label = { .tag = AzMenuItemTag_Label, .payload = v } }
+#define AzMenuItem_Separator { .Separator = { .tag = AzMenuItemTag_Separator } }
+#define AzMenuItem_BreakLine { .BreakLine = { .tag = AzMenuItemTag_BreakLine } }
 
 struct AzCssPath {
     AzCssPathSelectorVec selectors;
@@ -9455,8 +9755,7 @@ struct AzNodeData {
     AzIdOrClassVec ids_and_classes;
     AzCallbackDataVec callbacks;
     AzNodeDataInlineCssPropertyVec inline_css_props;
-    AzOptionImageMask clip_mask;
-    AzOptionTabIndex tab_index;
+    void* extra;
 };
 typedef struct AzNodeData AzNodeData;
 
@@ -9755,6 +10054,14 @@ struct AzCss {
 };
 typedef struct AzCss AzCss;
 
+AzAccessibilityState AzAccessibilityStateVecArray[] = {};
+#define AzAccessibilityStateVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzAccessibilityState), .cap = sizeof(v) / sizeof(AzAccessibilityState), .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }
+#define AzAccessibilityStateVec_empty { .ptr = &AzAccessibilityStateVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }
+
+AzMenuItem AzMenuItemVecArray[] = {};
+#define AzMenuItemVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzMenuItem), .cap = sizeof(v) / sizeof(AzMenuItem), .destructor = { .NoDestructor = { .tag = AzMenuItemVecDestructorTag_NoDestructor, }, }, }
+#define AzMenuItemVec_empty { .ptr = &AzMenuItemVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzMenuItemVecDestructorTag_NoDestructor, }, }, }
+
 AzTesselatedSvgNode AzTesselatedSvgNodeVecArray[] = {};
 #define AzTesselatedSvgNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTesselatedSvgNode), .cap = sizeof(v) / sizeof(AzTesselatedSvgNode), .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
 #define AzTesselatedSvgNodeVec_empty { .ptr = &AzTesselatedSvgNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor, }, }, }
@@ -10045,6 +10352,12 @@ extern DLLIMPORT AzStringPairVec AzLayoutCallbackInfo_getSystemFonts(AzLayoutCal
 extern DLLIMPORT AzOptionImageRef AzLayoutCallbackInfo_getImage(AzLayoutCallbackInfo* const layoutcallbackinfo, AzString  id);
 extern DLLIMPORT size_t AzDom_nodeCount(AzDom* const dom);
 extern DLLIMPORT AzStyledDom AzDom_style(AzDom* restrict dom, AzCss  css);
+extern DLLIMPORT AzNodeData AzNodeData_new(AzNodeType  node_type);
+extern DLLIMPORT void AzNodeData_setClipMask(AzNodeData* restrict nodedata, AzImageMask  image_mask);
+extern DLLIMPORT void AzNodeData_setTabIndex(AzNodeData* restrict nodedata, AzTabIndex  tab_index);
+extern DLLIMPORT void AzNodeData_setAccessibilityInfo(AzNodeData* restrict nodedata, AzAccessibilityInfo  accessibility_info);
+extern DLLIMPORT void AzNodeData_setMenuBar(AzNodeData* restrict nodedata, AzMenu  menu_bar);
+extern DLLIMPORT void AzNodeData_setContextMenu(AzNodeData* restrict nodedata, AzMenu  context_menu);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
 extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
@@ -10394,6 +10707,8 @@ extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
 extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t* ptr, size_t start, size_t len);
 extern DLLIMPORT AzString AzString_trim(AzString* const string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(AzString* const string);
+extern DLLIMPORT void AzAccessibilityStateVec_delete(AzAccessibilityStateVec* restrict instance);
+extern DLLIMPORT void AzMenuItemVec_delete(AzMenuItemVec* restrict instance);
 extern DLLIMPORT AzTesselatedSvgNodeVecRef AzTesselatedSvgNodeVec_asRefVec(AzTesselatedSvgNodeVec* const tesselatedsvgnodevec);
 extern DLLIMPORT void AzTesselatedSvgNodeVec_delete(AzTesselatedSvgNodeVec* restrict instance);
 extern DLLIMPORT void AzStyleFontFamilyVec_delete(AzStyleFontFamilyVec* restrict instance);

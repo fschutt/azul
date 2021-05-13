@@ -14,6 +14,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap,
+    callbacks::Callback,
     window_state::RelayoutFn,
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
@@ -2422,4 +2423,93 @@ impl Hash for TaskBarIcon {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.key.hash(state);
     }
+}
+
+/// Menu struct (context menu, dropdown menu, context menu)
+///
+/// Modeled after the Windows API
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub struct Menu {
+    pub items: MenuItemVec,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub enum MenuItem {
+    /// Regular menu item
+    String(StringMenuItem),
+    /// Separator line, only rendered when the direction is vertical
+    Separator,
+    /// Breaks the menu item into separate lines if laid out horizontally
+    BreakLine,
+}
+
+impl_vec!(MenuItem, MenuItemVec, MenuItemVecDestructor);
+impl_vec_clone!(MenuItem, MenuItemVec, MenuItemVecDestructor);
+impl_vec_debug!(MenuItem, MenuItemVec);
+impl_vec_partialeq!(MenuItem, MenuItemVec);
+impl_vec_partialord!(MenuItem, MenuItemVec);
+impl_vec_hash!(MenuItem, MenuItemVec);
+impl_vec_eq!(MenuItem, MenuItemVec);
+impl_vec_ord!(MenuItem, MenuItemVec);
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub struct StringMenuItem {
+    /// Label of the menu
+    pub label: AzString,
+    /// Optional accelerator combination
+    /// (ex. "CTRL + X" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut
+    pub accelerator: OptionVirtualKeyCodeCombo,
+    /// Optional callback to call
+    pub callback: OptionMenuCallback,
+    /// State (normal, greyed, disabled)
+    pub state: MenuItemState,
+    /// Optional icon for the menu entry
+    pub icon: OptionMenuItemIcon,
+    /// Sub-menus of this item (separators and line-breaks can't have sub-menus)
+    pub children: MenuItemVec,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub struct VirtualKeyCodeCombo {
+    pub keys: VirtualKeyCodeVec,
+}
+
+impl_option!(VirtualKeyCodeCombo, OptionVirtualKeyCodeCombo, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+
+/// Menu callback: What data / function pointer should
+/// be called when the menu item is clicked?
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub struct MenuCallback {
+    pub callback: Callback,
+    pub data: RefAny,
+}
+
+impl_option!(MenuCallback, OptionMenuCallback, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub enum MenuItemIcon {
+    /// Menu item shows a checkbox (either checked or not)
+    Checkbox(bool),
+    /// Menu item shows a custom image, usually in 16x16 format
+    Image(ImageRef),
+}
+
+impl_option!(MenuItemIcon, OptionMenuItemIcon, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+
+/// Describes the state of the menu
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub enum MenuItemState {
+    /// Normal menu item (default)
+    Normal,
+    /// Menu item is greyed out and clicking it does nothing
+    Greyed,
+    /// Menu item is disabled, but NOT greyed out
+    Disabled,
 }

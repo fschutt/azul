@@ -675,9 +675,14 @@ def sort_structs_map(api_data, structs_map):
     # because the type is recursive
     extra_forward_delcarations = {
         "AzDomVec": {"type": "struct", "name": "AzDom"},
+        "AzMenuItemVec": {"type": "struct", "name": "AzMenuItem"},
         "AzXmlNodeVec": {"type": "struct", "name": "AzXmlNode"},
     }
-    forward_delcarations = OrderedDict([("AzDomVec", "Dom"), ("AzXmlNodeVec", "XmlNode")])
+    forward_delcarations = OrderedDict([
+        ("AzDomVec", "Dom"),
+        ("AzXmlNodeVec", "XmlNode"),
+        ("AzMenuItemVec", "MenuItem")
+    ])
 
     classes_not_found = OrderedDict([])
 
@@ -3134,12 +3139,9 @@ def main():
     # print("verifying that LLVM / clang-cl is installed...")
     # verify_clang_is_installed()
     print("generating API...")
-    # generate_api()
+    generate_api()
     print("generating documentation in /target/html...")
-    while True:
-        generate_docs()
-        time.sleep(1)
-
+    generate_docs()
     print("building azulc (release mode)...")
     # build_azulc()
     print("building azul-dll (release mode)...")

@@ -848,7 +848,7 @@ pub fn displaylist_handle_rect<'a>(
         .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
     });
 
-    let clip_mask = html_node.get_clip_mask().as_option().and_then(|m| {
+    let clip_mask = html_node.get_clip_mask().and_then(|m| {
         let clip_mask_hash = m.image.get_hash();
         let (image_key, _) = renderer_resources.currently_registered_images.get(&clip_mask_hash)?;
         Some(DisplayListImageMask {

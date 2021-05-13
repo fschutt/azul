@@ -963,6 +963,14 @@ pub struct AzRefCount {
     pub ptr: *const c_void,
 }
 
+/// Describes the state of a menu item
+#[repr(C)]
+pub enum AzMenuItemState {
+    Normal,
+    Greyed,
+    Disabled,
+}
+
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 #[repr(C)]
 pub enum AzOn {
@@ -1082,6 +1090,8 @@ pub enum AzComponentEventFilter {
     AfterMount,
     BeforeUnmount,
     NodeResized,
+    DefaultAction,
+    Selected,
 }
 
 /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
@@ -1089,6 +1099,96 @@ pub enum AzComponentEventFilter {
 pub enum AzApplicationEventFilter {
     DeviceConnected,
     DeviceDisconnected,
+}
+
+/// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
+#[repr(C)]
+pub enum AzAccessibilityRole {
+    TitleBar,
+    MenuBar,
+    ScrollBar,
+    Grip,
+    Sound,
+    Cursor,
+    Caret,
+    Alert,
+    Window,
+    Client,
+    MenuPopup,
+    MenuItem,
+    Tooltip,
+    Application,
+    Document,
+    Pane,
+    Chart,
+    Dialog,
+    Border,
+    Grouping,
+    Separator,
+    Toolbar,
+    StatusBar,
+    Table,
+    ColumnHeader,
+    RowHeader,
+    Column,
+    Row,
+    Cell,
+    Link,
+    HelpBalloon,
+    Character,
+    List,
+    ListItem,
+    Outline,
+    OutlineItem,
+    Pagetab,
+    PropertyPage,
+    Indicator,
+    Graphic,
+    StaticText,
+    Text,
+    PushButton,
+    CheckButton,
+    RadioButton,
+    ComboBox,
+    DropList,
+    ProgressBar,
+    Dial,
+    HotkeyField,
+    Slider,
+    SpinButton,
+    Diagram,
+    Animation,
+    Equation,
+    ButtonDropdown,
+    ButtonMenu,
+    ButtonDropdownGrid,
+    Whitespace,
+    PageTabList,
+    Clock,
+    SplitButton,
+    IpAddress,
+    Nothing,
+}
+
+/// MSAA accessibility state. For information on what each state does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants">MSDN State Constants page</a>.
+#[repr(C)]
+pub enum AzAccessibilityState {
+    Unavailable,
+    Selected,
+    Focused,
+    Checked,
+    Readonly,
+    Default,
+    Expanded,
+    Collapsed,
+    Busy,
+    Offscreen,
+    Focusable,
+    Selectable,
+    Linked,
+    Traversed,
+    Multiselectable,
+    Protected,
 }
 
 /// Re-export of rust-allocated (stack based) `TabIndex` struct
@@ -2148,6 +2248,28 @@ pub enum AzStyleFontFamilyVecDestructor {
 /// `AzStyleFontFamilyVecDestructorType` struct
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+/// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzAccessibilityStateVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzAccessibilityStateVecDestructorType),
+}
+
+/// `AzAccessibilityStateVecDestructorType` struct
+pub type AzAccessibilityStateVecDestructorType = extern "C" fn(&mut AzAccessibilityStateVec);
+
+/// Re-export of rust-allocated (stack based) `MenuItemVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzMenuItemVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzMenuItemVecDestructorType),
+}
+
+/// `AzMenuItemVecDestructorType` struct
+pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
+
 /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
 #[repr(C, u8)]
 pub enum AzTesselatedSvgNodeVecDestructor {
@@ -2977,6 +3099,23 @@ pub struct AzRefAny {
     pub _internal_ptr: *const c_void,
     #[pyo3(get, set)]
     pub sharing_info: AzRefCount,
+}
+
+/// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+#[repr(C)]
+#[pyclass(name = "MenuCallback")]
+pub struct AzMenuCallback {
+    #[pyo3(get, set)]
+    pub callback: AzCallback,
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+}
+
+/// Icon of a menu entry
+#[repr(C, u8)]
+pub enum AzMenuItemIcon {
+    Checkbox(bool),
+    Image(AzImageRef),
 }
 
 /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -4466,6 +4605,32 @@ pub struct AzThreadWriteBackMsg {
     pub callback: AzWriteBackCallback,
 }
 
+/// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
+#[repr(C)]
+#[pyclass(name = "AccessibilityStateVec")]
+pub struct AzAccessibilityStateVec {
+    pub(crate) ptr: *const AzAccessibilityStateEnumWrapper,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzAccessibilityStateVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<MenuItem>`
+#[repr(C)]
+#[pyclass(name = "MenuItemVec")]
+pub struct AzMenuItemVec {
+    pub(crate) ptr: *const AzMenuItemEnumWrapper,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzMenuItemVecDestructorEnumWrapper,
+}
+
 /// Wrapper over a Rust-allocated `Vec<XmlNode>`
 #[repr(C)]
 #[pyclass(name = "XmlNodeVec")]
@@ -4776,6 +4941,20 @@ pub struct AzParentWithNodeDepthVec {
     pub cap: usize,
     #[pyo3(get, set)]
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
+#[repr(C, u8)]
+pub enum AzOptionMenuItemIcon {
+    None,
+    Some(AzMenuItemIcon),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionMenuCallback` struct
+#[repr(C, u8)]
+pub enum AzOptionMenuCallback {
+    None,
+    Some(AzMenuCallback),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionPositionInfo` struct
@@ -5243,6 +5422,22 @@ pub struct AzLayoutCallbackInfo {
     pub _reserved_mut: *mut c_void,
 }
 
+/// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+#[repr(C)]
+#[pyclass(name = "Menu")]
+pub struct AzMenu {
+    #[pyo3(get, set)]
+    pub items: AzMenuItemVec,
+}
+
+/// Combination of virtual key codes that have to be pressed together
+#[repr(C)]
+#[pyclass(name = "VirtualKeyCodeCombo")]
+pub struct AzVirtualKeyCodeCombo {
+    #[pyo3(get, set)]
+    pub keys: AzVirtualKeyCodeVec,
+}
+
 /// Re-export of rust-allocated (stack based) `EventFilter` struct
 #[repr(C, u8)]
 pub enum AzEventFilter {
@@ -5635,6 +5830,13 @@ pub struct AzTagIdToNodeIdMappingVec {
     pub destructor: AzTagIdToNodeIdMappingVecDestructorEnumWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
+#[repr(C, u8)]
+pub enum AzOptionVirtualKeyCodeCombo {
+    None,
+    Some(AzVirtualKeyCodeCombo),
+}
+
 /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
 #[repr(C, u8)]
 pub enum AzOptionMouseState {
@@ -5874,6 +6076,24 @@ pub enum AzInlineWord {
     Word(AzInlineTextContents),
 }
 
+/// Regular labeled menu item
+#[repr(C)]
+#[pyclass(name = "StringMenuItem")]
+pub struct AzStringMenuItem {
+    #[pyo3(get, set)]
+    pub label: AzString,
+    #[pyo3(get, set)]
+    pub accelerator: AzOptionVirtualKeyCodeComboEnumWrapper,
+    #[pyo3(get, set)]
+    pub callback: AzOptionMenuCallbackEnumWrapper,
+    #[pyo3(get, set)]
+    pub state: AzMenuItemStateEnumWrapper,
+    #[pyo3(get, set)]
+    pub icon: AzOptionMenuItemIconEnumWrapper,
+    #[pyo3(get, set)]
+    pub children: AzMenuItemVec,
+}
+
 /// Re-export of rust-allocated (stack based) `CallbackData` struct
 #[repr(C)]
 #[pyclass(name = "CallbackData")]
@@ -5895,6 +6115,24 @@ pub enum AzNodeType {
     Text(AzString),
     Image(AzImageRef),
     IFrame(AzIFrameNode),
+}
+
+/// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+#[repr(C)]
+#[pyclass(name = "AccessibilityInfo")]
+pub struct AzAccessibilityInfo {
+    #[pyo3(get, set)]
+    pub name: AzOptionStringEnumWrapper,
+    #[pyo3(get, set)]
+    pub value: AzOptionStringEnumWrapper,
+    #[pyo3(get, set)]
+    pub role: AzAccessibilityRoleEnumWrapper,
+    #[pyo3(get, set)]
+    pub states: AzAccessibilityStateVec,
+    #[pyo3(get, set)]
+    pub accelerator: AzOptionVirtualKeyCodeComboEnumWrapper,
+    #[pyo3(get, set)]
+    pub default_action: AzOptionStringEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `IdOrClass` struct
@@ -6419,6 +6657,14 @@ pub struct AzInlineLine {
     pub bounds: AzLogicalRect,
 }
 
+/// Item entry in a menu or menu bar
+#[repr(C, u8)]
+pub enum AzMenuItem {
+    Label(AzStringMenuItem),
+    Separator,
+    BreakLine,
+}
+
 /// Re-export of rust-allocated (stack based) `CssPath` struct
 #[repr(C)]
 #[pyclass(name = "CssPath")]
@@ -6925,10 +7171,7 @@ pub struct AzNodeData {
     pub callbacks: AzCallbackDataVec,
     #[pyo3(get, set)]
     pub inline_css_props: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
-    pub clip_mask: AzOptionImageMaskEnumWrapper,
-    #[pyo3(get, set)]
-    pub tab_index: AzOptionTabIndexEnumWrapper,
+    pub extra: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
@@ -7230,6 +7473,13 @@ pub struct AzAnimationRepeatCountEnumWrapper {
     pub inner: AzAnimationRepeatCount,
 }
 
+/// `AzMenuItemStateEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "MenuItemState")]
+pub struct AzMenuItemStateEnumWrapper {
+    pub inner: AzMenuItemState,
+}
+
 /// `AzOnEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "On")]
@@ -7270,6 +7520,20 @@ pub struct AzComponentEventFilterEnumWrapper {
 #[pyclass(name = "ApplicationEventFilter")]
 pub struct AzApplicationEventFilterEnumWrapper {
     pub inner: AzApplicationEventFilter,
+}
+
+/// `AzAccessibilityRoleEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "AccessibilityRole")]
+pub struct AzAccessibilityRoleEnumWrapper {
+    pub inner: AzAccessibilityRole,
+}
+
+/// `AzAccessibilityStateEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "AccessibilityState")]
+pub struct AzAccessibilityStateEnumWrapper {
+    pub inner: AzAccessibilityState,
 }
 
 /// `AzTabIndexEnumWrapper` struct
@@ -7585,6 +7849,20 @@ pub struct AzTerminateTimerEnumWrapper {
 #[pyclass(name = "StyleFontFamilyVecDestructor")]
 pub struct AzStyleFontFamilyVecDestructorEnumWrapper {
     pub inner: AzStyleFontFamilyVecDestructor,
+}
+
+/// `AzAccessibilityStateVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "AccessibilityStateVecDestructor")]
+pub struct AzAccessibilityStateVecDestructorEnumWrapper {
+    pub inner: AzAccessibilityStateVecDestructor,
+}
+
+/// `AzMenuItemVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "MenuItemVecDestructor")]
+pub struct AzMenuItemVecDestructorEnumWrapper {
+    pub inner: AzMenuItemVecDestructor,
 }
 
 /// `AzTesselatedSvgNodeVecDestructorEnumWrapper` struct
@@ -8033,6 +8311,13 @@ pub struct AzImePositionEnumWrapper {
 #[pyclass(name = "PositionInfo")]
 pub struct AzPositionInfoEnumWrapper {
     pub inner: AzPositionInfo,
+}
+
+/// `AzMenuItemIconEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "MenuItemIcon")]
+pub struct AzMenuItemIconEnumWrapper {
+    pub inner: AzMenuItemIcon,
 }
 
 /// `AzNotEventFilterEnumWrapper` struct
@@ -8504,6 +8789,20 @@ pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
+/// `AzOptionMenuItemIconEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionMenuItemIcon")]
+pub struct AzOptionMenuItemIconEnumWrapper {
+    pub inner: AzOptionMenuItemIcon,
+}
+
+/// `AzOptionMenuCallbackEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionMenuCallback")]
+pub struct AzOptionMenuCallbackEnumWrapper {
+    pub inner: AzOptionMenuCallback,
+}
+
 /// `AzOptionPositionInfoEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "OptionPositionInfo")]
@@ -8826,6 +9125,13 @@ pub struct AzThreadReceiveMsgEnumWrapper {
     pub inner: AzThreadReceiveMsg,
 }
 
+/// `AzOptionVirtualKeyCodeComboEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionVirtualKeyCodeCombo")]
+pub struct AzOptionVirtualKeyCodeComboEnumWrapper {
+    pub inner: AzOptionVirtualKeyCodeCombo,
+}
+
 /// `AzOptionMouseStateEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "OptionMouseState")]
@@ -9008,6 +9314,13 @@ pub struct AzXmlStreamErrorEnumWrapper {
     pub inner: AzXmlStreamError,
 }
 
+/// `AzMenuItemEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "MenuItem")]
+pub struct AzMenuItemEnumWrapper {
+    pub inner: AzMenuItem,
+}
+
 /// `AzStyleBackgroundContentVecValueEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "StyleBackgroundContentVecValue")]
@@ -9178,6 +9491,8 @@ unsafe impl Send for AzGl { }
 unsafe impl Send for AzRefstrVecRef { }
 unsafe impl Send for AzFontMetrics { }
 unsafe impl Send for AzInstantPtr { }
+unsafe impl Send for AzAccessibilityStateVec { }
+unsafe impl Send for AzMenuItemVec { }
 unsafe impl Send for AzXmlNodeVec { }
 unsafe impl Send for AzInlineGlyphVec { }
 unsafe impl Send for AzInlineTextHitVec { }
@@ -9231,6 +9546,7 @@ unsafe impl Send for AzSvgMultiPolygonVec { }
 unsafe impl Send for AzCallbackInfo { }
 unsafe impl Send for AzTimerCallbackInfo { }
 unsafe impl Send for AzNodeDataInlineCssPropertyVec { }
+unsafe impl Send for AzNodeData { }
 unsafe impl Send for AzCssDeclarationVec { }
 unsafe impl Send for AzNodeDataVec { }
 unsafe impl Send for AzCssRuleBlockVec { }
@@ -9285,12 +9601,15 @@ impl Clone for AzTimerCallback { fn clone(&self) -> Self { let r: &azul_impl::ca
 impl Clone for AzWriteBackCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::WriteBackCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::ThreadCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRefCount { fn clone(&self) -> Self { let r: &azul_impl::callbacks::RefCount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOnEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::On = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzHoverEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::HoverEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFocusEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::FocusEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzWindowEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::WindowEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzComponentEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::ComponentEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzApplicationEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::ApplicationEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAccessibilityRoleEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityRole = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAccessibilityStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTabIndexEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::TabIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeKeyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NodeTypeTag = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssNthChildPattern { fn clone(&self) -> Self { let r: &azul_impl::css::CssNthChildPattern = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9394,6 +9713,8 @@ impl Clone for AzThreadDestructorFn { fn clone(&self) -> Self { let r: &azul_imp
 impl Clone for AzThreadReceiverDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiverDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSenderDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSenderDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAccessibilityStateVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTesselatedSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TesselatedSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFmtArgVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::str::FmtArgVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9471,6 +9792,8 @@ impl Clone for AzInlineTextHit { fn clone(&self) -> Self { let r: &azul_core::ca
 impl Clone for AzIFrameCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::IFrameCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTimerCallbackReturn { fn clone(&self) -> Self { let r: &azul_impl::callbacks::TimerCallbackReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRefAny { fn clone(&self) -> Self { let r: &azul_impl::callbacks::RefAny = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuCallback { fn clone(&self) -> Self { let r: &azul_impl::window::MenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIFrameNode { fn clone(&self) -> Self { let r: &azul_impl::dom::IFrameNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNotEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NotEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssNthChildSelectorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssNthChildSelector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9613,6 +9936,8 @@ impl Clone for AzInstantPtr { fn clone(&self) -> Self { let r: &azul_impl::task:
 impl Clone for AzDurationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Duration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSendMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSendMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadWriteBackMsg { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadWriteBackMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAccessibilityStateVec { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemVec { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVec { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineGlyphVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineGlyphVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineTextHitVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineTextHitVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9637,6 +9962,8 @@ impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r:
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMenuCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionPositionInfoEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::OptionPositionInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTimerIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionTimerId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionThreadIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionThreadId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9688,6 +10015,8 @@ impl Clone for AzInlineTextContents { fn clone(&self) -> Self { let r: &azul_cor
 impl Clone for AzAnimationEasingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::AnimationInterpolationFunction = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRenderImageCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::RenderImageCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenu { fn clone(&self) -> Self { let r: &azul_impl::window::Menu = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVirtualKeyCodeCombo { fn clone(&self) -> Self { let r: &azul_impl::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::EventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPathPseudoSelectorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPathPseudoSelector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAnimationInterpolationFunctionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::AnimationInterpolationFunction = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9720,6 +10049,7 @@ impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl
 impl Clone for AzStringVec { fn clone(&self) -> Self { let r: &azul_impl::css::StringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMappingVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMappingVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionVirtualKeyCodeComboEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionMouseStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionKeyboardStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionKeyboardState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionStringVecEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionStringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9741,8 +10071,10 @@ impl Clone for AzStringPair { fn clone(&self) -> Self { let r: &azul_impl::windo
 impl Clone for AzMonitor { fn clone(&self) -> Self { let r: &azul_impl::window::Monitor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineWordEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::callbacks::InlineWord = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStringMenuItem { fn clone(&self) -> Self { let r: &azul_impl::window::StringMenuItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallbackData { fn clone(&self) -> Self { let r: &azul_impl::dom::CallbackData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAccessibilityInfo { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIdOrClassEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::IdOrClass = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPathSelectorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPathSelector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundContentEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundContent = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9784,6 +10116,7 @@ impl Clone for AzResultRawImageDecodeImageErrorEnumWrapper { fn clone(&self) -> 
 impl Clone for AzXmlStreamErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlStreamError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLinuxWindowOptions { fn clone(&self) -> Self { let r: &azul_impl::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineLine { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLine = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPath { fn clone(&self) -> Self { let r: &azul_impl::css::CssPath = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundContentVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundContentVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9852,6 +10185,8 @@ impl Drop for AzThreadReceiver { fn drop(&mut self) { crate::AzThreadReceiver_de
 impl Drop for AzRefAny { fn drop(&mut self) { crate::AzRefAny_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzGl { fn drop(&mut self) { crate::AzGl_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInstantPtr { fn drop(&mut self) { crate::AzInstantPtr_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzAccessibilityStateVec { fn drop(&mut self) { crate::AzAccessibilityStateVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzMenuItemVec { fn drop(&mut self) { crate::AzMenuItemVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzXmlNodeVec { fn drop(&mut self) { crate::AzXmlNodeVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInlineGlyphVec { fn drop(&mut self) { crate::AzInlineGlyphVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInlineTextHitVec { fn drop(&mut self) { crate::AzInlineTextHitVec_delete(unsafe { mem::transmute(self) }); } }
@@ -12895,6 +13230,154 @@ impl PyObjectProtocol for AzLayoutCallbackInfo {
 }
 
 #[pymethods]
+impl AzMenu {
+    #[new]
+    fn __new__(items: AzMenuItemVec) -> Self {
+        Self {
+            items,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenu {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzMenuItemEnumWrapper {
+    #[staticmethod]
+    fn Label(v: AzStringMenuItem) -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::Label(v) } }
+    #[classattr]
+    fn Separator() -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::Separator } }
+    #[classattr]
+    fn BreakLine() -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::BreakLine } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenuItemEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItem = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItem = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzStringMenuItem {
+    #[new]
+    fn __new__(label: AzString, accelerator: AzOptionVirtualKeyCodeComboEnumWrapper, callback: AzOptionMenuCallbackEnumWrapper, state: AzMenuItemStateEnumWrapper, icon: AzOptionMenuItemIconEnumWrapper, children: AzMenuItemVec) -> Self {
+        Self {
+            label,
+            accelerator,
+            callback,
+            state,
+            icon,
+            children,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzStringMenuItem {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::StringMenuItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::StringMenuItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzVirtualKeyCodeCombo {
+    #[new]
+    fn __new__(keys: AzVirtualKeyCodeVec) -> Self {
+        Self {
+            keys,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzVirtualKeyCodeCombo {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzMenuCallback {
+    #[new]
+    fn __new__(callback: AzCallback, data: AzRefAny) -> Self {
+        Self {
+            callback,
+            data,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenuCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzMenuItemIconEnumWrapper {
+    #[staticmethod]
+    fn Checkbox(v: bool) -> AzMenuItemIconEnumWrapper { AzMenuItemIconEnumWrapper { inner: AzMenuItemIcon::Checkbox(v) } }
+    #[staticmethod]
+    fn Image(v: AzImageRef) -> AzMenuItemIconEnumWrapper { AzMenuItemIconEnumWrapper { inner: AzMenuItemIcon::Image(v) } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenuItemIconEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzMenuItemStateEnumWrapper {
+    #[classattr]
+    fn Normal() -> AzMenuItemStateEnumWrapper { AzMenuItemStateEnumWrapper { inner: AzMenuItemState::Normal } }
+    #[classattr]
+    fn Greyed() -> AzMenuItemStateEnumWrapper { AzMenuItemStateEnumWrapper { inner: AzMenuItemState::Greyed } }
+    #[classattr]
+    fn Disabled() -> AzMenuItemStateEnumWrapper { AzMenuItemStateEnumWrapper { inner: AzMenuItemState::Disabled } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenuItemStateEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzDom {
     #[new]
     fn __new__(root: AzNodeData, children: AzDomVec, total_children: usize) -> Self {
@@ -12976,18 +13459,41 @@ impl PyObjectProtocol for AzCallbackData {
 #[pymethods]
 impl AzNodeData {
     #[new]
-    fn __new__(node_type: AzNodeTypeEnumWrapper, dataset: AzOptionRefAnyEnumWrapper, ids_and_classes: AzIdOrClassVec, callbacks: AzCallbackDataVec, inline_css_props: AzNodeDataInlineCssPropertyVec, clip_mask: AzOptionImageMaskEnumWrapper, tab_index: AzOptionTabIndexEnumWrapper) -> Self {
-        Self {
-            node_type,
-            dataset,
-            ids_and_classes,
-            callbacks,
-            inline_css_props,
-            clip_mask,
-            tab_index,
-        }
+    fn new(node_type: AzNodeTypeEnumWrapper) -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_new(
+            mem::transmute(node_type),
+        )) }
     }
-
+    fn set_clip_mask(&mut self, image_mask: AzImageMask) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setClipMask(
+            mem::transmute(self),
+            mem::transmute(image_mask),
+        )) }
+    }
+    fn set_tab_index(&mut self, tab_index: AzTabIndexEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setTabIndex(
+            mem::transmute(self),
+            mem::transmute(tab_index),
+        )) }
+    }
+    fn set_accessibility_info(&mut self, accessibility_info: AzAccessibilityInfo) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setAccessibilityInfo(
+            mem::transmute(self),
+            mem::transmute(accessibility_info),
+        )) }
+    }
+    fn set_menu_bar(&mut self, menu_bar: AzMenu) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setMenuBar(
+            mem::transmute(self),
+            mem::transmute(menu_bar),
+        )) }
+    }
+    fn set_context_menu(&mut self, context_menu: AzMenu) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setContextMenu(
+            mem::transmute(self),
+            mem::transmute(context_menu),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -13320,6 +13826,10 @@ impl AzComponentEventFilterEnumWrapper {
     fn BeforeUnmount() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::BeforeUnmount } }
     #[classattr]
     fn NodeResized() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::NodeResized } }
+    #[classattr]
+    fn DefaultAction() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::DefaultAction } }
+    #[classattr]
+    fn Selected() -> AzComponentEventFilterEnumWrapper { AzComponentEventFilterEnumWrapper { inner: AzComponentEventFilter::Selected } }
 }
 
 #[pyproto]
@@ -13347,6 +13857,220 @@ impl PyObjectProtocol for AzApplicationEventFilterEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::ApplicationEventFilter = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzAccessibilityInfo {
+    #[new]
+    fn __new__(name: AzOptionStringEnumWrapper, value: AzOptionStringEnumWrapper, role: AzAccessibilityRoleEnumWrapper, states: AzAccessibilityStateVec, accelerator: AzOptionVirtualKeyCodeComboEnumWrapper, default_action: AzOptionStringEnumWrapper) -> Self {
+        Self {
+            name,
+            value,
+            role,
+            states,
+            accelerator,
+            default_action,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzAccessibilityInfo {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzAccessibilityRoleEnumWrapper {
+    #[classattr]
+    fn TitleBar() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::TitleBar } }
+    #[classattr]
+    fn MenuBar() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::MenuBar } }
+    #[classattr]
+    fn ScrollBar() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ScrollBar } }
+    #[classattr]
+    fn Grip() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Grip } }
+    #[classattr]
+    fn Sound() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Sound } }
+    #[classattr]
+    fn Cursor() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Cursor } }
+    #[classattr]
+    fn Caret() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Caret } }
+    #[classattr]
+    fn Alert() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Alert } }
+    #[classattr]
+    fn Window() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Window } }
+    #[classattr]
+    fn Client() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Client } }
+    #[classattr]
+    fn MenuPopup() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::MenuPopup } }
+    #[classattr]
+    fn MenuItem() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::MenuItem } }
+    #[classattr]
+    fn Tooltip() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Tooltip } }
+    #[classattr]
+    fn Application() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Application } }
+    #[classattr]
+    fn Document() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Document } }
+    #[classattr]
+    fn Pane() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Pane } }
+    #[classattr]
+    fn Chart() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Chart } }
+    #[classattr]
+    fn Dialog() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Dialog } }
+    #[classattr]
+    fn Border() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Border } }
+    #[classattr]
+    fn Grouping() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Grouping } }
+    #[classattr]
+    fn Separator() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Separator } }
+    #[classattr]
+    fn Toolbar() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Toolbar } }
+    #[classattr]
+    fn StatusBar() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::StatusBar } }
+    #[classattr]
+    fn Table() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Table } }
+    #[classattr]
+    fn ColumnHeader() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ColumnHeader } }
+    #[classattr]
+    fn RowHeader() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::RowHeader } }
+    #[classattr]
+    fn Column() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Column } }
+    #[classattr]
+    fn Row() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Row } }
+    #[classattr]
+    fn Cell() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Cell } }
+    #[classattr]
+    fn Link() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Link } }
+    #[classattr]
+    fn HelpBalloon() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::HelpBalloon } }
+    #[classattr]
+    fn Character() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Character } }
+    #[classattr]
+    fn List() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::List } }
+    #[classattr]
+    fn ListItem() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ListItem } }
+    #[classattr]
+    fn Outline() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Outline } }
+    #[classattr]
+    fn OutlineItem() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::OutlineItem } }
+    #[classattr]
+    fn Pagetab() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Pagetab } }
+    #[classattr]
+    fn PropertyPage() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::PropertyPage } }
+    #[classattr]
+    fn Indicator() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Indicator } }
+    #[classattr]
+    fn Graphic() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Graphic } }
+    #[classattr]
+    fn StaticText() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::StaticText } }
+    #[classattr]
+    fn Text() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Text } }
+    #[classattr]
+    fn PushButton() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::PushButton } }
+    #[classattr]
+    fn CheckButton() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::CheckButton } }
+    #[classattr]
+    fn RadioButton() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::RadioButton } }
+    #[classattr]
+    fn ComboBox() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ComboBox } }
+    #[classattr]
+    fn DropList() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::DropList } }
+    #[classattr]
+    fn ProgressBar() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ProgressBar } }
+    #[classattr]
+    fn Dial() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Dial } }
+    #[classattr]
+    fn HotkeyField() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::HotkeyField } }
+    #[classattr]
+    fn Slider() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Slider } }
+    #[classattr]
+    fn SpinButton() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::SpinButton } }
+    #[classattr]
+    fn Diagram() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Diagram } }
+    #[classattr]
+    fn Animation() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Animation } }
+    #[classattr]
+    fn Equation() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Equation } }
+    #[classattr]
+    fn ButtonDropdown() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ButtonDropdown } }
+    #[classattr]
+    fn ButtonMenu() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ButtonMenu } }
+    #[classattr]
+    fn ButtonDropdownGrid() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::ButtonDropdownGrid } }
+    #[classattr]
+    fn Whitespace() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Whitespace } }
+    #[classattr]
+    fn PageTabList() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::PageTabList } }
+    #[classattr]
+    fn Clock() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Clock } }
+    #[classattr]
+    fn SplitButton() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::SplitButton } }
+    #[classattr]
+    fn IpAddress() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::IpAddress } }
+    #[classattr]
+    fn Nothing() -> AzAccessibilityRoleEnumWrapper { AzAccessibilityRoleEnumWrapper { inner: AzAccessibilityRole::Nothing } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzAccessibilityRoleEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityRole = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityRole = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzAccessibilityStateEnumWrapper {
+    #[classattr]
+    fn Unavailable() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Unavailable } }
+    #[classattr]
+    fn Selected() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Selected } }
+    #[classattr]
+    fn Focused() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Focused } }
+    #[classattr]
+    fn Checked() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Checked } }
+    #[classattr]
+    fn Readonly() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Readonly } }
+    #[classattr]
+    fn Default() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Default } }
+    #[classattr]
+    fn Expanded() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Expanded } }
+    #[classattr]
+    fn Collapsed() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Collapsed } }
+    #[classattr]
+    fn Busy() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Busy } }
+    #[classattr]
+    fn Offscreen() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Offscreen } }
+    #[classattr]
+    fn Focusable() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Focusable } }
+    #[classattr]
+    fn Selectable() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Selectable } }
+    #[classattr]
+    fn Linked() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Linked } }
+    #[classattr]
+    fn Traversed() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Traversed } }
+    #[classattr]
+    fn Multiselectable() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Multiselectable } }
+    #[classattr]
+    fn Protected() -> AzAccessibilityStateEnumWrapper { AzAccessibilityStateEnumWrapper { inner: AzAccessibilityState::Protected } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzAccessibilityStateEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -22596,6 +23320,56 @@ impl PyObjectProtocol for AzString {
 }
 
 #[pymethods]
+impl AzAccessibilityStateVec {
+    /// Creates a new `AccessibilityStateEnumWrapperVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzAccessibilityStateEnumWrapper>) -> Self {
+        let m: azul_impl::dom::AccessibilityStateVec = azul_impl::dom::AccessibilityStateVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the AccessibilityStateEnumWrapper as a Python array
+    fn array(&self) -> Vec<AzAccessibilityStateEnumWrapper> {
+        let m: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzAccessibilityStateVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzMenuItemVec {
+    /// Creates a new `MenuItemEnumWrapperVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzMenuItemEnumWrapper>) -> Self {
+        let m: azul_impl::window::MenuItemVec = azul_impl::window::MenuItemVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the MenuItemEnumWrapper as a Python array
+    fn array(&self) -> Vec<AzMenuItemEnumWrapper> {
+        let m: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenuItemVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzTesselatedSvgNodeVec {
 }
 
@@ -23842,6 +24616,42 @@ impl PyObjectProtocol for AzStyleFontFamilyVecDestructorEnumWrapper {
 }
 
 #[pymethods]
+impl AzAccessibilityStateVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzAccessibilityStateVecDestructorEnumWrapper { AzAccessibilityStateVecDestructorEnumWrapper { inner: AzAccessibilityStateVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzAccessibilityStateVecDestructorEnumWrapper { AzAccessibilityStateVecDestructorEnumWrapper { inner: AzAccessibilityStateVecDestructor::NoDestructor } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzAccessibilityStateVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzMenuItemVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzMenuItemVecDestructorEnumWrapper { AzMenuItemVecDestructorEnumWrapper { inner: AzMenuItemVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzMenuItemVecDestructorEnumWrapper { AzMenuItemVecDestructorEnumWrapper { inner: AzMenuItemVecDestructor::NoDestructor } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzMenuItemVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::MenuItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzTesselatedSvgNodeVecDestructorEnumWrapper {
     #[classattr]
     fn DefaultRust() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::DefaultRust } }
@@ -24720,6 +25530,60 @@ impl PyObjectProtocol for AzNodeDataVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::NodeDataVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionMenuItemIconEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionMenuItemIconEnumWrapper { AzOptionMenuItemIconEnumWrapper { inner: AzOptionMenuItemIcon::None } }
+    #[staticmethod]
+    fn Some(v: AzMenuItemIconEnumWrapper) -> AzOptionMenuItemIconEnumWrapper { AzOptionMenuItemIconEnumWrapper { inner: AzOptionMenuItemIcon::Some(unsafe { mem::transmute(v) }) } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionMenuItemIconEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::OptionMenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::OptionMenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionMenuCallbackEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionMenuCallbackEnumWrapper { AzOptionMenuCallbackEnumWrapper { inner: AzOptionMenuCallback::None } }
+    #[staticmethod]
+    fn Some(v: AzMenuCallback) -> AzOptionMenuCallbackEnumWrapper { AzOptionMenuCallbackEnumWrapper { inner: AzOptionMenuCallback::Some(v) } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionMenuCallbackEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::OptionMenuCallback = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::OptionMenuCallback = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionVirtualKeyCodeComboEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionVirtualKeyCodeComboEnumWrapper { AzOptionVirtualKeyCodeComboEnumWrapper { inner: AzOptionVirtualKeyCodeCombo::None } }
+    #[staticmethod]
+    fn Some(v: AzVirtualKeyCodeCombo) -> AzOptionVirtualKeyCodeComboEnumWrapper { AzOptionVirtualKeyCodeComboEnumWrapper { inner: AzOptionVirtualKeyCodeCombo::Some(v) } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionVirtualKeyCodeComboEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26431,6 +27295,14 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzRefAny>()?;
     m.add_class::<AzLayoutCallbackInfo>()?;
 
+    m.add_class::<AzMenu>()?;
+    m.add_class::<AzMenuItemEnumWrapper>()?;
+    m.add_class::<AzStringMenuItem>()?;
+    m.add_class::<AzVirtualKeyCodeCombo>()?;
+    m.add_class::<AzMenuCallback>()?;
+    m.add_class::<AzMenuItemIconEnumWrapper>()?;
+    m.add_class::<AzMenuItemStateEnumWrapper>()?;
+
     m.add_class::<AzDom>()?;
     m.add_class::<AzIFrameNode>()?;
     m.add_class::<AzCallbackData>()?;
@@ -26444,6 +27316,9 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzWindowEventFilterEnumWrapper>()?;
     m.add_class::<AzComponentEventFilterEnumWrapper>()?;
     m.add_class::<AzApplicationEventFilterEnumWrapper>()?;
+    m.add_class::<AzAccessibilityInfo>()?;
+    m.add_class::<AzAccessibilityRoleEnumWrapper>()?;
+    m.add_class::<AzAccessibilityStateEnumWrapper>()?;
     m.add_class::<AzTabIndexEnumWrapper>()?;
     m.add_class::<AzIdOrClassEnumWrapper>()?;
     m.add_class::<AzNodeDataInlineCssPropertyEnumWrapper>()?;
@@ -26765,6 +27640,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzFmtArg>()?;
     m.add_class::<AzString>()?;
 
+    m.add_class::<AzAccessibilityStateVec>()?;
+    m.add_class::<AzMenuItemVec>()?;
     m.add_class::<AzTesselatedSvgNodeVec>()?;
     m.add_class::<AzStyleFontFamilyVec>()?;
     m.add_class::<AzXmlNodeVec>()?;
@@ -26816,6 +27693,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVec>()?;
     m.add_class::<AzNodeDataVec>()?;
     m.add_class::<AzStyleFontFamilyVecDestructorEnumWrapper>()?;
+    m.add_class::<AzAccessibilityStateVecDestructorEnumWrapper>()?;
+    m.add_class::<AzMenuItemVecDestructorEnumWrapper>()?;
     m.add_class::<AzTesselatedSvgNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzXmlNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzFmtArgVecDestructorEnumWrapper>()?;
@@ -26866,6 +27745,9 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
+    m.add_class::<AzOptionMenuItemIconEnumWrapper>()?;
+    m.add_class::<AzOptionMenuCallbackEnumWrapper>()?;
+    m.add_class::<AzOptionVirtualKeyCodeComboEnumWrapper>()?;
     m.add_class::<AzOptionCssPropertyEnumWrapper>()?;
     m.add_class::<AzOptionPositionInfoEnumWrapper>()?;
     m.add_class::<AzOptionTimerIdEnumWrapper>()?;

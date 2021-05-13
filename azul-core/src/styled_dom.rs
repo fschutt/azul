@@ -42,6 +42,7 @@ use crate::{
         CompactDom, TagId, OptionTabIndex,
         NodeDataInlineCssProperty
     },
+    callbacks::{RefAny, UpdateScreen, CallbackInfo},
     style::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
@@ -273,10 +274,21 @@ impl CssPropertyCache {
                 if r.is_empty() { None } else { Some((node_id, r)) }
             });
 
-            self.css_normal_props = css_normal_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
-            self.css_hover_props = css_hover_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
-            self.css_active_props = css_active_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
-            self.css_focus_props = css_focus_rules.internal.into_iter().map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect())).collect();
+            self.css_normal_props = css_normal_rules.internal.into_iter()
+            .map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect()))
+            .collect();
+
+            self.css_hover_props = css_hover_rules.internal.into_iter()
+            .map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect()))
+            .collect();
+
+            self.css_active_props = css_active_rules.internal.into_iter()
+            .map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect()))
+            .collect();
+
+            self.css_focus_props = css_focus_rules.internal.into_iter()
+            .map(|(n, map)| (n, map.into_iter().map(|prop| (prop.get_type(), prop)).collect()))
+            .collect();
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -307,9 +319,14 @@ impl CssPropertyCache {
                     Some(pi) => {
                         // only override the rule if the child does not already have an inherited rule
                         for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
-                            let child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
+                            let child_map = $to_inherit_map
+                                .entry(child_id)
+                                .or_insert_with(|| BTreeMap::new());
+
                             for (inherited_rule_type, inherited_rule_value) in pi.iter() {
-                                let _ = child_map.entry(*inherited_rule_type).or_insert_with(|| inherited_rule_value.clone());
+                                let _ = child_map
+                                .entry(*inherited_rule_type)
+                                .or_insert_with(|| inherited_rule_value.clone());
                             }
                         }
                     },
@@ -334,7 +351,9 @@ impl CssPropertyCache {
                     for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
                         let child_map = $to_inherit_map.entry(child_id).or_insert_with(|| BTreeMap::new());
                         for inherited_rule in parent_inheritable_css_props.iter() {
-                            let _ = child_map.entry(inherited_rule.get_type()).or_insert_with(|| inherited_rule.clone());
+                            let _ = child_map
+                            .entry(inherited_rule.get_type())
+                            .or_insert_with(|| inherited_rule.clone());
                         }
                     }
                 }
@@ -386,9 +405,15 @@ impl CssPropertyCache {
             let should_auto_insert_tabindex = node_data.get_callbacks()
             .iter().any(|cb| cb.event.is_focus_callback());
 
-            let tab_index =  match node_data.get_tab_index().into_option() {
-                Some(s) => Some(s),
-                None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
+            let tab_index =  match node_data.get_tab_index() {
+                Some(s) => Some(*s),
+                None => {
+                    if should_auto_insert_tabindex {
+                        Some(TabIndex::Auto)
+                    } else {
+                        None
+                    }
+                }
             };
 
             let mut node_should_have_tag = false;
@@ -456,7 +481,11 @@ impl CssPropertyCache {
                 }
 
                 // check for non-default cursor: property - needed for hit-testing cursor
-                let node_has_non_default_cursor = self.get_cursor(&node_data, &node_id, &default_node_state).is_some();
+                let node_has_non_default_cursor = self.get_cursor(
+                    &node_data,
+                    &node_id,
+                    &default_node_state
+                ).is_some();
 
                 if node_has_non_default_cursor {
                     node_should_have_tag = true;
@@ -1210,8 +1239,6 @@ impl_vec_partialord!(ContentGroup, ContentGroupVec);
 impl_vec_clone!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
 impl_vec_partialeq!(ContentGroup, ContentGroupVec);
 
-
-
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
 pub struct StyledDom {
@@ -1488,6 +1515,58 @@ impl StyledDom {
         self.tag_ids_to_node_ids = new_tag_ids.into();
     }
 
+    /// Inserts default On::Scroll and On::Tab handle for scroll-able
+    /// and tabindex-able nodes.
+    #[inline]
+    pub fn insert_default_system_callbacks(&mut self, config: DefaultCallbacksCfg) {
+
+        use crate::dom::{
+            CallbackData, EventFilter,
+            HoverEventFilter, FocusEventFilter
+        };
+        use crate::callbacks::Callback;
+
+        let scroll_refany = RefAny::new(DefaultScrollCallbackData {
+            smooth_scroll: config.smooth_scroll,
+        });
+
+        for n in self.node_data.iter_mut() {
+            // TODO: ScrollStart / ScrollEnd?
+            if !n.callbacks.iter().any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Scroll)) {
+                n.callbacks.push(CallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::Scroll),
+                    data: scroll_refany.clone(),
+                    callback: Callback { cb: default_on_scroll },
+                });
+            }
+        }
+
+        if !config.enable_autotab {
+            return;
+        }
+
+        let tab_data = RefAny::new(DefaultTabIndexCallbackData { });
+        for focusable_node in self.tag_ids_to_node_ids.iter() {
+            if focusable_node.tab_index.is_some() {
+
+                let focusable_node_id = match focusable_node.node_id.into_crate_internal() {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let mut node_data = &mut self.node_data.as_container_mut()[focusable_node_id];
+                if !node_data.callbacks.iter().any(|cb| cb.event == EventFilter::Focus(FocusEventFilter::VirtualKeyDown)) {
+                    node_data.callbacks.push(CallbackData {
+                        event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
+                        data: tab_data.clone(),
+                        callback: Callback { cb: default_on_tabindex },
+                    });
+                }
+            }
+        }
+
+    }
+
     #[inline]
     pub fn node_count(&self) -> usize {
         self.node_data.len()
@@ -1621,7 +1700,7 @@ impl StyledDom {
             }
 
             // If the node has a clip mask, it needs to be uploaded
-            if let OptionImageMask::Some(clip_mask) = node_data.get_clip_mask() {
+            if let Some(clip_mask) = node_data.get_clip_mask() {
                 v.clip_mask = Some(clip_mask.image.clone());
             }
 
@@ -1745,8 +1824,12 @@ impl StyledDom {
         .zip(old_node_states.par_iter())
         .filter_map(|(node_id, old_node_state)| {
 
-            let mut keys_normal: Vec<_> = css_property_cache.css_active_props.get(node_id).unwrap_or(&default_map).keys().collect();
-            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_active_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let mut keys_normal: Vec<_> = css_property_cache.css_active_props
+            .get(node_id).unwrap_or(&default_map).keys().collect();
+
+            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_active_props
+            .get(node_id).unwrap_or(&default_map).keys().collect();
+
             let keys_inline: Vec<CssPropertyType> = node_data[*node_id].inline_css_props.iter()
             .filter_map(|prop| match prop {
                 NodeDataInlineCssProperty::Active(h) => Some(h.get_type()),
@@ -1823,8 +1906,12 @@ impl StyledDom {
         .zip(old_node_states.par_iter())
         .filter_map(|(node_id, old_node_state)| {
 
-            let mut keys_normal: Vec<_> = css_property_cache.css_focus_props.get(node_id).unwrap_or(&default_map).keys().collect();
-            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_focus_props.get(node_id).unwrap_or(&default_map).keys().collect();
+            let mut keys_normal: Vec<_> = css_property_cache.css_focus_props
+            .get(node_id).unwrap_or(&default_map).keys().collect();
+
+            let mut keys_inherited: Vec<_> = css_property_cache.cascaded_focus_props
+            .get(node_id).unwrap_or(&default_map).keys().collect();
+
             let keys_inline: Vec<CssPropertyType> = node_data[*node_id].inline_css_props.iter()
             .filter_map(|prop| match prop {
                 NodeDataInlineCssProperty::Focus(h) => Some(h.get_type()),
@@ -1900,7 +1987,14 @@ impl StyledDom {
             new_properties
             .par_iter()
             .filter_map(|new_prop| {
-                let old_prop = css_property_cache.get_property(node_data, node_id, old_node_state, &new_prop.get_type());
+
+                let old_prop = css_property_cache.get_property(
+                    node_data,
+                    node_id,
+                    old_node_state,
+                    &new_prop.get_type()
+                );
+
                 let old_prop = match old_prop {
                     None => CssProperty::auto(new_prop.get_type()),
                     Some(s) => s.clone(),
@@ -2022,7 +2116,8 @@ impl StyledDom {
         }).collect::<BTreeMap<_, _>>();
 
         for (parent_id, (last_child, parent_depth)) in should_print_close_tag_debug {
-            should_print_close_tag_after_node.entry(last_child).or_insert_with(|| Vec::new()).push((parent_id, parent_depth));
+            should_print_close_tag_after_node.entry(last_child)
+            .or_insert_with(|| Vec::new()).push((parent_id, parent_depth));
         }
 
         let mut all_node_depths = self.non_leaf_nodes.iter().filter_map(|p| {
@@ -2030,7 +2125,8 @@ impl StyledDom {
             Some((parent_node_id, p.depth))
         }).collect::<BTreeMap<_, _>>();
 
-        for (parent_node_id, parent_depth) in self.non_leaf_nodes.iter().filter_map(|p| Some((p.node_id.into_crate_internal()?, p.depth))) {
+        for (parent_node_id, parent_depth) in self.non_leaf_nodes.iter()
+        .filter_map(|p| Some((p.node_id.into_crate_internal()?, p.depth))) {
             for child_id in parent_node_id.az_children(&self.node_hierarchy.as_container()) {
                 all_node_depths.insert(child_id, parent_depth + 1);
             }
@@ -2070,7 +2166,12 @@ impl StyledDom {
             }
         }
 
-        format!(include_str!("./default.html"), custom_head = custom_head, output = output, custom_body = custom_body)
+        format!(
+            include_str!("./default.html"),
+            custom_head = custom_head,
+            output = output,
+            custom_body = custom_body
+        )
     }
 
     /// Returns the node ID of all sub-children of a node
@@ -2112,7 +2213,8 @@ impl StyledDom {
         )
     }
 
-    /// Returns the rendering order of the items (the rendering order doesn't have to be the original order)
+    /// Returns the rendering order of the items (the rendering
+    /// order doesn't have to be the original order)
     #[cfg(feature = "multithreading")]
     fn determine_rendering_order<'a>(
         non_leaf_nodes: &[ParentWithNodeDepth],
@@ -2122,60 +2224,6 @@ impl StyledDom {
         css_property_cache: &CssPropertyCache,
     ) -> ContentGroup {
         use rayon::prelude::*;
-
-        fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<AzNodeId, Vec<AzNodeId>>) {
-            use rayon::prelude::*;
-
-            if let Some(c) = children_sorted.get(&group.root) { // returns None for leaf nodes
-                group.children = c
-                    .par_iter()
-                    .map(|child| ContentGroup { root: *child, children: Vec::new().into() })
-                    .collect::<Vec<ContentGroup>>()
-                    .into();
-
-                for c in group.children.as_mut() {
-                    fill_content_group_children(c, children_sorted);
-                }
-            }
-        }
-
-        fn sort_children_by_position<'a>(
-            parent: NodeId,
-            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
-            rectangles: &NodeDataContainerRef<StyledNode>,
-            node_data_container: &NodeDataContainerRef<NodeData>,
-            css_property_cache: &CssPropertyCache,
-        ) -> Vec<AzNodeId> {
-
-            use azul_css::LayoutPosition::*;
-            use rayon::prelude::*;
-
-            let children_positions = parent
-                .az_children(node_hierarchy)
-                .map(|nid| {
-                    let position = css_property_cache
-                        .get_position(&node_data_container[nid], &nid, &rectangles[nid].state)
-                        .and_then(|p| p.clone().get_property_or_default())
-                        .unwrap_or_default();
-                    let id = AzNodeId::from_crate_internal(Some(nid));
-                    (id, position)
-                })
-                .collect::<Vec<_>>();
-
-            let mut not_absolute_children = children_positions
-                .par_iter()
-                .filter_map(|(node_id, position)| if *position != Absolute { Some(*node_id) } else { None })
-                .collect::<Vec<_>>();
-
-            let mut absolute_children = children_positions
-                .par_iter()
-                .filter_map(|(node_id, position)| if *position == Absolute { Some(*node_id) } else { None })
-                .collect::<Vec<_>>();
-
-            // Append the position:absolute children after the regular children
-            not_absolute_children.append(&mut absolute_children);
-            not_absolute_children
-        }
 
         let children_sorted = non_leaf_nodes
             .par_iter()
@@ -2189,14 +2237,110 @@ impl StyledDom {
             .collect::<Vec<_>>();
 
         let children_sorted: BTreeMap<AzNodeId, Vec<AzNodeId>> = children_sorted.into_iter().collect();
-        let mut root_content_group = ContentGroup { root: AzNodeId::from_crate_internal(Some(NodeId::ZERO)), children: Vec::new().into() };
+
+        let mut root_content_group = ContentGroup {
+            root: AzNodeId::from_crate_internal(Some(NodeId::ZERO)),
+            children: Vec::new().into()
+        };
+
         fill_content_group_children(&mut root_content_group, &children_sorted);
+
         root_content_group
     }
 
     // Computes the diff between the two DOMs
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
 }
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DefaultCallbacksCfg {
+    pub smooth_scroll: bool,
+    pub enable_autotab: bool,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DefaultScrollCallbackData {
+    pub smooth_scroll: bool,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DefaultTabIndexCallbackData { }
+
+/// Default On::TabIndex event handler
+extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+    let mut data = match data.downcast_mut::<DefaultTabIndexCallbackData>() {
+        Some(s) => s,
+        None => return UpdateScreen::DoNothing,
+    };
+
+    println!("tab index! {:?}", data);
+    UpdateScreen::DoNothing
+}
+
+/// Default On::Scroll event handler
+extern "C" fn default_on_scroll(data: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+    let mut data = match data.downcast_mut::<DefaultScrollCallbackData>() {
+        Some(s) => s,
+        None => return UpdateScreen::DoNothing,
+    };
+    println!("scrolling! {:?}", data);
+    UpdateScreen::DoNothing
+}
+
+fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<AzNodeId, Vec<AzNodeId>>) {
+    use rayon::prelude::*;
+
+    if let Some(c) = children_sorted.get(&group.root) { // returns None for leaf nodes
+        group.children = c
+            .par_iter()
+            .map(|child| ContentGroup { root: *child, children: Vec::new().into() })
+            .collect::<Vec<ContentGroup>>()
+            .into();
+
+        for c in group.children.as_mut() {
+            fill_content_group_children(c, children_sorted);
+        }
+    }
+}
+
+fn sort_children_by_position<'a>(
+    parent: NodeId,
+    node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+    rectangles: &NodeDataContainerRef<StyledNode>,
+    node_data_container: &NodeDataContainerRef<NodeData>,
+    css_property_cache: &CssPropertyCache,
+) -> Vec<AzNodeId> {
+
+    use azul_css::LayoutPosition::*;
+    use rayon::prelude::*;
+
+    let children_positions = parent
+        .az_children(node_hierarchy)
+        .map(|nid| {
+            let position = css_property_cache
+                .get_position(&node_data_container[nid], &nid, &rectangles[nid].state)
+                .and_then(|p| p.clone().get_property_or_default())
+                .unwrap_or_default();
+            let id = AzNodeId::from_crate_internal(Some(nid));
+            (id, position)
+        })
+        .collect::<Vec<_>>();
+
+    let mut not_absolute_children = children_positions
+        .par_iter()
+        .filter_map(|(node_id, position)| if *position != Absolute { Some(*node_id) } else { None })
+        .collect::<Vec<_>>();
+
+    let mut absolute_children = children_positions
+        .par_iter()
+        .filter_map(|(node_id, position)| if *position == Absolute { Some(*node_id) } else { None })
+        .collect::<Vec<_>>();
+
+    // Append the position:absolute children after the regular children
+    not_absolute_children.append(&mut absolute_children);
+    not_absolute_children
+}
+
 
 // calls get_last_child() recursively until the last child of the last child of the ... has been found
 fn recursive_get_last_child(node_id: NodeId, node_hierarchy: &[AzNode], target: &mut Option<NodeId>) {

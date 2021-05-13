@@ -583,6 +583,34 @@ pub use AzLayoutCallbackInfoTT as AzLayoutCallbackInfo;
 /// Returns an `ImageRef` referenced by a CSS ID
 #[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getImage(layoutcallbackinfo: &AzLayoutCallbackInfo, id: AzString) -> AzOptionImageRef { layoutcallbackinfo.get_image(&id).into() }
 
+/// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+pub type AzMenuTT = azul_impl::window::Menu;
+pub use AzMenuTT as AzMenu;
+
+/// Item entry in a menu or menu bar
+pub type AzMenuItemTT = azul_impl::window::MenuItem;
+pub use AzMenuItemTT as AzMenuItem;
+
+/// Regular labeled menu item
+pub type AzStringMenuItemTT = azul_impl::window::StringMenuItem;
+pub use AzStringMenuItemTT as AzStringMenuItem;
+
+/// Combination of virtual key codes that have to be pressed together
+pub type AzVirtualKeyCodeComboTT = azul_impl::window::VirtualKeyCodeCombo;
+pub use AzVirtualKeyCodeComboTT as AzVirtualKeyCodeCombo;
+
+/// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+pub type AzMenuCallbackTT = azul_impl::window::MenuCallback;
+pub use AzMenuCallbackTT as AzMenuCallback;
+
+/// Icon of a menu entry
+pub type AzMenuItemIconTT = azul_impl::window::MenuItemIcon;
+pub use AzMenuItemIconTT as AzMenuItemIcon;
+
+/// Describes the state of a menu item
+pub type AzMenuItemStateTT = azul_impl::window::MenuItemState;
+pub use AzMenuItemStateTT as AzMenuItemState;
+
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
@@ -602,6 +630,18 @@ pub use AzCallbackDataTT as AzCallbackData;
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
 pub use AzNodeDataTT as AzNodeData;
+/// Creates an new, empty `NodeData` struct
+#[no_mangle] pub extern "C" fn AzNodeData_new(node_type: AzNodeType) -> AzNodeData { AzNodeData::new(node_type) }
+/// Equivalent to the Rust `NodeData::set_clip_mask()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setClipMask(nodedata: &mut AzNodeData, image_mask: AzImageMask) { nodedata.set_clip_mask(image_mask) }
+/// Equivalent to the Rust `NodeData::set_tab_index()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setTabIndex(nodedata: &mut AzNodeData, tab_index: AzTabIndex) { nodedata.set_tab_index(tab_index) }
+/// Equivalent to the Rust `NodeData::set_accessibility_info()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setAccessibilityInfo(nodedata: &mut AzNodeData, accessibility_info: AzAccessibilityInfo) { nodedata.set_accessibility_info(accessibility_info) }
+/// Equivalent to the Rust `NodeData::set_menu_bar()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setMenuBar(nodedata: &mut AzNodeData, menu_bar: AzMenu) { nodedata.set_menu_bar(menu_bar) }
+/// Equivalent to the Rust `NodeData::set_context_menu()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setContextMenu(nodedata: &mut AzNodeData, context_menu: AzMenu) { nodedata.set_context_menu(context_menu) }
 
 /// List of core DOM node types built-into by `azul`
 pub type AzNodeTypeTT = azul_impl::dom::NodeType;
@@ -640,6 +680,18 @@ pub use AzComponentEventFilterTT as AzComponentEventFilter;
 /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
 pub type AzApplicationEventFilterTT = azul_impl::dom::ApplicationEventFilter;
 pub use AzApplicationEventFilterTT as AzApplicationEventFilter;
+
+/// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+pub type AzAccessibilityInfoTT = azul_impl::dom::AccessibilityInfo;
+pub use AzAccessibilityInfoTT as AzAccessibilityInfo;
+
+/// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
+pub type AzAccessibilityRoleTT = azul_impl::dom::AccessibilityRole;
+pub use AzAccessibilityRoleTT as AzAccessibilityRole;
+
+/// MSAA accessibility state. For information on what each state does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants">MSDN State Constants page</a>.
+pub type AzAccessibilityStateTT = azul_impl::dom::AccessibilityState;
+pub use AzAccessibilityStateTT as AzAccessibilityState;
 
 /// Re-export of rust-allocated (stack based) `TabIndex` struct
 pub type AzTabIndexTT = azul_impl::dom::TabIndex;
@@ -2585,6 +2637,18 @@ pub use AzStringTT as AzString;
 /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
 #[no_mangle] pub extern "C" fn AzString_asRefstr(string: &AzString) -> AzRefstr { string.as_str().into() }
 
+/// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
+pub type AzAccessibilityStateVecTT = azul_impl::dom::AccessibilityStateVec;
+pub use AzAccessibilityStateVecTT as AzAccessibilityStateVec;
+/// Destructor: Takes ownership of the `AccessibilityStateVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzAccessibilityStateVec_delete(object: &mut AzAccessibilityStateVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<MenuItem>`
+pub type AzMenuItemVecTT = azul_impl::window::MenuItemVec;
+pub use AzMenuItemVecTT as AzMenuItemVec;
+/// Destructor: Takes ownership of the `MenuItemVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMenuItemVec_delete(object: &mut AzMenuItemVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
 pub type AzTesselatedSvgNodeVecTT = azul_impl::svg::TesselatedSvgNodeVec;
 pub use AzTesselatedSvgNodeVecTT as AzTesselatedSvgNodeVec;
@@ -2896,6 +2960,16 @@ pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDe
 pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
 
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+/// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
+pub type AzAccessibilityStateVecDestructorTT = azul_impl::dom::AccessibilityStateVecDestructor;
+pub use AzAccessibilityStateVecDestructorTT as AzAccessibilityStateVecDestructor;
+
+pub type AzAccessibilityStateVecDestructorType = extern "C" fn(&mut AzAccessibilityStateVec);
+/// Re-export of rust-allocated (stack based) `MenuItemVecDestructor` struct
+pub type AzMenuItemVecDestructorTT = azul_impl::window::MenuItemVecDestructor;
+pub use AzMenuItemVecDestructorTT as AzMenuItemVecDestructor;
+
+pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
 /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
 pub type AzTesselatedSvgNodeVecDestructorTT = azul_impl::svg::TesselatedSvgNodeVecDestructor;
 pub use AzTesselatedSvgNodeVecDestructorTT as AzTesselatedSvgNodeVecDestructor;
@@ -3141,6 +3215,18 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
+pub type AzOptionMenuItemIconTT = azul_impl::window::OptionMenuItemIcon;
+pub use AzOptionMenuItemIconTT as AzOptionMenuItemIcon;
+
+/// Re-export of rust-allocated (stack based) `OptionMenuCallback` struct
+pub type AzOptionMenuCallbackTT = azul_impl::window::OptionMenuCallback;
+pub use AzOptionMenuCallbackTT as AzOptionMenuCallback;
+
+/// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
+pub type AzOptionVirtualKeyCodeComboTT = azul_impl::window::OptionVirtualKeyCodeCombo;
+pub use AzOptionVirtualKeyCodeComboTT as AzOptionVirtualKeyCodeCombo;
+
 /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
 pub type AzOptionCssPropertyTT = azul_impl::css::OptionCssProperty;
 pub use AzOptionCssPropertyTT as AzOptionCssProperty;
@@ -4121,6 +4207,14 @@ mod test_sizes {
         pub(crate) ptr: *const c_void,
     }
 
+    /// Describes the state of a menu item
+    #[repr(C)]
+    pub enum AzMenuItemState {
+        Normal,
+        Greyed,
+        Disabled,
+    }
+
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)]
     pub enum AzOn {
@@ -4240,6 +4334,8 @@ mod test_sizes {
         AfterMount,
         BeforeUnmount,
         NodeResized,
+        DefaultAction,
+        Selected,
     }
 
     /// Re-export of rust-allocated (stack based) `ApplicationEventFilter` struct
@@ -4247,6 +4343,96 @@ mod test_sizes {
     pub enum AzApplicationEventFilter {
         DeviceConnected,
         DeviceDisconnected,
+    }
+
+    /// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
+    #[repr(C)]
+    pub enum AzAccessibilityRole {
+        TitleBar,
+        MenuBar,
+        ScrollBar,
+        Grip,
+        Sound,
+        Cursor,
+        Caret,
+        Alert,
+        Window,
+        Client,
+        MenuPopup,
+        MenuItem,
+        Tooltip,
+        Application,
+        Document,
+        Pane,
+        Chart,
+        Dialog,
+        Border,
+        Grouping,
+        Separator,
+        Toolbar,
+        StatusBar,
+        Table,
+        ColumnHeader,
+        RowHeader,
+        Column,
+        Row,
+        Cell,
+        Link,
+        HelpBalloon,
+        Character,
+        List,
+        ListItem,
+        Outline,
+        OutlineItem,
+        Pagetab,
+        PropertyPage,
+        Indicator,
+        Graphic,
+        StaticText,
+        Text,
+        PushButton,
+        CheckButton,
+        RadioButton,
+        ComboBox,
+        DropList,
+        ProgressBar,
+        Dial,
+        HotkeyField,
+        Slider,
+        SpinButton,
+        Diagram,
+        Animation,
+        Equation,
+        ButtonDropdown,
+        ButtonMenu,
+        ButtonDropdownGrid,
+        Whitespace,
+        PageTabList,
+        Clock,
+        SplitButton,
+        IpAddress,
+        Nothing,
+    }
+
+    /// MSAA accessibility state. For information on what each state does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants">MSDN State Constants page</a>.
+    #[repr(C)]
+    pub enum AzAccessibilityState {
+        Unavailable,
+        Selected,
+        Focused,
+        Checked,
+        Readonly,
+        Default,
+        Expanded,
+        Collapsed,
+        Busy,
+        Offscreen,
+        Focusable,
+        Selectable,
+        Linked,
+        Traversed,
+        Multiselectable,
+        Protected,
     }
 
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
@@ -5177,6 +5363,28 @@ mod test_sizes {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzAccessibilityStateVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzAccessibilityStateVecDestructorType),
+    }
+
+    /// `AzAccessibilityStateVecDestructorType` struct
+    pub type AzAccessibilityStateVecDestructorType = extern "C" fn(&mut AzAccessibilityStateVec);
+
+    /// Re-export of rust-allocated (stack based) `MenuItemVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzMenuItemVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzMenuItemVecDestructorType),
+    }
+
+    /// `AzMenuItemVecDestructorType` struct
+    pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
+
     /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
     #[repr(C, u8)]
     pub enum AzTesselatedSvgNodeVecDestructor {
@@ -5947,6 +6155,20 @@ mod test_sizes {
     pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
+    }
+
+    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+    #[repr(C)]
+    pub struct AzMenuCallback {
+        pub callback: AzCallback,
+        pub data: AzRefAny,
+    }
+
+    /// Icon of a menu entry
+    #[repr(C, u8)]
+    pub enum AzMenuItemIcon {
+        Checkbox(bool),
+        Image(AzImageRef),
     }
 
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -7172,6 +7394,24 @@ mod test_sizes {
         pub callback: AzWriteBackCallback,
     }
 
+    /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
+    #[repr(C)]
+    pub struct AzAccessibilityStateVec {
+        pub(crate) ptr: *const AzAccessibilityState,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzAccessibilityStateVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<MenuItem>`
+    #[repr(C)]
+    pub struct AzMenuItemVec {
+        pub(crate) ptr: *const AzMenuItem,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzMenuItemVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     #[repr(C)]
     pub struct AzXmlNodeVec {
@@ -7386,6 +7626,20 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
+    #[repr(C, u8)]
+    pub enum AzOptionMenuItemIcon {
+        None,
+        Some(AzMenuItemIcon),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionMenuCallback` struct
+    #[repr(C, u8)]
+    pub enum AzOptionMenuCallback {
+        None,
+        Some(AzMenuCallback),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionPositionInfo` struct
@@ -7785,6 +8039,18 @@ mod test_sizes {
         pub _reserved_mut: *mut c_void,
     }
 
+    /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+    #[repr(C)]
+    pub struct AzMenu {
+        pub items: AzMenuItemVec,
+    }
+
+    /// Combination of virtual key codes that have to be pressed together
+    #[repr(C)]
+    pub struct AzVirtualKeyCodeCombo {
+        pub keys: AzVirtualKeyCodeVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `EventFilter` struct
     #[repr(C, u8)]
     pub enum AzEventFilter {
@@ -8086,6 +8352,13 @@ mod test_sizes {
         pub destructor: AzTagIdToNodeIdMappingVecDestructor,
     }
 
+    /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
+    #[repr(C, u8)]
+    pub enum AzOptionVirtualKeyCodeCombo {
+        None,
+        Some(AzVirtualKeyCodeCombo),
+    }
+
     /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
     #[repr(C, u8)]
     pub enum AzOptionMouseState {
@@ -8286,6 +8559,17 @@ mod test_sizes {
         Word(AzInlineTextContents),
     }
 
+    /// Regular labeled menu item
+    #[repr(C)]
+    pub struct AzStringMenuItem {
+        pub label: AzString,
+        pub accelerator: AzOptionVirtualKeyCodeCombo,
+        pub callback: AzOptionMenuCallback,
+        pub state: AzMenuItemState,
+        pub icon: AzOptionMenuItemIcon,
+        pub children: AzMenuItemVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
     #[repr(C)]
     pub struct AzCallbackData {
@@ -8303,6 +8587,17 @@ mod test_sizes {
         Text(AzString),
         Image(AzImageRef),
         IFrame(AzIFrameNode),
+    }
+
+    /// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
+    #[repr(C)]
+    pub struct AzAccessibilityInfo {
+        pub name: AzOptionString,
+        pub value: AzOptionString,
+        pub role: AzAccessibilityRole,
+        pub states: AzAccessibilityStateVec,
+        pub accelerator: AzOptionVirtualKeyCodeCombo,
+        pub default_action: AzOptionString,
     }
 
     /// Re-export of rust-allocated (stack based) `IdOrClass` struct
@@ -8693,6 +8988,14 @@ mod test_sizes {
     pub struct AzInlineLine {
         pub words: AzInlineWordVec,
         pub bounds: AzLogicalRect,
+    }
+
+    /// Item entry in a menu or menu bar
+    #[repr(C, u8)]
+    pub enum AzMenuItem {
+        Label(AzStringMenuItem),
+        Separator,
+        BreakLine,
     }
 
     /// Re-export of rust-allocated (stack based) `CssPath` struct
@@ -9093,8 +9396,7 @@ mod test_sizes {
         pub ids_and_classes: AzIdOrClassVec,
         pub callbacks: AzCallbackDataVec,
         pub inline_css_props: AzNodeDataInlineCssPropertyVec,
-        pub clip_mask: AzOptionImageMask,
-        pub tab_index: AzOptionTabIndex,
+        pub extra: *const c_void,
     }
 
     /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
@@ -9306,12 +9608,15 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::ThreadCallback>(), "AzThreadCallback"), (Layout::new::<AzThreadCallback>(), "AzThreadCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCount>(), "AzRefCount"), (Layout::new::<AzRefCount>(), "AzRefCount"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
         assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
         assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::WindowEventFilter>(), "AzWindowEventFilter"), (Layout::new::<AzWindowEventFilter>(), "AzWindowEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::ComponentEventFilter>(), "AzComponentEventFilter"), (Layout::new::<AzComponentEventFilter>(), "AzComponentEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::ApplicationEventFilter>(), "AzApplicationEventFilter"), (Layout::new::<AzApplicationEventFilter>(), "AzApplicationEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::dom::AccessibilityRole>(), "AzAccessibilityRole"), (Layout::new::<AzAccessibilityRole>(), "AzAccessibilityRole"));
+        assert_eq!((Layout::new::<azul_impl::dom::AccessibilityState>(), "AzAccessibilityState"), (Layout::new::<AzAccessibilityState>(), "AzAccessibilityState"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
         assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeKey"), (Layout::new::<AzNodeTypeKey>(), "AzNodeTypeKey"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
@@ -9415,6 +9720,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"), (Layout::new::<AzTesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
@@ -9492,6 +9799,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuCallback>(), "AzMenuCallback"), (Layout::new::<AzMenuCallback>(), "AzMenuCallback"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItemIcon>(), "AzMenuItemIcon"), (Layout::new::<AzMenuItemIcon>(), "AzMenuItemIcon"));
         assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
@@ -9634,6 +9943,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
+        assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVec>(), "AzAccessibilityStateVec"), (Layout::new::<AzAccessibilityStateVec>(), "AzAccessibilityStateVec"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItemVec>(), "AzMenuItemVec"), (Layout::new::<AzMenuItemVec>(), "AzMenuItemVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVec>(), "AzXmlNodeVec"), (Layout::new::<AzXmlNodeVec>(), "AzXmlNodeVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVec>(), "AzInlineGlyphVec"), (Layout::new::<AzInlineGlyphVec>(), "AzInlineGlyphVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineTextHitVec>(), "AzInlineTextHitVec"), (Layout::new::<AzInlineTextHitVec>(), "AzInlineTextHitVec"));
@@ -9658,6 +9969,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionMenuItemIcon>(), "AzOptionMenuItemIcon"), (Layout::new::<AzOptionMenuItemIcon>(), "AzOptionMenuItemIcon"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionMenuCallback>(), "AzOptionMenuCallback"), (Layout::new::<AzOptionMenuCallback>(), "AzOptionMenuCallback"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::OptionPositionInfo>(), "AzOptionPositionInfo"), (Layout::new::<AzOptionPositionInfo>(), "AzOptionPositionInfo"));
         assert_eq!((Layout::new::<azul_impl::task::OptionTimerId>(), "AzOptionTimerId"), (Layout::new::<AzOptionTimerId>(), "AzOptionTimerId"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadId>(), "AzOptionThreadId"), (Layout::new::<AzOptionThreadId>(), "AzOptionThreadId"));
@@ -9709,6 +10022,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationEasing"), (Layout::new::<AzAnimationEasing>(), "AzAnimationEasing"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"), (Layout::new::<AzRenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInfo>(), "AzLayoutCallbackInfo"), (Layout::new::<AzLayoutCallbackInfo>(), "AzLayoutCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::window::Menu>(), "AzMenu"), (Layout::new::<AzMenu>(), "AzMenu"));
+        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"), (Layout::new::<AzVirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"));
         assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
@@ -9741,6 +10056,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"), (Layout::new::<AzTagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"));
+        assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"), (Layout::new::<AzOptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"));
         assert_eq!((Layout::new::<azul_impl::window::OptionMouseState>(), "AzOptionMouseState"), (Layout::new::<AzOptionMouseState>(), "AzOptionMouseState"));
         assert_eq!((Layout::new::<azul_impl::window::OptionKeyboardState>(), "AzOptionKeyboardState"), (Layout::new::<AzOptionKeyboardState>(), "AzOptionKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::css::OptionStringVec>(), "AzOptionStringVec"), (Layout::new::<AzOptionStringVec>(), "AzOptionStringVec"));
@@ -9762,8 +10078,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineWord>(), "AzInlineWord"), (Layout::new::<AzInlineWord>(), "AzInlineWord"));
+        assert_eq!((Layout::new::<azul_impl::window::StringMenuItem>(), "AzStringMenuItem"), (Layout::new::<AzStringMenuItem>(), "AzStringMenuItem"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
+        assert_eq!((Layout::new::<azul_impl::dom::AccessibilityInfo>(), "AzAccessibilityInfo"), (Layout::new::<AzAccessibilityInfo>(), "AzAccessibilityInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
@@ -9805,6 +10123,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::XmlStreamError>(), "AzXmlStreamError"), (Layout::new::<AzXmlStreamError>(), "AzXmlStreamError"));
         assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLine>(), "AzInlineLine"), (Layout::new::<AzInlineLine>(), "AzInlineLine"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItem>(), "AzMenuItem"), (Layout::new::<AzMenuItem>(), "AzMenuItem"));
         assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"), (Layout::new::<AzStyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"));
