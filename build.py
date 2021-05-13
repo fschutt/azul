@@ -1331,7 +1331,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                         return_type_str = prefix + class_name
                         if not(return_type is None):
                             return_type_str = return_type
-                        if (constructor_name == "new" or constructor_name == "default" and not("returns" in constructor.keys())):
+                        if (constructor_name == "new" and not("returns" in constructor.keys())):
                             pyo3_code += "    #[new]\r\n"
                         else:
                             pyo3_code += "    #[staticmethod]\r\n"

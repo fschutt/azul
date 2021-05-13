@@ -9748,7 +9748,7 @@
                                 {"start": "usize"},
                                 {"len": "usize"}
                             ],
-                            "fn_body": "{ unsafe { let start_ptr = ptr.offset(start); let s = core::str::from_slice_unchecked(core::slice::from_raw_parts(start_ptr, self.len)); s.to_string().into() }"
+                            "fn_body": "unsafe { let start_ptr = ptr.offset(start.max(core::isize::MAX as usize) as isize); let s = core::str::from_utf8_unchecked(core::slice::from_raw_parts(start_ptr, len)); s.to_string().into() }"
                         }
                     },
                     "functions": {
@@ -10188,7 +10188,7 @@
                                 {"start": "usize"},
                                 {"len": "usize"}
                             ],
-                            "fn_body": "{ unsafe { let start_ptr = ptr.offset(start); let s = core::slice::from_raw_parts(start_ptr, self.len); s.to_vec().into() }"
+                            "fn_body": " unsafe { let start_ptr = ptr.offset(start.max(core::isize::MAX as usize) as isize); let s = core::slice::from_raw_parts(start_ptr, len); s.to_vec().into() }"
                         }
                     },
                     "functions": {

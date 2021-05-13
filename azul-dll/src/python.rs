@@ -11562,7 +11562,7 @@ impl PyObjectProtocol for AzVideoMode {
 
 #[pymethods]
 impl AzWindowState {
-    #[new]
+    #[staticmethod]
     fn default() -> AzWindowState {
         unsafe { mem::transmute(crate::AzWindowState_default()) }
     }
@@ -18028,7 +18028,7 @@ impl AzStyledDom {
             mem::transmute(css),
         )) }
     }
-    #[new]
+    #[staticmethod]
     fn default() -> AzStyledDom {
         unsafe { mem::transmute(crate::AzStyledDom_default()) }
     }
@@ -20409,7 +20409,7 @@ impl PyObjectProtocol for AzGetActiveUniformReturn {
 
 #[pymethods]
 impl AzTextureFlags {
-    #[new]
+    #[staticmethod]
     fn default() -> AzTextureFlags {
         unsafe { mem::transmute(crate::AzTextureFlags_default()) }
     }
@@ -21258,7 +21258,7 @@ impl PyObjectProtocol for AzTesselatedSvgNodeVecRef {
 
 #[pymethods]
 impl AzSvgParseOptions {
-    #[new]
+    #[staticmethod]
     fn default() -> AzSvgParseOptions {
         unsafe { mem::transmute(crate::AzSvgParseOptions_default()) }
     }
@@ -21352,7 +21352,7 @@ impl PyObjectProtocol for AzFontDatabaseEnumWrapper {
 
 #[pymethods]
 impl AzSvgRenderOptions {
-    #[new]
+    #[staticmethod]
     fn default() -> AzSvgRenderOptions {
         unsafe { mem::transmute(crate::AzSvgRenderOptions_default()) }
     }
@@ -21972,7 +21972,7 @@ impl PyObjectProtocol for AzColorPickerDialog {
 
 #[pymethods]
 impl AzSystemClipboard {
-    #[new]
+    #[staticmethod]
     fn new() -> Option<AzSystemClipboard> {
         let m: AzOptionSystemClipboard = unsafe { mem::transmute(crate::AzSystemClipboard_new()) };
         match m {

@@ -2579,7 +2579,7 @@ pub use AzStringTT as AzString;
 /// Creates a dynamically formatted String from a fomat string + named arguments
 #[no_mangle] pub extern "C" fn AzString_format(format: AzString, args: AzFmtArgVec) -> AzString { azul_impl::str::fmt_string(format, args).into() }
 /// Creates a new String from an arbitary pointer, a start offset (bytes from the start pointer, usually 0) and a length (in bytes). The bytes are expected to point to a UTF-8 encoded string, no error checking is performed.
-#[no_mangle] pub extern "C" fn AzString_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzString { { unsafe { let start_ptr = ptr.offset(start); let s = core::str::from_slice_unchecked(core::slice::from_raw_parts(start_ptr, self.len)); s.to_string().into() } }
+#[no_mangle] pub extern "C" fn AzString_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzString { unsafe { let start_ptr = ptr.offset(start.max(core::isize::MAX as usize) as isize); let s = core::str::from_utf8_unchecked(core::slice::from_raw_parts(start_ptr, len)); s.to_string().into() } }
 /// Trims whitespace from the start / end of the string
 #[no_mangle] pub extern "C" fn AzString_trim(string: &AzString) -> AzString { string.as_str().trim().to_string().into() }
 /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
@@ -2801,7 +2801,7 @@ pub use AzF32VecTT as AzF32Vec;
 pub type AzU8VecTT = azul_impl::css::U8Vec;
 pub use AzU8VecTT as AzU8Vec;
 /// Creates a new, heap-allocated U8Vec by copying the memory into Rust (heap allocation)
-#[no_mangle] pub extern "C" fn AzU8Vec_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzU8Vec { { unsafe { let start_ptr = ptr.offset(start); let s = core::slice::from_raw_parts(start_ptr, self.len); s.to_vec().into() } }
+#[no_mangle] pub extern "C" fn AzU8Vec_copyFromBytes(ptr: *const u8, start: usize, len: usize) -> AzU8Vec {  unsafe { let start_ptr = ptr.offset(start.max(core::isize::MAX as usize) as isize); let s = core::slice::from_raw_parts(start_ptr, len); s.to_vec().into() } }
 /// Returns the `U8Vec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
 #[no_mangle] pub extern "C" fn AzU8Vec_asRefVec(u8vec: &AzU8Vec) -> AzU8VecRef { u8vec.as_ref().into() }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
