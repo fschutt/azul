@@ -842,8 +842,8 @@ impl CallbacksOfHitTest {
                 &lr.rects,
                 &lr.styled_dom.styled_nodes,
                 &lr.styled_dom.css_property_cache,
-                lr.styled_dom.node_data.split_into_callbacks_and_dataset(&lr.styled_dom.nodes_with_datasets.as_ref()))
-            ))
+                lr.styled_dom.node_data.split_into_callbacks_and_dataset()
+            )))
         }).collect::<BTreeMap<_, _>>();
 
         for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {

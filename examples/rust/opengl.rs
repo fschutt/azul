@@ -4,12 +4,7 @@ extern crate azul;
 extern crate azul_widgets;
 
 use azul_widgets::button::Button;
-use azul::{
-    prelude::*,
-    gl::{self, Texture, TextureFlags, GlContextPtr},
-    callbacks::{GlCallbackInfo, GlCallbackReturn},
-    window::LogicalSize,
-};
+use azul::prelude::*;
 
 struct OpenGlAppState { }
 
@@ -95,7 +90,7 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
 }
 
 fn main() {
-    let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::default(), layout);
+    let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::new(LayoutSolver::Default), layout);
     let az_css: azul::str::String = String::from("
         texture {
             width: 100%;

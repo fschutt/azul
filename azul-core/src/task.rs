@@ -1119,9 +1119,7 @@ pub fn run_all_timers<'a, 'b>(
         let cursor_in_viewport = OptionLogicalPosition::None;
 
         let layout_result = &mut layout_results[hit_dom_node.dom.inner];
-        let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
-            layout_result.styled_dom.nodes_with_datasets.as_ref()
-        );
+        let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
 
         let callback_info = CallbackInfo::new(
             &layout_result.styled_dom.css_property_cache.ptr,
@@ -1219,9 +1217,7 @@ pub fn clean_up_finished_threads<'a, 'b>(
     let cursor_in_viewport = OptionLogicalPosition::None;
 
     let layout_result = &mut layout_results[hit_dom_node.dom.inner];
-    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
-        layout_result.styled_dom.nodes_with_datasets.as_ref()
-    );
+    let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
     let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
 
     // originally this code used retain(), but retain() is not available on no_std

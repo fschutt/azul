@@ -2,7 +2,7 @@
 
 extern crate azul;
 
-use azul::{prelude::*, widgets::button::Button};
+use azul::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const CSS: &str = "
@@ -253,7 +253,7 @@ fn main() {
         board: Board::empty(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT),
         game_is_running: false,
     };
-    let app = App::new(app_data, AppConfig::default()).unwrap();
+    let app = App::new(app_data, AppConfig::new(LayoutSolver::Default)).unwrap();
     let css = css::override_native(CSS).unwrap();
     let window_options = WindowCreateOptions {
         state: WindowState {

@@ -1,4 +1,4 @@
-use azul::*;
+use azul::prelude::*;
 
 struct DataModel {
     counter: usize,
@@ -38,6 +38,6 @@ extern "C" fn myOnClick(data: &mut RefAny, _: CallbackInfo) -> Update {
 
 fn main() {
     let data = DataModel { counter: 0 };
-    let app = App::new(RefAny::new(data), AppConfig::default());
+    let app = App::new(RefAny::new(data), AppConfig::new(LayoutSolver::Default));
     app.run(WindowCreateOptions::new(myLayoutFunc));
 }

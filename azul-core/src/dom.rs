@@ -833,7 +833,7 @@ impl NodeDataVec {
 
     // necessary so that the callbacks have mutable access to the NodeType while
     // at the same time the library has mutable access to the CallbackDataVec
-    pub fn split_into_callbacks_and_dataset<'a>(&'a mut self, nodes_to_consider: &[AzNodeId])
+    pub fn split_into_callbacks_and_dataset<'a>(&'a mut self)
     -> (
         BTreeMap<NodeId, &'a mut CallbackDataVec>,
          BTreeMap<NodeId, &'a mut RefAny>
@@ -842,17 +842,9 @@ impl NodeDataVec {
         let mut a = BTreeMap::new();
         let mut b = BTreeMap::new();
 
-        for (node_id, self_mut) in nodes_to_consider.iter().map(|n| (n, self.as_mut_slice_extended())) {
+        for (node_id, node_data) in self.iter_mut().enumerate() {
 
-            let n_internal = match node_id.into_crate_internal() {
-                Some(s) => s,
-                None => continue,
-            };
-
-            let node_data = match self_mut.get_mut(n_internal.index()) {
-                Some(s) => s,
-                None => continue,
-            };
+            let n_internal = NodeId::new(node_id);
 
             let a_map = &mut node_data.callbacks;
             let b_map = &mut node_data.dataset;
@@ -1286,7 +1278,11 @@ impl Dom {
     }
 
     #[inline(always)]
-    pub fn set_children(&mut self, children: DomVec) { self.children = children; }
+    pub fn set_children(&mut self, children: DomVec) {
+        let children_estimated = children.iter().map(|s| s.estimated_total_children + 1).sum();
+        self.children = children;
+        self.estimated_total_children = children_estimated;
+    }
 
     pub fn copy_except_for_root(&mut self) -> Self {
         Self {
@@ -1302,6 +1298,13 @@ impl Dom {
     #[cfg(feature = "multithreading")]
     pub fn style(&mut self, css: &mut Css) -> StyledDom {
         StyledDom::new(self, css)
+    }
+
+    fn fixup_children_estimated(&mut self) {
+        for child in self.children.iter_mut() {
+            child.fixup_children_estimated();
+        }
+        self.estimated_total_children = self.children.iter().map(|s| s.estimated_total_children + 1).sum();
     }
 }
 
@@ -1394,6 +1397,8 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // Pre-allocate all nodes (+ 1 root node)
     const DEFAULT_NODE_DATA: NodeData = NodeData::div();
 
+    dom.fixup_children_estimated();
+
     let mut node_hierarchy = vec![Node::ROOT; dom.estimated_total_children + 1];
     let mut node_data = (0..dom.estimated_total_children + 1).map(|_| DEFAULT_NODE_DATA).collect::<Vec<_>>();
     let mut cur_node_id = 0;
@@ -1406,7 +1411,19 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
     };
 
+    println!("converting DOM into compact DOM:
+
+    dom: {:#?}
+    node_hierarchy: {:#?}
+    node_data: {:#?}
+    root_node_id: {:#?}
+    root_node: {:#?}
+    cur_node_id: {:#?}
+    ", dom, node_hierarchy, node_data, root_node_id, root_node, cur_node_id);
+
     convert_dom_into_compact_dom_internal(&mut dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
+
+    println!("ok: converted: {:?}, {:?}", node_hierarchy, node_data);
 
     CompactDom {
         node_hierarchy: NodeHierarchy { internal: node_hierarchy },

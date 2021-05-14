@@ -1,5 +1,7 @@
 #![windows_subsystem = "windows"]
 
+use azul::prelude::*;
+
 #[derive(Default)]
 pub struct Calculator {
     pub current_operator: Option<OperandStack>,
@@ -461,7 +463,7 @@ pub mod logic {
 }
 
 fn main() {
-    let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
+    let mut app = App::new(Calculator::default(), AppConfig::new(LayoutSolver::Default)).unwrap();
     app.add_fomt("KoHo-Light", FontRef::embedded(ui::FONT));
     app.run(WindowCreateOptions::new(ui::layout));
 }

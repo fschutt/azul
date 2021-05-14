@@ -1,8 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use azul::{
-    timer::Timer,
-};
+use azul::prelude::*;
 use azul_widgets::{
     button::Button,
     label::Label,
@@ -279,6 +277,6 @@ mod postgres {
 }
 
 fn main() {
-    let app = App::new(RefAny::new(MyDataModel::default()), AppConfig::default());
+    let app = App::new(RefAny::new(MyDataModel::default()), AppConfig::new(LayoutSolver::Default));
     app.run(WindowCreateOptions::new(render_ui));
 }

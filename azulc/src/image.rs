@@ -22,12 +22,11 @@ pub mod decode {
 
     impl fmt::Display for DecodeImageError {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            use self::DecodeImageError::*;
             match self {
-                InsufficientMemory => write!(f, "Error decoding image: Not enough memory available to perform encoding operation"),
-                DimensionError => write!(f, "Error decoding image: Wrong dimensions"),
-                InvalidData => write!(f, "Error decoding image: Invalid data format"),
-                Unknown => write!(f, "Error decoding image: Unknown error"),
+                DecodeImageError::InsufficientMemory => write!(f, "Error decoding image: Not enough memory available to perform encoding operation"),
+                DecodeImageError::DimensionError => write!(f, "Error decoding image: Wrong dimensions"),
+                DecodeImageError::UnsupportedImageFormat => write!(f, "Error decoding image: Invalid data format"),
+                DecodeImageError::Unknown => write!(f, "Error decoding image: Unknown error"),
             }
         }
     }

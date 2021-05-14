@@ -1,11 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-extern crate azul;
-
-use azul::{
-    prelude::*,
-    widgets::{button::Button, svg::*},
-};
+use azul::prelude::*;
 
 const CSS: &str = "
 #svg-container {
@@ -147,7 +142,7 @@ fn main() {
         }),
     };
 
-    let app = App::new(app_data, AppConfig::default()).unwrap();
+    let app = App::new(app_data, AppConfig::new(LayoutSolver::Default)).unwrap();
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
     app.run(WindowCreateOptions::new(css));
 }

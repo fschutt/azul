@@ -1,11 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use azul::{
-    app::{App, AppConfig},
-    window::WindowCreateOptions,
-    style::StyledDom,
-    callbacks::{RefAny, LayoutCallbackInfo},
-};
+use azul::prelude::*;
 
 #[derive(Debug)]
 struct Data { }
@@ -16,7 +11,7 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom 
 
 fn main() {
     let data = RefAny::new(Data { });
-    let app = App::new(data, AppConfig::default());
+    let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(layout);
     window.hot_reload = true;
     app.run(window);
