@@ -527,14 +527,27 @@ extern crate alloc;
 
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
 pub mod prelude {
-    pub use crate::{
-        app::{App, AppConfig},
-        css::Css,
-        dom::Dom,
-        style::StyledDom,
-        window::WindowCreateOptions,
-        callbacks::{RefAny, LayoutCallbackInfo, CallbackInfo},
-    };
+    pub use crate::app::*;
+    pub use crate::window::*;
+    pub use crate::callbacks::*;
+    pub use crate::menu::*;
+    pub use crate::dom::*;
+    pub use crate::css::*;
+    pub use crate::style::*;
+    pub use crate::gl::*;
+    pub use crate::image::*;
+    pub use crate::font::*;
+    pub use crate::svg::*;
+    pub use crate::xml::*;
+    pub use crate::fs::*;
+    pub use crate::dialog::*;
+    pub use crate::clipboard::*;
+    pub use crate::time::*;
+    pub use crate::task::*;
+    pub use crate::str::*;
+    pub use crate::vec::*;
+    pub use crate::option::*;
+    pub use crate::error::*;
 }
 
 mod dll {
@@ -550,7 +563,8 @@ mod dll {
     }
 
     impl ::core::fmt::Debug for AzCallback                   { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzLayoutCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzLayoutCallbackInner             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzMarshaledLayoutCallbackInner             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzRenderImageCallback        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzIFrameCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzTimerCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
@@ -569,7 +583,8 @@ mod dll {
     impl ::core::fmt::Debug for AzThreadSendFn               { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
     impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    impl PartialEq for AzLayoutCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzLayoutCallbackInner { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzMarshaledLayoutCallbackInner { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzRenderImageCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzIFrameCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzTimerCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
@@ -588,7 +603,8 @@ mod dll {
     impl PartialEq for AzThreadSendFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzLayoutCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzLayoutCallbackInner { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzMarshaledLayoutCallbackInner { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzRenderImageCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzIFrameCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzTimerCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
@@ -1052,6 +1068,8 @@ mod dll {
         pub has_focus: bool,
         pub has_extended_window_frame: bool,
         pub has_blur_behind_window: bool,
+        pub smooth_scroll_enabled: bool,
+        pub autotab_enabled: bool,
     }
 
     /// Debugging information, will be rendered as an overlay on top of the UI
@@ -8496,12 +8514,25 @@ mod dll {
         pub(crate) fn AzLayoutCallbackInfo_getImage(_:  &AzLayoutCallbackInfo, _:  AzString) -> AzOptionImageRef;
         pub(crate) fn AzDom_new(_:  AzNodeType) -> AzDom;
         pub(crate) fn AzDom_body() -> AzDom;
+        pub(crate) fn AzDom_div() -> AzDom;
         pub(crate) fn AzDom_br() -> AzDom;
         pub(crate) fn AzDom_text(_:  AzString) -> AzDom;
         pub(crate) fn AzDom_image(_:  AzImageRef) -> AzDom;
         pub(crate) fn AzDom_iframe(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom;
+        pub(crate) fn AzDom_setNodeType(_:  &mut AzDom, _:  AzNodeType);
+        pub(crate) fn AzDom_withNodeType(_:  &mut AzDom, _:  AzNodeType) -> AzDom;
+        pub(crate) fn AzDom_setDataset(_:  &mut AzDom, _:  AzRefAny);
+        pub(crate) fn AzDom_withDataset(_:  &mut AzDom, _:  AzRefAny) -> AzDom;
+        pub(crate) fn AzDom_setIdsAndClasses(_:  &mut AzDom, _:  AzIdOrClassVec);
+        pub(crate) fn AzDom_withIdsAndClasses(_:  &mut AzDom, _:  AzIdOrClassVec) -> AzDom;
+        pub(crate) fn AzDom_setCallbacks(_:  &mut AzDom, _:  AzCallbackDataVec);
+        pub(crate) fn AzDom_withCallbacks(_:  &mut AzDom, _:  AzCallbackDataVec) -> AzDom;
+        pub(crate) fn AzDom_setInlineCssProps(_:  &mut AzDom, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzDom_withInlineCssProps(_:  &mut AzDom, _:  AzNodeDataInlineCssPropertyVec) -> AzDom;
         pub(crate) fn AzDom_addChild(_:  &mut AzDom, _:  AzDom);
         pub(crate) fn AzDom_withChild(_:  &mut AzDom, _:  AzDom) -> AzDom;
+        pub(crate) fn AzDom_setChildren(_:  &mut AzDom, _:  AzDomVec);
+        pub(crate) fn AzDom_withChildren(_:  &mut AzDom, _:  AzDomVec) -> AzDom;
         pub(crate) fn AzDom_addId(_:  &mut AzDom, _:  AzString);
         pub(crate) fn AzDom_withId(_:  &mut AzDom, _:  AzString) -> AzDom;
         pub(crate) fn AzDom_addClass(_:  &mut AzDom, _:  AzString);
@@ -8528,6 +8559,22 @@ mod dll {
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
         pub(crate) fn AzDom_style(_:  &mut AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzNodeData_new(_:  AzNodeType) -> AzNodeData;
+        pub(crate) fn AzNodeData_body() -> AzNodeData;
+        pub(crate) fn AzNodeData_div() -> AzNodeData;
+        pub(crate) fn AzNodeData_br() -> AzNodeData;
+        pub(crate) fn AzNodeData_text(_:  AzString) -> AzNodeData;
+        pub(crate) fn AzNodeData_image(_:  AzImageRef) -> AzNodeData;
+        pub(crate) fn AzNodeData_iframe(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzNodeData;
+        pub(crate) fn AzNodeData_setNodeType(_:  &mut AzNodeData, _:  AzNodeType);
+        pub(crate) fn AzNodeData_withNodeType(_:  &mut AzNodeData, _:  AzNodeType) -> AzNodeData;
+        pub(crate) fn AzNodeData_setDataset(_:  &mut AzNodeData, _:  AzRefAny);
+        pub(crate) fn AzNodeData_withDataset(_:  &mut AzNodeData, _:  AzRefAny) -> AzNodeData;
+        pub(crate) fn AzNodeData_setIdsAndClasses(_:  &mut AzNodeData, _:  AzIdOrClassVec);
+        pub(crate) fn AzNodeData_withIdsAndClasses(_:  &mut AzNodeData, _:  AzIdOrClassVec) -> AzNodeData;
+        pub(crate) fn AzNodeData_setCallbacks(_:  &mut AzNodeData, _:  AzCallbackDataVec);
+        pub(crate) fn AzNodeData_withCallbacks(_:  &mut AzNodeData, _:  AzCallbackDataVec) -> AzNodeData;
+        pub(crate) fn AzNodeData_setInlineCssProps(_:  &mut AzNodeData, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzNodeData_withInlineCssProps(_:  &mut AzNodeData, _:  AzNodeDataInlineCssPropertyVec) -> AzNodeData;
         pub(crate) fn AzNodeData_setClipMask(_:  &mut AzNodeData, _:  AzImageMask);
         pub(crate) fn AzNodeData_setTabIndex(_:  &mut AzNodeData, _:  AzTabIndex);
         pub(crate) fn AzNodeData_setAccessibilityInfo(_:  &mut AzNodeData, _:  AzAccessibilityInfo);
@@ -9745,93 +9792,6 @@ pub mod dom {
     //! `Dom` construction and configuration
     use crate::dll::*;
     use core::ffi::c_void;
-    use crate::option::OptionImageMask;
-    use crate::option::OptionTabIndex;
-    use crate::option::OptionRefAny;
-    use crate::callbacks::IFrameCallback;
-    use crate::callbacks::IFrameCallbackType;
-    use crate::callbacks::RefAny;
-    use crate::image::ImageRef;
-    use crate::vec::DomVec;
-    use crate::vec::IdOrClassVec;
-    use crate::vec::CallbackDataVec;
-    use crate::vec::NodeDataInlineCssPropertyVec;
-
-    impl Dom {
-
-        /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
-        /// doesn't allocate, it only allocates once you add at least one child node.
-        #[inline]
-        pub const fn const_new(node_type: NodeType) -> Self {
-            const DEFAULT_VEC: DomVec = DomVec::from_const_slice(&[]);
-            Self {
-                root: NodeData::new(node_type),
-                children: DEFAULT_VEC,
-                total_children: 0,
-            }
-        }
-
-        #[inline(always)]
-        pub const fn const_div() -> Self { Self::new(NodeType::Div) }
-        #[inline(always)]
-        pub const fn const_body() -> Self { Self::new(NodeType::Body) }
-        #[inline(always)]
-        pub const fn const_br() -> Self { Self::new(NodeType::Br) }
-    }
-
-    impl NodeData {
-
-        /// Creates a new `NodeData` instance from a given `NodeType`
-        #[inline]
-        pub const fn const_new(node_type: NodeType) -> Self {
-            Self {
-                node_type,
-                dataset: OptionRefAny::None,
-                ids_and_classes: IdOrClassVec::from_const_slice(&[]),
-                callbacks: CallbackDataVec::from_const_slice(&[]),
-                inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
-                clip_mask: OptionImageMask::None,
-                tab_index: OptionTabIndex::None,
-            }
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Body)`.
-        #[inline(always)]
-        pub const fn const_body() -> Self {
-            Self::new(NodeType::Body)
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Div)`.
-        #[inline(always)]
-        pub const fn const_div() -> Self {
-            Self::new(NodeType::Div)
-        }
-
-        /// Shorthand for `NodeData::new(NodeType::Br)`.
-        #[inline(always)]
-        pub const fn const_br() -> Self {
-            Self::new(NodeType::Br)
-        }
-
-        // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
-        // in the future (which is why the fields are all private).
-
-        #[inline(always)]
-        pub const fn const_get_node_type(&self) -> &NodeType { &self.node_type }
-        #[inline(always)]
-        pub const fn const_get_dataset(&self) -> &OptionRefAny { &self.dataset }
-        #[inline(always)]
-        pub const fn const_get_ids_and_classes(&self) -> &IdOrClassVec { &self.ids_and_classes }
-        #[inline(always)]
-        pub const fn const_get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
-        #[inline(always)]
-        pub const fn const_get_inline_css_props(&self) -> &NodeDataInlineCssPropertyVec { &self.inline_css_props }
-        #[inline(always)]
-        pub const fn const_get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
-        #[inline(always)]
-        pub const fn const_get_tab_index(&self) -> OptionTabIndex { self.tab_index }
-    }
-
     impl Default for Dom {
         fn default() -> Self {
             Dom::div()
@@ -9902,6 +9862,7 @@ pub mod dom {
     }    use crate::str::String;
     use crate::image::{ImageMask, ImageRef};
     use crate::callbacks::{IFrameCallbackType, RefAny};
+    use crate::vec::{CallbackDataVec, DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec};
     use crate::css::{Css, CssProperty};
     use crate::menu::Menu;
     /// `Dom` struct
@@ -9913,6 +9874,8 @@ pub mod dom {
         /// Creates a new `Dom` instance.
         pub fn body() -> Self { unsafe { crate::dll::AzDom_body() } }
         /// Creates a new `Dom` instance.
+        pub fn div() -> Self { unsafe { crate::dll::AzDom_div() } }
+        /// Creates a new `Dom` instance.
         pub fn br() -> Self { unsafe { crate::dll::AzDom_br() } }
         /// Creates a new `Dom` instance.
         pub fn text(string: String) -> Self { unsafe { crate::dll::AzDom_text(string) } }
@@ -9920,10 +9883,34 @@ pub mod dom {
         pub fn image(image: ImageRef) -> Self { unsafe { crate::dll::AzDom_image(image) } }
         /// Creates a new `Dom` instance.
         pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzDom_iframe(data, callback) } }
+        /// Calls the `Dom::set_node_type` function.
+        pub fn set_node_type(&mut self, node_type: NodeType)  { unsafe { crate::dll::AzDom_setNodeType(self, node_type) } }
+        /// Calls the `Dom::with_node_type` function.
+        pub fn with_node_type(&mut self, node_type: NodeType)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withNodeType(self, node_type) } }
+        /// Calls the `Dom::set_dataset` function.
+        pub fn set_dataset(&mut self, dataset: RefAny)  { unsafe { crate::dll::AzDom_setDataset(self, dataset) } }
+        /// Calls the `Dom::with_dataset` function.
+        pub fn with_dataset(&mut self, dataset: RefAny)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withDataset(self, dataset) } }
+        /// Calls the `Dom::set_ids_and_classes` function.
+        pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  { unsafe { crate::dll::AzDom_setIdsAndClasses(self, ids_and_classes) } }
+        /// Calls the `Dom::with_ids_and_classes` function.
+        pub fn with_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withIdsAndClasses(self, ids_and_classes) } }
+        /// Calls the `Dom::set_callbacks` function.
+        pub fn set_callbacks(&mut self, callbacks: CallbackDataVec)  { unsafe { crate::dll::AzDom_setCallbacks(self, callbacks) } }
+        /// Calls the `Dom::with_callbacks` function.
+        pub fn with_callbacks(&mut self, callbacks: CallbackDataVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCallbacks(self, callbacks) } }
+        /// Calls the `Dom::set_inline_css_props` function.
+        pub fn set_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzDom_setInlineCssProps(self, css_properties) } }
+        /// Calls the `Dom::with_inline_css_props` function.
+        pub fn with_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineCssProps(self, css_properties) } }
         /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
         pub fn add_child(&mut self, child: Dom)  { unsafe { crate::dll::AzDom_addChild(self, child) } }
         /// Same as add_child, but as a builder method.
         pub fn with_child(&mut self, child: Dom)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChild(self, child) } }
+        /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
+        pub fn set_children(&mut self, children: DomVec)  { unsafe { crate::dll::AzDom_setChildren(self, children) } }
+        /// Same as set_children, but as a builder method.
+        pub fn with_children(&mut self, children: DomVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChildren(self, children) } }
         /// Adds an CSS ID to the DOM root node.
         pub fn add_id(&mut self, id: String)  { unsafe { crate::dll::AzDom_addId(self, id) } }
         /// Same as add_id, but as a builder method
@@ -9988,6 +9975,38 @@ pub mod dom {
     impl NodeData {
         /// Creates an new, empty `NodeData` struct
         pub fn new(node_type: NodeType) -> Self { unsafe { crate::dll::AzNodeData_new(node_type) } }
+        /// Creates a new `NodeData` instance.
+        pub fn body() -> Self { unsafe { crate::dll::AzNodeData_body() } }
+        /// Creates a new `NodeData` instance.
+        pub fn div() -> Self { unsafe { crate::dll::AzNodeData_div() } }
+        /// Creates a new `NodeData` instance.
+        pub fn br() -> Self { unsafe { crate::dll::AzNodeData_br() } }
+        /// Creates a new `NodeData` instance.
+        pub fn text(string: String) -> Self { unsafe { crate::dll::AzNodeData_text(string) } }
+        /// Creates a new `NodeData` instance.
+        pub fn image(image: ImageRef) -> Self { unsafe { crate::dll::AzNodeData_image(image) } }
+        /// Creates a new `NodeData` instance.
+        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzNodeData_iframe(data, callback) } }
+        /// Calls the `NodeData::set_node_type` function.
+        pub fn set_node_type(&mut self, node_type: NodeType)  { unsafe { crate::dll::AzNodeData_setNodeType(self, node_type) } }
+        /// Calls the `NodeData::with_node_type` function.
+        pub fn with_node_type(&mut self, node_type: NodeType)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withNodeType(self, node_type) } }
+        /// Calls the `NodeData::set_dataset` function.
+        pub fn set_dataset(&mut self, dataset: RefAny)  { unsafe { crate::dll::AzNodeData_setDataset(self, dataset) } }
+        /// Calls the `NodeData::with_dataset` function.
+        pub fn with_dataset(&mut self, dataset: RefAny)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withDataset(self, dataset) } }
+        /// Calls the `NodeData::set_ids_and_classes` function.
+        pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  { unsafe { crate::dll::AzNodeData_setIdsAndClasses(self, ids_and_classes) } }
+        /// Calls the `NodeData::with_ids_and_classes` function.
+        pub fn with_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withIdsAndClasses(self, ids_and_classes) } }
+        /// Calls the `NodeData::set_callbacks` function.
+        pub fn set_callbacks(&mut self, callbacks: CallbackDataVec)  { unsafe { crate::dll::AzNodeData_setCallbacks(self, callbacks) } }
+        /// Calls the `NodeData::with_callbacks` function.
+        pub fn with_callbacks(&mut self, callbacks: CallbackDataVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withCallbacks(self, callbacks) } }
+        /// Calls the `NodeData::set_inline_css_props` function.
+        pub fn set_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNodeData_setInlineCssProps(self, css_properties) } }
+        /// Calls the `NodeData::with_inline_css_props` function.
+        pub fn with_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineCssProps(self, css_properties) } }
         /// Sets the `extra.clip_mask` field for this node
         pub fn set_clip_mask(&mut self, image_mask: ImageMask)  { unsafe { crate::dll::AzNodeData_setClipMask(self, image_mask) } }
         /// Sets the tab index for this node
@@ -10625,18 +10644,6 @@ pub mod css {
                 Self { inner: PixelValue::from_metric(metric, value) }
             }
         }
-
-        impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self.inner)
-            }
-        }
-
-        impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{:?}", self.inner)
-            }
-        }
     )}
 
     impl_pixel_value!(StyleBorderTopLeftRadius);
@@ -10697,16 +10704,6 @@ pub mod css {
     impl_float_value!(LayoutFlexShrink);
 
     macro_rules! impl_percentage_value{($struct:ident) => (
-        impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}%", self.inner.get())
-            }
-        }
-        impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self)
-            }
-        }
         impl $struct {
             /// Same as `PercentageValue::new()`, but only accepts whole numbers,
             /// since using `f32` in const fn is not yet stabilized.
@@ -13117,7 +13114,7 @@ pub mod vec {
     impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor, az_parent_with_node_depth_vec_destructor, AzParentWithNodeDepthVec_delete);
     impl_vec_clone!(AzParentWithNodeDepth, AzParentWithNodeDepthVec, AzParentWithNodeDepthVecDestructor);
     impl_vec!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor, az_node_data_vec_destructor, AzNodeDataVec_delete);
-    // impl_vec_clone!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor);
+    impl_vec_clone!(AzNodeData, AzNodeDataVec, AzNodeDataVecDestructor);
     impl_vec!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor, az_style_background_repeat_vec_destructor, AzStyleBackgroundRepeatVec_delete);
     impl_vec_clone!(AzStyleBackgroundRepeat, AzStyleBackgroundRepeatVec, AzStyleBackgroundRepeatVecDestructor);
     impl_vec!(AzStyleBackgroundPosition, AzStyleBackgroundPositionVec, AzStyleBackgroundPositionVecDestructor, az_style_background_position_vec_destructor, AzStyleBackgroundPositionVec_delete);
@@ -13132,6 +13129,12 @@ pub mod vec {
     impl_vec_clone!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor);
     impl_vec!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor, az_style_font_family_vec_destructor, AzStyleFontFamilyVec_delete);
     impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
+
+    impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
+    impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
+
+    impl_vec!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor, az_menu_item_vec_destructor, AzMenuItemVec_delete);
+    impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {

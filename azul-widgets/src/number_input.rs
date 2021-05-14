@@ -1,7 +1,7 @@
 //! Same as TextInput, but only allows a number
 
 use azul::str::String as AzString;
-use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
+use azul::callbacks::{RefAny, CallbackInfo, Update};
 use azul::vec::NodeDataInlineCssPropertyVec;
 use azul::dom::Dom;
 use core::ops::Deref;
@@ -15,7 +15,7 @@ use crate::text_input::{
     TextInputStateWrapper, TextInputValid
 };
 
-pub type NumberInputCallback = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> UpdateScreen;
+pub type NumberInputCallback = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
 
 pub struct NumberInputCallbackFn {
     pub cb: NumberInputCallback,
@@ -123,7 +123,7 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
         None => return OnTextInputReturn {
-            update: UpdateScreen::DoNothing,
+            update: Update::DoNothing,
             valid: TextInputValid::Yes
         },
     };
@@ -135,7 +135,7 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
             // do not re-layout the entire screen,
             // but don't handle the character
             return OnTextInputReturn {
-                update: UpdateScreen::DoNothing,
+                update: Update::DoNothing,
                 valid: TextInputValid::No,
             };
         }
@@ -148,7 +148,7 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
 
         match onvaluechange.as_mut() {
             Some((f, d)) => (f.cb)(d, &inner, info),
-            None => UpdateScreen::DoNothing,
+            None => Update::DoNothing,
         }
     };
 

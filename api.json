@@ -596,7 +596,9 @@
                         {"is_resizable": {"type": "bool", "doc": "Whether the window is resizable"}},
                         {"has_focus": {"type": "bool", "doc": "Whether the window is currently focused (changing this field will request user attention)"}},
                         {"has_extended_window_frame": {"type": "bool", "doc": "Whether the window has an \"extended frame\", i.e. the title bar is not rendered and the maximize / minimize / close buttons bleed into the window content"}},
-                        {"has_blur_behind_window": {"type": "bool", "doc": "Whether the window has a background blur"}}
+                        {"has_blur_behind_window": {"type": "bool", "doc": "Whether the window has a background blur"}},
+                        {"smooth_scroll_enabled": {"type": "bool", "doc": "Is smooth scrolling enabled for this window?"}},
+                        {"autotab_enabled": {"type": "bool", "doc": "Is automatic TAB support enabled for this window?"}}
                     ]
                 },
                 "DebugState": {
@@ -2103,6 +2105,10 @@
                             "fn_args": [],
                             "fn_body": "AzDom::body()"
                         },
+                        "div": {
+                            "fn_args": [],
+                            "fn_body": "AzDom::div()"
+                        },
                         "br": {
                             "fn_args": [],
                             "fn_body": "AzDom::br()"
@@ -2128,6 +2134,81 @@
                         }
                     },
                     "functions": {
+                        "set_node_type": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node_type": "NodeType"}
+                            ],
+                            "fn_body": "dom.root.set_node_type(node_type)"
+                        },
+                        "with_node_type": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node_type": "NodeType"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_node_type(node_type); dom"
+                        },
+                        "set_dataset": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"dataset": "RefAny"}
+                            ],
+                            "fn_body": "dom.root.set_dataset(Some(dataset).into())"
+                        },
+                        "with_dataset": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"dataset": "RefAny"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_dataset(Some(dataset).into()); dom"
+                        },
+                        "set_ids_and_classes": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"ids_and_classes": "IdOrClassVec"}
+                            ],
+                            "fn_body": "dom.root.set_ids_and_classes(ids_and_classes)"
+                        },
+                        "with_ids_and_classes": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"ids_and_classes": "IdOrClassVec"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_ids_and_classes(ids_and_classes); dom"
+                        },
+                        "set_callbacks": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"callbacks": "CallbackDataVec"}
+                            ],
+                            "fn_body": "dom.root.set_callbacks(callbacks)"
+                        },
+                        "with_callbacks": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"callbacks": "CallbackDataVec"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_callbacks(callbacks); dom"
+                        },
+                        "set_inline_css_props": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"css_properties": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "dom.root.set_inline_css_props(css_properties)"
+                        },
+                        "with_inline_css_props": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"css_properties": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_inline_css_props(css_properties); dom"
+                        },
                         "add_child": {
                             "doc": "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.",
                             "fn_args": [
@@ -2144,6 +2225,23 @@
                             ],
                             "returns": {"type": "Dom"},
                             "fn_body": "let mut dom = dom.swap_with_default(); dom.add_child(child); dom"
+                        },
+                        "set_children": {
+                            "doc": "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"children": "DomVec"}
+                            ],
+                            "fn_body": "dom.set_children(children)"
+                        },
+                        "with_children": {
+                            "doc": "Same as set_children, but as a builder method.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"children": "DomVec"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.set_children(children); dom"
                         },
                         "add_id": {
                             "doc": "Adds an CSS ID to the DOM root node.",
@@ -2392,9 +2490,115 @@
                                 {"node_type": "NodeType"}
                             ],
                             "fn_body": "AzNodeData::new(node_type)"
+                        },
+                        "body": {
+                            "fn_args": [],
+                            "fn_body": "AzNodeData::body()"
+                        },
+                        "div": {
+                            "fn_args": [],
+                            "fn_body": "AzNodeData::div()"
+                        },
+                        "br": {
+                            "fn_args": [],
+                            "fn_body": "AzNodeData::br()"
+                        },
+                        "text": {
+                            "fn_args": [
+                                {"string": "String"}
+                            ],
+                            "fn_body": "AzNodeData::text(string)"
+                        },
+                        "image": {
+                            "fn_args": [
+                                {"image": "ImageRef"}
+                            ],
+                            "fn_body": "AzNodeData::image(image)"
+                        },
+                        "iframe": {
+                            "fn_args": [
+                                {"data": "RefAny"},
+                                {"callback": "IFrameCallbackType"}
+                            ],
+                            "fn_body": "AzNodeData::iframe(data, callback)"
                         }
                     },
                     "functions": {
+                        "set_node_type": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node_type": "NodeType"}
+                            ],
+                            "fn_body": "nodedata.set_node_type(node_type)"
+                        },
+                        "with_node_type": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node_type": "NodeType"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_node_type(node_type); nodedata"
+                        },
+                        "set_dataset": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"dataset": "RefAny"}
+                            ],
+                            "fn_body": "nodedata.set_dataset(Some(dataset).into())"
+                        },
+                        "with_dataset": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"dataset": "RefAny"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_dataset(Some(dataset).into()); nodedata"
+                        },
+                        "set_ids_and_classes": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"ids_and_classes": "IdOrClassVec"}
+                            ],
+                            "fn_body": "nodedata.set_ids_and_classes(ids_and_classes)"
+                        },
+                        "with_ids_and_classes": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"ids_and_classes": "IdOrClassVec"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_ids_and_classes(ids_and_classes); nodedata"
+                        },
+                        "set_callbacks": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"callbacks": "CallbackDataVec"}
+                            ],
+                            "fn_body": "nodedata.set_callbacks(callbacks)"
+                        },
+                        "with_callbacks": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"callbacks": "CallbackDataVec"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_callbacks(callbacks); nodedata"
+                        },
+                        "set_inline_css_props": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"css_properties": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "nodedata.set_inline_css_props(css_properties)"
+                        },
+                        "with_inline_css_props": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"css_properties": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_inline_css_props(css_properties); nodedata"
+                        },
                         "set_clip_mask": {
                             "doc": "Sets the `extra.clip_mask` field for this node",
                             "fn_args": [

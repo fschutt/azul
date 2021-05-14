@@ -114,53 +114,53 @@ StyleBackgroundContent::LinearGradient(LinearGradient {
 })];
 
 static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::display(LayoutDisplay::Flex)),
-    Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND))),
-    Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
-    Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
-    Normal(CssProperty::cursor(StyleCursor::Pointer)),
-    Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
+    Normal(CssProperty::const_display(LayoutDisplay::Flex)),
+    Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_NORMAL_BACKGROUND))),
+    Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 
     //     border: 1px solid rgb(172, 172, 172);
 
-    Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
+    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
 
-    Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-    Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
+    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
 
-    Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: RGB_172 })),
-    Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: RGB_172 })),
-    Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: RGB_172 })),
-    Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: RGB_172 })),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: RGB_172 })),
+    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: RGB_172 })),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: RGB_172 })),
+    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: RGB_172 })),
 
     // padding: 5px
 
-    Normal(CssProperty::padding_left(LayoutPaddingLeft::const_px(5))),
-    Normal(CssProperty::padding_right(LayoutPaddingRight::const_px(5))),
-    Normal(CssProperty::padding_top(LayoutPaddingTop::const_px(5))),
-    Normal(CssProperty::padding_bottom(LayoutPaddingBottom::const_px(5))),
+    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(5))),
+    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(5))),
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(5))),
+    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(5))),
 
-    Hover(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_HOVER_BACKGROUND_WINDOWS))),
-    Hover(CssProperty::border_top_color(StyleBorderTopColor { inner: WINDOWS_HOVER_BORDER })),
-    Hover(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_HOVER_BORDER })),
-    Hover(CssProperty::border_left_color(StyleBorderLeftColor { inner: WINDOWS_HOVER_BORDER })),
-    Hover(CssProperty::border_right_color(StyleBorderRightColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_HOVER_BACKGROUND_WINDOWS))),
+    Hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: WINDOWS_HOVER_BORDER })),
+    Hover(CssProperty::const_border_right_color(StyleBorderRightColor { inner: WINDOWS_HOVER_BORDER })),
 
-    Active(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_ACTIVE_BACKGROUND_WINDOWS))),
-    Active(CssProperty::border_top_color(StyleBorderTopColor { inner: WINDOWS_ACTIVE_BORDER })),
-    Active(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_ACTIVE_BORDER })),
-    Active(CssProperty::border_left_color(StyleBorderLeftColor { inner: WINDOWS_ACTIVE_BORDER })),
-    Active(CssProperty::border_right_color(StyleBorderRightColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_ACTIVE_BACKGROUND_WINDOWS))),
+    Active(CssProperty::const_border_top_color(StyleBorderTopColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: WINDOWS_ACTIVE_BORDER })),
+    Active(CssProperty::const_border_right_color(StyleBorderRightColor { inner: WINDOWS_ACTIVE_BORDER })),
 
-    Focus(CssProperty::border_top_color(StyleBorderTopColor { inner: WINDOWS_FOCUS_BORDER })),
-    Focus(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_FOCUS_BORDER })),
-    Focus(CssProperty::border_left_color(StyleBorderLeftColor { inner: WINDOWS_FOCUS_BORDER })),
-    Focus(CssProperty::border_right_color(StyleBorderRightColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::const_border_top_color(StyleBorderTopColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: WINDOWS_FOCUS_BORDER })),
+    Focus(CssProperty::const_border_right_color(StyleBorderRightColor { inner: WINDOWS_FOCUS_BORDER })),
 ];
 
 static BUTTON_CONTAINER_LINUX: &[NodeDataInlineCssProperty] = &[
@@ -213,9 +213,9 @@ static BUTTON_CONTAINER_OTHER: &[NodeDataInlineCssProperty] = &[
 ];
 
 static BUTTON_LABEL_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::font_size(StyleFontSize::const_px(13))),
-    Normal(CssProperty::text_align(StyleTextAlign::Center)),
-    Normal(CssProperty::font_family(SANS_SERIF_FAMILY)),
+    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
+    Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
 static BUTTON_LABEL_LINUX: &[NodeDataInlineCssProperty] = &[
@@ -319,11 +319,11 @@ impl Button {
         .with_ids_and_classes(IdOrClassVec::from_const_slice(CONTAINER_CLASS))
         .with_inline_css_props(self.container_style)
         .with_callbacks(callbacks.into())
-        .with_tab_index(Some(TabIndex::Auto).into())
+        .with_tab_index(TabIndex::Auto)
         .with_children(vec![
             match self.content {
                 Text(s) => {
-                    Dom::text(s)
+                    Dom::text(s.into())
                     .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
                     .with_inline_css_props(self.label_style)
                 },

@@ -53,6 +53,7 @@ use azul_core::{
     app_resources::{ResourceUpdate, ImageCache},
     gl::{GlContextPtr, OptionGlContextPtr, Texture},
     window_state::{Events, NodesToCheck},
+    ui_solver::LayoutResult,
 };
 use azul_css::{LayoutPoint, AzString, OptionAzString, LayoutSize};
 use glutin::monitor::MonitorHandle as WinitMonitorHandle;
@@ -568,8 +569,11 @@ impl Window {
         let mut txn = WrTransaction::new();
 
         window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
-        let hit_tester = window.render_api.request_hit_tester(wr_translate_document_id(window.internal.document_id));
         window.render_async(txn, /* display list was rebuilt */ true);
+        window.render_block_and_swap();
+        window.display.window().request_redraw();
+
+        let hit_tester = window.render_api.request_hit_tester(wr_translate_document_id(window.internal.document_id));
         window.hit_tester = hit_tester.resolve();
 
         Ok(window)
@@ -1105,64 +1109,6 @@ impl Window {
         use crate::wr_translate;
         use azul_core::ui_solver::LayoutResult;
 
-        /// Scroll all nodes in the ScrollStates to their correct position and insert
-        /// the positions into the transaction
-        ///
-        /// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
-        /// indicate whether it was used during the current frame or not.
-        fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
-            use webrender::api::ScrollClamping;
-            use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
-            for (key, value) in scroll_states.0.iter_mut() {
-                txn.scroll_node_with_id(
-                    wr_translate_logical_position(value.get()),
-                    wr_translate_external_scroll_id(*key),
-                    ScrollClamping::ToContentBounds
-                );
-            }
-        }
-
-        /// Synchronize transform / opacity keys
-        fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransaction) {
-
-            use webrender::api::{
-                PropertyBindingKey as WrPropertyBindingKey,
-                PropertyValue as WrPropertyValue,
-                DynamicProperties as WrDynamicProperties,
-            };
-            use crate::wr_translate::wr_translate_layout_transform;
-
-            let transforms = layout_results.iter().flat_map(|lr| {
-                lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
-                    let value = lr.gpu_value_cache.current_transform_values.get(nid)?;
-                    Some((key, value.clone()))
-                }).collect::<Vec<_>>().into_iter()
-            })
-            .map(|(k, v)| WrPropertyValue {
-                key: WrPropertyBindingKey::new(k.id as u64),
-                value: wr_translate_layout_transform(&v),
-            })
-            .collect::<Vec<_>>();
-
-            let floats = layout_results.iter().flat_map(|lr| {
-                lr.gpu_value_cache.opacity_keys.iter().filter_map(|(nid, key)| {
-                    let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
-                    Some((key, *value))
-                }).collect::<Vec<_>>().into_iter()
-            })
-            .map(|(k, v)| WrPropertyValue {
-                key: WrPropertyBindingKey::new(k.id as u64),
-                value: v,
-            })
-            .collect::<Vec<_>>();
-
-            txn.update_dynamic_properties(WrDynamicProperties {
-                transforms,
-                floats,
-                colors: Vec::new(), // TODO: animate colors?
-            });
-        }
-
         let physical_size = self.internal.current_window_state.size.get_physical_size();
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
@@ -1308,6 +1254,64 @@ impl Drop for Window {
         }
         */
     }
+}
+
+/// Scroll all nodes in the ScrollStates to their correct position and insert
+/// the positions into the transaction
+///
+/// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
+/// indicate whether it was used during the current frame or not.
+fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
+    use webrender::api::ScrollClamping;
+    use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
+    for (key, value) in scroll_states.0.iter_mut() {
+        txn.scroll_node_with_id(
+            wr_translate_logical_position(value.get()),
+            wr_translate_external_scroll_id(*key),
+            ScrollClamping::ToContentBounds
+        );
+    }
+}
+
+/// Synchronize transform / opacity keys
+fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransaction) {
+
+    use webrender::api::{
+        PropertyBindingKey as WrPropertyBindingKey,
+        PropertyValue as WrPropertyValue,
+        DynamicProperties as WrDynamicProperties,
+    };
+    use crate::wr_translate::wr_translate_layout_transform;
+
+    let transforms = layout_results.iter().flat_map(|lr| {
+        lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
+            let value = lr.gpu_value_cache.current_transform_values.get(nid)?;
+            Some((key, value.clone()))
+        }).collect::<Vec<_>>().into_iter()
+    })
+    .map(|(k, v)| WrPropertyValue {
+        key: WrPropertyBindingKey::new(k.id as u64),
+        value: wr_translate_layout_transform(&v),
+    })
+    .collect::<Vec<_>>();
+
+    let floats = layout_results.iter().flat_map(|lr| {
+        lr.gpu_value_cache.opacity_keys.iter().filter_map(|(nid, key)| {
+            let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
+            Some((key, *value))
+        }).collect::<Vec<_>>().into_iter()
+    })
+    .map(|(k, v)| WrPropertyValue {
+        key: WrPropertyBindingKey::new(k.id as u64),
+        value: v,
+    })
+    .collect::<Vec<_>>();
+
+    txn.update_dynamic_properties(WrDynamicProperties {
+        transforms,
+        floats,
+        colors: Vec::new(), // TODO: animate colors?
+    });
 }
 
 /// Clipboard is an empty class with only static methods,

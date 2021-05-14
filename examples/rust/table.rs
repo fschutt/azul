@@ -2,7 +2,6 @@
 
 use azul::prelude::*;
 use azul_widgets::table_view::*;
-use azul::style::StyledDom;
 
 struct TableDemo {
     // cells: BTreeMap<TableCell, String>,
@@ -18,6 +17,6 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
 }
 
 fn main() {
-    let app = App::new(RefAny::new(TableDemo { }), AppConfig::default());
+    let app = App::new(RefAny::new(TableDemo { }), AppConfig::new(LayoutSolver::Default));
     app.run(WindowCreateOptions::new(layout));
 }

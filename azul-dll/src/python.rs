@@ -671,6 +671,10 @@ pub struct AzWindowFlags {
     pub has_extended_window_frame: bool,
     #[pyo3(get, set)]
     pub has_blur_behind_window: bool,
+    #[pyo3(get, set)]
+    pub smooth_scroll_enabled: bool,
+    #[pyo3(get, set)]
+    pub autotab_enabled: bool,
 }
 
 /// Debugging information, will be rendered as an overlay on top of the UI
@@ -11336,7 +11340,7 @@ impl PyObjectProtocol for AzWindowSize {
 #[pymethods]
 impl AzWindowFlags {
     #[new]
-    fn __new__(is_maximized: bool, is_minimized: bool, is_about_to_close: bool, is_fullscreen: bool, has_decorations: bool, is_visible: bool, is_always_on_top: bool, is_resizable: bool, has_focus: bool, has_extended_window_frame: bool, has_blur_behind_window: bool) -> Self {
+    fn __new__(is_maximized: bool, is_minimized: bool, is_about_to_close: bool, is_fullscreen: bool, has_decorations: bool, is_visible: bool, is_always_on_top: bool, is_resizable: bool, has_focus: bool, has_extended_window_frame: bool, has_blur_behind_window: bool, smooth_scroll_enabled: bool, autotab_enabled: bool) -> Self {
         Self {
             is_maximized,
             is_minimized,
@@ -11349,6 +11353,8 @@ impl AzWindowFlags {
             has_focus,
             has_extended_window_frame,
             has_blur_behind_window,
+            smooth_scroll_enabled,
+            autotab_enabled,
         }
     }
 
@@ -13390,6 +13396,10 @@ impl AzDom {
         unsafe { mem::transmute(crate::AzDom_body()) }
     }
     #[staticmethod]
+    fn div() -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_div()) }
+    }
+    #[staticmethod]
     fn br() -> AzDom {
         unsafe { mem::transmute(crate::AzDom_br()) }
     }
@@ -13406,6 +13416,54 @@ impl AzDom {
             mem::transmute(image),
         )) }
     }
+    fn set_node_type(&mut self, node_type: AzNodeTypeEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzDom_setNodeType(
+            mem::transmute(self),
+            mem::transmute(node_type),
+        )) }
+    }
+    fn with_node_type(&mut self, node_type: AzNodeTypeEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withNodeType(
+            mem::transmute(self),
+            mem::transmute(node_type),
+        )) }
+    }
+    fn set_ids_and_classes(&mut self, ids_and_classes: AzIdOrClassVec) -> () {
+        unsafe { mem::transmute(crate::AzDom_setIdsAndClasses(
+            mem::transmute(self),
+            mem::transmute(ids_and_classes),
+        )) }
+    }
+    fn with_ids_and_classes(&mut self, ids_and_classes: AzIdOrClassVec) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withIdsAndClasses(
+            mem::transmute(self),
+            mem::transmute(ids_and_classes),
+        )) }
+    }
+    fn set_callbacks(&mut self, callbacks: AzCallbackDataVec) -> () {
+        unsafe { mem::transmute(crate::AzDom_setCallbacks(
+            mem::transmute(self),
+            mem::transmute(callbacks),
+        )) }
+    }
+    fn with_callbacks(&mut self, callbacks: AzCallbackDataVec) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withCallbacks(
+            mem::transmute(self),
+            mem::transmute(callbacks),
+        )) }
+    }
+    fn set_inline_css_props(&mut self, css_properties: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzDom_setInlineCssProps(
+            mem::transmute(self),
+            mem::transmute(css_properties),
+        )) }
+    }
+    fn with_inline_css_props(&mut self, css_properties: AzNodeDataInlineCssPropertyVec) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withInlineCssProps(
+            mem::transmute(self),
+            mem::transmute(css_properties),
+        )) }
+    }
     fn add_child(&mut self, child: AzDom) -> () {
         unsafe { mem::transmute(crate::AzDom_addChild(
             mem::transmute(self),
@@ -13416,6 +13474,18 @@ impl AzDom {
         unsafe { mem::transmute(crate::AzDom_withChild(
             mem::transmute(self),
             mem::transmute(child),
+        )) }
+    }
+    fn set_children(&mut self, children: AzDomVec) -> () {
+        unsafe { mem::transmute(crate::AzDom_setChildren(
+            mem::transmute(self),
+            mem::transmute(children),
+        )) }
+    }
+    fn with_children(&mut self, children: AzDomVec) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withChildren(
+            mem::transmute(self),
+            mem::transmute(children),
         )) }
     }
     fn add_id(&mut self, id: String) -> () {
@@ -13633,6 +13703,79 @@ impl AzNodeData {
     fn new(node_type: AzNodeTypeEnumWrapper) -> AzNodeData {
         unsafe { mem::transmute(crate::AzNodeData_new(
             mem::transmute(node_type),
+        )) }
+    }
+    #[staticmethod]
+    fn body() -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_body()) }
+    }
+    #[staticmethod]
+    fn div() -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_div()) }
+    }
+    #[staticmethod]
+    fn br() -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_br()) }
+    }
+    #[staticmethod]
+    fn text(string: String) -> AzNodeData {
+        let string = pystring_to_azstring(&string);
+        unsafe { mem::transmute(crate::AzNodeData_text(
+            mem::transmute(string),
+        )) }
+    }
+    #[staticmethod]
+    fn image(image: AzImageRef) -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_image(
+            mem::transmute(image),
+        )) }
+    }
+    fn set_node_type(&mut self, node_type: AzNodeTypeEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setNodeType(
+            mem::transmute(self),
+            mem::transmute(node_type),
+        )) }
+    }
+    fn with_node_type(&mut self, node_type: AzNodeTypeEnumWrapper) -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_withNodeType(
+            mem::transmute(self),
+            mem::transmute(node_type),
+        )) }
+    }
+    fn set_ids_and_classes(&mut self, ids_and_classes: AzIdOrClassVec) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setIdsAndClasses(
+            mem::transmute(self),
+            mem::transmute(ids_and_classes),
+        )) }
+    }
+    fn with_ids_and_classes(&mut self, ids_and_classes: AzIdOrClassVec) -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_withIdsAndClasses(
+            mem::transmute(self),
+            mem::transmute(ids_and_classes),
+        )) }
+    }
+    fn set_callbacks(&mut self, callbacks: AzCallbackDataVec) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setCallbacks(
+            mem::transmute(self),
+            mem::transmute(callbacks),
+        )) }
+    }
+    fn with_callbacks(&mut self, callbacks: AzCallbackDataVec) -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_withCallbacks(
+            mem::transmute(self),
+            mem::transmute(callbacks),
+        )) }
+    }
+    fn set_inline_css_props(&mut self, css_properties: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzNodeData_setInlineCssProps(
+            mem::transmute(self),
+            mem::transmute(css_properties),
+        )) }
+    }
+    fn with_inline_css_props(&mut self, css_properties: AzNodeDataInlineCssPropertyVec) -> AzNodeData {
+        unsafe { mem::transmute(crate::AzNodeData_withInlineCssProps(
+            mem::transmute(self),
+            mem::transmute(css_properties),
         )) }
     }
     fn set_clip_mask(&mut self, image_mask: AzImageMask) -> () {

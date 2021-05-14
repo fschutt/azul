@@ -811,13 +811,15 @@ impl WindowInternal {
         relayout_fn: RelayoutFn,
         hit_test_func: F,
     ) where F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
+
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
         use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
+        use crate::styled_dom::DefaultCallbacksCfg;
 
         let id_namespace = self.id_namespace;
 
-        let styled_dom = {
+        let mut styled_dom = {
 
             let layout_callback = &mut self.current_window_state.layout_callback;
             let layout_info = LayoutCallbackInfo::new(
@@ -836,6 +838,11 @@ impl WindowInternal {
                 }
             }
         };
+
+        styled_dom.insert_default_system_callbacks(DefaultCallbacksCfg {
+            smooth_scroll: self.current_window_state.flags.smooth_scroll_enabled,
+            enable_autotab: self.current_window_state.flags.autotab_enabled,
+        });
 
         let SolvedLayout {
             mut layout_results,
@@ -1356,6 +1363,10 @@ pub struct WindowFlags {
     pub has_extended_window_frame: bool,
     /// Whether or not the compositor should blur the application background
     pub has_blur_behind_window: bool,
+    /// Is smooth scrolling enabled for this window?
+    pub smooth_scroll_enabled: bool,
+    /// Is automatic TAB switching supported?
+    pub autotab_enabled: bool,
 }
 
 impl Default for WindowFlags {
@@ -1372,6 +1383,8 @@ impl Default for WindowFlags {
             has_focus: true,
             has_extended_window_frame: false,
             has_blur_behind_window: false,
+            smooth_scroll_enabled: true,
+            autotab_enabled: true,
         }
     }
 }

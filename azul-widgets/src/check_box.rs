@@ -7,14 +7,14 @@ use azul::{
     image::ImageRef,
     css::*,
     str::String as AzString,
-    callbacks::{CallbackType, UpdateScreen, CallbackInfo, RefAny},
+    callbacks::{CallbackType, Update, CallbackInfo, RefAny},
     vec::{IdOrClassVec, StyleBackgroundContentVec, NodeDataInlineCssPropertyVec},
 };
 
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-container"))];
 static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-content"))];
 
-pub type CheckboxCallback = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> UpdateScreen;
+pub type CheckboxCallback = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
 
 pub struct CheckBoxCallbackFn {
     pub cb: CheckboxCallback,
@@ -54,49 +54,49 @@ const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(FI
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 
 static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::background_content(BACKGROUND_COLOR_LIGHT)),
+    Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
 
     // padding: 2px
 
-    Normal(CssProperty::padding_left(LayoutPaddingLeft::const_px(2))),
-    Normal(CssProperty::padding_right(LayoutPaddingRight::const_px(2))),
-    Normal(CssProperty::padding_top(LayoutPaddingTop::const_px(2))),
-    Normal(CssProperty::padding_bottom(LayoutPaddingBottom::const_px(2))),
+    Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
+    Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
+    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
 
     // border: 1px solid #484c52;
 
-    Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(1))),
-    Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-    Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(1))),
-    Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
+    Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(1))),
+    Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+    Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
+    Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
 
-    Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
-    Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Inset })),
+    Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Inset })),
 
-    Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
-    Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: COLOR_9B9B9B })),
+    Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_9B9B9B })),
 
-    Normal(CssProperty::cursor(StyleCursor::Pointer)),
+    Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 
 static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::width(LayoutWidth::const_px(12))),
-    Normal(CssProperty::height(LayoutHeight::const_px(12))),
-    Normal(CssProperty::background_content(FILL_COLOR_BACKGROUND)),
-    Normal(CssProperty::opacity(StyleOpacity::const_new(100))),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(12))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(12))),
+    Normal(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
+    Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 
     // padding: 2px
 ];
 
 static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::width(LayoutWidth::const_px(12))),
-    Normal(CssProperty::height(LayoutHeight::const_px(12))),
-    Normal(CssProperty::background_content(FILL_COLOR_BACKGROUND)),
-    Normal(CssProperty::opacity(StyleOpacity::const_new(0))),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(12))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(12))),
+    Normal(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
+    Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
 
     // padding: 2px
 ];
@@ -144,7 +144,7 @@ impl CheckBox {
                 data: RefAny::new(self.state),
             }
         ].into())
-        .with_tab_index(Some(TabIndex::Auto).into())
+        .with_tab_index(TabIndex::Auto)
         .with_children(vec![
             Dom::div()
             .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTENT_CLASS))
@@ -157,19 +157,19 @@ impl CheckBox {
 // handle input events for the TextInput
 mod input {
 
-    use azul::callbacks::{RefAny, CallbackInfo, UpdateScreen};
+    use azul::callbacks::{RefAny, CallbackInfo, Update};
     use super::CheckBoxStateWrapper;
     use azul::css::{CssProperty, StyleOpacity};
 
-    pub(in super) extern "C" fn default_on_checkbox_clicked(check_box: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
+    pub(in super) extern "C" fn default_on_checkbox_clicked(check_box: &mut RefAny, mut info: CallbackInfo) -> Update {
         let mut check_box = match check_box.downcast_mut::<CheckBoxStateWrapper>() {
             Some(s) => s,
-            None => return UpdateScreen::DoNothing,
+            None => return Update::DoNothing,
         };
 
         let checkbox_content_id = match info.get_first_child(info.get_hit_node()).into_option() {
             Some(s) => s,
-            None => return UpdateScreen::DoNothing,
+            None => return Update::DoNothing,
         };
 
         check_box.inner.checked = !check_box.inner.checked;
@@ -182,14 +182,14 @@ mod input {
 
             match ontoggle.as_mut() {
                 Some((f, d)) => (f.cb)(d, &inner, &mut info),
-                None => UpdateScreen::DoNothing,
+                None => Update::DoNothing,
             }
         };
 
         if check_box.inner.checked {
-            info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(100)));
+            info.set_css_property(checkbox_content_id, CssProperty::const_opacity(StyleOpacity::const_new(100)));
         } else {
-            info.set_css_property(checkbox_content_id, CssProperty::opacity(StyleOpacity::const_new(0)));
+            info.set_css_property(checkbox_content_id, CssProperty::const_opacity(StyleOpacity::const_new(0)));
         }
 
         result

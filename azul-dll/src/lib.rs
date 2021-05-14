@@ -621,6 +621,9 @@ pub use AzDomTT as AzDom;
 /// Equivalent to the Rust `Dom::body()` constructor.
 #[no_mangle] pub extern "C" fn AzDom_body() -> AzDom { AzDom::body() }
 /// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::div()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_div() -> AzDom { AzDom::div() }
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Dom::br()` constructor.
 #[no_mangle] pub extern "C" fn AzDom_br() -> AzDom { AzDom::br() }
 /// Creates a new `Dom` instance whose memory is owned by the rust allocator
@@ -632,10 +635,34 @@ pub use AzDomTT as AzDom;
 /// Creates a new `Dom` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Dom::iframe()` constructor.
 #[no_mangle] pub extern "C" fn AzDom_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzDom { AzDom::iframe(data, callback) }
+/// Equivalent to the Rust `Dom::set_node_type()` function.
+#[no_mangle] pub extern "C" fn AzDom_setNodeType(dom: &mut AzDom, node_type: AzNodeType) { dom.root.set_node_type(node_type) }
+/// Equivalent to the Rust `Dom::with_node_type()` function.
+#[no_mangle] pub extern "C" fn AzDom_withNodeType(dom: &mut AzDom, node_type: AzNodeType) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_node_type(node_type); dom }
+/// Equivalent to the Rust `Dom::set_dataset()` function.
+#[no_mangle] pub extern "C" fn AzDom_setDataset(dom: &mut AzDom, dataset: AzRefAny) { dom.root.set_dataset(Some(dataset).into()) }
+/// Equivalent to the Rust `Dom::with_dataset()` function.
+#[no_mangle] pub extern "C" fn AzDom_withDataset(dom: &mut AzDom, dataset: AzRefAny) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_dataset(Some(dataset).into()); dom }
+/// Equivalent to the Rust `Dom::set_ids_and_classes()` function.
+#[no_mangle] pub extern "C" fn AzDom_setIdsAndClasses(dom: &mut AzDom, ids_and_classes: AzIdOrClassVec) { dom.root.set_ids_and_classes(ids_and_classes) }
+/// Equivalent to the Rust `Dom::with_ids_and_classes()` function.
+#[no_mangle] pub extern "C" fn AzDom_withIdsAndClasses(dom: &mut AzDom, ids_and_classes: AzIdOrClassVec) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_ids_and_classes(ids_and_classes); dom }
+/// Equivalent to the Rust `Dom::set_callbacks()` function.
+#[no_mangle] pub extern "C" fn AzDom_setCallbacks(dom: &mut AzDom, callbacks: AzCallbackDataVec) { dom.root.set_callbacks(callbacks) }
+/// Equivalent to the Rust `Dom::with_callbacks()` function.
+#[no_mangle] pub extern "C" fn AzDom_withCallbacks(dom: &mut AzDom, callbacks: AzCallbackDataVec) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_callbacks(callbacks); dom }
+/// Equivalent to the Rust `Dom::set_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn AzDom_setInlineCssProps(dom: &mut AzDom, css_properties: AzNodeDataInlineCssPropertyVec) { dom.root.set_inline_css_props(css_properties) }
+/// Equivalent to the Rust `Dom::with_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn AzDom_withInlineCssProps(dom: &mut AzDom, css_properties: AzNodeDataInlineCssPropertyVec) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_inline_css_props(css_properties); dom }
 /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
 #[no_mangle] pub extern "C" fn AzDom_addChild(dom: &mut AzDom, child: AzDom) { dom.add_child(child) }
 /// Same as add_child, but as a builder method.
 #[no_mangle] pub extern "C" fn AzDom_withChild(dom: &mut AzDom, child: AzDom) -> AzDom { let mut dom = dom.swap_with_default(); dom.add_child(child); dom }
+/// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
+#[no_mangle] pub extern "C" fn AzDom_setChildren(dom: &mut AzDom, children: AzDomVec) { dom.set_children(children) }
+/// Same as set_children, but as a builder method.
+#[no_mangle] pub extern "C" fn AzDom_withChildren(dom: &mut AzDom, children: AzDomVec) -> AzDom { let mut dom = dom.swap_with_default(); dom.set_children(children); dom }
 /// Adds an CSS ID to the DOM root node.
 #[no_mangle] pub extern "C" fn AzDom_addId(dom: &mut AzDom, id: AzString) { dom.root.add_id(id) }
 /// Same as add_id, but as a builder method
@@ -700,6 +727,44 @@ pub type AzNodeDataTT = azul_impl::dom::NodeData;
 pub use AzNodeDataTT as AzNodeData;
 /// Creates an new, empty `NodeData` struct
 #[no_mangle] pub extern "C" fn AzNodeData_new(node_type: AzNodeType) -> AzNodeData { AzNodeData::new(node_type) }
+/// Creates a new `NodeData` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NodeData::body()` constructor.
+#[no_mangle] pub extern "C" fn AzNodeData_body() -> AzNodeData { AzNodeData::body() }
+/// Creates a new `NodeData` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NodeData::div()` constructor.
+#[no_mangle] pub extern "C" fn AzNodeData_div() -> AzNodeData { AzNodeData::div() }
+/// Creates a new `NodeData` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NodeData::br()` constructor.
+#[no_mangle] pub extern "C" fn AzNodeData_br() -> AzNodeData { AzNodeData::br() }
+/// Creates a new `NodeData` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NodeData::text()` constructor.
+#[no_mangle] pub extern "C" fn AzNodeData_text(string: AzString) -> AzNodeData { AzNodeData::text(string) }
+/// Creates a new `NodeData` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NodeData::image()` constructor.
+#[no_mangle] pub extern "C" fn AzNodeData_image(image: AzImageRef) -> AzNodeData { AzNodeData::image(image) }
+/// Creates a new `NodeData` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NodeData::iframe()` constructor.
+#[no_mangle] pub extern "C" fn AzNodeData_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzNodeData { AzNodeData::iframe(data, callback) }
+/// Equivalent to the Rust `NodeData::set_node_type()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setNodeType(nodedata: &mut AzNodeData, node_type: AzNodeType) { nodedata.set_node_type(node_type) }
+/// Equivalent to the Rust `NodeData::with_node_type()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withNodeType(nodedata: &mut AzNodeData, node_type: AzNodeType) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_node_type(node_type); nodedata }
+/// Equivalent to the Rust `NodeData::set_dataset()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setDataset(nodedata: &mut AzNodeData, dataset: AzRefAny) { nodedata.set_dataset(Some(dataset).into()) }
+/// Equivalent to the Rust `NodeData::with_dataset()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withDataset(nodedata: &mut AzNodeData, dataset: AzRefAny) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_dataset(Some(dataset).into()); nodedata }
+/// Equivalent to the Rust `NodeData::set_ids_and_classes()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setIdsAndClasses(nodedata: &mut AzNodeData, ids_and_classes: AzIdOrClassVec) { nodedata.set_ids_and_classes(ids_and_classes) }
+/// Equivalent to the Rust `NodeData::with_ids_and_classes()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withIdsAndClasses(nodedata: &mut AzNodeData, ids_and_classes: AzIdOrClassVec) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_ids_and_classes(ids_and_classes); nodedata }
+/// Equivalent to the Rust `NodeData::set_callbacks()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setCallbacks(nodedata: &mut AzNodeData, callbacks: AzCallbackDataVec) { nodedata.set_callbacks(callbacks) }
+/// Equivalent to the Rust `NodeData::with_callbacks()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withCallbacks(nodedata: &mut AzNodeData, callbacks: AzCallbackDataVec) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_callbacks(callbacks); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setInlineCssProps(nodedata: &mut AzNodeData, css_properties: AzNodeDataInlineCssPropertyVec) { nodedata.set_inline_css_props(css_properties) }
+/// Equivalent to the Rust `NodeData::with_inline_css_props()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withInlineCssProps(nodedata: &mut AzNodeData, css_properties: AzNodeDataInlineCssPropertyVec) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_inline_css_props(css_properties); nodedata }
 /// Sets the `extra.clip_mask` field for this node
 #[no_mangle] pub extern "C" fn AzNodeData_setClipMask(nodedata: &mut AzNodeData, image_mask: AzImageMask) { nodedata.set_clip_mask(image_mask) }
 /// Sets the tab index for this node
@@ -4037,6 +4102,8 @@ mod test_sizes {
         pub has_focus: bool,
         pub has_extended_window_frame: bool,
         pub has_blur_behind_window: bool,
+        pub smooth_scroll_enabled: bool,
+        pub autotab_enabled: bool,
     }
 
     /// Debugging information, will be rendered as an overlay on top of the UI

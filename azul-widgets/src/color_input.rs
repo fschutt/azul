@@ -2,7 +2,7 @@
 
 use azul::css::*;
 use azul::dom::{Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal};
-use azul::callbacks::{UpdateScreen, CallbackInfo, RefAny};
+use azul::callbacks::{Update, CallbackInfo, RefAny};
 use azul::str::String as AzString;
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -11,7 +11,7 @@ pub struct ColorInput {
     pub style: Vec<NodeDataInlineCssProperty>,
 }
 
-pub type OnColorChangeCallback = extern "C" fn(&mut RefAny, &ColorInputState, &mut CallbackInfo) -> UpdateScreen;
+pub type OnColorChangeCallback = extern "C" fn(&mut RefAny, &ColorInputState, &mut CallbackInfo) -> Update;
 
 pub struct OnColorChangeFn {
     pub cb: OnColorChangeCallback,
@@ -65,10 +65,10 @@ impl ColorInput {
                 .. Default::default()
             },
             style: vec![
-                Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
-                Normal(CssProperty::min_width(LayoutMinWidth::const_px(15))),
-                Normal(CssProperty::min_height(LayoutMinHeight::const_px(15))),
-                Normal(CssProperty::cursor(StyleCursor::Pointer)),
+                Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+                Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(15))),
+                Normal(CssProperty::const_min_height(LayoutMinHeight::const_px(15))),
+                Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
             ],
         }
     }
@@ -86,7 +86,7 @@ impl ColorInput {
             IdOrClass::Class, CallbackData,
         };
 
-        self.style.push(Normal(CssProperty::background_content(vec![
+        self.style.push(Normal(CssProperty::const_background_content(vec![
             StyleBackgroundContent::Color(self.state.inner.color)
         ].into())));
 
@@ -103,13 +103,13 @@ impl ColorInput {
     }
 }
 
-extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) -> UpdateScreen {
+extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) -> Update {
 
     use azul::dialog::ColorPickerDialog;
 
     let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
         Some(s) => s,
-        None => return UpdateScreen::DoNothing,
+        None => return Update::DoNothing,
     };
 
     // open the color picker dialog
@@ -118,12 +118,12 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) 
         Some(color_input.inner.color).into()
     ).into_option() {
         Some(s) => s,
-        None => return UpdateScreen::DoNothing,
+        None => return Update::DoNothing,
     };
 
     // Update the color in the data and the screen
     color_input.inner.color = new_color;
-    info.set_css_property(info.get_hit_node(), CssProperty::background_content(
+    info.set_css_property(info.get_hit_node(), CssProperty::const_background_content(
         vec![StyleBackgroundContent::Color(new_color)].into(),
     ));
 
@@ -134,7 +134,7 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) 
 
         match onvaluechange.as_mut() {
             Some((f, d)) => (f.cb)(d, &inner, &mut info),
-            None => UpdateScreen::DoNothing,
+            None => Update::DoNothing,
         }
     };
 

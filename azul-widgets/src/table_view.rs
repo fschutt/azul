@@ -6,7 +6,7 @@ use alloc::string::String;
 use azul::{
     style::StyledDom,
     dom::{Dom, NodeData, NodeType},
-    callbacks::UpdateScreen,
+    callbacks::Update,
     callbacks::{RefAny, IFrameCallbackInfo, IFrameCallbackReturn},
 };
 
@@ -30,10 +30,10 @@ impl Default for TableView {
     }
 }
 
-pub type OnCellFocusReceivedCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
-pub type OnCellFocusLostCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
-pub type OnCellEditFinishCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
-pub type OnCellInputCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> UpdateScreen;
+pub type OnCellFocusReceivedCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
+pub type OnCellFocusLostCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
+pub type OnCellEditFinishCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
+pub type OnCellInputCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
 
 #[derive(Debug, Default, Clone)]
 pub struct TableStyle {
@@ -183,12 +183,12 @@ impl TableViewState {
         };
 
         static TOP_LEFT_EMPTY_RECT_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
-            Normal(CssProperty::height(LayoutHeight::const_px(20))),
-            Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
-            Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
-            Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
-            Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
+            Normal(CssProperty::const_min_height(LayoutMinHeight::const_px(20))),
+            Normal(CssProperty::const_height(LayoutHeight::const_px(20))),
+            Normal(CssProperty::const_max_height(LayoutMaxHeight::const_px(20))),
+            Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
+            Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
+            Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
         ];
         static TOP_LEFT_EMPTY_RECT_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-top-left-rect"))
@@ -200,11 +200,11 @@ impl TableViewState {
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(TOP_LEFT_EMPTY_RECT_STYLE));
 
         static ROW_NUMBERS_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
-            Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D })),
-            Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
-            Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
-            Normal(CssProperty::box_shadow_right(SHADOW)),
+            Normal(CssProperty::const_font_family(SANS_SERIF_FONT_FAMILY)),
+            Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_2D2D2D })),
+            Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
+            Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+            Normal(CssProperty::const_box_shadow_right(SHADOW)),
         ];
         static ROW_NUMBERS_CONTAINER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-container"))
@@ -214,23 +214,23 @@ impl TableViewState {
         let row_numbers = (rows.start..rows.end).map(|row_idx| {
 
             static ROW_NUMBERS_STYLE: &[NodeDataInlineCssProperty] = &[
-                Normal(CssProperty::font_size(StyleFontSize::const_px(14))),
-                Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
-                Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
-                Normal(CssProperty::align_items(LayoutAlignItems::Center)),
-                Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
-                Normal(CssProperty::height(LayoutHeight::const_px(20))),
-                Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
-                Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-                Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-                Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
+                Normal(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+                Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+                Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+                Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
+                Normal(CssProperty::const_min_height(LayoutMinHeight::const_px(20))),
+                Normal(CssProperty::const_height(LayoutHeight::const_px(20))),
+                Normal(CssProperty::const_max_height(LayoutMaxHeight::const_px(20))),
+                Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+                Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+                Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 })),
             ];
             static ROW_NUMBERS_CLASS: &[IdOrClass] = &[
                 IdOrClass::Class(AzString::from_const_str("az-table-row-numbers"))
             ];
 
             // NOTE: to_string() heap allocation is unavoidable
-            NodeData::text((row_idx + 1).to_string())
+            NodeData::text((row_idx + 1).to_string().into())
             .with_ids_and_classes(IdOrClassVec::from_const_slice(ROW_NUMBERS_CLASS))
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_STYLE))
         })
@@ -239,10 +239,10 @@ impl TableViewState {
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROW_NUMBERS_CONTAINER_STYLE));
 
         static ROW_NUMBER_WRAPPER_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
-            Normal(CssProperty::max_width(LayoutMaxWidth::const_px(30))),
-            Normal(CssProperty::width(LayoutWidth::const_px(30))),
-            Normal(CssProperty::min_width(LayoutMinWidth::const_px(30))),
+            Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+            Normal(CssProperty::const_max_width(LayoutMaxWidth::const_px(30))),
+            Normal(CssProperty::const_width(LayoutWidth::const_px(30))),
+            Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(30))),
         ];
         static ROW_NUMBERS_WRAPPER_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-row-numbers-wrapper"))
@@ -255,12 +255,12 @@ impl TableViewState {
         .with_children(AzDomVec::from(vec![top_left_empty_rect, row_numbers]));
 
         static ACTIVE_SELECTION_HANDLE_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::position(LayoutPosition::Absolute)),
-            Normal(CssProperty::width(LayoutWidth::const_px(10))),
-            Normal(CssProperty::height(LayoutHeight::const_px(10))),
-            Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_407C40_BACKGROUND))),
-            Normal(CssProperty::bottom(LayoutBottom::const_px(-5))),
-            Normal(CssProperty::right(LayoutRight::const_px(-5))),
+            Normal(CssProperty::const_position(LayoutPosition::Absolute)),
+            Normal(CssProperty::const_width(LayoutWidth::const_px(10))),
+            Normal(CssProperty::const_height(LayoutHeight::const_px(10))),
+            Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(COLOR_407C40_BACKGROUND))),
+            Normal(CssProperty::const_bottom(LayoutBottom::const_px(-5))),
+            Normal(CssProperty::const_right(LayoutRight::const_px(-5))),
         ];
         static ACTIVE_SELECTION_HANDLE_CLASS: &[IdOrClass] = &[
             IdOrClass::Class(AzString::from_const_str("az-table-active-selection-handle"))
@@ -277,42 +277,42 @@ impl TableViewState {
 
         let current_active_selection = Dom::div()
         .with_inline_css_props(NodeDataInlineCssPropertyVec::from(vec![
-            Normal(CssProperty::position(LayoutPosition::Absolute)),
-            Normal(CssProperty::width({
+            Normal(CssProperty::const_position(LayoutPosition::Absolute)),
+            Normal(CssProperty::const_width({
                 self.selection.as_ref()
                 .map(|selection| LayoutWidth::px(selection.number_of_columns_selected() as f32 * self.default_column_width))
                 .unwrap_or(LayoutWidth::zero()) // TODO: replace with transform: scale-x
             })),
-            Normal(CssProperty::height({
+            Normal(CssProperty::const_height({
                 self.selection.as_ref()
                 .map(|selection| LayoutHeight::px(selection.number_of_rows_selected() as f32 * self.default_row_height))
                 .unwrap_or(LayoutHeight::zero())  // TODO: replace with transform: scale-y
             })),
-            Normal(CssProperty::margin_left({
+            Normal(CssProperty::const_margin_left({
                 self.selection.as_ref()
                 .map(|selection| LayoutMarginLeft::px(selection.from_top_left.column as f32 * self.default_column_width))
                 .unwrap_or(LayoutMarginLeft::zero()) // TODO: replace with transform-y
             })),
-            Normal(CssProperty::margin_top({
+            Normal(CssProperty::const_margin_top({
                 self.selection.as_ref()
                 .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.default_row_height))
                 .unwrap_or(LayoutMarginTop::zero()) // TODO: replace with transform-y
             })),
-            Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
-            Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: SELECTED_CELL_BORDER_STYLE })),
-            Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: SELECTED_CELL_BORDER_COLOR })),
-            Normal(CssProperty::border_top_width(LayoutBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
-            Normal(CssProperty::border_top_style(StyleBorderTopStyle { inner: SELECTED_CELL_BORDER_STYLE })),
-            Normal(CssProperty::border_top_color(StyleBorderTopColor { inner: SELECTED_CELL_BORDER_COLOR })),
-            Normal(CssProperty::border_left_width(LayoutBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
-            Normal(CssProperty::border_left_style(StyleBorderLeftStyle { inner: SELECTED_CELL_BORDER_STYLE })),
-            Normal(CssProperty::border_left_color(StyleBorderLeftColor { inner: SELECTED_CELL_BORDER_COLOR })),
-            Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
-            Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: SELECTED_CELL_BORDER_STYLE })),
-            Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: SELECTED_CELL_BORDER_COLOR })),
+            Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
+            Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: SELECTED_CELL_BORDER_STYLE })),
+            Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: SELECTED_CELL_BORDER_COLOR })),
+            Normal(CssProperty::const_border_top_width(LayoutBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
+            Normal(CssProperty::const_border_top_style(StyleBorderTopStyle { inner: SELECTED_CELL_BORDER_STYLE })),
+            Normal(CssProperty::const_border_top_color(StyleBorderTopColor { inner: SELECTED_CELL_BORDER_COLOR })),
+            Normal(CssProperty::const_border_left_width(LayoutBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
+            Normal(CssProperty::const_border_left_style(StyleBorderLeftStyle { inner: SELECTED_CELL_BORDER_STYLE })),
+            Normal(CssProperty::const_border_left_color(StyleBorderLeftColor { inner: SELECTED_CELL_BORDER_COLOR })),
+            Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH))),
+            Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: SELECTED_CELL_BORDER_STYLE })),
+            Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: SELECTED_CELL_BORDER_COLOR })),
             // don't show the selection when the table doesn't have one
             // TODO: animate / fade in / fade out
-            Normal(CssProperty::opacity(if self.selection.is_some() { StyleOpacity::const_new(1) } else { StyleOpacity::const_new(0) })),
+            Normal(CssProperty::const_opacity(if self.selection.is_some() { StyleOpacity::const_new(1) } else { StyleOpacity::const_new(0) })),
         ]))
         .with_ids_and_classes(IdOrClassVec::from_const_slice(ACTIVE_SELECTION_CLASS))
         .with_children(AzDomVec::from(vec![current_active_selection_handle]));
@@ -320,27 +320,27 @@ impl TableViewState {
         let mut column_doms = columns.map(|col_idx| {
 
             static COLUMN_NAME_STYLE: &[NodeDataInlineCssProperty] = &[
-                Normal(CssProperty::height(LayoutHeight::const_px(20))),
-                Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
-                Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D })),
-                Normal(CssProperty::font_size(StyleFontSize::const_px(14))),
-                Normal(CssProperty::background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
-                Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
-                Normal(CssProperty::align_items(LayoutAlignItems::Center)),
-                Normal(CssProperty::justify_content(LayoutJustifyContent::Center)),
-                Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
-                Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-                Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
-                Normal(CssProperty::box_shadow_bottom(SHADOW)),
+                Normal(CssProperty::const_height(LayoutHeight::const_px(20))),
+                Normal(CssProperty::const_font_family(SANS_SERIF_FONT_FAMILY)),
+                Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_2D2D2D })),
+                Normal(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+                Normal(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(COLOR_E6E6E6_BACKGROUND))),
+                Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+                Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
+                Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+                Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+                Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+                Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 })),
+                Normal(CssProperty::const_box_shadow_bottom(SHADOW)),
             ];
             static COLUMN_NAME_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column-name"))];
 
             static ROWS_IN_COLUMN_STYLE: &[NodeDataInlineCssProperty] = &[
-                Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
+                Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
             ];
             static ROWS_IN_COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-rows"))];
 
-            let column_names = Dom::text(column_name_from_number(col_idx))
+            let column_names = Dom::text(column_name_from_number(col_idx).into())
             .with_ids_and_classes(IdOrClassVec::from_const_slice(COLUMN_NAME_CLASS))
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(COLUMN_NAME_STYLE));
 
@@ -353,17 +353,17 @@ impl TableViewState {
                     };
 
                     static CELL_STYLE: &[NodeDataInlineCssProperty] = &[
-                        Normal(CssProperty::align_items(LayoutAlignItems::FlexStart)),
-                        Normal(CssProperty::height(LayoutHeight::const_px(20))),
-                        Normal(CssProperty::min_height(LayoutMinHeight::const_px(20))),
-                        Normal(CssProperty::max_height(LayoutMaxHeight::const_px(20))),
-                        Normal(CssProperty::font_size(StyleFontSize::const_px(14))),
-                        Normal(CssProperty::text_align(StyleTextAlign::Left)),
-                        Normal(CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK })),
-                        Normal(CssProperty::font_family(SANS_SERIF_FONT_FAMILY)),
-                        Normal(CssProperty::border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
-                        Normal(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
-                        Normal(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_D1D1D1 })),
+                        Normal(CssProperty::const_align_items(LayoutAlignItems::FlexStart)),
+                        Normal(CssProperty::const_height(LayoutHeight::const_px(20))),
+                        Normal(CssProperty::const_min_height(LayoutMinHeight::const_px(20))),
+                        Normal(CssProperty::const_max_height(LayoutMaxHeight::const_px(20))),
+                        Normal(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+                        Normal(CssProperty::const_text_align(StyleTextAlign::Left)),
+                        Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_BLACK })),
+                        Normal(CssProperty::const_font_family(SANS_SERIF_FONT_FAMILY)),
+                        Normal(CssProperty::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))),
+                        Normal(CssProperty::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })),
+                        Normal(CssProperty::const_border_bottom_color(StyleBorderBottomColor { inner: COLOR_D1D1D1 })),
                     ];
                     static CELL_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-cell"))];
 
@@ -376,13 +376,13 @@ impl TableViewState {
             .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(ROWS_IN_COLUMN_STYLE));
 
             static COLUMN_STYLE: &[NodeDataInlineCssProperty] = &[
-                Normal(CssProperty::flex_direction(LayoutFlexDirection::Column)),
-                Normal(CssProperty::min_width(LayoutMinWidth::const_px(100))),
-                Normal(CssProperty::max_width(LayoutMaxWidth::const_px(100))),
-                Normal(CssProperty::width(LayoutWidth::const_px(100))),
-                Normal(CssProperty::border_right_width(LayoutBorderRightWidth::const_px(1))),
-                Normal(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-                Normal(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 })),
+                Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+                Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(100))),
+                Normal(CssProperty::const_max_width(LayoutMaxWidth::const_px(100))),
+                Normal(CssProperty::const_width(LayoutWidth::const_px(100))),
+                Normal(CssProperty::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
+                Normal(CssProperty::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
+                Normal(CssProperty::const_border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 })),
             ];
             static COLUMN_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-column"))];
 
@@ -403,15 +403,15 @@ impl TableViewState {
 
 
         static COLUMNS_TABLE_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
-            Normal(CssProperty::position(LayoutPosition::Relative)),
+            Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+            Normal(CssProperty::const_position(LayoutPosition::Relative)),
         ];
         static COLUMNS_TABLE_CONTAINER_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-container"))];
 
         static IFRAME_DOM_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::display(LayoutDisplay::Flex)),
-            Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
-            Normal(CssProperty::flex_direction(LayoutFlexDirection::Row)),
+            Normal(CssProperty::const_display(LayoutDisplay::Flex)),
+            Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
+            Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
         ];
         static IFRAME_DOM_CONTAINER_CLASS: &[IdOrClass] = &[IdOrClass::Class(AzString::from_const_str("az-table-iframe-container"))];
 
@@ -440,11 +440,11 @@ impl TableView {
         use azul::dom::NodeDataInlineCssProperty::*;
 
         const IFRAME_STYLE: &[NodeDataInlineCssProperty] = &[
-            Normal(CssProperty::display(LayoutDisplay::Flex)),
-            Normal(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
-            Normal(CssProperty::width(LayoutWidth::const_percent(100))),
-            Normal(CssProperty::height(LayoutHeight::const_percent(100))),
-            Normal(CssProperty::box_sizing(LayoutBoxSizing::BorderBox)),
+            Normal(CssProperty::const_display(LayoutDisplay::Flex)),
+            Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+            Normal(CssProperty::const_width(LayoutWidth::const_percent(100))),
+            Normal(CssProperty::const_height(LayoutHeight::const_percent(100))),
+            Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
         ];
 
         Dom::iframe(RefAny::new(self.state), Self::render_table_iframe_contents)
@@ -480,7 +480,7 @@ impl TableView {
         let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.default_row_height;
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.default_column_width;
 
-        let dom = table_view_state.dom(
+        let mut dom = table_view_state.dom(
             row_start..((row_start + necessary_rows + padding_rows)),
             column_start..((column_start + necessary_columns + padding_columns))
         );

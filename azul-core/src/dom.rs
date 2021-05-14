@@ -810,39 +810,6 @@ impl Clone for NodeData {
     }
 }
 
-impl NodeData {
-
-    #[inline]
-    pub fn copy_special(&self) -> Self {
-        Self {
-            node_type: self.node_type.into_library_owned_nodetype(),
-            dataset: match &self.dataset {
-                OptionRefAny::None => OptionRefAny::None,
-                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
-            },
-            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
-            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
-            callbacks: self.callbacks.clone(),
-            extra: self.extra.clone(),
-        }
-    }
-
-    pub fn is_focusable(&self) -> bool {
-        // TODO: do some better analysis of next / first / item
-        self.get_tab_index().is_some() ||
-        self.get_callbacks().iter().any(|cb| {
-            cb.event.is_focus_callback()
-        })
-    }
-
-    pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
-        match &mut self.node_type {
-            NodeType::IFrame(i) => Some(i),
-            _ => None,
-        }
-    }
-}
-
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
 impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_clone!(NodeData, NodeDataVec, NodeDataVecDestructor);
@@ -1006,7 +973,6 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 
     format!("{}{}{}", id_string, class_string, tabindex_string)
 }
-
 impl NodeData {
 
     /// Creates a new `NodeData` instance from a given `NodeType`
@@ -1192,6 +1158,43 @@ impl NodeData {
         DomNodeHash(hasher.finish())
     }
 
+    #[inline(always)]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = NodeData::div();
+        mem::swap(&mut s, self);
+        s
+    }
+
+    #[inline]
+    pub fn copy_special(&self) -> Self {
+        Self {
+            node_type: self.node_type.into_library_owned_nodetype(),
+            dataset: match &self.dataset {
+                OptionRefAny::None => OptionRefAny::None,
+                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
+            },
+            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
+            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
+            callbacks: self.callbacks.clone(),
+            extra: self.extra.clone(),
+        }
+    }
+
+    pub fn is_focusable(&self) -> bool {
+        // TODO: do some better analysis of next / first / item
+        self.get_tab_index().is_some() ||
+        self.get_callbacks().iter().any(|cb| {
+            cb.event.is_focus_callback()
+        })
+    }
+
+    pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
+        match &mut self.node_type {
+            NodeType::IFrame(i) => Some(i),
+            _ => None,
+        }
+    }
+
     pub fn debug_print_start(&self, css_cache: &CssPropertyCache, node_id: &NodeId, node_state: &StyledNodeState) -> String {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
@@ -1281,6 +1284,9 @@ impl Dom {
         self.children = v.into();
         self.estimated_total_children += 1;
     }
+
+    #[inline(always)]
+    pub fn set_children(&mut self, children: DomVec) { self.children = children; }
 
     pub fn copy_except_for_root(&mut self) -> Self {
         Self {

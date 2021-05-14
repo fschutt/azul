@@ -382,7 +382,7 @@ fn run_inner(app: App) -> ! {
                 // ignore high-frequency events
                 *control_flow = ControlFlow::Wait;
                 return;
-            }
+            },
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) |
             Event::NewEvents(StartCause::Poll) => {
                 // run timers / tasks only every 60ms, not on every window event
@@ -975,7 +975,7 @@ fn run_inner(app: App) -> ! {
                 window.render_block_and_swap();
                 *control_flow = ControlFlow::Wait;
                 return;
-            }
+            },
             _ => { },
         }
 

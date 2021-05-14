@@ -564,18 +564,6 @@
                 Self { inner: PixelValue::from_metric(metric, value) }
             }
         }
-
-        impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self.inner)
-            }
-        }
-
-        impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{:?}", self.inner)
-            }
-        }
     )}
 
     impl_pixel_value!(StyleBorderTopLeftRadius);
@@ -636,16 +624,6 @@
     impl_float_value!(LayoutFlexShrink);
 
     macro_rules! impl_percentage_value{($struct:ident) => (
-        impl ::core::fmt::Display for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}%", self.inner.get())
-            }
-        }
-        impl ::core::fmt::Debug for $struct {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-                write!(f, "{}", self)
-            }
-        }
         impl $struct {
             /// Same as `PercentageValue::new()`, but only accepts whole numbers,
             /// since using `f32` in const fn is not yet stabilized.
