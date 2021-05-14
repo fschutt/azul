@@ -1,12 +1,6 @@
-// #![no_std]
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
-)]
-
 //! Built-in widgets for the Azul GUI system
 
-extern crate azul;
+#[macro_use]
 extern crate alloc;
 
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
@@ -75,12 +69,6 @@ macro_rules! impl_callback {($callback_value:ident) => (
 pub mod button;
 /// Checkbox widget
 pub mod check_box;
-/// Slider widget
-// pub mod slider;
-/// Dropdown selection widget
-// pub mod drop_down;
-/// Multi-line text input
-// pub mod text_edit;
 /// Label widget (centered text)
 pub mod label;
 /// Single line text input widget
@@ -90,4 +78,10 @@ pub mod number_input;
 /// Box displaying a color which opens a color picker dialog on being clicked
 pub mod color_input;
 /// Table view (iframe) widget
-pub mod table_view;
+pub mod spreadsheet;
+/// Slider widget
+// pub mod slider;
+/// Dropdown selection widget
+// pub mod drop_down;
+/// Multi-line text input
+// pub mod text_edit;

@@ -2424,6 +2424,9 @@ fn get_nodes_that_need_scroll_clip(
         // tags_to_node_ids.insert(scroll_tag_id, parent_id)
     }
 
+    println!("overflowing scroll nodes: {:#?}", overflowing_nodes);
+    println!("scroll tags: {:#?}", tags_to_node_ids);
+
     *scrolled_nodes = ScrolledNodes {
         overflowing_nodes,
         clip_nodes,

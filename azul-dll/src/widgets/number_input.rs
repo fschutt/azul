@@ -6,6 +6,7 @@ use azul::vec::NodeDataInlineCssPropertyVec;
 use azul::dom::Dom;
 use core::ops::Deref;
 use core::ops::DerefMut;
+use alloc::string::String;
 
 use crate::text_input::{
     TextInput, TextInputState,
@@ -17,6 +18,7 @@ use crate::text_input::{
 
 pub type NumberInputCallback = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
 
+#[repr(C)]
 pub struct NumberInputCallbackFn {
     pub cb: NumberInputCallback,
 }
@@ -24,18 +26,21 @@ pub struct NumberInputCallbackFn {
 impl_callback!(NumberInputCallbackFn);
 
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct NumberInput {
     pub text_input: TextInput,
     pub state: NumberInputStateWrapper,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct NumberInputStateWrapper {
     pub inner: NumberInputState,
     pub on_value_change: Option<(NumberInputCallbackFn, RefAny)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct NumberInputState {
     pub previous: f32,
     pub number: f32,
@@ -69,40 +74,33 @@ impl NumberInput {
         }
     }
 
-    pub fn on_text_input(mut self, callback: TextInputCallback, data: RefAny) -> Self {
+    pub fn set_on_text_input(&mut self, callback: TextInputCallback, data: RefAny) {
         self.text_input.state.on_text_input = Some((TextInputCallbackFn { cb: callback }, data));
-        self
     }
 
-    pub fn on_virtual_key_down(mut self, callback: VirtualKeyDownCallback, data: RefAny) -> Self {
+    pub fn set_on_virtual_key_down(&mut self, callback: VirtualKeyDownCallback, data: RefAny) {
         self.text_input.state.on_virtual_key_down = Some((VirtualKeyDownCallbackFn { cb: callback }, data));
-        self
     }
 
-    pub fn on_focus_lost(mut self, callback: OnFocusLostCallback, data: RefAny) -> Self {
+    pub fn set_on_focus_lost(mut self, callback: OnFocusLostCallback, data: RefAny) {
         self.text_input.state.on_focus_lost = Some((OnFocusLostCallbackFn { cb: callback }, data));
-        self
     }
 
-    pub fn placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn set_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.placeholder_style = style;
-        self
     }
 
-    pub fn container_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.container_style = style;
-        self
     }
 
-    pub fn label_style(mut self, style: NodeDataInlineCssPropertyVec) -> Self {
+    pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.label_style = style;
-        self
     }
 
     // Function called when the input has been parsed as a number
-    pub fn on_value_change(mut self, callback: NumberInputCallback, data: RefAny) -> Self {
+    pub fn set_on_value_change(mut self, callback: NumberInputCallback, data: RefAny) {
         self.state.on_value_change = Some((NumberInputCallbackFn { cb: callback }, data));
-        self
     }
 
     pub fn dom(mut self) -> Dom {

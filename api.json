@@ -2020,70 +2020,6 @@
                 }
             }
         },
-        "menu": {
-            "classes": {
-                "Menu": {
-                    "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
-                    "external": "azul_impl::window::Menu",
-                    "struct_fields": [
-                        {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}}
-                    ]
-                },
-                "MenuItem": {
-                    "doc": "Item entry in a menu or menu bar",
-                    "external": "azul_impl::window::MenuItem",
-                    "enum_fields": [
-                        {"Label": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
-                        {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
-                        {"BreakLine": {"doc": "Breaks items in a menu onto separate lines, usually only rendered in horizontal menu bars"}}
-                    ]
-                },
-                "StringMenuItem": {
-                    "doc": "Regular labeled menu item",
-                    "external": "azul_impl::window::StringMenuItem",
-                    "struct_fields": [
-                        {"label": {"type": "String", "doc": "Label of the menu entry"}},
-                        {"accelerator": {"type": "OptionVirtualKeyCodeCombo", "doc": "Optional accelerator combination, (ex. \"CTRL + X\" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut"}},
-                        {"callback": {"type": "OptionMenuCallback", "doc": "Optional callback to call when the item is activated"}},
-                        {"state": {"type": "MenuItemState", "doc": "State of the menu entry (normal, greyed, disabled)"}},
-                        {"icon": {"type": "OptionMenuItemIcon", "doc": "Optional icon (checkbox or custom image) of the menu entry"}},
-                        {"children": {"type": "MenuItemVec", "doc": "Sub-menus of the window (empty by default)"}}
-                    ]
-                },
-                "VirtualKeyCodeCombo": {
-                    "doc": "Combination of virtual key codes that have to be pressed together",
-                    "external": "azul_impl::window::VirtualKeyCodeCombo",
-                    "struct_fields": [
-                        {"keys": {"type": "VirtualKeyCodeVec"}}
-                    ]
-                },
-                "MenuCallback": {
-                    "doc": "Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated",
-                    "external": "azul_impl::window::MenuCallback",
-                    "struct_fields": [
-                        {"callback": {"type": "Callback", "doc": "Callback to be called when the menu item is clicked"}},
-                        {"data": {"type": "RefAny", "doc": "Data of the callback to be called on"}}
-                    ]
-                },
-                "MenuItemIcon": {
-                    "doc": "Icon of a menu entry",
-                    "external": "azul_impl::window::MenuItemIcon",
-                    "enum_fields": [
-                        {"Checkbox": {"type": "bool", "doc": "Menu item shows a checkbox (either checked or not)"}},
-                        {"Image": {"type": "ImageRef", "doc": "Menu item shows a custom image, usually in 16x16 format"}}
-                    ]
-                },
-                "MenuItemState": {
-                    "doc": "Describes the state of a menu item",
-                    "external": "azul_impl::window::MenuItemState",
-                    "enum_fields": [
-                        {"Normal": {"doc": "Normal menu item (default)"}},
-                        {"Greyed": {"doc": "Menu item is greyed out and clicking it does nothing"}},
-                        {"Disabled": {"doc": "Menu item is disabled, clicking it does nothing - but NOT greyed out"}}
-                    ]
-                }
-            }
-        },
         "dom": {
             "doc": "`Dom` construction and configuration",
             "classes": {
@@ -2955,6 +2891,70 @@
                         {"Active": {"type": "CssProperty"}},
                         {"Focus": {"type": "CssProperty"}},
                         {"Hover": {"type": "CssProperty"}}
+                    ]
+                }
+            }
+        },
+        "menu": {
+            "classes": {
+                "Menu": {
+                    "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
+                    "external": "azul_impl::window::Menu",
+                    "struct_fields": [
+                        {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}}
+                    ]
+                },
+                "MenuItem": {
+                    "doc": "Item entry in a menu or menu bar",
+                    "external": "azul_impl::window::MenuItem",
+                    "enum_fields": [
+                        {"Label": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
+                        {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
+                        {"BreakLine": {"doc": "Breaks items in a menu onto separate lines, usually only rendered in horizontal menu bars"}}
+                    ]
+                },
+                "StringMenuItem": {
+                    "doc": "Regular labeled menu item",
+                    "external": "azul_impl::window::StringMenuItem",
+                    "struct_fields": [
+                        {"label": {"type": "String", "doc": "Label of the menu entry"}},
+                        {"accelerator": {"type": "OptionVirtualKeyCodeCombo", "doc": "Optional accelerator combination, (ex. \"CTRL + X\" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut"}},
+                        {"callback": {"type": "OptionMenuCallback", "doc": "Optional callback to call when the item is activated"}},
+                        {"state": {"type": "MenuItemState", "doc": "State of the menu entry (normal, greyed, disabled)"}},
+                        {"icon": {"type": "OptionMenuItemIcon", "doc": "Optional icon (checkbox or custom image) of the menu entry"}},
+                        {"children": {"type": "MenuItemVec", "doc": "Sub-menus of the window (empty by default)"}}
+                    ]
+                },
+                "VirtualKeyCodeCombo": {
+                    "doc": "Combination of virtual key codes that have to be pressed together",
+                    "external": "azul_impl::window::VirtualKeyCodeCombo",
+                    "struct_fields": [
+                        {"keys": {"type": "VirtualKeyCodeVec"}}
+                    ]
+                },
+                "MenuCallback": {
+                    "doc": "Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated",
+                    "external": "azul_impl::window::MenuCallback",
+                    "struct_fields": [
+                        {"callback": {"type": "Callback", "doc": "Callback to be called when the menu item is clicked"}},
+                        {"data": {"type": "RefAny", "doc": "Data of the callback to be called on"}}
+                    ]
+                },
+                "MenuItemIcon": {
+                    "doc": "Icon of a menu entry",
+                    "external": "azul_impl::window::MenuItemIcon",
+                    "enum_fields": [
+                        {"Checkbox": {"type": "bool", "doc": "Menu item shows a checkbox (either checked or not)"}},
+                        {"Image": {"type": "ImageRef", "doc": "Menu item shows a custom image, usually in 16x16 format"}}
+                    ]
+                },
+                "MenuItemState": {
+                    "doc": "Describes the state of a menu item",
+                    "external": "azul_impl::window::MenuItemState",
+                    "enum_fields": [
+                        {"Normal": {"doc": "Normal menu item (default)"}},
+                        {"Greyed": {"doc": "Menu item is greyed out and clicking it does nothing"}},
+                        {"Disabled": {"doc": "Menu item is disabled, clicking it does nothing - but NOT greyed out"}}
                     ]
                 }
             }
@@ -4907,6 +4907,39 @@
                         }
                     }
                 }
+            }
+        },
+        "widgets": {
+            "doc": "Default, built-in widgets (button, label, textinput, etc.)",
+            "classes": {
+                "Button": {
+                    "external": "crate::widgets::button::Button",
+
+                },
+                "CheckBox": {
+                    "external": "crate::widgets::check_box::CheckBox",
+
+                },
+                "Label": {
+                    "external": "crate::widgets::label::Label",
+
+                },
+                "TextInput": {
+                    "external": "crate::widgets::text_input::TextInput",
+
+                },
+                "NumberInput": {
+                    "external": "crate::widgets::number_input::NumberInput",
+
+                },
+                "ColorInput": {
+                    "external": "crate::widgets::color_input::ColorInput",
+
+                },
+                "Spreadsheet": {
+                    "external": "crate::widgets::table_view::TableView",
+
+                },
             }
         },
         "style": {

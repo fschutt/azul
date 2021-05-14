@@ -9,6 +9,7 @@ use azul::{
 };
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct Label {
     pub string: AzString,
     pub label_style: NodeDataInlineCssPropertyVec,
@@ -63,9 +64,9 @@ static LABEL_STYLE_OTHER: &[NodeDataInlineCssProperty] = &[
 impl Label {
 
     #[inline]
-    pub fn new<S: Into<AzString>>(string: S) -> Self {
+    pub fn new(string: AzString) -> Self {
         Self {
-            string: string.into(),
+            string: string,
             #[cfg(target_os = "windows")]
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_WINDOWS),
             #[cfg(target_os = "linux")]

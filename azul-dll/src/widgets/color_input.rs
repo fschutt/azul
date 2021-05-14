@@ -4,26 +4,37 @@ use azul::css::*;
 use azul::dom::{Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal};
 use azul::callbacks::{Update, CallbackInfo, RefAny};
 use azul::str::String as AzString;
+use alloc::vec::Vec;
 
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct ColorInput {
     pub state: ColorInputStateWrapper,
-    pub style: Vec<NodeDataInlineCssProperty>,
+    pub style: NodeDataInlineCssPropertyVec,
 }
 
 pub type OnColorChangeCallback = extern "C" fn(&mut RefAny, &ColorInputState, &mut CallbackInfo) -> Update;
 
+#[repr(C)]
 pub struct OnColorChangeFn {
     pub cb: OnColorChangeCallback,
 }
 
 impl_callback!(OnColorChangeFn);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct ColorInputStateWrapper {
     pub inner: ColorInputState,
     pub title: AzString,
-    pub on_value_change: Option<(OnColorChangeFn, RefAny)>
+    pub on_value_change:
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct ColorInputOnValueChange {
+    pub callback: OnColorChangeFn,
+    pub data: RefAny,
 }
 
 impl Default for ColorInputStateWrapper {
@@ -35,7 +46,9 @@ impl Default for ColorInputStateWrapper {
         }
     }
 }
+
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct ColorInputState {
     pub color: ColorU,
 }
@@ -55,6 +68,7 @@ impl Default for ColorInputState {
 
 impl ColorInput {
 
+    #[inline]
     pub fn new(color: ColorU) -> Self {
         Self {
             state: ColorInputStateWrapper {
@@ -73,11 +87,15 @@ impl ColorInput {
         }
     }
 
-    pub fn on_value_change(mut self, callback: OnColorChangeCallback, data: RefAny) -> Self {
-        self.state.on_value_change = Some((OnColorChangeFn { cb: callback }, data));
-        self
+    #[inline]
+    pub fn set_on_value_change(mut self, callback: OnColorChangeCallback, data: RefAny) {
+        self.state.on_value_change = Some(ColorInputOnValueChange {
+            callback: OnColorChangeFn { cb: callback },
+            data
+        }).into();
     }
 
+    #[inline]
     pub fn dom(mut self) -> Dom {
 
         use azul::callbacks::Callback;
@@ -133,7 +151,7 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) 
         let inner = &color_input.inner;
 
         match onvaluechange.as_mut() {
-            Some((f, d)) => (f.cb)(d, &inner, &mut info),
+            Some(ColorInputOnValueChange { callback, data }) => (callback.cb)(data, &inner, &mut info),
             None => Update::DoNothing,
         }
     };

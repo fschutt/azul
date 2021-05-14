@@ -1,4 +1,5 @@
 use azul::prelude::*;
+use azul::str::String as AzString;
 
 struct DataModel {
     counter: usize,
@@ -10,12 +11,12 @@ static CSS: AzString = AzString::from_const_str("
 
 extern "C" fn myLayoutFunc(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
 
-    let data = match data.downcast_ref::<DataModel>() {
-        Some(s) => d,
+    let d = match data.downcast_ref::<DataModel>() {
+        Some(s) => s,
         None => return StyledDom::default(),
     };
 
-    let label = Label::new(format!("{}", data.counter));
+    let label = Label::new(format!("{}", d.counter));
     let button = Button::new("Update counter")
         .with_on_click(data.clone(), myOnClick);
 

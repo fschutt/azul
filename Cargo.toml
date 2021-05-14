@@ -9,7 +9,6 @@ members = [
     "azul-core",
     "azul-layout",
     "azul-text-layout",
-    "azul-widgets",
     "azul-css-parser",
     "examples",
 ]

@@ -16,6 +16,7 @@ static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("
 
 pub type CheckboxCallback = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
 
+#[repr(C)]
 pub struct CheckBoxCallbackFn {
     pub cb: CheckboxCallback,
 }
@@ -23,6 +24,7 @@ pub struct CheckBoxCallbackFn {
 impl_callback!(CheckBoxCallbackFn);
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct CheckBox {
     pub state: CheckBoxStateWrapper,
     /// Style for the checkbox container
@@ -32,14 +34,25 @@ pub struct CheckBox {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct CheckBoxStateWrapper {
     /// Content (image or text) of this CheckBox, centered by default
     pub inner: CheckBoxState,
     /// Optional: Function to call when the CheckBox is toggled
-    pub on_toggle: Option<(CheckBoxCallbackFn, RefAny)>,
+    pub on_toggle: OptionCheckBoxOnToggleFn,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct CheckBoxOnToggleFn {
+    pub callback: CheckBoxCallbackFn,
+    pub data: RefAny,
+}
+
+impl_option!(CheckBoxOnToggleFn, OptionCheckBoxOnToggleFn, [Debug, Clone, PartialEq, PartialOrd]);
+
 #[derive(Debug, Default, Clone, PartialEq)]
+#[repr(C)]
 pub struct CheckBoxState {
     pub checked: bool,
 }
@@ -119,9 +132,11 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn on_toggle(mut self, on_toggle: CheckboxCallback, data: RefAny) -> Self {
-        self.state.on_toggle = Some((CheckBoxCallbackFn { cb: on_toggle }, data));
-        self
+    pub fn set_on_toggle(&mut self, on_toggle: CheckboxCallback, data: RefAny) {
+        self.state.on_toggle = Some(CheckBoxOnToggleFn {
+            callback: CheckBoxCallbackFn { cb: on_toggle },
+            data,
+        }).into();
     }
 
     #[inline]
@@ -154,7 +169,7 @@ impl CheckBox {
     }
 }
 
-// handle input events for the TextInput
+// handle input events for the checkbox
 mod input {
 
     use azul::callbacks::{RefAny, CallbackInfo, Update};
@@ -181,7 +196,7 @@ mod input {
             let inner = &check_box.inner;
 
             match ontoggle.as_mut() {
-                Some((f, d)) => (f.cb)(d, &inner, &mut info),
+                Some(CheckBoxOnToggleFn { callback, data })) => (callback)(data, &inner, &mut info),
                 None => Update::DoNothing,
             }
         };

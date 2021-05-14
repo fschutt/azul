@@ -13,21 +13,33 @@ use azul::{
         NormalizedLinearColorStopVec,
     },
 };
+use alloc::vec::Vec;
 
 pub type OnClickFn = CallbackType;
 
-#[derive(Debug, Clone)]
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Button {
     /// Content (image or text) of this button, centered by default
-    pub content: ButtonContent,
+    pub label: AzString,
+    /// Optional image that is displayed next to the label
+    pub image: OptionImageRef,
     /// Style for this button
     pub container_style: NodeDataInlineCssPropertyVec,
     pub label_style: NodeDataInlineCssPropertyVec,
     pub image_style: NodeDataInlineCssPropertyVec,
     /// Optional: Function to call when the button is clicked
-    pub on_click: Option<(RefAny, Callback)>,
+    pub on_click: OptionButtonOnClickCallback,
 }
 
+#[repr(C, u8)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct ButtonOnClickCallback {
+    pub data: RefAny,
+    pub callback: Callback,
+}
+
+impl_option!(ButtonOnClickCallback, OptionButtonOnClickCallback, [Debug, Clone, PartialEq, PartialOrd]);
 
 const SANS_SERIF_STR: &str = "sans-serif";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
@@ -164,49 +176,49 @@ static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
 ];
 
 static BUTTON_CONTAINER_LINUX: &[NodeDataInlineCssProperty] = &[
-/*
-.__azul-native-button {
-    font-size: 13px;
-    font-family: sans-serif;
-    color: #4c4c4c;
-    display: flex;
-    flex-grow: 1;
-    border: 1px solid #b7b7b7;
-    border-radius: 4px;
-    box-shadow: 0px 0px 3px #c5c5c5ad;
-    background: linear-gradient(#fcfcfc, #efefef);
-    text-align: center;
-    flex-direction: column;
-    justify-content: center;
-    flex-grow: 1;
-}
+    /*
+    .__azul-native-button {
+        font-size: 13px;
+        font-family: sans-serif;
+        color: #4c4c4c;
+        display: flex;
+        flex-grow: 1;
+        border: 1px solid #b7b7b7;
+        border-radius: 4px;
+        box-shadow: 0px 0px 3px #c5c5c5ad;
+        background: linear-gradient(#fcfcfc, #efefef);
+        text-align: center;
+        flex-direction: column;
+        justify-content: center;
+        flex-grow: 1;
+    }
 
-.__azul-native-button:hover {
-    background: linear-gradient(red, black);
-}
+    .__azul-native-button:hover {
+        background: linear-gradient(red, black);
+    }
 
-.__azul-native-button:active {
-    background: linear-gradient(blue, green);
-}
-*/
+    .__azul-native-button:active {
+        background: linear-gradient(blue, green);
+    }
+    */
 ];
 
 static BUTTON_CONTAINER_MAC: &[NodeDataInlineCssProperty] = &[
-/*
-.__azul-native-button {
-    font-size: 12px;
-    font-family: \"Helvetica\";
-    color: #4c4c4c;
-    background-color: #e7e7e7;
-    border: 1px solid #b7b7b7;
-    border-radius: 4px;
-    box-shadow: 0px 0px 3px #c5c5c5ad;
-    background: linear-gradient(#fcfcfc, #efefef);
-    text-align: center;
-    flex-direction: column;
-    justify-content: center;
-}
-*/
+    /*
+    .__azul-native-button {
+        font-size: 12px;
+        font-family: \"Helvetica\";
+        color: #4c4c4c;
+        background-color: #e7e7e7;
+        border: 1px solid #b7b7b7;
+        border-radius: 4px;
+        box-shadow: 0px 0px 3px #c5c5c5ad;
+        background: linear-gradient(#fcfcfc, #efefef);
+        text-align: center;
+        flex-direction: column;
+        justify-content: center;
+    }
+    */
 ];
 
 static BUTTON_CONTAINER_OTHER: &[NodeDataInlineCssProperty] = &[
@@ -227,20 +239,14 @@ static BUTTON_LABEL_MAC: &[NodeDataInlineCssProperty] = &[
 static BUTTON_LABEL_OTHER: &[NodeDataInlineCssProperty] = &[
 ];
 
-#[derive(Debug, Clone)]
-pub enum ButtonContent {
-    // Buttons displays a centered text
-    Text(AzString),
-    // Button displays a centered image
-    Image(ImageRef),
-}
 
 impl Button {
-
     #[inline]
-    pub fn text<S: Into<AzString>>(text: S) -> Self {
+    pub fn new(label: AzString) -> Self {
         Self {
-            content: ButtonContent::Text(text.into()),
+            label: text.into(),
+
+            image: None.into(),
 
             #[cfg(target_os = "windows")]
             container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_WINDOWS),
@@ -273,23 +279,24 @@ impl Button {
         }
     }
 
-    #[inline]
-    pub fn image(image: ImageRef) -> Self {
-        Self {
-            content: ButtonContent::Image(image),
-            container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_WINDOWS),
-            label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
-            image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_WINDOWS),
-            on_click: None,
-        }
+    #[inline(always)]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut m = Self::new(AzString::from_const_str(""));
+        core::mem::swap(&mut m, self);
+        m
     }
 
     #[inline]
-    pub fn on_click(self, data: RefAny, on_click: OnClickFn) -> Self {
-        Self {
-            on_click: Some((data, Callback { cb: on_click })),
-            .. self
-        }
+    pub fn set_image(&mut self, image: ImageRef) -> Self {
+        self.image = Some(image).into();
+    }
+
+    #[inline]
+    pub fn set_on_click(&mut self, data: RefAny, on_click: OnClickFn) {
+        self.on_click = Some(ButtonOnClickCallback {
+            data,
+            callback: Callback { cb: on_click },
+        });
     }
 
     #[inline]
@@ -334,12 +341,6 @@ impl Button {
                 },
             }
         ].into())
-    }
-}
-
-impl From<Button> for Dom {
-    fn from(b: Button) -> Dom {
-        b.dom()
     }
 }
 

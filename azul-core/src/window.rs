@@ -478,13 +478,6 @@ impl ScrollStates {
         .set(scroll_position.x, scroll_position.y, &node.child_rect);
     }
 
-    /// NOTE: This has to be a getter, because we need to update
-    #[must_use = "function marks the scroll ID as dirty, therefore the function is must_use"]
-    pub fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LogicalPosition> {
-        let entry = self.0.get_mut(&scroll_id)?;
-        Some(entry.get_and_mark_as_used())
-    }
-
     /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
     pub fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
@@ -492,30 +485,12 @@ impl ScrollStates {
         .or_insert_with(|| ScrollState::default())
         .add(scroll_by_x, scroll_by_y, &node.child_rect);
     }
-
-    /// Removes all scroll states that weren't used in the last frame
-    pub fn remove_unused_scroll_states(&mut self) {
-        // NOTE: originally this code used retain(), but retain() is not available on no_std
-        let mut scroll_states_to_remove = Vec::new();
-
-        for (key, state) in self.0.iter_mut() {
-            if !state.used_this_frame {
-                scroll_states_to_remove.push(*key);
-            }
-        }
-
-        for key in scroll_states_to_remove {
-            self.0.remove(&key);
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
     pub scroll_position: LogicalPosition,
-    /// Was the scroll amount used in this frame?
-    pub used_this_frame: bool,
 }
 
 impl ScrollState {
@@ -536,19 +511,12 @@ impl ScrollState {
         self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
         self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
     }
-
-    /// Returns the scroll position and also set the "used_this_frame" flag
-    pub fn get_and_mark_as_used(&mut self) -> LogicalPosition {
-        self.used_this_frame = true;
-        self.scroll_position
-    }
 }
 
 impl Default for ScrollState {
     fn default() -> Self {
         ScrollState {
             scroll_position: LogicalPosition::zero(),
-            used_this_frame: true,
         }
     }
 }

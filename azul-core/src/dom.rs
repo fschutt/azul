@@ -1411,19 +1411,7 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
     };
 
-    println!("converting DOM into compact DOM:
-
-    dom: {:#?}
-    node_hierarchy: {:#?}
-    node_data: {:#?}
-    root_node_id: {:#?}
-    root_node: {:#?}
-    cur_node_id: {:#?}
-    ", dom, node_hierarchy, node_data, root_node_id, root_node, cur_node_id);
-
     convert_dom_into_compact_dom_internal(&mut dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
-
-    println!("ok: converted: {:?}, {:?}", node_hierarchy, node_data);
 
     CompactDom {
         node_hierarchy: NodeHierarchy { internal: node_hierarchy },

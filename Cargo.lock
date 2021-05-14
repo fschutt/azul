@@ -206,7 +206,6 @@ name = "azul-examples"
 version = "0.0.1"
 dependencies = [
  "azul",
- "azul-widgets",
 ]
 
 [[package]]
@@ -247,13 +246,6 @@ version = "0.0.5"
 dependencies = [
  "azul-core",
  "azul-css",
-]
-
-[[package]]
-name = "azul-widgets"
-version = "0.0.2"
-dependencies = [
- "azul",
 ]
 
 [[package]]

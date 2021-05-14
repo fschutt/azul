@@ -500,6 +500,13 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
+                            window.force_synchronize_hit_tester_during();
+
+                            // do the same thing again, but this time after the hit_tester has been updated
+                            let mut resource_updates = Vec::new();
+                            let mut transaction = WrTransaction::new();
+                            window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
+                            window.render_async(transaction, /* display list was rebuilt */ true);
                             hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
                                 wr_translate_document_id(window.internal.document_id)))
                             );
@@ -775,9 +782,7 @@ fn run_inner(app: App) -> ! {
                 loop {
                     let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
                     let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
-                    let hit_test = if !events.needs_hit_test() {
-                        FullHitTest::empty(window.internal.current_window_state.focused_node)
-                    } else {
+                    let hit_test = {
                         let ht = crate::wr_translate::fullhittest_new_webrender(
                             &*window.hit_tester,
                             window.internal.document_id,
@@ -1199,12 +1204,14 @@ fn run_inner(app: App) -> ! {
             }
         }
 
+        /*
         // resolve the hit-testing scene
         if let Some((window_id, new_hit_test_results)) = hit_tester_request {
             if let Some(w) = active_windows.get_mut(&window_id) {
                 w.hit_tester = new_hit_test_results.resolve();
             }
         }
+        */
 
         // end: handle control flow and app shutdown
         let new_control_flow = if !active_windows.is_empty() {
@@ -1528,7 +1535,7 @@ fn create_window(
         }
 
         let timer = Timer::new(data.clone(), hot_reload_timer, config.system_callbacks.get_system_time_fn)
-        .with_interval(StdDuration::from_millis(200).into());
+        .with_interval(StdDuration::from_millis(800).into());
 
         timers
         .entry(glutin_window_id)

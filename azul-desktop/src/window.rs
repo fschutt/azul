@@ -439,7 +439,7 @@ impl Window {
                 enable_aa: true,
                 cached_programs: Some(WrProgramCache::new(None)),
                 clear_color: Some(WrColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }), // transparent
-                enable_multithreading: true,
+                enable_multithreading: false,
                 debug_flags: wr_translate_debug_flags(&options.state.debug_state),
                 .. WrRendererOptions::default()
             }
@@ -547,7 +547,14 @@ impl Window {
                 fc_cache,
                 azul_layout::do_the_relayout,
                 |window_state, scroll_states, layout_results| {
-                    FullHitTest::empty(window_state.focused_node)
+                    crate::wr_translate::fullhittest_new_webrender(
+                         hit_tester_ref,
+                         document_id,
+                         window_state.focused_node,
+                         layout_results,
+                         &window_state.mouse_state.cursor_position,
+                         window_state.size.hidpi_factor,
+                    )
                 }
             )
         });
@@ -567,14 +574,9 @@ impl Window {
         };
 
         let mut txn = WrTransaction::new();
-
         window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
-        window.render_async(txn, /* display list was rebuilt */ true);
-        window.render_block_and_swap();
-        window.display.window().request_redraw();
-
-        let hit_tester = window.render_api.request_hit_tester(wr_translate_document_id(window.internal.document_id));
-        window.hit_tester = hit_tester.resolve();
+        window.render_async(txn, true);
+        window.force_synchronize_hit_tester_initial(image_cache);
 
         Ok(window)
     }
@@ -684,12 +686,17 @@ impl Window {
                 fc_cache,
                 azul_layout::do_the_relayout,
                 |window_state, scroll_states, layout_results| {
-                    FullHitTest::empty(window_state.focused_node)
+                    crate::wr_translate::fullhittest_new_webrender(
+                         hit_tester,
+                         document_id,
+                         window_state.focused_node,
+                         layout_results,
+                         &window_state.mouse_state.cursor_position,
+                         window_state.size.hidpi_factor,
+                    )
                 }
             );
         });
-
-
     }
 
     /// Only re-build the display list and send it to webrender
@@ -1136,6 +1143,24 @@ impl Window {
         self.render_api.send_transaction(wr_translate::wr_translate_document_id(self.internal.document_id), txn);
     }
 
+    /// Force-synchronizes the hit-tester
+    pub(crate) fn force_synchronize_hit_tester_during(&mut self) {
+        use crate::wr_translate::wr_translate_document_id;
+        self.hit_tester = self.render_api.request_hit_tester(wr_translate_document_id(self.internal.document_id)).resolve();
+    }
+
+    pub(crate) fn force_synchronize_hit_tester_initial(&mut self, image_cache: &ImageCache) {
+        use crate::wr_translate::wr_translate_document_id;
+
+        let mut txn = WrTransaction::new();
+        self.rebuild_display_list(&mut txn, image_cache, Vec::new());
+        scroll_all_nodes(&self.internal.scroll_states, &mut txn);
+        synchronize_gpu_values(&self.internal.layout_results, &mut txn);
+        self.render_api.send_transaction(wr_translate_document_id(self.internal.document_id), txn);
+
+        self.hit_tester = self.render_api.request_hit_tester(wr_translate_document_id(self.internal.document_id)).resolve();
+    }
+
     /// Does the actual rendering + swapping
     pub fn render_block_and_swap(&mut self) {
 
@@ -1261,10 +1286,11 @@ impl Drop for Window {
 ///
 /// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
 /// indicate whether it was used during the current frame or not.
-fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
+fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
+    println!("scrolling nodes to position: {:#?}", scroll_states);
     use webrender::api::ScrollClamping;
     use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
-    for (key, value) in scroll_states.0.iter_mut() {
+    for (key, value) in scroll_states.0.iter() {
         txn.scroll_node_with_id(
             wr_translate_logical_position(value.get()),
             wr_translate_external_scroll_id(*key),

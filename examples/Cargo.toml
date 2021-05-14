@@ -40,5 +40,5 @@ path = "rust/opengl.rs"
 
 [dependencies]
 azul = { version = "0.0.1", path = "../api/rust" }
-azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
+# azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
 # libc_alloc = { version = "1.0.2", default-features = false }

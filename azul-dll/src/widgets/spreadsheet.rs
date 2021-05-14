@@ -1,8 +1,9 @@
-//! Table view
+//! Spreadsheet view
 
 use core::ops::Range;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::vec::Vec;
 use azul::{
     style::StyledDom,
     dom::{Dom, NodeData, NodeType},
@@ -13,55 +14,69 @@ use azul::{
 pub type RowIndex = usize;
 pub type ColumnIndex = usize;
 
+pub const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 255 }; // green
+
 #[derive(Debug, Clone)]
-pub struct TableView {
-    pub state: TableViewState,
+#[repr(C)]
+pub struct Spreadsheet {
+    pub state: SpreadsheetState,
     // pub disable_selection: bool,
     // pub on_cell_focus_received: Option<(OnCellEditFinishCallback, RefAny)>
     // pub on_cell_focus_lost: Option<(OnCellEditFinishCallback, RefAny)>
     // pub on_cell_edit_finish: Option<(OnCellEditFinishCallback, RefAny)>
 }
 
-impl Default for TableView {
+impl Default for SpreadsheetState {
     fn default() -> Self {
         Self {
-            state: TableViewState::default(),
+            state: SpreadsheetStateState::default(),
         }
     }
 }
 
-pub type OnCellFocusReceivedCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
-pub type OnCellFocusLostCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
-pub type OnCellEditFinishCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
-pub type OnCellInputCallback = extern "C" fn(&mut RefAny, &TableViewState, TableCellIndex) -> Update;
+pub type OnCellFocusReceivedCallback = extern "C" fn(&mut RefAny, &SpreadsheetState, SpreadsheetCellIndex) -> Update;
+pub type OnCellFocusLostCallback = extern "C" fn(&mut RefAny, &SpreadsheetState, SpreadsheetCellIndex) -> Update;
+pub type OnCellEditFinishCallback = extern "C" fn(&mut RefAny, &SpreadsheetState, SpreadsheetCellIndex) -> Update;
+pub type OnCellInputCallback = extern "C" fn(&mut RefAny, &SpreadsheetState, SpreadsheetCellIndex) -> Update;
 
 #[derive(Debug, Default, Clone)]
-pub struct TableStyle {
+#[repr(C)]
+pub struct SpreadsheetStyle {
     // TODO: styling args (background / border, etc.)
+    pub accent_color: ColorU,
+}
+
+impl Default for SpreadsheetStyle {
+    pub fn default() -> SpreadsheetStyle {
+        SpreadsheetStyle {
+            accent_color: COLOR_407C40,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct TableViewState {
-    pub style: TableStyle,
+#[repr(C)]
+pub struct SpreadsheetState {
+    pub style: SpreadsheetStyle,
     /// Width of the column in pixels
     pub default_column_width: f32,
     /// Height of the column in pixels
     pub default_row_height: f32,
     /// Overrides the `default_column_width` for column X
-    pub column_width_overrides: BTreeMap<ColumnIndex, f32>,
+    pub column_width_overrides: Option<Box<BTreeMap<ColumnIndex, f32>>>,
     /// Overrides the `default_row_height` for row X
-    pub row_height_overrides: BTreeMap<RowIndex, f32>,
+    pub row_height_overrides: Option<Box<BTreeMap<RowIndex, f32>>>,
     /// Optional selection
-    pub selection: Option<TableCellSelection>,
+    pub selection: OptionSpreadsheetCellSelection,
     /// Current cell contents
-    pub cell_contents: BTreeMap<TableCellIndex, String>,
+    pub cell_contents: Option<Box<BTreeMap<SpreadsheetCellIndex, String>>>,
 }
 
-impl Default for TableViewState {
+impl Default for SpreadsheetState {
     #[inline]
     fn default() -> Self {
         Self {
-            style: TableStyle::default(),
+            style: SpreadsheetStyle::default(),
             default_column_width: 100.0,
             default_row_height: 20.0,
             column_width_overrides: BTreeMap::default(),
@@ -74,31 +89,35 @@ impl Default for TableViewState {
 
 /// Represents the index of a single cell (row + column)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TableCellIndex {
+#[repr(C)]
+pub struct SpreadsheetCellIndex {
     pub row: RowIndex,
     pub column: ColumnIndex,
 }
 
 /// Represents a selection of table cells from the top left to the bottom right cell
-#[derive(Debug, Clone)]
-pub struct TableCellSelection {
-    pub from_top_left: TableCellIndex,
-    pub to_bottom_right: TableCellIndex,
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SpreadsheetCellSelection {
+    pub from_top_left: SpreadsheetCellIndex,
+    pub to_bottom_right: SpreadsheetCellIndex,
 }
 
-impl TableCellSelection {
+impl_option!(SpreadsheetCellSelection, OptionSpreadsheetCellSelection, [Debug, Clone, PartialEq, PartialOrd]);
+
+impl SpreadsheetCellSelection {
 
     #[inline]
     pub fn from(row: usize, column: usize) -> Self {
         Self {
-            from_top_left: TableCellIndex { row, column },
-            to_bottom_right: TableCellIndex { row, column },
+            from_top_left: SpreadsheetCellIndex { row, column },
+            to_bottom_right: SpreadsheetCellIndex { row, column },
         }
     }
 
     #[inline]
     pub fn to(self, row: usize, column: usize) -> Self {
-        Self { to_bottom_right: TableCellIndex { row, column }, .. self }
+        Self { to_bottom_right: SpreadsheetCellIndex { row, column }, .. self }
     }
 
     #[inline]
@@ -116,25 +135,25 @@ impl TableCellSelection {
     }
 }
 
-impl TableViewState {
+impl SpreadsheetState {
 
     #[inline]
     pub fn new() -> Self {
-        TableViewState::default()
+        SpreadsheetState::default()
     }
 
     #[inline]
-    pub fn set_cell_content<I: Into<String>>(&mut self, cell: TableCellIndex, value: I) {
+    pub fn set_cell_content<I: Into<String>>(&mut self, cell: SpreadsheetCellIndex, value: I) {
         self.cell_contents.insert(cell, value.into());
     }
 
     #[inline]
-    pub fn get_cell_content(&self, cell: &TableCellIndex) -> Option<&String> {
+    pub fn get_cell_content(&self, cell: &SpreadsheetCellIndex) -> Option<&String> {
         self.cell_contents.get(cell)
     }
 
     #[inline]
-    pub fn set_selection(&mut self, selection: Option<TableCellSelection>) {
+    pub fn set_selection(&mut self, selection: Option<SpreadsheetCellSelection>) {
         self.selection = selection;
     }
 
@@ -153,12 +172,12 @@ impl TableViewState {
         use azul::dom::IdOrClass;
         use azul::dom::NodeDataInlineCssProperty;
         use azul::dom::NodeDataInlineCssProperty::Normal;
+        use alloc::string::ToString;
 
         const FONT_STRING: AzString = AzString::from_const_str("sans-serif");
         const FONT_VEC: &[StyleFontFamily] = &[StyleFontFamily::System(FONT_STRING)];
         const SANS_SERIF_FONT_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(FONT_VEC);
 
-        const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 255 }; // green
         const COLOR_2D2D2D: ColorU = ColorU { r: 45, g: 45, b: 45, a: 255 };
         const COLOR_E6E6E6: ColorU = ColorU { r: 230, g: 230, b: 230, a: 255 };
         const COLOR_B5B5B5: ColorU = ColorU { r: 181, g: 181, b: 181, a: 255 };
@@ -347,7 +366,7 @@ impl TableViewState {
             // rows in this column, laid out vertically
             let rows_in_this_column = (rows.start..rows.end).map(|row_idx| {
 
-                    let node_type = match self.get_cell_content(&TableCellIndex { row: row_idx, column: col_idx }) {
+                    let node_type = match self.get_cell_content(&SpreadsheetCellIndex { row: row_idx, column: col_idx }) {
                         Some(string) => NodeType::Text(string.clone().into()),
                         None => NodeType::Text(DEFAULT_TABLE_CELL_STRING),
                     };
@@ -424,10 +443,10 @@ impl TableViewState {
     }
 }
 
-impl TableView {
+impl Spreadsheet {
 
     #[inline]
-    pub const fn new(state: TableViewState) -> Self {
+    pub const fn new(state: SpreadsheetState) -> Self {
         Self { state }
     }
 
@@ -455,7 +474,7 @@ impl TableView {
 
         use azul::css::Css;
 
-        let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
+        let table_view_state = state.downcast_ref::<SpreadsheetState>().unwrap();
 
         let logical_size = info.bounds.get_logical_size();
         let padding_rows = 0;
@@ -495,8 +514,8 @@ impl TableView {
     }
 }
 
-impl From<TableView> for Dom  {
-    fn from(t: TableView) -> Dom {
+impl From<Spreadsheet> for Dom  {
+    fn from(t: Spreadsheet) -> Dom {
         t.dom()
     }
 }

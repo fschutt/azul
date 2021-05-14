@@ -451,6 +451,7 @@ def generate_rust_dll(api_data):
     code += "#![cfg_attr(feature =\"rlib\", crate_type = \"rlib\")]\r\n"
     code += "#![deny(improper_ctypes_definitions)]\r\n"
     code += "\r\n"
+    code += "pub mod widgets;\r\n"
     code += "#[cfg(feature = \"python-extension\")]\r\n"
     code += "pub mod python;\r\n"
     code += "\r\n"
