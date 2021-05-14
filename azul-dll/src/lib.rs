@@ -614,6 +614,74 @@ pub use AzMenuItemStateTT as AzMenuItemState;
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::new()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_new(node_type: AzNodeType) -> AzDom { AzDom::new(node_type) }
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::body()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_body() -> AzDom { AzDom::body() }
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::br()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_br() -> AzDom { AzDom::br() }
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::text()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_text(string: AzString) -> AzDom { AzDom::text(string) }
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::image()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_image(image: AzImageRef) -> AzDom { AzDom::image(image) }
+/// Creates a new `Dom` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Dom::iframe()` constructor.
+#[no_mangle] pub extern "C" fn AzDom_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzDom { AzDom::iframe(data, callback) }
+/// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
+#[no_mangle] pub extern "C" fn AzDom_addChild(dom: &mut AzDom, child: AzDom) { dom.add_child(child) }
+/// Same as add_child, but as a builder method.
+#[no_mangle] pub extern "C" fn AzDom_withChild(dom: &mut AzDom, child: AzDom) -> AzDom { let mut dom = dom.swap_with_default(); dom.add_child(child); dom }
+/// Adds an CSS ID to the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_addId(dom: &mut AzDom, id: AzString) { dom.root.add_id(id) }
+/// Same as add_id, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withId(dom: &mut AzDom, id: AzString) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_id(id); dom }
+/// Adds a CSS class to the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_addClass(dom: &mut AzDom, class: AzString) { dom.root.add_class(class) }
+/// Same as add_class, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withClass(dom: &mut AzDom, class: AzString) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_class(class); dom }
+/// Adds an inline (normal) CSS property to the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_addCssProperty(dom: &mut AzDom, prop: AzCssProperty) { dom.root.add_normal_css_property(prop) }
+/// Same as add_class, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_normal_css_property(prop); dom }
+/// Adds an inline (hover) CSS property to the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_addHoverCssProperty(dom: &mut AzDom, prop: AzCssProperty) { dom.root.add_hover_css_property(prop) }
+/// Same as add_class, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withHoverCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_hover_css_property(prop); dom }
+/// Adds an inline (hover) CSS property to the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_addActiveCssProperty(dom: &mut AzDom, prop: AzCssProperty) { dom.root.add_active_css_property(prop) }
+/// Same as add_class, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withActiveCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_active_css_property(prop); dom }
+/// Adds an inline (hover) CSS property to the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_addFocusCssProperty(dom: &mut AzDom, prop: AzCssProperty) { dom.root.add_focus_css_property(prop) }
+/// Same as add_class, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withFocusCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_focus_css_property(prop); dom }
+/// Sets the clip mask for the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_setClipMask(dom: &mut AzDom, clip_mask: AzImageMask) { dom.root.set_clip_mask(clip_mask) }
+/// Same as set_clip_mask, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withClipMask(dom: &mut AzDom, clip_mask: AzImageMask) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_clip_mask(clip_mask); dom }
+/// Sets the tab index for the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_setTabIndex(dom: &mut AzDom, tab_index: AzTabIndex) { dom.root.set_tab_index(tab_index) }
+/// Same as set_tab_index, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withTabIndex(dom: &mut AzDom, tab_index: AzTabIndex) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_tab_index(tab_index); dom }
+/// Sets accessibility attributes for the DOM root node.
+#[no_mangle] pub extern "C" fn AzDom_setAccessibilityInfo(dom: &mut AzDom, accessibility_info: AzAccessibilityInfo) { dom.root.set_accessibility_info(accessibility_info) }
+/// Same as set_accessibility_info, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withAccessibilityInfo(dom: &mut AzDom, accessibility_info: AzAccessibilityInfo) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_accessibility_info(accessibility_info); dom }
+/// Sets the menu bar for the DOM root node. See `NodeData::set_menu_bar` for more information.
+#[no_mangle] pub extern "C" fn AzDom_setMenuBar(dom: &mut AzDom, menu_bar: AzMenu) { dom.root.set_menu_bar(menu_bar) }
+/// Same as set_accessibility_info, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withMenuBar(dom: &mut AzDom, menu_bar: AzMenu) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_menu_bar(menu_bar); dom }
+/// Sets the context menu for the DOM root node. See `NodeData::set_context_menu` for more information.
+#[no_mangle] pub extern "C" fn AzDom_setContextMenu(dom: &mut AzDom, context_menu: AzMenu) { dom.root.set_context_menu(context_menu) }
+/// Same as set_context_menu, but as a builder method
+#[no_mangle] pub extern "C" fn AzDom_withContextMenu(dom: &mut AzDom, context_menu: AzMenu) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_context_menu(context_menu); dom }
+/// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
+#[no_mangle] pub extern "C" fn AzDom_hash(dom: &AzDom) -> u64 { dom.root.calculate_node_data_hash().0 }
 /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
 /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
@@ -632,16 +700,18 @@ pub type AzNodeDataTT = azul_impl::dom::NodeData;
 pub use AzNodeDataTT as AzNodeData;
 /// Creates an new, empty `NodeData` struct
 #[no_mangle] pub extern "C" fn AzNodeData_new(node_type: AzNodeType) -> AzNodeData { AzNodeData::new(node_type) }
-/// Equivalent to the Rust `NodeData::set_clip_mask()` function.
+/// Sets the `extra.clip_mask` field for this node
 #[no_mangle] pub extern "C" fn AzNodeData_setClipMask(nodedata: &mut AzNodeData, image_mask: AzImageMask) { nodedata.set_clip_mask(image_mask) }
-/// Equivalent to the Rust `NodeData::set_tab_index()` function.
+/// Sets the tab index for this node
 #[no_mangle] pub extern "C" fn AzNodeData_setTabIndex(nodedata: &mut AzNodeData, tab_index: AzTabIndex) { nodedata.set_tab_index(tab_index) }
-/// Equivalent to the Rust `NodeData::set_accessibility_info()` function.
+/// Sets accessibility attributes for this node
 #[no_mangle] pub extern "C" fn AzNodeData_setAccessibilityInfo(nodedata: &mut AzNodeData, accessibility_info: AzAccessibilityInfo) { nodedata.set_accessibility_info(accessibility_info) }
-/// Equivalent to the Rust `NodeData::set_menu_bar()` function.
+/// Adds a (native) menu bar: If this node is the root node the menu bar will be added to the window, else it will be displayed using the width and position of the bounding rectangle
 #[no_mangle] pub extern "C" fn AzNodeData_setMenuBar(nodedata: &mut AzNodeData, menu_bar: AzMenu) { nodedata.set_menu_bar(menu_bar) }
-/// Equivalent to the Rust `NodeData::set_context_menu()` function.
+/// Signalizes that this node has a (native) context-aware menu. If set, the user can left-click the node to open the menu
 #[no_mangle] pub extern "C" fn AzNodeData_setContextMenu(nodedata: &mut AzNodeData, context_menu: AzMenu) { nodedata.set_context_menu(context_menu) }
+/// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
+#[no_mangle] pub extern "C" fn AzNodeData_hash(nodedata: &AzNodeData) -> u64 { nodedata.calculate_node_data_hash().0 }
 
 /// List of core DOM node types built-into by `azul`
 pub type AzNodeTypeTT = azul_impl::dom::NodeType;

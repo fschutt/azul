@@ -8494,6 +8494,37 @@ mod dll {
         pub(crate) fn AzLayoutCallbackInfo_getGlContext(_:  &AzLayoutCallbackInfo) -> AzOptionGl;
         pub(crate) fn AzLayoutCallbackInfo_getSystemFonts(_:  &AzLayoutCallbackInfo) -> AzStringPairVec;
         pub(crate) fn AzLayoutCallbackInfo_getImage(_:  &AzLayoutCallbackInfo, _:  AzString) -> AzOptionImageRef;
+        pub(crate) fn AzDom_new(_:  AzNodeType) -> AzDom;
+        pub(crate) fn AzDom_body() -> AzDom;
+        pub(crate) fn AzDom_br() -> AzDom;
+        pub(crate) fn AzDom_text(_:  AzString) -> AzDom;
+        pub(crate) fn AzDom_image(_:  AzImageRef) -> AzDom;
+        pub(crate) fn AzDom_iframe(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom;
+        pub(crate) fn AzDom_addChild(_:  &mut AzDom, _:  AzDom);
+        pub(crate) fn AzDom_withChild(_:  &mut AzDom, _:  AzDom) -> AzDom;
+        pub(crate) fn AzDom_addId(_:  &mut AzDom, _:  AzString);
+        pub(crate) fn AzDom_withId(_:  &mut AzDom, _:  AzString) -> AzDom;
+        pub(crate) fn AzDom_addClass(_:  &mut AzDom, _:  AzString);
+        pub(crate) fn AzDom_withClass(_:  &mut AzDom, _:  AzString) -> AzDom;
+        pub(crate) fn AzDom_addCssProperty(_:  &mut AzDom, _:  AzCssProperty);
+        pub(crate) fn AzDom_withCssProperty(_:  &mut AzDom, _:  AzCssProperty) -> AzDom;
+        pub(crate) fn AzDom_addHoverCssProperty(_:  &mut AzDom, _:  AzCssProperty);
+        pub(crate) fn AzDom_withHoverCssProperty(_:  &mut AzDom, _:  AzCssProperty) -> AzDom;
+        pub(crate) fn AzDom_addActiveCssProperty(_:  &mut AzDom, _:  AzCssProperty);
+        pub(crate) fn AzDom_withActiveCssProperty(_:  &mut AzDom, _:  AzCssProperty) -> AzDom;
+        pub(crate) fn AzDom_addFocusCssProperty(_:  &mut AzDom, _:  AzCssProperty);
+        pub(crate) fn AzDom_withFocusCssProperty(_:  &mut AzDom, _:  AzCssProperty) -> AzDom;
+        pub(crate) fn AzDom_setClipMask(_:  &mut AzDom, _:  AzImageMask);
+        pub(crate) fn AzDom_withClipMask(_:  &mut AzDom, _:  AzImageMask) -> AzDom;
+        pub(crate) fn AzDom_setTabIndex(_:  &mut AzDom, _:  AzTabIndex);
+        pub(crate) fn AzDom_withTabIndex(_:  &mut AzDom, _:  AzTabIndex) -> AzDom;
+        pub(crate) fn AzDom_setAccessibilityInfo(_:  &mut AzDom, _:  AzAccessibilityInfo);
+        pub(crate) fn AzDom_withAccessibilityInfo(_:  &mut AzDom, _:  AzAccessibilityInfo) -> AzDom;
+        pub(crate) fn AzDom_setMenuBar(_:  &mut AzDom, _:  AzMenu);
+        pub(crate) fn AzDom_withMenuBar(_:  &mut AzDom, _:  AzMenu) -> AzDom;
+        pub(crate) fn AzDom_setContextMenu(_:  &mut AzDom, _:  AzMenu);
+        pub(crate) fn AzDom_withContextMenu(_:  &mut AzDom, _:  AzMenu) -> AzDom;
+        pub(crate) fn AzDom_hash(_:  &AzDom) -> u64;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
         pub(crate) fn AzDom_style(_:  &mut AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzNodeData_new(_:  AzNodeType) -> AzNodeData;
@@ -8502,6 +8533,7 @@ mod dll {
         pub(crate) fn AzNodeData_setAccessibilityInfo(_:  &mut AzNodeData, _:  AzAccessibilityInfo);
         pub(crate) fn AzNodeData_setMenuBar(_:  &mut AzNodeData, _:  AzMenu);
         pub(crate) fn AzNodeData_setContextMenu(_:  &mut AzNodeData, _:  AzMenu);
+        pub(crate) fn AzNodeData_hash(_:  &AzNodeData) -> u64;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
@@ -9867,13 +9899,77 @@ pub mod dom {
         fn from(on: On) -> AzEventFilter {
             on.into_event_filter()
         }
-    }    use crate::css::Css;
-    use crate::image::ImageMask;
+    }    use crate::str::String;
+    use crate::image::{ImageMask, ImageRef};
+    use crate::callbacks::{IFrameCallbackType, RefAny};
+    use crate::css::{Css, CssProperty};
     use crate::menu::Menu;
     /// `Dom` struct
     
 #[doc(inline)] pub use crate::dll::AzDom as Dom;
     impl Dom {
+        /// Creates a new `Dom` instance.
+        pub fn new(node_type: NodeType) -> Self { unsafe { crate::dll::AzDom_new(node_type) } }
+        /// Creates a new `Dom` instance.
+        pub fn body() -> Self { unsafe { crate::dll::AzDom_body() } }
+        /// Creates a new `Dom` instance.
+        pub fn br() -> Self { unsafe { crate::dll::AzDom_br() } }
+        /// Creates a new `Dom` instance.
+        pub fn text(string: String) -> Self { unsafe { crate::dll::AzDom_text(string) } }
+        /// Creates a new `Dom` instance.
+        pub fn image(image: ImageRef) -> Self { unsafe { crate::dll::AzDom_image(image) } }
+        /// Creates a new `Dom` instance.
+        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzDom_iframe(data, callback) } }
+        /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
+        pub fn add_child(&mut self, child: Dom)  { unsafe { crate::dll::AzDom_addChild(self, child) } }
+        /// Same as add_child, but as a builder method.
+        pub fn with_child(&mut self, child: Dom)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChild(self, child) } }
+        /// Adds an CSS ID to the DOM root node.
+        pub fn add_id(&mut self, id: String)  { unsafe { crate::dll::AzDom_addId(self, id) } }
+        /// Same as add_id, but as a builder method
+        pub fn with_id(&mut self, id: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withId(self, id) } }
+        /// Adds a CSS class to the DOM root node.
+        pub fn add_class(&mut self, class: String)  { unsafe { crate::dll::AzDom_addClass(self, class) } }
+        /// Same as add_class, but as a builder method
+        pub fn with_class(&mut self, class: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withClass(self, class) } }
+        /// Adds an inline (normal) CSS property to the DOM root node.
+        pub fn add_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addCssProperty(self, prop) } }
+        /// Same as add_class, but as a builder method
+        pub fn with_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCssProperty(self, prop) } }
+        /// Adds an inline (hover) CSS property to the DOM root node.
+        pub fn add_hover_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addHoverCssProperty(self, prop) } }
+        /// Same as add_class, but as a builder method
+        pub fn with_hover_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withHoverCssProperty(self, prop) } }
+        /// Adds an inline (hover) CSS property to the DOM root node.
+        pub fn add_active_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addActiveCssProperty(self, prop) } }
+        /// Same as add_class, but as a builder method
+        pub fn with_active_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withActiveCssProperty(self, prop) } }
+        /// Adds an inline (hover) CSS property to the DOM root node.
+        pub fn add_focus_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addFocusCssProperty(self, prop) } }
+        /// Same as add_class, but as a builder method
+        pub fn with_focus_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withFocusCssProperty(self, prop) } }
+        /// Sets the clip mask for the DOM root node.
+        pub fn set_clip_mask(&mut self, clip_mask: ImageMask)  { unsafe { crate::dll::AzDom_setClipMask(self, clip_mask) } }
+        /// Same as set_clip_mask, but as a builder method
+        pub fn with_clip_mask(&mut self, clip_mask: ImageMask)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withClipMask(self, clip_mask) } }
+        /// Sets the tab index for the DOM root node.
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { unsafe { crate::dll::AzDom_setTabIndex(self, tab_index) } }
+        /// Same as set_tab_index, but as a builder method
+        pub fn with_tab_index(&mut self, tab_index: TabIndex)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withTabIndex(self, tab_index) } }
+        /// Sets accessibility attributes for the DOM root node.
+        pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  { unsafe { crate::dll::AzDom_setAccessibilityInfo(self, accessibility_info) } }
+        /// Same as set_accessibility_info, but as a builder method
+        pub fn with_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withAccessibilityInfo(self, accessibility_info) } }
+        /// Sets the menu bar for the DOM root node. See `NodeData::set_menu_bar` for more information.
+        pub fn set_menu_bar(&mut self, menu_bar: Menu)  { unsafe { crate::dll::AzDom_setMenuBar(self, menu_bar) } }
+        /// Same as set_accessibility_info, but as a builder method
+        pub fn with_menu_bar(&mut self, menu_bar: Menu)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withMenuBar(self, menu_bar) } }
+        /// Sets the context menu for the DOM root node. See `NodeData::set_context_menu` for more information.
+        pub fn set_context_menu(&mut self, context_menu: Menu)  { unsafe { crate::dll::AzDom_setContextMenu(self, context_menu) } }
+        /// Same as set_context_menu, but as a builder method
+        pub fn with_context_menu(&mut self, context_menu: Menu)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withContextMenu(self, context_menu) } }
+        /// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
+        pub fn hash(&self)  -> u64 { unsafe { crate::dll::AzDom_hash(self) } }
         /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzDom_nodeCount(self) } }
         /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
@@ -9892,16 +9988,18 @@ pub mod dom {
     impl NodeData {
         /// Creates an new, empty `NodeData` struct
         pub fn new(node_type: NodeType) -> Self { unsafe { crate::dll::AzNodeData_new(node_type) } }
-        /// Calls the `NodeData::set_clip_mask` function.
+        /// Sets the `extra.clip_mask` field for this node
         pub fn set_clip_mask(&mut self, image_mask: ImageMask)  { unsafe { crate::dll::AzNodeData_setClipMask(self, image_mask) } }
-        /// Calls the `NodeData::set_tab_index` function.
+        /// Sets the tab index for this node
         pub fn set_tab_index(&mut self, tab_index: TabIndex)  { unsafe { crate::dll::AzNodeData_setTabIndex(self, tab_index) } }
-        /// Calls the `NodeData::set_accessibility_info` function.
+        /// Sets accessibility attributes for this node
         pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  { unsafe { crate::dll::AzNodeData_setAccessibilityInfo(self, accessibility_info) } }
-        /// Calls the `NodeData::set_menu_bar` function.
+        /// Adds a (native) menu bar: If this node is the root node the menu bar will be added to the window, else it will be displayed using the width and position of the bounding rectangle
         pub fn set_menu_bar(&mut self, menu_bar: Menu)  { unsafe { crate::dll::AzNodeData_setMenuBar(self, menu_bar) } }
-        /// Calls the `NodeData::set_context_menu` function.
+        /// Signalizes that this node has a (native) context-aware menu. If set, the user can left-click the node to open the menu
         pub fn set_context_menu(&mut self, context_menu: Menu)  { unsafe { crate::dll::AzNodeData_setContextMenu(self, context_menu) } }
+        /// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
+        pub fn hash(&self)  -> u64 { unsafe { crate::dll::AzNodeData_hash(self) } }
     }
 
     /// List of core DOM node types built-into by `azul`

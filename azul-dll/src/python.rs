@@ -13380,14 +13380,185 @@ impl PyObjectProtocol for AzMenuItemStateEnumWrapper {
 #[pymethods]
 impl AzDom {
     #[new]
-    fn __new__(root: AzNodeData, children: AzDomVec, total_children: usize) -> Self {
-        Self {
-            root,
-            children,
-            total_children,
-        }
+    fn new(node_type: AzNodeTypeEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_new(
+            mem::transmute(node_type),
+        )) }
     }
-
+    #[staticmethod]
+    fn body() -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_body()) }
+    }
+    #[staticmethod]
+    fn br() -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_br()) }
+    }
+    #[staticmethod]
+    fn text(string: String) -> AzDom {
+        let string = pystring_to_azstring(&string);
+        unsafe { mem::transmute(crate::AzDom_text(
+            mem::transmute(string),
+        )) }
+    }
+    #[staticmethod]
+    fn image(image: AzImageRef) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_image(
+            mem::transmute(image),
+        )) }
+    }
+    fn add_child(&mut self, child: AzDom) -> () {
+        unsafe { mem::transmute(crate::AzDom_addChild(
+            mem::transmute(self),
+            mem::transmute(child),
+        )) }
+    }
+    fn with_child(&mut self, child: AzDom) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withChild(
+            mem::transmute(self),
+            mem::transmute(child),
+        )) }
+    }
+    fn add_id(&mut self, id: String) -> () {
+        let id = pystring_to_azstring(&id);
+        unsafe { mem::transmute(crate::AzDom_addId(
+            mem::transmute(self),
+            mem::transmute(id),
+        )) }
+    }
+    fn with_id(&mut self, id: String) -> AzDom {
+        let id = pystring_to_azstring(&id);
+        unsafe { mem::transmute(crate::AzDom_withId(
+            mem::transmute(self),
+            mem::transmute(id),
+        )) }
+    }
+    fn add_class(&mut self, class: String) -> () {
+        let class = pystring_to_azstring(&class);
+        unsafe { mem::transmute(crate::AzDom_addClass(
+            mem::transmute(self),
+            mem::transmute(class),
+        )) }
+    }
+    fn with_class(&mut self, class: String) -> AzDom {
+        let class = pystring_to_azstring(&class);
+        unsafe { mem::transmute(crate::AzDom_withClass(
+            mem::transmute(self),
+            mem::transmute(class),
+        )) }
+    }
+    fn add_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzDom_addCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn with_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn add_hover_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzDom_addHoverCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn with_hover_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withHoverCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn add_active_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzDom_addActiveCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn with_active_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withActiveCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn add_focus_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzDom_addFocusCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn with_focus_css_property(&mut self, prop: AzCssPropertyEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withFocusCssProperty(
+            mem::transmute(self),
+            mem::transmute(prop),
+        )) }
+    }
+    fn set_clip_mask(&mut self, clip_mask: AzImageMask) -> () {
+        unsafe { mem::transmute(crate::AzDom_setClipMask(
+            mem::transmute(self),
+            mem::transmute(clip_mask),
+        )) }
+    }
+    fn with_clip_mask(&mut self, clip_mask: AzImageMask) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withClipMask(
+            mem::transmute(self),
+            mem::transmute(clip_mask),
+        )) }
+    }
+    fn set_tab_index(&mut self, tab_index: AzTabIndexEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzDom_setTabIndex(
+            mem::transmute(self),
+            mem::transmute(tab_index),
+        )) }
+    }
+    fn with_tab_index(&mut self, tab_index: AzTabIndexEnumWrapper) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withTabIndex(
+            mem::transmute(self),
+            mem::transmute(tab_index),
+        )) }
+    }
+    fn set_accessibility_info(&mut self, accessibility_info: AzAccessibilityInfo) -> () {
+        unsafe { mem::transmute(crate::AzDom_setAccessibilityInfo(
+            mem::transmute(self),
+            mem::transmute(accessibility_info),
+        )) }
+    }
+    fn with_accessibility_info(&mut self, accessibility_info: AzAccessibilityInfo) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withAccessibilityInfo(
+            mem::transmute(self),
+            mem::transmute(accessibility_info),
+        )) }
+    }
+    fn set_menu_bar(&mut self, menu_bar: AzMenu) -> () {
+        unsafe { mem::transmute(crate::AzDom_setMenuBar(
+            mem::transmute(self),
+            mem::transmute(menu_bar),
+        )) }
+    }
+    fn with_menu_bar(&mut self, menu_bar: AzMenu) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withMenuBar(
+            mem::transmute(self),
+            mem::transmute(menu_bar),
+        )) }
+    }
+    fn set_context_menu(&mut self, context_menu: AzMenu) -> () {
+        unsafe { mem::transmute(crate::AzDom_setContextMenu(
+            mem::transmute(self),
+            mem::transmute(context_menu),
+        )) }
+    }
+    fn with_context_menu(&mut self, context_menu: AzMenu) -> AzDom {
+        unsafe { mem::transmute(crate::AzDom_withContextMenu(
+            mem::transmute(self),
+            mem::transmute(context_menu),
+        )) }
+    }
+    fn hash(&self) -> u64 {
+        unsafe { mem::transmute(crate::AzDom_hash(
+            mem::transmute(self),
+        )) }
+    }
     fn node_count(&self) -> usize {
         unsafe { mem::transmute(crate::AzDom_nodeCount(
             mem::transmute(self),
@@ -13492,6 +13663,11 @@ impl AzNodeData {
         unsafe { mem::transmute(crate::AzNodeData_setContextMenu(
             mem::transmute(self),
             mem::transmute(context_menu),
+        )) }
+    }
+    fn hash(&self) -> u64 {
+        unsafe { mem::transmute(crate::AzNodeData_hash(
+            mem::transmute(self),
         )) }
     }
 }

@@ -1260,6 +1260,18 @@ impl Dom {
         }))
     }
 
+    // Swaps `self` with a default DOM, necessary for builder methods
+    #[inline(always)]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self {
+            root: NodeData::div(),
+            children: DomVec::from_const_slice(&[]),
+            estimated_total_children: 0,
+        };
+        mem::swap(&mut s, self);
+        s
+    }
+
     #[inline]
     pub fn add_child(&mut self, child: Dom) {
         let mut v: DomVec = Vec::new().into();

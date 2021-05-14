@@ -2092,7 +2092,254 @@
                         {"children": {"type": "DomVec", "doc": "Child nodes of this root node"}},
                         {"total_children": {"type": "usize", "doc": "Number of child nodes, including all child DOM trees"}}
                     ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"node_type": "NodeType"}
+                            ],
+                            "fn_body": "AzDom::new(node_type)"
+                        },
+                        "body": {
+                            "fn_args": [],
+                            "fn_body": "AzDom::body()"
+                        },
+                        "br": {
+                            "fn_args": [],
+                            "fn_body": "AzDom::br()"
+                        },
+                        "text": {
+                            "fn_args": [
+                                {"string": "String"}
+                            ],
+                            "fn_body": "AzDom::text(string)"
+                        },
+                        "image": {
+                            "fn_args": [
+                                {"image": "ImageRef"}
+                            ],
+                            "fn_body": "AzDom::image(image)"
+                        },
+                        "iframe": {
+                            "fn_args": [
+                                {"data": "RefAny"},
+                                {"callback": "IFrameCallbackType"}
+                            ],
+                            "fn_body": "AzDom::iframe(data, callback)"
+                        }
+                    },
                     "functions": {
+                        "add_child": {
+                            "doc": "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"child": "Dom"}
+                            ],
+                            "fn_body": "dom.add_child(child)"
+                        },
+                        "with_child": {
+                            "doc": "Same as add_child, but as a builder method.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"child": "Dom"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.add_child(child); dom"
+                        },
+                        "add_id": {
+                            "doc": "Adds an CSS ID to the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"id": "String"}
+                            ],
+                            "fn_body": "dom.root.add_id(id)"
+                        },
+                        "with_id": {
+                            "doc": "Same as add_id, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"id": "String"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_id(id); dom"
+                        },
+                        "add_class": {
+                            "doc": "Adds a CSS class to the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"class": "String"}
+                            ],
+                            "fn_body": "dom.root.add_class(class)"
+                        },
+                        "with_class": {
+                            "doc": "Same as add_class, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"class": "String"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_class(class); dom"
+                        },
+                        "add_css_property": {
+                            "doc": "Adds an inline (normal) CSS property to the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "fn_body": "dom.root.add_normal_css_property(prop)"
+                        },
+                        "with_css_property": {
+                            "doc": "Same as add_class, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_normal_css_property(prop); dom"
+                        },
+                        "add_hover_css_property": {
+                            "doc": "Adds an inline (hover) CSS property to the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "fn_body": "dom.root.add_hover_css_property(prop)"
+                        },
+                        "with_hover_css_property": {
+                            "doc": "Same as add_class, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_hover_css_property(prop); dom"
+                        },
+                        "add_active_css_property": {
+                            "doc": "Adds an inline (hover) CSS property to the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "fn_body": "dom.root.add_active_css_property(prop)"
+                        },
+                        "with_active_css_property": {
+                            "doc": "Same as add_class, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_active_css_property(prop); dom"
+                        },
+                        "add_focus_css_property": {
+                            "doc": "Adds an inline (hover) CSS property to the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "fn_body": "dom.root.add_focus_css_property(prop)"
+                        },
+                        "with_focus_css_property": {
+                            "doc": "Same as add_class, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"prop": "CssProperty"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_focus_css_property(prop); dom"
+                        },
+                        "set_clip_mask": {
+                            "doc": "Sets the clip mask for the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"clip_mask": "ImageMask"}
+                            ],
+                            "fn_body": "dom.root.set_clip_mask(clip_mask)"
+                        },
+                        "with_clip_mask": {
+                            "doc": "Same as set_clip_mask, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"clip_mask": "ImageMask"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_clip_mask(clip_mask); dom"
+                        },
+                        "set_tab_index": {
+                            "doc": "Sets the tab index for the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"tab_index": "TabIndex"}
+                            ],
+                            "fn_body": "dom.root.set_tab_index(tab_index)"
+                        },
+                        "with_tab_index": {
+                            "doc": "Same as set_tab_index, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"tab_index": "TabIndex"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_tab_index(tab_index); dom"
+                        },
+                        "set_accessibility_info": {
+                            "doc": "Sets accessibility attributes for the DOM root node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"accessibility_info": "AccessibilityInfo"}
+                            ],
+                            "fn_body": "dom.root.set_accessibility_info(accessibility_info)"
+                        },
+                        "with_accessibility_info": {
+                            "doc": "Same as set_accessibility_info, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"accessibility_info": "AccessibilityInfo"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_accessibility_info(accessibility_info); dom"
+                        },
+                        "set_menu_bar": {
+                            "doc": "Sets the menu bar for the DOM root node. See `NodeData::set_menu_bar` for more information.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"menu_bar": "Menu"}
+                            ],
+                            "fn_body": "dom.root.set_menu_bar(menu_bar)"
+                        },
+                        "with_menu_bar": {
+                            "doc": "Same as set_accessibility_info, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"menu_bar": "Menu"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_menu_bar(menu_bar); dom"
+                        },
+                        "set_context_menu": {
+                            "doc": "Sets the context menu for the DOM root node. See `NodeData::set_context_menu` for more information.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"context_menu": "Menu"}
+                            ],
+                            "fn_body": "dom.root.set_context_menu(context_menu)"
+                        },
+                        "with_context_menu": {
+                            "doc": "Same as set_context_menu, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"context_menu": "Menu"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_context_menu(context_menu); dom"
+                        },
+                        "hash": {
+                            "doc": "Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "u64"},
+                            "fn_body": "dom.root.calculate_node_data_hash().0"
+                        },
                         "node_count": {
                             "doc": "Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)",
                             "fn_args": [
@@ -2149,6 +2396,7 @@
                     },
                     "functions": {
                         "set_clip_mask": {
+                            "doc": "Sets the `extra.clip_mask` field for this node",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"image_mask": "ImageMask"}
@@ -2156,6 +2404,7 @@
                             "fn_body": "nodedata.set_clip_mask(image_mask)"
                         },
                         "set_tab_index": {
+                            "doc": "Sets the tab index for this node",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"tab_index": "TabIndex"}
@@ -2163,6 +2412,7 @@
                             "fn_body": "nodedata.set_tab_index(tab_index)"
                         },
                         "set_accessibility_info": {
+                            "doc": "Sets accessibility attributes for this node",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"accessibility_info": "AccessibilityInfo"}
@@ -2170,6 +2420,7 @@
                             "fn_body": "nodedata.set_accessibility_info(accessibility_info)"
                         },
                         "set_menu_bar": {
+                            "doc": "Adds a (native) menu bar: If this node is the root node the menu bar will be added to the window, else it will be displayed using the width and position of the bounding rectangle",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"menu_bar": "Menu"}
@@ -2177,11 +2428,20 @@
                             "fn_body": "nodedata.set_menu_bar(menu_bar)"
                         },
                         "set_context_menu": {
+                            "doc": "Signalizes that this node has a (native) context-aware menu. If set, the user can left-click the node to open the menu",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"context_menu": "Menu"}
                             ],
                             "fn_body": "nodedata.set_context_menu(context_menu)"
+                        },
+                        "hash": {
+                            "doc": "Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "u64"},
+                            "fn_body": "nodedata.calculate_node_data_hash().0"
                         }
                     }
                 },
