@@ -16,14 +16,14 @@ use crate::text_input::{
     TextInputStateWrapper, TextInputValid
 };
 
-pub type NumberInputCallback = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
+pub type NumberInputOnNumberInputCallbackType = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
 
 #[repr(C)]
-pub struct NumberInputCallbackFn {
-    pub cb: NumberInputCallback,
+pub struct NumberInputOnNumberInputCallback {
+    pub cb: NumberInputOnNumberInputCallbackType,
 }
 
-impl_callback!(NumberInputCallbackFn);
+impl_callback!(NumberInputOnNumberInputCallback);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -36,8 +36,17 @@ pub struct NumberInput {
 #[repr(C)]
 pub struct NumberInputStateWrapper {
     pub inner: NumberInputState,
-    pub on_value_change: Option<(NumberInputCallbackFn, RefAny)>,
+    pub on_value_change: OptionNumberInputOnNumberInput,
 }
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct NumberInputOnNumberInput {
+    pub data: RefAny,
+    pub callback: NumberInputOnNumberInputCallback,
+}
+
+impl_option!(NumberInputOnNumberInput, OptionNumberInputOnNumberInput, copy = false, [Debug, Clone, PartialEq]);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]

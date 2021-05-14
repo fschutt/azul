@@ -1,4 +1,4 @@
-use azul::{
+use azul_impl::{
     dom::{
         TabIndex, Dom, IdOrClass, IdOrClass::Class,
         NodeDataInlineCssProperty,
@@ -14,14 +14,14 @@ use azul::{
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-container"))];
 static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-content"))];
 
-pub type CheckboxCallback = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
+pub type CheckBoxOnToggleCallback = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
 
 #[repr(C)]
-pub struct CheckBoxCallbackFn {
+pub struct CheckBoxOnToggleCallback {
     pub cb: CheckboxCallback,
 }
 
-impl_callback!(CheckBoxCallbackFn);
+impl_callback!(CheckBoxOnToggleCallback);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -39,17 +39,17 @@ pub struct CheckBoxStateWrapper {
     /// Content (image or text) of this CheckBox, centered by default
     pub inner: CheckBoxState,
     /// Optional: Function to call when the CheckBox is toggled
-    pub on_toggle: OptionCheckBoxOnToggleFn,
+    pub on_toggle: OptionCheckBoxOnToggle,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct CheckBoxOnToggleFn {
-    pub callback: CheckBoxCallbackFn,
+pub struct CheckBoxOnToggle {
     pub data: RefAny,
+    pub callback: CheckBoxOnToggleCallback,
 }
 
-impl_option!(CheckBoxOnToggleFn, OptionCheckBoxOnToggleFn, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(CheckBoxOnToggle, OptionCheckBoxOnToggle, [Debug, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -129,6 +129,13 @@ impl CheckBox {
                 NodeDataInlineCssPropertyVec::from_const_slice(DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED)
             },
         }
+    }
+
+    #[inline]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::new(false);
+        core::mem::swap(&mut s, self);
+        s
     }
 
     #[inline]

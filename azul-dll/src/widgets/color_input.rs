@@ -1,9 +1,9 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
-use azul::css::*;
-use azul::dom::{Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal};
-use azul::callbacks::{Update, CallbackInfo, RefAny};
-use azul::str::String as AzString;
+use azul_core::css::*;
+use azul_core::dom::{Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal};
+use azul_core::callbacks::{Update, CallbackInfo, RefAny};
+use azul_css::String as AzString;
 use alloc::vec::Vec;
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -13,28 +13,28 @@ pub struct ColorInput {
     pub style: NodeDataInlineCssPropertyVec,
 }
 
-pub type OnColorChangeCallback = extern "C" fn(&mut RefAny, &ColorInputState, &mut CallbackInfo) -> Update;
+pub type ColorInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &ColorInputState, &mut CallbackInfo) -> Update;
 
 #[repr(C)]
-pub struct OnColorChangeFn {
-    pub cb: OnColorChangeCallback,
+pub struct ColorInputOnValueChangeCallback {
+    pub cb: ColorInputOnValueChangeCallbackType,
 }
 
-impl_callback!(OnColorChangeFn);
+impl_callback!(ColorInputOnValueChangeCallback);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ColorInputStateWrapper {
     pub inner: ColorInputState,
     pub title: AzString,
-    pub on_value_change:
+    pub on_value_change: ColorInputOnValueChange,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ColorInputOnValueChange {
-    pub callback: OnColorChangeFn,
     pub data: RefAny,
+    pub callback: ColorInputOnValueChangeCallback,
 }
 
 impl Default for ColorInputStateWrapper {
@@ -88,7 +88,7 @@ impl ColorInput {
     }
 
     #[inline]
-    pub fn set_on_value_change(mut self, callback: OnColorChangeCallback, data: RefAny) {
+    pub fn set_on_value_change(mut self, data: RefAny, callback: OnColorChangeCallback) {
         self.state.on_value_change = Some(ColorInputOnValueChange {
             callback: OnColorChangeFn { cb: callback },
             data

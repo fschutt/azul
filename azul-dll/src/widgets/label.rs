@@ -79,6 +79,13 @@ impl Label {
     }
 
     #[inline]
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Label::new(AzString::from_const_str(""));
+        core::mem::swap(&mut s, self);
+        s
+    }
+
+    #[inline]
     pub fn dom(self) -> Dom {
 
         use azul::vec::{IdOrClassVec};

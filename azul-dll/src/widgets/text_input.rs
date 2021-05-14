@@ -45,20 +45,20 @@ pub enum TextInputValid {
 
 // The text input field has a special return which specifies
 // whether the text input should handle the character
-pub type TextInputCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
+pub type TextInputOnTextInputCallbackType = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
 #[repr(C)]
-pub struct TextInputCallbackFn { pub cb: TextInputCallback }
-impl_callback!(TextInputCallbackFn);
+pub struct TextInputOnTextInputCallback { pub cb: TextInputOnTextInputCallbackType }
+impl_callback!(TextInputOnTextInputCallback);
 
-pub type VirtualKeyDownCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
+pub type TextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
 #[repr(C)]
-pub struct VirtualKeyDownCallbackFn { pub cb: VirtualKeyDownCallback }
-impl_callback!(VirtualKeyDownCallbackFn);
+pub struct TextInputOnVirtualKeyDownCallback { pub cb: TextInputOnVirtualKeyDownCallbackType }
+impl_callback!(TextInputOnVirtualKeyDownCallback);
 
-pub type OnFocusLostCallback = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> Update;
+pub type TextInputOnFocusLostCallbackType = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> Update;
 #[repr(C)]
-pub struct OnFocusLostCallbackFn { pub cb: OnFocusLostCallback }
-impl_callback!(OnFocusLostCallbackFn);
+pub struct TextInputOnFocusLostCallback { pub cb: TextInputOnFocusLostCallbackType }
+impl_callback!(TextInputOnFocusLostCallback);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -84,8 +84,8 @@ pub struct TextInputStateWrapper {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TextInputOnTextInput {
-    pub callback: TextInputCallbackFn,
     pub data: RefAny,
+    pub callback: TextInputOnTextInputCallback,
 }
 
 impl_option!(TextInputOnTextInput, OptionTextInputOnTextInput, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
@@ -93,8 +93,8 @@ impl_option!(TextInputOnTextInput, OptionTextInputOnTextInput, copy = false, [De
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TextInputOnVirtualKeyDown {
-    pub callback: TextInputCallbackFn,
     pub data: RefAny,
+    pub callback: TextInputOnVirtualKeyDownCallback,
 }
 
 impl_option!(TextInputOnVirtualKeyDown, OptionTextInputOnVirtualKeyDown, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
@@ -102,8 +102,8 @@ impl_option!(TextInputOnVirtualKeyDown, OptionTextInputOnVirtualKeyDown, copy = 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TextInputOnFocusLost {
-    pub callback: TextInputCallbackFn,
     pub data: RefAny,
+    pub callback: TextInputOnFocusLostCallback,
 }
 
 impl_option!(TextInputOnFocusLost, OptionTextInputOnFocusLost, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
@@ -351,28 +351,34 @@ impl TextInput {
         }
     }
 
-    pub fn set_on_text_input(mut self, callback: TextInputCallback, data: RefAny) {
+    pub fn set_on_text_input(&mut self,  data: RefAny, callback: TextInputCallback) {
         self.state.on_text_input = Some((TextInputCallbackFn { cb: callback }, data)).into();
     }
 
-    pub fn set_on_virtual_key_down(mut self, callback: VirtualKeyDownCallback, data: RefAny) {
+    pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: VirtualKeyDownCallback) {
         self.state.on_virtual_key_down = Some((VirtualKeyDownCallbackFn { cb: callback }, data)).into();
     }
 
-    pub fn set_on_focus_lost(mut self, callback: OnFocusLostCallback, data: RefAny) {
+    pub fn set_on_focus_lost(&mut self, data: RefAny, callback: OnFocusLostCallback) {
         self.state.on_focus_lost = Some((OnFocusLostCallbackFn { cb: callback }, data)).into();
     }
 
-    pub fn set_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.placeholder_style = style;
     }
 
-    pub fn set_container_style(mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.container_style = style;
     }
 
-    pub fn set_label_style(mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.label_style = style;
+    }
+
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::new(AzString::from_const_str(""));
+        core::mem::swap(&mut s, self);
+        s
     }
 
     pub fn dom(self) -> Dom {

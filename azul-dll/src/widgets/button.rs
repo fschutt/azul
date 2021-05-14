@@ -1,10 +1,9 @@
-use azul::{
+use azul_core::{
     dom::{
         TabIndex, Dom, IdOrClass, IdOrClass::Class,
         NodeDataInlineCssProperty, NodeDataInlineCssProperty::{Normal, Active, Hover, Focus},
     },
     image::ImageRef,
-    css::*,
     str::String as AzString,
     callbacks::{CallbackType, Callback, RefAny},
     vec::{
@@ -13,6 +12,7 @@ use azul::{
         NormalizedLinearColorStopVec,
     },
 };
+use azul_css::*;
 use alloc::vec::Vec;
 
 pub type OnClickFn = CallbackType;
@@ -29,17 +29,17 @@ pub struct Button {
     pub label_style: NodeDataInlineCssPropertyVec,
     pub image_style: NodeDataInlineCssPropertyVec,
     /// Optional: Function to call when the button is clicked
-    pub on_click: OptionButtonOnClickCallback,
+    pub on_click: OptionButtonOnClick,
 }
 
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct ButtonOnClickCallback {
+pub struct ButtonOnClick {
     pub data: RefAny,
     pub callback: Callback,
 }
 
-impl_option!(ButtonOnClickCallback, OptionButtonOnClickCallback, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ButtonOnClick, OptionButtonOnClick, [Debug, Clone, PartialEq, PartialOrd]);
 
 const SANS_SERIF_STR: &str = "sans-serif";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
@@ -293,7 +293,7 @@ impl Button {
 
     #[inline]
     pub fn set_on_click(&mut self, data: RefAny, on_click: OnClickFn) {
-        self.on_click = Some(ButtonOnClickCallback {
+        self.on_click = Some(ButtonOnClick {
             data,
             callback: Callback { cb: on_click },
         });
