@@ -330,14 +330,19 @@ impl Button {
     }
 }
 
-#[test]
-fn test_button_ui_1() {
-    let expected_html = "<div class=\"__azul-native-button\" tabindex=\"0\">\r\n    <p>\r\n        Hello\r\n    </p>\r\n</div>";
+#[cfg(test)] mod ui_test {
 
-    let button = Button::label("Hello").dom();
-    let button_html = button.get_html_string();
+    static EXPECTED_1: &str =
+    r#""#;
 
-    if expected_html != button_html.as_str() {
-        panic!("expected:\r\n{}\r\ngot:\r\n{}", expected_html, button_html);
+    #[test]
+    fn test_button_ui_1() {
+
+        let button = Button::new("Hello".into()).dom().style(&mut Css::empty());
+        let button_html = button.get_html_string("", "", true);
+
+        if EXPECTED_1 != button_html.as_str() {
+            panic!("expected:\r\n{}\r\ngot:\r\n{}", EXPECTED_1, button_html);
+        }
     }
 }

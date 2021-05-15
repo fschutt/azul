@@ -684,6 +684,10 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn AzDom_hash(dom: &AzDom) -> u64 { dom.root.calculate_node_data_hash().0 }
 /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
+/// Returns a HTML for unit testing
+#[no_mangle] pub extern "C" fn AzDom_getHtmlStringTest(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", true).into() }
+/// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+#[no_mangle] pub extern "C" fn AzDom_getHtmlStringDebug(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", false).into() }
 /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
 #[no_mangle] pub extern "C" fn AzDom_style(dom: &mut AzDom, css: AzCss) -> AzStyledDom { let mut css = css; dom.style(&mut css) }
 
@@ -1823,8 +1827,10 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) { let mut css = css; styleddom.restyle(&mut css); }
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
+/// Returns a HTML for unit testing
+#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringTest(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", true).into() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlString(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "").into() }
+#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringDebug(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", false).into() }
 
 /// Re-export of rust-allocated (stack based) `Texture` struct
 pub type AzTextureTT = azul_impl::gl::Texture;
@@ -10023,6 +10029,7 @@ mod test_sizes {
         pub label: AzString,
         pub image: AzOptionImageRef,
         pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub label_style: AzNodeDataInlineCssPropertyVec,
         pub image_style: AzNodeDataInlineCssPropertyVec,
         pub on_click: AzOptionButtonOnClick,
     }

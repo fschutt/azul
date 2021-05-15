@@ -7510,6 +7510,8 @@ pub struct AzButton {
     #[pyo3(get, set)]
     pub container_style: AzNodeDataInlineCssPropertyVec,
     #[pyo3(get, set)]
+    pub label_style: AzNodeDataInlineCssPropertyVec,
+    #[pyo3(get, set)]
     pub image_style: AzNodeDataInlineCssPropertyVec,
     #[pyo3(get, set)]
     pub on_click: AzOptionButtonOnClickEnumWrapper,
@@ -13981,6 +13983,16 @@ impl AzDom {
             mem::transmute(self),
         )) }
     }
+    fn get_html_string_test(&mut self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzDom_getHtmlStringTest(
+            mem::transmute(self),
+        )) })
+    }
+    fn get_html_string_debug(&mut self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzDom_getHtmlStringDebug(
+            mem::transmute(self),
+        )) })
+    }
     fn style(&mut self, css: AzCss) -> AzStyledDom {
         unsafe { mem::transmute(crate::AzDom_style(
             mem::transmute(self),
@@ -19481,12 +19493,6 @@ impl PyObjectProtocol for AzCheckBoxOnToggle {
 
 #[pymethods]
 impl AzCheckBoxOnToggleCallback {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]
@@ -20289,8 +20295,13 @@ impl AzStyledDom {
             mem::transmute(self),
         )) }
     }
-    fn get_html_string(&self) -> String {
-        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlString(
+    fn get_html_string_test(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlStringTest(
+            mem::transmute(self),
+        )) })
+    }
+    fn get_html_string_debug(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlStringDebug(
             mem::transmute(self),
         )) })
     }

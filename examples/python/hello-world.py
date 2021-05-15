@@ -9,26 +9,27 @@ class DataModel:
         self.counter = counter
 
 # model -> view
-def myLayoutFunc(data, info):
-    label = Label.new("{}".format(data.counter))
-    button = Button.new("Update counter")
-        .withOnClick(data, myOnClick)
+def my_layout_func(data, info):
+    label = Label("{}".format(data.counter))
+    button = Button("Update counter")
+    # button.set_on_click(data, my_on_click)
 
-    return Dom.body()
-        .withChild(label.dom())
-        .withChild(button.dom())
-        .style(Css.fromString(css))
+    dom = Dom.body()
+    dom.add_child(label.dom())
+    dom.add_child(button.dom())
+
+    return dom.style(Css.from_string(css))
 
 # model <- view
-def myOnClick(data, info):
+def my_on_click(data, info):
     data.counter += 1;
 
     # tell azul to call the myLayoutFunc again
-    return Update.RefreshDom()
+    return Update.RefreshDom
 
 def main():
     model = DataModel(5)
-    app = App.new(model, AppConfig.default())
-    app.run(WindowCreateOptions.default())
+    app = App(model, AppConfig(LayoutSolver.Default))
+    app.run(WindowCreateOptions(my_layout_func))
 
 main()

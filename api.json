@@ -2382,6 +2382,22 @@
                             "returns": {"type": "usize"},
                             "fn_body": "dom.node_count()"
                         },
+                        "get_html_string_test": {
+                            "doc": "Returns a HTML for unit testing",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "dom.style(&mut AzCss::empty()).get_html_string(\"\", \"\", true).into()"
+                        },
+                        "get_html_string_debug": {
+                            "doc": "Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "dom.style(&mut AzCss::empty()).get_html_string(\"\", \"\", false).into()"
+                        },
                         "style": {
                             "doc": "Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely",
                             "fn_args": [
@@ -4916,6 +4932,7 @@
                         {"label": {"type": "String"}},
                         {"image": {"type": "OptionImageRef"}},
                         {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"label_style": {"type": "NodeDataInlineCssPropertyVec"}},
                         {"image_style": {"type": "NodeDataInlineCssPropertyVec"}},
                         {"on_click": {"type": "OptionButtonOnClick"}}
                     ],
@@ -5587,13 +5604,21 @@
                             "returns": {"type": "usize"},
                             "fn_body": "styleddom.node_count()"
                         },
-                        "get_html_string": {
+                        "get_html_string_test": {
+                            "doc": "Returns a HTML for unit testing",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "styleddom.get_html_string(\"\", \"\", true).into()"
+                        },
+                        "get_html_string_debug": {
                             "doc": "Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues",
                             "fn_args": [
                                 {"self": "ref"}
                             ],
                             "returns": {"type": "String"},
-                            "fn_body": "styleddom.get_html_string(\"\", \"\").into()"
+                            "fn_body": "styleddom.get_html_string(\"\", \"\", false).into()"
                         }
                     }
                 }

@@ -2098,7 +2098,7 @@ impl StyledDom {
     ///      <div id="test" />
     /// </div>
     /// ```
-    pub fn get_html_string(&self, custom_head: &str, custom_body: &str) -> String {
+    pub fn get_html_string(&self, custom_head: &str, custom_body: &str, test_mode: bool) -> String {
 
         let css_property_cache = self.get_css_property_cache();
 
@@ -2166,12 +2166,16 @@ impl StyledDom {
             }
         }
 
-        format!(
-            include_str!("./default.html"),
-            custom_head = custom_head,
-            output = output,
-            custom_body = custom_body
-        )
+        if !test_mode {
+            format!(
+                include_str!("./default.html"),
+                custom_head = custom_head,
+                output = output,
+                custom_body = custom_body
+            )
+        } else {
+            output
+        }
     }
 
     /// Returns the node ID of all sub-children of a node

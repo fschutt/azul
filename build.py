@@ -1213,6 +1213,7 @@ def generate_python_api(api_data, structs_map, functions_map):
         "TextInputOnVirtualKeyDownCallback": {},
         "TextInputOnFocusLostCallback": {},
         "NumberInputOnValueChangeCallback": {},
+        "CheckBoxOnToggleCallback": {},
     }
 
     python_replacements = {
