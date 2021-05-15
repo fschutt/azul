@@ -667,7 +667,7 @@ pub fn parse_xml_string(xml: &str) -> Result<XmlNodeVec, XmlError> {
             Attribute { local, value, .. } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     // NOTE: Only lowercase the key ("local"), not the value!
-                    last.attributes.insert(normalize_casing(local.as_str()), value.as_str().to_string());
+                    last.attributes.insert_kv(normalize_casing(local.as_str()), value.as_str().to_string());
                 }
             },
             Text { text } => {

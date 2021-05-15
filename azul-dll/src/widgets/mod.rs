@@ -73,7 +73,7 @@ pub mod drop_down; // TODO
 /// Label widget (centered text)
 pub mod label;
 // /// Single line text input widget
-// pub mod text_input;
+pub mod text_input;
 // /// Same as text input, but only allows numeric input
 // pub mod number_input;
 // /// Spreadsheet (iframe) widget

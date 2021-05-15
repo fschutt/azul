@@ -238,6 +238,70 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
             }
         }
 
+        pub fn insert(&mut self, index: usize, element: $struct_type) {
+
+            let len = self.len();
+            if index > len {
+                return;
+            }
+
+            // space for the new element
+            if len == self.capacity() {
+                self.reserve(1);
+            }
+
+            unsafe {
+                // infallible
+                // The spot to put the new value
+                {
+                    let p = self.as_mut_ptr().add(index);
+                    // Shift everything over to make space. (Duplicating the
+                    // `index`th element into two consecutive places.)
+                    core::ptr::copy(p, p.offset(1), len - index);
+                    // Write it in, overwriting the first copy of the `index`th
+                    // element.
+                    core::ptr::write(p, element);
+                }
+                self.set_len(len + 1);
+            }
+        }
+
+        pub fn remove(&mut self, index: usize) {
+
+            let len = self.len();
+            if index >= len {
+                return;
+            }
+
+            unsafe {
+                // infallible
+                let ret;
+                {
+                    // the place we are taking from.
+                    let ptr = self.as_mut_ptr().add(index);
+                    // copy it out, unsafely having a copy of the value on
+                    // the stack and in the vector at the same time.
+                    ret = core::ptr::read(ptr);
+
+                    // Shift everything down to fill in that spot.
+                    core::ptr::copy(ptr.offset(1), ptr, len - index - 1);
+                }
+                self.set_len(len - 1);
+            }
+        }
+
+        #[inline]
+        pub fn pop(&mut self) -> Option<$struct_type> {
+            if self.len == 0 {
+                None
+            } else {
+                unsafe {
+                    self.len -= 1;
+                    Some(core::ptr::read(self.ptr.add(self.len())))
+                }
+            }
+        }
+
         #[inline]
         pub fn iter_mut(&mut self) -> core::slice::IterMut<$struct_type> {
             self.as_mut().iter_mut()
@@ -353,7 +417,7 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
             self.len += count;
         }
 
-        fn truncate(&mut self, len: usize) {
+        pub fn truncate(&mut self, len: usize) {
             // This is safe because:
             //
             // * the slice passed to `drop_in_place` is valid; the `len > self.len`
@@ -897,6 +961,7 @@ impl_vec_partialeq!(f32, F32Vec);
 
 // Vec<char>
 impl_vec!(u32, U32Vec, U32VecDestructor);
+impl_vec_mut!(u32, U32Vec);
 impl_vec_debug!(u32, U32Vec);
 impl_vec_partialord!(u32, U32Vec);
 impl_vec_ord!(u32, U32Vec);

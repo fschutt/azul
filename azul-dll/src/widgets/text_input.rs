@@ -1,24 +1,19 @@
 //! Text input (demonstrates two-way data binding)
 
 use core::ops::Range;
-use azul::{
+use azul_desktop::{
     css::*,
-    str::String as AzString,
-    style::StyledDom,
-    vec::{
-        NodeDataInlineCssPropertyVec,
-        StyleBackgroundContentVec,
-        StyleFontFamilyVec,
-    },
+    css::AzString,
+    styled_dom::StyledDom,
     dom::{
-        Dom, NodeDataInlineCssProperty,
+        Dom, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
         NodeDataInlineCssProperty::{Normal, Hover, Focus}
     },
     window::{KeyboardState, VirtualKeyCode},
     callbacks::{RefAny, Callback, CallbackInfo, Update},
 };
-use alloc::vec::Vec;
-use alloc::string::String;
+use std::vec::Vec;
+use std::string::String;
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -342,7 +337,7 @@ impl TextInput {
         Self {
             state: TextInputStateWrapper {
                 inner: TextInputState {
-                    text: s.as_ref().chars().collect(),
+                    text: s.as_ref().chars().map(|c| c as u32).collect::<Vec<_>>().into(),
                     .. Default::default()
                 },
                 .. Default::default()
@@ -351,16 +346,25 @@ impl TextInput {
         }
     }
 
-    pub fn set_on_text_input(&mut self,  data: RefAny, callback: TextInputCallback) {
-        self.state.on_text_input = Some((TextInputCallbackFn { cb: callback }, data)).into();
+    pub fn set_on_text_input(&mut self,  data: RefAny, callback: TextInputOnTextInputCallbackType) {
+        self.state.on_text_input = Some(TextInputOnTextInput {
+            callback: TextInputOnTextInputCallback { cb: callback },
+            data
+        }).into();
     }
 
-    pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: VirtualKeyDownCallback) {
-        self.state.on_virtual_key_down = Some((VirtualKeyDownCallbackFn { cb: callback }, data)).into();
+    pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType) {
+        self.state.on_virtual_key_down = Some(TextInputOnVirtualKeyDown {
+            callback: TextInputOnVirtualKeyDownCallback { cb: callback },
+            data
+        }).into();
     }
 
-    pub fn set_on_focus_lost(&mut self, data: RefAny, callback: OnFocusLostCallback) {
-        self.state.on_focus_lost = Some((OnFocusLostCallbackFn { cb: callback }, data)).into();
+    pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
+        self.state.on_focus_lost = Some(TextInputOnFocusLost {
+            callback: TextInputOnFocusLostCallback { cb: callback },
+            data
+        }).into();
     }
 
     pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
@@ -383,20 +387,23 @@ impl TextInput {
 
     pub fn dom(self) -> Dom {
 
-        use azul::dom::{
+        use azul_desktop::dom::{
             CallbackData, EventFilter,
             HoverEventFilter, FocusEventFilter,
             IdOrClass::Class, TabIndex,
         };
 
-        let label_text = self.state.inner.text.iter().collect::<String>();
+        let label_text: String = self.state.inner.text.iter().filter_map(|s| {
+            core::char::from_u32(*s)
+        }).collect();
+
         let state_ref = RefAny::new(self.state);
 
         Dom::div()
         .with_ids_and_classes(vec![Class("__azul-native-text-input-container".into())].into())
         .with_inline_css_props(self.container_style)
         .with_tab_index(TabIndex::Auto)
-        .with_dataset(state_ref.clone())
+        .with_dataset(Some(state_ref.clone()).into())
         .with_callbacks(vec![
             CallbackData {
                 event: EventFilter::Focus(FocusEventFilter::FocusReceived),
@@ -425,7 +432,7 @@ impl TextInput {
             },
         ].into())
         .with_children(vec![
-            Dom::text(label_text.into())
+            Dom::text(label_text)
             .with_ids_and_classes(vec![Class("__azul-native-text-input-label".into())].into())
             .with_inline_css_props(self.label_style),
             // let cursor = Dom::div().with_class("__azul-native-text-input-cursor");
@@ -440,6 +447,8 @@ pub enum TextInputSelection {
     All,
     FromTo(TextInputSelectionRange),
 }
+
+impl_option!(TextInputSelection, OptionTextInputSelection, [Debug, Clone, Hash, PartialEq, Eq]);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
@@ -460,27 +469,30 @@ impl TextInputSelection {
 impl TextInputState {
 
     pub fn get_text(&self) -> String {
-        self.text.clone().into_iter().collect()
+        self.text
+        .iter()
+        .filter_map(|c| core::char::from_u32(*c))
+        .collect()
     }
 
     fn handle_on_text_input(&mut self, c: char) {
-        match self.selection.clone() {
+        match self.selection.clone().into_option() {
             None => {
                 if self.cursor_pos == self.text.len() {
-                    self.text.push(c);
+                    self.text.push(c as u32);
                 } else {
                     // TODO: insert character at the cursor location!
-                    self.text.insert(self.cursor_pos, c);
+                    self.text.insert(self.cursor_pos, c as u32);
                 }
                 self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len() - 1);
             },
             Some(TextInputSelection::All) => {
-                self.text = vec![c];
+                self.text = vec![c as u32].into();
                 self.cursor_pos = 1;
-                self.selection = None;
+                self.selection = None.into();
             },
             Some(TextInputSelection::FromTo(range)) => {
-                self.delete_selection(range, Some(c));
+                self.delete_selection(range.from..range.to, Some(c));
             },
         }
     }
@@ -495,7 +507,7 @@ impl TextInputState {
             VirtualKeyCode::Back => {
                 // TODO: shift + back = delete last word
                 let selection = self.selection.clone();
-                match selection {
+                match selection.as_ref() {
                     None => {
                         if self.cursor_pos == (self.text.len() - 1) {
                             self.text.pop();
@@ -505,26 +517,26 @@ impl TextInputState {
                         self.cursor_pos = self.cursor_pos.saturating_sub(1);
                     },
                     Some(TextInputSelection::All) => {
-                        self.text = Vec::new();
+                        self.text = Vec::new().into();
                         self.cursor_pos = 0;
-                        self.selection = None;
+                        self.selection = None.into();
                     },
                     Some(TextInputSelection::FromTo(range)) => {
-                        self.delete_selection(range, None);
+                        self.delete_selection(range.from..range.to, None);
                     },
                 }
             },
             VirtualKeyCode::Return => { /* ignore return keys */ },
             VirtualKeyCode::Home => {
                 self.cursor_pos = 0;
-                self.selection = None;
+                self.selection = None.into();
             },
             VirtualKeyCode::End => {
                 self.cursor_pos = self.text.len().saturating_sub(1);
-                self.selection = None;
+                self.selection = None.into();
             },
             VirtualKeyCode::Tab => {
-                use azul::callbacks::FocusTarget;
+                use azul_desktop::callbacks::FocusTarget;
                 if keyboard_state.shift_down {
                     info.set_focus(FocusTarget::Next);
                 } else {
@@ -532,7 +544,7 @@ impl TextInputState {
                 }
             },
             VirtualKeyCode::Escape => {
-                self.selection = None;
+                self.selection = None.into();
             },
             VirtualKeyCode::Right => {
                 self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
@@ -542,7 +554,7 @@ impl TextInputState {
             },
             // ctrl + a
             VirtualKeyCode::A if keyboard_state.ctrl_down => {
-                self.selection = Some(TextInputSelection::All);
+                self.selection = Some(TextInputSelection::All).into();
             },
             /*
             // ctrl + c
@@ -585,21 +597,22 @@ impl TextInputState {
         if max == (self.text.len() - 1) {
             self.text.truncate(start);
             if let Some(new) = new_text {
-                self.text.push(new);
+                self.text.push(new as u32);
                 self.cursor_pos = start + 1;
             } else {
                 self.cursor_pos = start;
             }
         } else {
-            let end = &self.text[max..].to_vec();
+            let end = self.text.as_ref()[max..].to_vec();
             self.text.truncate(start);
             if let Some(new) = new_text {
-                self.text.push(new);
+                self.text.push(new as u32);
                 self.cursor_pos = start + 1;
             } else {
                 self.cursor_pos = start;
             }
-            self.text.extend(end.iter());
+            let end: U32Vec = end.into();
+            self.text.append(&mut end);
         }
     }
 }
@@ -607,9 +620,12 @@ impl TextInputState {
 // handle input events for the TextInput
 mod input {
 
-    use azul::callbacks::{RefAny, CallbackInfo, Update};
-    use super::{TextInputStateWrapper, OnTextInputReturn, TextInputValid};
-    use alloc::string::String;
+    use azul_desktop::callbacks::{RefAny, CallbackInfo, Update};
+    use super::{
+        TextInputStateWrapper, OnTextInputReturn, TextInputValid,
+        TextInputOnTextInput, TextInputOnFocusLost, TextInputOnVirtualKeyDown,
+    };
+    use std::string::String;
 
     pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
 
@@ -630,7 +646,7 @@ mod input {
             None => return Update::DoNothing,
         };
 
-        let label_node_id = match info.get_first_child(info.get_hit_node()).into_option() {
+        let label_node_id = match info.get_first_child(info.get_hit_node()) {
             Some(s) => s,
             None => return Update::DoNothing,
         };
@@ -645,7 +661,7 @@ mod input {
             inner_clone.handle_on_text_input(c);
 
             match ontextinput.as_mut() {
-                Some((f, d)) => (f.cb)(d, &inner_clone, &mut info),
+                Some(TextInputOnTextInput { callback, data }) => (callback.cb)(data, &inner_clone, &mut info),
                 None => OnTextInputReturn {
                     update: Update::DoNothing,
                     valid: TextInputValid::Yes,
@@ -659,7 +675,11 @@ mod input {
 
         // Update the string, cursor position on the screen and selection background
         // TODO: restart the timer for cursor blinking
-        info.set_string_contents(label_node_id, text_input.inner.text.iter().collect::<String>().into());
+        let text_now: String = text_input.inner.text.iter()
+            .filter_map(|s| core::char::from_u32(*s))
+            .collect();
+
+        info.set_string_contents(label_node_id, text_now.into());
         // info.set_css_property(cursor_node_id, CssProperty::const_transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
         // info.update_image(selection_node_id, render_selection(self.selection));
 
@@ -683,14 +703,14 @@ mod input {
         let result = {
             // rustc doesn't understand the borrowing lifetime here
             let text_input = &mut *text_input;
-            let ontextinput = &mut text_input.on_virtual_key_down;
+            let onvkdown = &mut text_input.on_virtual_key_down;
 
             // inner_clone has the new text
             let mut inner_clone = text_input.inner.clone();
             inner_clone.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
 
-            match ontextinput.as_mut() {
-                Some((f, d)) => (f.cb)(d, &inner_clone, &mut info),
+            match onvkdown.as_mut() {
+                Some(TextInputOnVirtualKeyDown { callback, data }) => (callback.cb)(data, &inner_clone, &mut info),
                 None => OnTextInputReturn {
                     update: Update::DoNothing,
                     valid: TextInputValid::Yes,
@@ -742,11 +762,11 @@ mod input {
         let result = {
             // rustc doesn't understand the borrowing lifetime here
             let text_input = &mut *text_input;
-            let ontextinput = &mut text_input.on_focus_lost;
+            let onfocuslost = &mut text_input.on_focus_lost;
             let inner = &text_input.inner;
 
-            match ontextinput.as_mut() {
-                Some((f, d)) => (f.cb)(d, &inner, &mut info),
+            match onfocuslost.as_mut() {
+                Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data, &inner, &mut info),
                 None => Update::DoNothing,
             }
         };

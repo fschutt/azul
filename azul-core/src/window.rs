@@ -1532,7 +1532,7 @@ impl StringPairVec {
     pub fn get_key_mut(&mut self, search_key: &str) -> Option<&mut AzStringPair> {
         self.as_mut().iter_mut().find(|v| v.key.as_str() == search_key)
     }
-    pub fn insert<I: Into<AzString>>(&mut self, key: I, value: I) {
+    pub fn insert_kv<I: Into<AzString>>(&mut self, key: I, value: I) {
         let key = key.into();
         let value = value.into();
         match self.get_key_mut(key.as_str()) {
