@@ -720,7 +720,7 @@ impl FormatAsRustCode for StyleFontFamily {
         use azul_css::StyleFontFamily::*;
         let t = String::from("    ").repeat(tabs);
         match self {
-            Native(id) => format!("StyleFontFamily::Native(AzString::from_const_str(\"{}\"))", id),
+            System(id) => format!("StyleFontFamily::Native(AzString::from_const_str(\"{}\"))", id),
             File(path) => format!("StyleFontFamily::File(AzString::from_const_str(\"{}\"))", path),
             Ref(font_ref) => format!("StyleFontFamily::Ref({:0x})", font_ref.data as usize),
         }

@@ -965,6 +965,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 
     format!("{}{}{}", id_string, class_string, tabindex_string)
 }
+
 impl NodeData {
 
     /// Creates a new `NodeData` instance from a given `NodeType`
@@ -1151,6 +1152,17 @@ impl NodeData {
     }
 
     #[inline(always)]
+    pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self { self.set_tab_index(tab_index); self }
+    #[inline(always)]
+    pub fn with_dataset(mut self, data: OptionRefAny) -> Self { self.dataset = data; self }
+    #[inline(always)]
+    pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self { self.ids_and_classes = ids_and_classes; self }
+    #[inline(always)]
+    pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self { self.callbacks = callbacks; self }
+    #[inline(always)]
+    pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { self.inline_css_props = inline_css_props; self }
+
+    #[inline(always)]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = NodeData::div();
         mem::swap(&mut s, self);
@@ -1299,6 +1311,19 @@ impl Dom {
     pub fn style(&mut self, css: &mut Css) -> StyledDom {
         StyledDom::new(self, css)
     }
+
+    #[inline(always)]
+    pub fn with_children(mut self, children: DomVec) -> Self { self.children = children; self }
+    #[inline(always)]
+    pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self { self.root.set_tab_index(tab_index); self }
+    #[inline(always)]
+    pub fn with_dataset(mut self, data: OptionRefAny) -> Self { self.root.dataset = data; self }
+    #[inline(always)]
+    pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self { self.root.ids_and_classes = ids_and_classes; self }
+    #[inline(always)]
+    pub fn with_callbacks(mut self, callbacks: CallbackDataVec) -> Self { self.root.callbacks = callbacks; self }
+    #[inline(always)]
+    pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { self.root.inline_css_props = inline_css_props; self }
 
     fn fixup_children_estimated(&mut self) {
         for child in self.children.iter_mut() {

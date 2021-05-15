@@ -1257,6 +1257,10 @@ pub enum AzCssPropertyType {
     JustifyContent,
     AlignItems,
     AlignContent,
+    BackgroundContent,
+    BackgroundPosition,
+    BackgroundSize,
+    BackgroundRepeat,
     OverflowX,
     OverflowY,
     PaddingTop,
@@ -1267,12 +1271,6 @@ pub enum AzCssPropertyType {
     MarginLeft,
     MarginRight,
     MarginBottom,
-    Background,
-    BackgroundImage,
-    BackgroundColor,
-    BackgroundPosition,
-    BackgroundSize,
-    BackgroundRepeat,
     BorderTopLeftRadius,
     BorderTopRightRadius,
     BorderBottomLeftRadius,
@@ -1296,8 +1294,8 @@ pub enum AzCssPropertyType {
     ScrollbarStyle,
     Opacity,
     Transform,
-    PerspectiveOrigin,
     TransformOrigin,
+    PerspectiveOrigin,
     BackfaceVisibility,
 }
 
@@ -15251,6 +15249,14 @@ impl AzCssPropertyTypeEnumWrapper {
     #[classattr]
     fn AlignContent() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::AlignContent } }
     #[classattr]
+    fn BackgroundContent() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundContent } }
+    #[classattr]
+    fn BackgroundPosition() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundPosition } }
+    #[classattr]
+    fn BackgroundSize() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundSize } }
+    #[classattr]
+    fn BackgroundRepeat() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundRepeat } }
+    #[classattr]
     fn OverflowX() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::OverflowX } }
     #[classattr]
     fn OverflowY() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::OverflowY } }
@@ -15270,18 +15276,6 @@ impl AzCssPropertyTypeEnumWrapper {
     fn MarginRight() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MarginRight } }
     #[classattr]
     fn MarginBottom() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MarginBottom } }
-    #[classattr]
-    fn Background() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Background } }
-    #[classattr]
-    fn BackgroundImage() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundImage } }
-    #[classattr]
-    fn BackgroundColor() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundColor } }
-    #[classattr]
-    fn BackgroundPosition() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundPosition } }
-    #[classattr]
-    fn BackgroundSize() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundSize } }
-    #[classattr]
-    fn BackgroundRepeat() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackgroundRepeat } }
     #[classattr]
     fn BorderTopLeftRadius() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BorderTopLeftRadius } }
     #[classattr]
@@ -15329,9 +15323,9 @@ impl AzCssPropertyTypeEnumWrapper {
     #[classattr]
     fn Transform() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Transform } }
     #[classattr]
-    fn PerspectiveOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PerspectiveOrigin } }
-    #[classattr]
     fn TransformOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::TransformOrigin } }
+    #[classattr]
+    fn PerspectiveOrigin() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::PerspectiveOrigin } }
     #[classattr]
     fn BackfaceVisibility() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackfaceVisibility } }
 }
@@ -19681,10 +19675,10 @@ impl AzTextInput {
             mem::transmute(container_style),
         )) }
     }
-    fn set_label_style(&mut self, container_style: AzNodeDataInlineCssPropertyVec) -> () {
+    fn set_label_style(&mut self, label_style: AzNodeDataInlineCssPropertyVec) -> () {
         unsafe { mem::transmute(crate::AzTextInput_setLabelStyle(
             mem::transmute(self),
-            mem::transmute(container_style),
+            mem::transmute(label_style),
         )) }
     }
     fn with_label_style(&mut self, label_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput {

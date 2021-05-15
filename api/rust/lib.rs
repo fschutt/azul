@@ -1714,6 +1714,10 @@ mod dll {
         JustifyContent,
         AlignItems,
         AlignContent,
+        BackgroundContent,
+        BackgroundPosition,
+        BackgroundSize,
+        BackgroundRepeat,
         OverflowX,
         OverflowY,
         PaddingTop,
@@ -1724,12 +1728,6 @@ mod dll {
         MarginLeft,
         MarginRight,
         MarginBottom,
-        Background,
-        BackgroundImage,
-        BackgroundColor,
-        BackgroundPosition,
-        BackgroundSize,
-        BackgroundRepeat,
         BorderTopLeftRadius,
         BorderTopRightRadius,
         BorderBottomLeftRadius,
@@ -1753,8 +1751,8 @@ mod dll {
         ScrollbarStyle,
         Opacity,
         Transform,
-        PerspectiveOrigin,
         TransformOrigin,
+        PerspectiveOrigin,
         BackfaceVisibility,
     }
 
@@ -11826,7 +11824,7 @@ pub mod widgets {
         /// Calls the `TextInput::with_container_style` function.
         pub fn with_container_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withContainerStyle(self, container_style) } }
         /// Calls the `TextInput::set_label_style` function.
-        pub fn set_label_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setLabelStyle(self, container_style) } }
+        pub fn set_label_style(&mut self, label_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setLabelStyle(self, label_style) } }
         /// Calls the `TextInput::with_label_style` function.
         pub fn with_label_style(&mut self, label_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withLabelStyle(self, label_style) } }
         /// Calls the `TextInput::dom` function.

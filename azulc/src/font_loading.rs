@@ -47,7 +47,7 @@ pub fn font_source_get_bytes(font_family: &StyleFontFamily, fc_cache: &FcFontCac
     use azul_css::StyleFontFamily::*;
 
     let (font_bytes, font_index) = match font_family {
-        Native(id) => {
+        System(id) => {
             #[cfg(feature = "font_loading")] {
                 crate::font::load_system_font(id.as_str(), fc_cache)
                 .map(|(font_bytes, font_index)| (font_bytes, font_index))

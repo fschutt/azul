@@ -1639,7 +1639,7 @@ pub use AzColorInputTT as AzColorInput;
 /// Equivalent to the Rust `ColorInput::with_on_value_change()` function.
 #[no_mangle] pub extern "C" fn AzColorInput_withOnValueChange(colorinput: &mut AzColorInput, data: AzRefAny, callback: AzColorInputOnValueChangeCallbackType) -> AzColorInput { let mut colorinput = colorinput.swap_with_default(); colorinput.set_on_value_change(data, callback); colorinput }
 /// Equivalent to the Rust `ColorInput::dom()` function.
-#[no_mangle] pub extern "C" fn AzColorInput_dom(colorinput: &mut AzColorInput) -> AzDom { label.swap_with_default().dom() }
+#[no_mangle] pub extern "C" fn AzColorInput_dom(colorinput: &mut AzColorInput) -> AzDom { colorinput.swap_with_default().dom() }
 
 /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
 pub type AzColorInputStateWrapperTT = crate::widgets::color_input::ColorInputStateWrapper;
@@ -1681,13 +1681,13 @@ pub use AzTextInputTT as AzTextInput;
 /// Equivalent to the Rust `TextInput::with_placeholder_style()` function.
 #[no_mangle] pub extern "C" fn AzTextInput_withPlaceholderStyle(textinput: &mut AzTextInput, placeholder_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_placeholder_style(placeholder_style); textinput }
 /// Equivalent to the Rust `TextInput::set_container_style()` function.
-#[no_mangle] pub extern "C" fn AzTextInput_setContainerStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) {  textinput.set_container_style(placeholder_style) }
+#[no_mangle] pub extern "C" fn AzTextInput_setContainerStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) {  textinput.set_container_style(container_style) }
 /// Equivalent to the Rust `TextInput::with_container_style()` function.
-#[no_mangle] pub extern "C" fn AzTextInput_withContainerStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_container_style(placeholder_style); textinput }
+#[no_mangle] pub extern "C" fn AzTextInput_withContainerStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_container_style(container_style); textinput }
 /// Equivalent to the Rust `TextInput::set_label_style()` function.
-#[no_mangle] pub extern "C" fn AzTextInput_setLabelStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) { textinput.set_container_style(placeholder_style) }
+#[no_mangle] pub extern "C" fn AzTextInput_setLabelStyle(textinput: &mut AzTextInput, label_style: AzNodeDataInlineCssPropertyVec) { textinput.set_container_style(label_style) }
 /// Equivalent to the Rust `TextInput::with_label_style()` function.
-#[no_mangle] pub extern "C" fn AzTextInput_withLabelStyle(textinput: &mut AzTextInput, label_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_label_style(placeholder_style); textinput }
+#[no_mangle] pub extern "C" fn AzTextInput_withLabelStyle(textinput: &mut AzTextInput, label_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_label_style(label_style); textinput }
 /// Equivalent to the Rust `TextInput::dom()` function.
 #[no_mangle] pub extern "C" fn AzTextInput_dom(textinput: &mut AzTextInput) -> AzDom { textinput.swap_with_default().dom() }
 
@@ -4852,6 +4852,10 @@ mod test_sizes {
         JustifyContent,
         AlignItems,
         AlignContent,
+        BackgroundContent,
+        BackgroundPosition,
+        BackgroundSize,
+        BackgroundRepeat,
         OverflowX,
         OverflowY,
         PaddingTop,
@@ -4862,12 +4866,6 @@ mod test_sizes {
         MarginLeft,
         MarginRight,
         MarginBottom,
-        Background,
-        BackgroundImage,
-        BackgroundColor,
-        BackgroundPosition,
-        BackgroundSize,
-        BackgroundRepeat,
         BorderTopLeftRadius,
         BorderTopRightRadius,
         BorderBottomLeftRadius,
@@ -4891,8 +4889,8 @@ mod test_sizes {
         ScrollbarStyle,
         Opacity,
         Transform,
-        PerspectiveOrigin,
         TransformOrigin,
+        PerspectiveOrigin,
         BackfaceVisibility,
     }
 

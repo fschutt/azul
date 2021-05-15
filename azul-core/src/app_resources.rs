@@ -272,7 +272,7 @@ pub struct ImageRef {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
 pub struct ImageRefHash(pub usize);
 
-impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
+impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl ImageRef {
 

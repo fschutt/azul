@@ -1,19 +1,14 @@
-use azul_core::{
+use azul_desktop::{
+    css::*,
+    css::AzString,
     dom::{
-        TabIndex, Dom, IdOrClass, IdOrClass::Class,
+        TabIndex, Dom, IdOrClass, IdOrClass::Class, NodeDataInlineCssPropertyVec, IdOrClassVec,
         NodeDataInlineCssProperty, NodeDataInlineCssProperty::{Normal, Active, Hover, Focus},
     },
-    image::ImageRef,
-    str::String as AzString,
+    resources::{ImageRef, OptionImageRef},
     callbacks::{CallbackType, Callback, RefAny},
-    vec::{
-        IdOrClassVec, StyleFontFamilyVec,
-        StyleBackgroundContentVec, NodeDataInlineCssPropertyVec,
-        NormalizedLinearColorStopVec,
-    },
 };
-use azul_css::*;
-use alloc::vec::Vec;
+use std::vec::Vec;
 
 pub type OnClickFn = CallbackType;
 
@@ -24,15 +19,17 @@ pub struct Button {
     pub label: AzString,
     /// Optional image that is displayed next to the label
     pub image: OptionImageRef,
-    /// Style for this button
+    /// Style for this button container
     pub container_style: NodeDataInlineCssPropertyVec,
+    /// Style of the label
     pub label_style: NodeDataInlineCssPropertyVec,
+    /// Style of the image
     pub image_style: NodeDataInlineCssPropertyVec,
     /// Optional: Function to call when the button is clicked
     pub on_click: OptionButtonOnClick,
 }
 
-#[repr(C, u8)]
+#[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ButtonOnClick {
     pub data: RefAny,
@@ -244,9 +241,10 @@ impl Button {
     #[inline]
     pub fn new(label: AzString) -> Self {
         Self {
-            label: text.into(),
 
+            label,
             image: None.into(),
+            on_click: None.into(),
 
             #[cfg(target_os = "windows")]
             container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_WINDOWS),
@@ -274,8 +272,6 @@ impl Button {
             image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
             #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
             image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
-
-            on_click: None,
         }
     }
 
@@ -287,7 +283,7 @@ impl Button {
     }
 
     #[inline]
-    pub fn set_image(&mut self, image: ImageRef) -> Self {
+    pub fn set_image(&mut self, image: ImageRef) {
         self.image = Some(image).into();
     }
 
@@ -296,20 +292,19 @@ impl Button {
         self.on_click = Some(ButtonOnClick {
             data,
             callback: Callback { cb: on_click },
-        });
+        }).into();
     }
 
     #[inline]
     pub fn dom(self) -> Dom {
 
-        use self::ButtonContent::*;
-        use azul::dom::{
-            Dom, EventFilter, HoverEventFilter,
+        use azul_desktop::dom::{
+            EventFilter, HoverEventFilter,
             CallbackData,
         };
 
-        let callbacks = match self.on_click {
-            Some((data, callback)) => vec![
+        let callbacks = match self.on_click.into_option() {
+            Some(ButtonOnClick { data, callback }) => vec![
                 CallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
                     callback,
@@ -328,18 +323,9 @@ impl Button {
         .with_callbacks(callbacks.into())
         .with_tab_index(TabIndex::Auto)
         .with_children(vec![
-            match self.content {
-                Text(s) => {
-                    Dom::text(s.into())
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-                    .with_inline_css_props(self.label_style)
-                },
-                Image(i) => {
-                    Dom::image(i)
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
-                    .with_inline_css_props(self.image_style)
-                },
-            }
+            Dom::text(self.label)
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
+            .with_inline_css_props(self.label_style)
         ].into())
     }
 }

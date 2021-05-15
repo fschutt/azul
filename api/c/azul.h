@@ -1170,6 +1170,10 @@ enum AzCssPropertyType {
    AzCssPropertyType_JustifyContent,
    AzCssPropertyType_AlignItems,
    AzCssPropertyType_AlignContent,
+   AzCssPropertyType_BackgroundContent,
+   AzCssPropertyType_BackgroundPosition,
+   AzCssPropertyType_BackgroundSize,
+   AzCssPropertyType_BackgroundRepeat,
    AzCssPropertyType_OverflowX,
    AzCssPropertyType_OverflowY,
    AzCssPropertyType_PaddingTop,
@@ -1180,12 +1184,6 @@ enum AzCssPropertyType {
    AzCssPropertyType_MarginLeft,
    AzCssPropertyType_MarginRight,
    AzCssPropertyType_MarginBottom,
-   AzCssPropertyType_Background,
-   AzCssPropertyType_BackgroundImage,
-   AzCssPropertyType_BackgroundColor,
-   AzCssPropertyType_BackgroundPosition,
-   AzCssPropertyType_BackgroundSize,
-   AzCssPropertyType_BackgroundRepeat,
    AzCssPropertyType_BorderTopLeftRadius,
    AzCssPropertyType_BorderTopRightRadius,
    AzCssPropertyType_BorderBottomLeftRadius,
@@ -1209,8 +1207,8 @@ enum AzCssPropertyType {
    AzCssPropertyType_ScrollbarStyle,
    AzCssPropertyType_Opacity,
    AzCssPropertyType_Transform,
-   AzCssPropertyType_PerspectiveOrigin,
    AzCssPropertyType_TransformOrigin,
+   AzCssPropertyType_PerspectiveOrigin,
    AzCssPropertyType_BackfaceVisibility,
 };
 typedef enum AzCssPropertyType AzCssPropertyType;
@@ -10809,7 +10807,7 @@ extern DLLIMPORT void AzTextInput_setPlaceholderStyle(AzTextInput* restrict text
 extern DLLIMPORT AzTextInput AzTextInput_withPlaceholderStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  placeholder_style);
 extern DLLIMPORT void AzTextInput_setContainerStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  container_style);
 extern DLLIMPORT AzTextInput AzTextInput_withContainerStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  container_style);
-extern DLLIMPORT void AzTextInput_setLabelStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  container_style);
+extern DLLIMPORT void AzTextInput_setLabelStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  label_style);
 extern DLLIMPORT AzTextInput AzTextInput_withLabelStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  label_style);
 extern DLLIMPORT AzDom AzTextInput_dom(AzTextInput* restrict textinput);
 extern DLLIMPORT AzNumberInput AzNumberInput_new(float number);

@@ -590,20 +590,70 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     derive_display_zero!($struct);
 
     impl $struct {
+
+        #[inline]
+        pub const fn zero() -> Self {
+            Self { inner: PixelValue::zero() }
+        }
+
+        /// Same as `PixelValue::px()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_px(value: isize) -> Self {
+            Self { inner: PixelValue::const_px(value) }
+        }
+
+        /// Same as `PixelValue::em()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_em(value: isize) -> Self {
+            Self { inner: PixelValue::const_em(value) }
+        }
+
+        /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_pt(value: isize) -> Self {
+            Self { inner: PixelValue::const_pt(value) }
+        }
+
+        /// Same as `PixelValue::pt()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_percent(value: isize) -> Self {
+            Self { inner: PixelValue::const_percent(value) }
+        }
+
+        #[inline]
+        pub const fn const_from_metric(metric: SizeMetric, value: isize) -> Self {
+            Self { inner: PixelValue::const_from_metric(metric, value) }
+        }
+
         #[inline]
         pub fn px(value: f32) -> Self {
-            $struct { inner: PixelValue::px(value) }
+            Self { inner: PixelValue::px(value) }
         }
 
         #[inline]
         pub fn em(value: f32) -> Self {
-            $struct { inner: PixelValue::em(value) }
+            Self { inner: PixelValue::em(value) }
         }
 
         #[inline]
         pub fn pt(value: f32) -> Self {
-            $struct { inner: PixelValue::pt(value) }
+            Self { inner: PixelValue::pt(value) }
         }
+
+        #[inline]
+        pub fn percent(value: f32) -> Self {
+            Self { inner: PixelValue::percent(value) }
+        }
+
+        #[inline]
+        pub fn from_metric(metric: SizeMetric, value: f32) -> Self {
+            Self { inner: PixelValue::from_metric(metric, value) }
+        }
+
         #[inline]
         pub fn interpolate(&self, other: &Self, t: f32) -> Self {
             $struct { inner: self.inner.interpolate(&other.inner, t) }
@@ -625,6 +675,13 @@ macro_rules! impl_percentage_value{($struct:ident) => (
     }
 
     impl $struct {
+        /// Same as `PercentageValue::new()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        #[inline]
+        pub const fn const_new(value: isize) -> Self {
+            Self { inner: PercentageValue::const_new(value) }
+        }
+
         #[inline]
         pub fn interpolate(&self, other: &Self, t: f32) -> Self {
             $struct { inner: self.inner.interpolate(&other.inner, t) }
@@ -634,7 +691,16 @@ macro_rules! impl_percentage_value{($struct:ident) => (
 
 macro_rules! impl_float_value{($struct:ident) => (
     impl $struct {
-        #[inline]
+        /// Same as `FloatValue::new()`, but only accepts whole numbers,
+        /// since using `f32` in const fn is not yet stabilized.
+        pub const fn const_new(value: isize)  -> Self {
+            Self { inner: FloatValue::const_new(value) }
+        }
+
+        pub fn new(value: f32) -> Self {
+            Self { inner: FloatValue::new(value) }
+        }
+
         pub fn get(&self) -> f32 {
             self.inner.get()
         }
@@ -642,6 +708,12 @@ macro_rules! impl_float_value{($struct:ident) => (
         #[inline]
         pub fn interpolate(&self, other: &Self, t: f32) -> Self {
             Self { inner: self.inner.interpolate(&other.inner, t) }
+        }
+    }
+
+    impl From<f32> for $struct {
+        fn from(val: f32) -> Self {
+            Self { inner: FloatValue::from(val) }
         }
     }
 
@@ -1037,6 +1109,81 @@ pub enum CssProperty {
 
 impl_option!(CssProperty, OptionCssProperty, copy = false, [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]);
 
+macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
+    match $prop_type {
+        CssPropertyType::TextColor => CssProperty::TextColor(StyleTextColorValue::$content_type),
+        CssPropertyType::FontSize => CssProperty::FontSize(StyleFontSizeValue::$content_type),
+        CssPropertyType::FontFamily => CssProperty::FontFamily(StyleFontFamilyVecValue::$content_type),
+        CssPropertyType::TextAlign => CssProperty::TextAlign(StyleTextAlignValue::$content_type),
+        CssPropertyType::LetterSpacing => CssProperty::LetterSpacing(StyleLetterSpacingValue::$content_type),
+        CssPropertyType::LineHeight => CssProperty::LineHeight(StyleLineHeightValue::$content_type),
+        CssPropertyType::WordSpacing => CssProperty::WordSpacing(StyleWordSpacingValue::$content_type),
+        CssPropertyType::TabWidth => CssProperty::TabWidth(StyleTabWidthValue::$content_type),
+        CssPropertyType::Cursor => CssProperty::Cursor(StyleCursorValue::$content_type),
+        CssPropertyType::Display => CssProperty::Display(LayoutDisplayValue::$content_type),
+        CssPropertyType::Float => CssProperty::Float(LayoutFloatValue::$content_type),
+        CssPropertyType::BoxSizing => CssProperty::BoxSizing(LayoutBoxSizingValue::$content_type),
+        CssPropertyType::Width => CssProperty::Width(LayoutWidthValue::$content_type),
+        CssPropertyType::Height => CssProperty::Height(LayoutHeightValue::$content_type),
+        CssPropertyType::MinWidth => CssProperty::MinWidth(LayoutMinWidthValue::$content_type),
+        CssPropertyType::MinHeight => CssProperty::MinHeight(LayoutMinHeightValue::$content_type),
+        CssPropertyType::MaxWidth => CssProperty::MaxWidth(LayoutMaxWidthValue::$content_type),
+        CssPropertyType::MaxHeight => CssProperty::MaxHeight(LayoutMaxHeightValue::$content_type),
+        CssPropertyType::Position => CssProperty::Position(LayoutPositionValue::$content_type),
+        CssPropertyType::Top => CssProperty::Top(LayoutTopValue::$content_type),
+        CssPropertyType::Right => CssProperty::Right(LayoutRightValue::$content_type),
+        CssPropertyType::Left => CssProperty::Left(LayoutLeftValue::$content_type),
+        CssPropertyType::Bottom => CssProperty::Bottom(LayoutBottomValue::$content_type),
+        CssPropertyType::FlexWrap => CssProperty::FlexWrap(LayoutFlexWrapValue::$content_type),
+        CssPropertyType::FlexDirection => CssProperty::FlexDirection(LayoutFlexDirectionValue::$content_type),
+        CssPropertyType::FlexGrow => CssProperty::FlexGrow(LayoutFlexGrowValue::$content_type),
+        CssPropertyType::FlexShrink => CssProperty::FlexShrink(LayoutFlexShrinkValue::$content_type),
+        CssPropertyType::JustifyContent => CssProperty::JustifyContent(LayoutJustifyContentValue::$content_type),
+        CssPropertyType::AlignItems => CssProperty::AlignItems(LayoutAlignItemsValue::$content_type),
+        CssPropertyType::AlignContent => CssProperty::AlignContent(LayoutAlignContentValue::$content_type),
+        CssPropertyType::BackgroundContent => CssProperty::BackgroundContent(StyleBackgroundContentVecValue::$content_type),
+        CssPropertyType::BackgroundPosition => CssProperty::BackgroundPosition(StyleBackgroundPositionVecValue::$content_type),
+        CssPropertyType::BackgroundSize => CssProperty::BackgroundSize(StyleBackgroundSizeVecValue::$content_type),
+        CssPropertyType::BackgroundRepeat => CssProperty::BackgroundRepeat(StyleBackgroundRepeatVecValue::$content_type),
+        CssPropertyType::OverflowX => CssProperty::OverflowX(LayoutOverflowValue::$content_type),
+        CssPropertyType::OverflowY => CssProperty::OverflowY(LayoutOverflowValue::$content_type),
+        CssPropertyType::PaddingTop => CssProperty::PaddingTop(LayoutPaddingTopValue::$content_type),
+        CssPropertyType::PaddingLeft => CssProperty::PaddingLeft(LayoutPaddingLeftValue::$content_type),
+        CssPropertyType::PaddingRight => CssProperty::PaddingRight(LayoutPaddingRightValue::$content_type),
+        CssPropertyType::PaddingBottom => CssProperty::PaddingBottom(LayoutPaddingBottomValue::$content_type),
+        CssPropertyType::MarginTop => CssProperty::MarginTop(LayoutMarginTopValue::$content_type),
+        CssPropertyType::MarginLeft => CssProperty::MarginLeft(LayoutMarginLeftValue::$content_type),
+        CssPropertyType::MarginRight => CssProperty::MarginRight(LayoutMarginRightValue::$content_type),
+        CssPropertyType::MarginBottom => CssProperty::MarginBottom(LayoutMarginBottomValue::$content_type),
+        CssPropertyType::BorderTopLeftRadius => CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadiusValue::$content_type),
+        CssPropertyType::BorderTopRightRadius => CssProperty::BorderTopRightRadius(StyleBorderTopRightRadiusValue::$content_type),
+        CssPropertyType::BorderBottomLeftRadius => CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue::$content_type),
+        CssPropertyType::BorderBottomRightRadius => CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadiusValue::$content_type),
+        CssPropertyType::BorderTopColor => CssProperty::BorderTopColor(StyleBorderTopColorValue::$content_type),
+        CssPropertyType::BorderRightColor => CssProperty::BorderRightColor(StyleBorderRightColorValue::$content_type),
+        CssPropertyType::BorderLeftColor => CssProperty::BorderLeftColor(StyleBorderLeftColorValue::$content_type),
+        CssPropertyType::BorderBottomColor => CssProperty::BorderBottomColor(StyleBorderBottomColorValue::$content_type),
+        CssPropertyType::BorderTopStyle => CssProperty::BorderTopStyle(StyleBorderTopStyleValue::$content_type),
+        CssPropertyType::BorderRightStyle => CssProperty::BorderRightStyle(StyleBorderRightStyleValue::$content_type),
+        CssPropertyType::BorderLeftStyle => CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::$content_type),
+        CssPropertyType::BorderBottomStyle => CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::$content_type),
+        CssPropertyType::BorderTopWidth => CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::$content_type),
+        CssPropertyType::BorderRightWidth => CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::$content_type),
+        CssPropertyType::BorderLeftWidth => CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::$content_type),
+        CssPropertyType::BorderBottomWidth => CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::$content_type),
+        CssPropertyType::BoxShadowLeft => CssProperty::BoxShadowLeft(StyleBoxShadowValue::$content_type),
+        CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(StyleBoxShadowValue::$content_type),
+        CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(StyleBoxShadowValue::$content_type),
+        CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(StyleBoxShadowValue::$content_type),
+        CssPropertyType::ScrollbarStyle => CssProperty::ScrollbarStyle(ScrollbarStyleValue::$content_type),
+        CssPropertyType::Opacity => CssProperty::Opacity(StyleOpacityValue::$content_type),
+        CssPropertyType::Transform => CssProperty::Transform(StyleTransformVecValue::$content_type),
+        CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
+        CssPropertyType::TransformOrigin => CssProperty::TransformOrigin(StyleTransformOriginValue::$content_type),
+        CssPropertyType::BackfaceVisibility => CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::$content_type),
+    }
+})}
+
 impl CssProperty {
     pub fn is_initial(&self) -> bool {
         use self::CssProperty::*;
@@ -1113,6 +1260,83 @@ impl CssProperty {
             BackfaceVisibility(c) => c.is_initial(),
         }
     }
+
+
+    pub const fn const_none(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, None) }
+    pub const fn const_auto(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Auto) }
+    pub const fn const_initial(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Initial) }
+    pub const fn const_inherit(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Inherit) }
+
+    pub const fn const_text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(StyleTextColorValue::Exact(input)) }
+    pub const fn const_font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(StyleFontSizeValue::Exact(input)) }
+    pub const fn const_font_family(input: StyleFontFamilyVec) -> Self { CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(input)) }
+    pub const fn const_text_align(input: StyleTextAlign) -> Self { CssProperty::TextAlign(StyleTextAlignValue::Exact(input)) }
+    pub const fn const_letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(StyleLetterSpacingValue::Exact(input)) }
+    pub const fn const_line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(StyleLineHeightValue::Exact(input)) }
+    pub const fn const_word_spacing(input: StyleWordSpacing) -> Self { CssProperty::WordSpacing(StyleWordSpacingValue::Exact(input)) }
+    pub const fn const_tab_width(input: StyleTabWidth) -> Self { CssProperty::TabWidth(StyleTabWidthValue::Exact(input)) }
+    pub const fn const_cursor(input: StyleCursor) -> Self { CssProperty::Cursor(StyleCursorValue::Exact(input)) }
+    pub const fn const_display(input: LayoutDisplay) -> Self { CssProperty::Display(LayoutDisplayValue::Exact(input)) }
+    pub const fn const_float(input: LayoutFloat) -> Self { CssProperty::Float(LayoutFloatValue::Exact(input)) }
+    pub const fn const_box_sizing(input: LayoutBoxSizing) -> Self { CssProperty::BoxSizing(LayoutBoxSizingValue::Exact(input)) }
+    pub const fn const_width(input: LayoutWidth) -> Self { CssProperty::Width(LayoutWidthValue::Exact(input)) }
+    pub const fn const_height(input: LayoutHeight) -> Self { CssProperty::Height(LayoutHeightValue::Exact(input)) }
+    pub const fn const_min_width(input: LayoutMinWidth) -> Self { CssProperty::MinWidth(LayoutMinWidthValue::Exact(input)) }
+    pub const fn const_min_height(input: LayoutMinHeight) -> Self { CssProperty::MinHeight(LayoutMinHeightValue::Exact(input)) }
+    pub const fn const_max_width(input: LayoutMaxWidth) -> Self { CssProperty::MaxWidth(LayoutMaxWidthValue::Exact(input)) }
+    pub const fn const_max_height(input: LayoutMaxHeight) -> Self { CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(input)) }
+    pub const fn const_position(input: LayoutPosition) -> Self { CssProperty::Position(LayoutPositionValue::Exact(input)) }
+    pub const fn const_top(input: LayoutTop) -> Self { CssProperty::Top(LayoutTopValue::Exact(input)) }
+    pub const fn const_right(input: LayoutRight) -> Self { CssProperty::Right(LayoutRightValue::Exact(input)) }
+    pub const fn const_left(input: LayoutLeft) -> Self { CssProperty::Left(LayoutLeftValue::Exact(input)) }
+    pub const fn const_bottom(input: LayoutBottom) -> Self { CssProperty::Bottom(LayoutBottomValue::Exact(input)) }
+    pub const fn const_flex_wrap(input: LayoutFlexWrap) -> Self { CssProperty::FlexWrap(LayoutFlexWrapValue::Exact(input)) }
+    pub const fn const_flex_direction(input: LayoutFlexDirection) -> Self { CssProperty::FlexDirection(LayoutFlexDirectionValue::Exact(input)) }
+    pub const fn const_flex_grow(input: LayoutFlexGrow) -> Self { CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(input)) }
+    pub const fn const_flex_shrink(input: LayoutFlexShrink) -> Self { CssProperty::FlexShrink(LayoutFlexShrinkValue::Exact(input)) }
+    pub const fn const_justify_content(input: LayoutJustifyContent) -> Self { CssProperty::JustifyContent(LayoutJustifyContentValue::Exact(input)) }
+    pub const fn const_align_items(input: LayoutAlignItems) -> Self { CssProperty::AlignItems(LayoutAlignItemsValue::Exact(input)) }
+    pub const fn const_align_content(input: LayoutAlignContent) -> Self { CssProperty::AlignContent(LayoutAlignContentValue::Exact(input)) }
+    pub const fn const_background_content(input: StyleBackgroundContentVec) -> Self { CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(input)) }
+    pub const fn const_background_position(input: StyleBackgroundPositionVec) -> Self { CssProperty::BackgroundPosition(StyleBackgroundPositionVecValue::Exact(input)) }
+    pub const fn const_background_size(input: StyleBackgroundSizeVec) -> Self { CssProperty::BackgroundSize(StyleBackgroundSizeVecValue::Exact(input)) }
+    pub const fn const_background_repeat(input: StyleBackgroundRepeatVec) -> Self { CssProperty::BackgroundRepeat(StyleBackgroundRepeatVecValue::Exact(input)) }
+    pub const fn const_overflow_x(input: LayoutOverflow) -> Self { CssProperty::OverflowX(LayoutOverflowValue::Exact(input)) }
+    pub const fn const_overflow_y(input: LayoutOverflow) -> Self { CssProperty::OverflowY(LayoutOverflowValue::Exact(input)) }
+    pub const fn const_padding_top(input: LayoutPaddingTop) -> Self { CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(input)) }
+    pub const fn const_padding_left(input: LayoutPaddingLeft) -> Self { CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(input)) }
+    pub const fn const_padding_right(input: LayoutPaddingRight) -> Self { CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(input)) }
+    pub const fn const_padding_bottom(input: LayoutPaddingBottom) -> Self { CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(input)) }
+    pub const fn const_margin_top(input: LayoutMarginTop) -> Self { CssProperty::MarginTop(LayoutMarginTopValue::Exact(input)) }
+    pub const fn const_margin_left(input: LayoutMarginLeft) -> Self { CssProperty::MarginLeft(LayoutMarginLeftValue::Exact(input)) }
+    pub const fn const_margin_right(input: LayoutMarginRight) -> Self { CssProperty::MarginRight(LayoutMarginRightValue::Exact(input)) }
+    pub const fn const_margin_bottom(input: LayoutMarginBottom) -> Self { CssProperty::MarginBottom(LayoutMarginBottomValue::Exact(input)) }
+    pub const fn const_border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self { CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadiusValue::Exact(input)) }
+    pub const fn const_border_top_right_radius(input: StyleBorderTopRightRadius) -> Self { CssProperty::BorderTopRightRadius(StyleBorderTopRightRadiusValue::Exact(input)) }
+    pub const fn const_border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self { CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadiusValue::Exact(input)) }
+    pub const fn const_border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self { CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadiusValue::Exact(input)) }
+    pub const fn const_border_top_color(input: StyleBorderTopColor) -> Self { CssProperty::BorderTopColor(StyleBorderTopColorValue::Exact(input)) }
+    pub const fn const_border_right_color(input: StyleBorderRightColor) -> Self { CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(input)) }
+    pub const fn const_border_left_color(input: StyleBorderLeftColor) -> Self { CssProperty::BorderLeftColor(StyleBorderLeftColorValue::Exact(input)) }
+    pub const fn const_border_bottom_color(input: StyleBorderBottomColor) -> Self { CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(input)) }
+    pub const fn const_border_top_style(input: StyleBorderTopStyle) -> Self { CssProperty::BorderTopStyle(StyleBorderTopStyleValue::Exact(input)) }
+    pub const fn const_border_right_style(input: StyleBorderRightStyle) -> Self { CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(input)) }
+    pub const fn const_border_left_style(input: StyleBorderLeftStyle) -> Self { CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::Exact(input)) }
+    pub const fn const_border_bottom_style(input: StyleBorderBottomStyle) -> Self { CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(input)) }
+    pub const fn const_border_top_width(input: LayoutBorderTopWidth) -> Self { CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::Exact(input)) }
+    pub const fn const_border_right_width(input: LayoutBorderRightWidth) -> Self { CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(input)) }
+    pub const fn const_border_left_width(input: LayoutBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(input)) }
+    pub const fn const_border_bottom_width(input: LayoutBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(input)) }
+    pub const fn const_box_shadow_left(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(input)) }
+    pub const fn const_box_shadow_right(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(input)) }
+    pub const fn const_box_shadow_top(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(input)) }
+    pub const fn const_box_shadow_bottom(input: StyleBoxShadow) -> Self { CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(input)) }
+    pub const fn const_opacity(input: StyleOpacity) -> Self { CssProperty::Opacity(StyleOpacityValue::Exact(input)) }
+    pub const fn const_transform(input: StyleTransformVec) -> Self { CssProperty::Transform(StyleTransformVecValue::Exact(input)) }
+    pub const fn const_transform_origin(input: StyleTransformOrigin) -> Self { CssProperty::TransformOrigin(StyleTransformOriginValue::Exact(input)) }
+    pub const fn const_perspective_origin(input: StylePerspectiveOrigin) -> Self { CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::Exact(input)) }
+    pub const fn const_backface_visiblity(input: StyleBackfaceVisibility) -> Self { CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input)) }
+
 }
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -4265,7 +4489,7 @@ impl Drop for FontData {
 #[repr(C)]
 pub enum StyleFontFamily {
     /// Native font, such as "Webly Sleeky UI", "monospace", etc.
-    Native(AzString),
+    System(AzString),
     /// Font loaded from a file
     File(AzString),
     /// Reference-counted, already-decoded font,
@@ -4276,7 +4500,7 @@ pub enum StyleFontFamily {
 impl StyleFontFamily {
     pub(crate) fn as_string(&self) -> String {
         match &self {
-            StyleFontFamily::Native(s) => s.clone().into_library_owned_string(),
+            StyleFontFamily::System(s) => s.clone().into_library_owned_string(),
             StyleFontFamily::File(s) => s.clone().into_library_owned_string(),
             StyleFontFamily::Ref(s) => format!("{:0x}", s.data as usize),
         }

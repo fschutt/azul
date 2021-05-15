@@ -2797,7 +2797,7 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamilyVec,
         let font = font.trim_matches('\'');
         let font = font.trim_matches('\"');
         let font = font.trim();
-        fonts.push(StyleFontFamily::Native(font.to_string().into()));
+        fonts.push(StyleFontFamily::System(font.to_string().into()));
     }
 
     Ok(fonts.into())

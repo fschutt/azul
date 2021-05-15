@@ -696,7 +696,7 @@ impl CssPropertyCache {
     pub fn get_font_id_or_default(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> StyleFontFamilyVec {
 
         use crate::ui_solver::DEFAULT_FONT_ID;
-        let default_font_id = vec![StyleFontFamily::Native(AzString::from_const_str(DEFAULT_FONT_ID))].into();
+        let default_font_id = vec![StyleFontFamily::System(AzString::from_const_str(DEFAULT_FONT_ID))].into();
         let font_family_opt = self.get_font_family(node_data, node_id, node_state);
 
         font_family_opt
