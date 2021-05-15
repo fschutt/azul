@@ -1038,6 +1038,8 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_node_type(&self) -> &NodeType { &self.node_type }
     #[inline(always)]
+    pub fn get_dataset_mut(&mut self) -> &mut OptionRefAny { &mut self.dataset }
+    #[inline(always)]
     pub const fn get_dataset(&self) -> &OptionRefAny { &self.dataset }
     #[inline(always)]
     pub const fn get_ids_and_classes(&self) -> &IdOrClassVec { &self.ids_and_classes }

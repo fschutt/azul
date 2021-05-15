@@ -292,7 +292,18 @@ impl ImageRef {
 
     pub fn get_data<'a>(&'a self) -> &'a DecodedImage { unsafe { &*self.data } }
 
-    pub(crate) fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut ImageCallback> {
+    pub fn get_image_callback<'a>(&'a self) -> Option<&'a ImageCallback> {
+        if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
+            return None; // not safe
+        }
+
+        match unsafe { &*self.data } {
+            DecodedImage::Callback(gl_texture_callback) => Some(gl_texture_callback),
+            _ => None,
+        }
+    }
+
+    pub fn get_image_callback_mut<'a>(&'a mut self) -> Option<&'a mut ImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe
         }

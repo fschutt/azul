@@ -1088,6 +1088,7 @@ def generate_python_api(api_data, structs_map, functions_map):
 
         ("task", "Timer", "new"),
         ("callbacks", "CallbackInfo", "start_thread"),
+        ("image", "ImageRef", "callback"),
 
         ("dom", "Dom", "iframe"),
         ("dom", "Dom", "set_dataset"),
@@ -1113,7 +1114,6 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("widgets", "TextInput", "with_on_virtual_key_down"),
         ("widgets", "TextInput", "set_on_focus_lost"),
         ("widgets", "TextInput", "with_on_focus_lost"),
-        ("image", "ImageRef", "callback"),
 
         # unnecessary due to Python string wrappers
         ("str", "String", "as_refstr"),
