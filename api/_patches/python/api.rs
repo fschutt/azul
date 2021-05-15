@@ -296,15 +296,15 @@ impl PyGCProtocol for AzIFrameNode {
     }
 }
 
-extern "C" fn invoke_python_iframe(data: &mut AzRefAny, info: AzIFrameCallbackInfo) -> AzIFrameCallbackReturn {
+extern "C" fn invoke_python_iframe(data: &mut azul_impl::callbacks::RefAny, info: azul_impl::callbacks::IFrameCallbackInfo) -> azul_impl::callbacks::IFrameCallbackReturn {
 
-    let default: AzIFrameCallbackReturn = unsafe { mem::transmute(azul_impl::callbacks::IFrameCallbackReturn {
+    let default = azul_impl::callbacks::IFrameCallbackReturn {
          dom: azul_impl::styled_dom::StyledDom::default(),
          scroll_size: azul_impl::window::LogicalSize::new(0.0, 0.0),
          scroll_offset: azul_impl::window::LogicalPosition::new(0.0, 0.0),
          virtual_scroll_size: azul_impl::window::LogicalSize::new(0.0, 0.0),
          virtual_scroll_offset: azul_impl::window::LogicalPosition::new(0.0, 0.0),
-    }) };
+    };
 
     let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
 
@@ -326,10 +326,11 @@ extern "C" fn invoke_python_iframe(data: &mut AzRefAny, info: AzIFrameCallbackIn
     };
 
     // call iframe callback into python
-    let s: AzIFrameCallbackReturn = Python::with_gil(|py| {
+    let s: azul_impl::callbacks::IFrameCallbackReturn = Python::with_gil(|py| {
+        let info: AzIFrameCallbackInfo = unsafe { mem::transmute(info) };
         match py_function.call1(py.clone(), (py_data.clone_ref(py.clone()), info)) {
             Ok(o) => match o.as_ref(py).extract::<AzIFrameCallbackReturn>() {
-                Ok(o) => o.clone(),
+                Ok(o) => unsafe { mem::transmute(o.clone()) },
                 Err(e) => {
                     #[cfg(feature = "logging")] {
                         let cb_any = o.as_ref(py);
@@ -403,9 +404,9 @@ impl PyGCProtocol for AzCallbackData {
     }
 }
 
-extern "C" fn invoke_python_callback(data: &mut AzRefAny, info: AzCallbackInfo) -> AzUpdate {
+extern "C" fn invoke_python_callback(data: &mut azul_impl::callbacks::RefAny, info: azul_impl::callbacks::CallbackInfo) -> azul_impl::callbacks::Update {
 
-    let mut default: AzUpdate = AzUpdate::DoNothing;
+    let default: azul_impl::callbacks::Update = azul_impl::callbacks::Update::DoNothing;
 
     let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
 
@@ -427,10 +428,11 @@ extern "C" fn invoke_python_callback(data: &mut AzRefAny, info: AzCallbackInfo) 
     };
 
     // call callback into python
-    let s: AzUpdate = Python::with_gil(|py| {
+    let s: azul_impl::callbacks::Update = Python::with_gil(|py| {
+        let info: AzCallbackInfo = unsafe { mem::transmute(info) };
         match py_function.call1(py.clone(), (py_data.clone_ref(py.clone()), info)) {
             Ok(o) => match o.as_ref(py).extract::<AzUpdateEnumWrapper>() {
-                Ok(o) => unsafe{ mem::transmute(o.clone()) },
+                Ok(o) => unsafe { mem::transmute(o.clone()) },
                 Err(e) => {
                     #[cfg(feature = "logging")] {
                         let cb_any = o.as_ref(py);

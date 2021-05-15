@@ -1090,11 +1090,11 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("callbacks", "CallbackInfo", "start_thread"),
         ("image", "ImageRef", "callback"),
 
-        ("dom", "Dom", "iframe"),
-        ("dom", "Dom", "set_dataset"),
-        ("dom", "Dom", "with_dataset"),
-        ("dom", "Dom", "add_callback"),
-        ("dom", "Dom", "with_callback"),
+        ("dom", "Dom", "iframe"), # ok: replaced
+        ("dom", "Dom", "set_dataset"), # ok: replaced
+        ("dom", "Dom", "with_dataset"), # ok: replaced
+        ("dom", "Dom", "add_callback"), # ok: replaced
+        ("dom", "Dom", "with_callback"), # ok: replaced
 
         ("dom", "NodeData", "add_callback"),
         ("dom", "NodeData", "with_callback"),
@@ -1126,6 +1126,7 @@ def generate_python_api(api_data, structs_map, functions_map):
 
     inject_impls = {
         ("app", "App"): read_file(root_folder + "/api/_patches/python/app.rs"),
+        ("dom", "Dom"): read_file(root_folder + "/api/_patches/python/dom.rs"),
         ("callbacks", "LayoutCallback"): read_file(root_folder + "/api/_patches/python/layout_callback.rs"),
         ("window", "WindowCreateOptions"): read_file(root_folder + "/api/_patches/python/window_create_options.rs"),
         ("window", "WindowState"): read_file(root_folder + "/api/_patches/python/window_state.rs"),
