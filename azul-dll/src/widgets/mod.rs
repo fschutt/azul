@@ -68,17 +68,17 @@ pub mod button;
 pub mod check_box;
 /// Box displaying a color which opens a color picker dialog on being clicked
 pub mod color_input;
+/// Dropdown selection widget
+pub mod drop_down; // TODO
+/// Label widget (centered text)
+pub mod label;
 // /// Single line text input widget
 // pub mod text_input;
 // /// Same as text input, but only allows numeric input
 // pub mod number_input;
-// /// Label widget (centered text)
-// pub mod label;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget
 // pub mod slider;
-// /// Dropdown selection widget
-// pub mod drop_down;
 // /// Multi-line text input
 // pub mod text_edit;

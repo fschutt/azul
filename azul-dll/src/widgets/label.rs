@@ -1,11 +1,11 @@
-use azul::{
+use azul_desktop::{
     dom::{
-        Dom, NodeDataInlineCssProperty,
-        NodeDataInlineCssProperty::{Normal, Focus}
+        Dom, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
+        NodeDataInlineCssProperty::{Normal, Focus}, IdOrClassVec,
+        IdOrClass::Class, IdOrClass
     },
     css::*,
-    vec::{StyleFontFamilyVec, NodeDataInlineCssPropertyVec},
-    str::String as AzString,
+    css::AzString,
 };
 
 #[derive(Debug, Clone)]
@@ -88,12 +88,9 @@ impl Label {
     #[inline]
     pub fn dom(self) -> Dom {
 
-        use azul::vec::{IdOrClassVec};
-        use azul::dom::{Dom, IdOrClass, IdOrClass::Class};
-
         static LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-label"))];
 
-        Dom::text(self.string.into())
+        Dom::text(self.string)
         .with_ids_and_classes(IdOrClassVec::from_const_slice(LABEL_CLASS))
         .with_inline_css_props(self.label_style)
     }
