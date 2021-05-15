@@ -10740,6 +10740,8 @@ extern DLLIMPORT void AzDom_setCallbacks(AzDom* restrict dom, AzCallbackDataVec 
 extern DLLIMPORT AzDom AzDom_withCallbacks(AzDom* restrict dom, AzCallbackDataVec  callbacks);
 extern DLLIMPORT void AzDom_setInlineCssProps(AzDom* restrict dom, AzNodeDataInlineCssPropertyVec  css_properties);
 extern DLLIMPORT AzDom AzDom_withInlineCssProps(AzDom* restrict dom, AzNodeDataInlineCssPropertyVec  css_properties);
+extern DLLIMPORT void AzDom_addCallback(AzDom* restrict dom, AzEventFilter  event, AzRefAny  data, AzCallbackType  callback);
+extern DLLIMPORT AzDom AzDom_withCallback(AzDom* restrict dom, AzEventFilter  event, AzRefAny  data, AzCallbackType  callback);
 extern DLLIMPORT void AzDom_addChild(AzDom* restrict dom, AzDom  child);
 extern DLLIMPORT AzDom AzDom_withChild(AzDom* restrict dom, AzDom  child);
 extern DLLIMPORT void AzDom_setChildren(AzDom* restrict dom, AzDomVec  children);
@@ -10784,6 +10786,8 @@ extern DLLIMPORT void AzNodeData_setDataset(AzNodeData* restrict nodedata, AzRef
 extern DLLIMPORT AzNodeData AzNodeData_withDataset(AzNodeData* restrict nodedata, AzRefAny  dataset);
 extern DLLIMPORT void AzNodeData_setIdsAndClasses(AzNodeData* restrict nodedata, AzIdOrClassVec  ids_and_classes);
 extern DLLIMPORT AzNodeData AzNodeData_withIdsAndClasses(AzNodeData* restrict nodedata, AzIdOrClassVec  ids_and_classes);
+extern DLLIMPORT void AzNodeData_addCallback(AzNodeData* restrict nodedata, AzEventFilter  event, AzRefAny  data, AzCallbackType  callback);
+extern DLLIMPORT AzNodeData AzNodeData_withCallback(AzNodeData* restrict nodedata, AzEventFilter  event, AzRefAny  data, AzCallbackType  callback);
 extern DLLIMPORT void AzNodeData_setCallbacks(AzNodeData* restrict nodedata, AzCallbackDataVec  callbacks);
 extern DLLIMPORT AzNodeData AzNodeData_withCallbacks(AzNodeData* restrict nodedata, AzCallbackDataVec  callbacks);
 extern DLLIMPORT void AzNodeData_setInlineCssProps(AzNodeData* restrict nodedata, AzNodeDataInlineCssPropertyVec  css_properties);

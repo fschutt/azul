@@ -11,7 +11,7 @@ use crate::{
     app_resources::ImageRef,
     styled_dom::{CssPropertyCache, StyledNodeState},
     callbacks::{
-        Callback,
+        Callback, CallbackType,
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
@@ -1091,6 +1091,14 @@ impl NodeData {
     pub fn set_context_menu(&mut self, context_menu: Menu) {
         self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
         .context_menu = Some(Box::new(context_menu));
+    }
+    #[inline]
+    pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType) {
+        let mut v: CallbackDataVec = Vec::new().into();
+        mem::swap(&mut v, &mut self.callbacks);
+        let mut v = v.into_library_owned_vec();
+        v.push(CallbackData { event, data, callback: Callback { cb: callback } });
+        self.callbacks = v.into();
     }
     #[inline]
     pub fn add_id(&mut self, s: AzString) {

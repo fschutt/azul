@@ -2145,6 +2145,27 @@
                             "returns": {"type": "Dom"},
                             "fn_body": "let mut dom = dom.swap_with_default(); dom.root.set_inline_css_props(css_properties); dom"
                         },
+                        "add_callback": {
+                            "doc": "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"event": "EventFilter"},
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "fn_body": "dom.root.add_callback(event, data, callback)"
+                        },
+                        "with_callback": {
+                            "doc": "Same as add_child, but as a builder method.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"event": "EventFilter"},
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_callback(event, data, callback); dom"
+                        },
                         "add_child": {
                             "doc": "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.",
                             "fn_args": [
@@ -2520,6 +2541,27 @@
                             ],
                             "returns": {"type": "NodeData"},
                             "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_ids_and_classes(ids_and_classes); nodedata"
+                        },
+                        "add_callback": {
+                            "doc": "Adds a callback this DOM (potentially heap-allocates in Rust code)",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"event": "EventFilter"},
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "fn_body": "nodedata.add_callback(event, data, callback)"
+                        },
+                        "with_callback": {
+                            "doc": "Same as add_child, but as a builder method.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"event": "EventFilter"},
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.add_callback(event, data, callback); nodedata"
                         },
                         "set_callbacks": {
                             "fn_args": [

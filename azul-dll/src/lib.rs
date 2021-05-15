@@ -629,6 +629,10 @@ pub use AzDomTT as AzDom;
 /// Equivalent to the Rust `Dom::with_inline_css_props()` function.
 #[no_mangle] pub extern "C" fn AzDom_withInlineCssProps(dom: &mut AzDom, css_properties: AzNodeDataInlineCssPropertyVec) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.set_inline_css_props(css_properties); dom }
 /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
+#[no_mangle] pub extern "C" fn AzDom_addCallback(dom: &mut AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) { dom.root.add_callback(event, data, callback) }
+/// Same as add_child, but as a builder method.
+#[no_mangle] pub extern "C" fn AzDom_withCallback(dom: &mut AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_callback(event, data, callback); dom }
+/// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
 #[no_mangle] pub extern "C" fn AzDom_addChild(dom: &mut AzDom, child: AzDom) { dom.add_child(child) }
 /// Same as add_child, but as a builder method.
 #[no_mangle] pub extern "C" fn AzDom_withChild(dom: &mut AzDom, child: AzDom) -> AzDom { let mut dom = dom.swap_with_default(); dom.add_child(child); dom }
@@ -734,6 +738,10 @@ pub use AzNodeDataTT as AzNodeData;
 #[no_mangle] pub extern "C" fn AzNodeData_setIdsAndClasses(nodedata: &mut AzNodeData, ids_and_classes: AzIdOrClassVec) { nodedata.set_ids_and_classes(ids_and_classes) }
 /// Equivalent to the Rust `NodeData::with_ids_and_classes()` function.
 #[no_mangle] pub extern "C" fn AzNodeData_withIdsAndClasses(nodedata: &mut AzNodeData, ids_and_classes: AzIdOrClassVec) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_ids_and_classes(ids_and_classes); nodedata }
+/// Adds a callback this DOM (potentially heap-allocates in Rust code)
+#[no_mangle] pub extern "C" fn AzNodeData_addCallback(nodedata: &mut AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) { nodedata.add_callback(event, data, callback) }
+/// Same as add_child, but as a builder method.
+#[no_mangle] pub extern "C" fn AzNodeData_withCallback(nodedata: &mut AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.add_callback(event, data, callback); nodedata }
 /// Equivalent to the Rust `NodeData::set_callbacks()` function.
 #[no_mangle] pub extern "C" fn AzNodeData_setCallbacks(nodedata: &mut AzNodeData, callbacks: AzCallbackDataVec) { nodedata.set_callbacks(callbacks) }
 /// Equivalent to the Rust `NodeData::with_callbacks()` function.

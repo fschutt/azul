@@ -1088,12 +1088,19 @@ def generate_python_api(api_data, structs_map, functions_map):
 
         ("task", "Timer", "new"),
         ("callbacks", "CallbackInfo", "start_thread"),
+
         ("dom", "Dom", "iframe"),
         ("dom", "Dom", "set_dataset"),
         ("dom", "Dom", "with_dataset"),
+        ("dom", "Dom", "add_callback"),
+        ("dom", "Dom", "with_callback"),
+
+        ("dom", "NodeData", "add_callback"),
+        ("dom", "NodeData", "with_callback"),
         ("dom", "NodeData", "iframe"),
         ("dom", "NodeData", "set_dataset"),
         ("dom", "NodeData", "with_dataset"),
+
         ("widgets", "Button", "set_on_click"),
         ("widgets", "Button", "with_on_click"),
         ("widgets", "CheckBox", "set_on_toggle"),

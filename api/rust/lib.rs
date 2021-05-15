@@ -8932,6 +8932,8 @@ mod dll {
         pub(crate) fn AzDom_withCallbacks(_:  &mut AzDom, _:  AzCallbackDataVec) -> AzDom;
         pub(crate) fn AzDom_setInlineCssProps(_:  &mut AzDom, _:  AzNodeDataInlineCssPropertyVec);
         pub(crate) fn AzDom_withInlineCssProps(_:  &mut AzDom, _:  AzNodeDataInlineCssPropertyVec) -> AzDom;
+        pub(crate) fn AzDom_addCallback(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType);
+        pub(crate) fn AzDom_withCallback(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom;
         pub(crate) fn AzDom_addChild(_:  &mut AzDom, _:  AzDom);
         pub(crate) fn AzDom_withChild(_:  &mut AzDom, _:  AzDom) -> AzDom;
         pub(crate) fn AzDom_setChildren(_:  &mut AzDom, _:  AzDomVec);
@@ -8976,6 +8978,8 @@ mod dll {
         pub(crate) fn AzNodeData_withDataset(_:  &mut AzNodeData, _:  AzRefAny) -> AzNodeData;
         pub(crate) fn AzNodeData_setIdsAndClasses(_:  &mut AzNodeData, _:  AzIdOrClassVec);
         pub(crate) fn AzNodeData_withIdsAndClasses(_:  &mut AzNodeData, _:  AzIdOrClassVec) -> AzNodeData;
+        pub(crate) fn AzNodeData_addCallback(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType);
+        pub(crate) fn AzNodeData_withCallback(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData;
         pub(crate) fn AzNodeData_setCallbacks(_:  &mut AzNodeData, _:  AzCallbackDataVec);
         pub(crate) fn AzNodeData_withCallbacks(_:  &mut AzNodeData, _:  AzCallbackDataVec) -> AzNodeData;
         pub(crate) fn AzNodeData_setInlineCssProps(_:  &mut AzNodeData, _:  AzNodeDataInlineCssPropertyVec);
@@ -10269,7 +10273,7 @@ pub mod dom {
         }
     }    use crate::str::String;
     use crate::image::{ImageMask, ImageRef};
-    use crate::callbacks::{IFrameCallbackType, RefAny};
+    use crate::callbacks::{CallbackType, IFrameCallbackType, RefAny};
     use crate::vec::{CallbackDataVec, DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec};
     use crate::css::{Css, CssProperty};
     use crate::menu::Menu;
@@ -10311,6 +10315,10 @@ pub mod dom {
         pub fn set_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzDom_setInlineCssProps(self, css_properties) } }
         /// Calls the `Dom::with_inline_css_props` function.
         pub fn with_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineCssProps(self, css_properties) } }
+        /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzDom_addCallback(self, event, data, callback) } }
+        /// Same as add_child, but as a builder method.
+        pub fn with_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCallback(self, event, data, callback) } }
         /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
         pub fn add_child(&mut self, child: Dom)  { unsafe { crate::dll::AzDom_addChild(self, child) } }
         /// Same as add_child, but as a builder method.
@@ -10411,6 +10419,10 @@ pub mod dom {
         pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  { unsafe { crate::dll::AzNodeData_setIdsAndClasses(self, ids_and_classes) } }
         /// Calls the `NodeData::with_ids_and_classes` function.
         pub fn with_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withIdsAndClasses(self, ids_and_classes) } }
+        /// Adds a callback this DOM (potentially heap-allocates in Rust code)
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzNodeData_addCallback(self, event, data, callback) } }
+        /// Same as add_child, but as a builder method.
+        pub fn with_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withCallback(self, event, data, callback) } }
         /// Calls the `NodeData::set_callbacks` function.
         pub fn set_callbacks(&mut self, callbacks: CallbackDataVec)  { unsafe { crate::dll::AzNodeData_setCallbacks(self, callbacks) } }
         /// Calls the `NodeData::with_callbacks` function.
