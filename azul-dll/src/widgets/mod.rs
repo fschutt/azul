@@ -64,16 +64,16 @@ macro_rules! impl_callback {($callback_value:ident) => (
 
 /// Button widget
 pub mod button;
-// /// Checkbox widget
-// pub mod check_box;
-// /// Label widget (centered text)
-// pub mod label;
+/// Checkbox widget
+pub mod check_box;
+/// Box displaying a color which opens a color picker dialog on being clicked
+pub mod color_input;
 // /// Single line text input widget
 // pub mod text_input;
 // /// Same as text input, but only allows numeric input
 // pub mod number_input;
-// /// Box displaying a color which opens a color picker dialog on being clicked
-// pub mod color_input;
+// /// Label widget (centered text)
+// pub mod label;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

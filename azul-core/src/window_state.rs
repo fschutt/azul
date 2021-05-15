@@ -31,7 +31,7 @@
 //!      let callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &window.layout_results);
 //!      let callback_result = call_callbacks(&callbacks, &hit_test);
 //!
-//!      if callbacks.update_screen = UpdateScreen::Relayout {
+//!      if callbacks.update_screen = Update::Relayout {
 //!
 //!         // redo the entire layout
 //!         styled_dom = render_dom(&app_state, layout_info);
@@ -70,7 +70,7 @@ use crate::{
     FastHashMap,
     app_resources::{RendererResources, ImageCache},
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, UpdateScreen},
+    callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, Update},
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
     ui_solver::{LayoutResult, RelayoutChanges},
@@ -797,7 +797,7 @@ impl CallbacksOfHitTest {
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
-            callbacks_update_screen: UpdateScreen::DoNothing,
+            callbacks_update_screen: Update::DoNothing,
             modified_window_state: None,
             css_properties_changed: None,
             words_changed: None,
@@ -923,20 +923,20 @@ impl CallbacksOfHitTest {
                                 // Invoke callback
                                 (callback_data.callback.cb)(&mut callback_data.data, callback_info)
                             } else {
-                                UpdateScreen::DoNothing
+                                Update::DoNothing
                             }
                         };
 
                         match callback_return {
-                            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                                if ret.callbacks_update_screen == UpdateScreen::DoNothing { ret.callbacks_update_screen = callback_return;  }
+                            Update::RegenerateStyledDomForCurrentWindow => {
+                                if ret.callbacks_update_screen == Update::DoNothing { ret.callbacks_update_screen = callback_return;  }
                             },
-                            UpdateScreen::RegenerateStyledDomForAllWindows => {
-                                if ret.callbacks_update_screen == UpdateScreen::DoNothing || ret.callbacks_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow  {
+                            Update::RegenerateStyledDomForAllWindows => {
+                                if ret.callbacks_update_screen == Update::DoNothing || ret.callbacks_update_screen == Update::RegenerateStyledDomForCurrentWindow  {
                                     ret.callbacks_update_screen = callback_return;
                                 }
                             },
-                            UpdateScreen::DoNothing => { }
+                            Update::DoNothing => { }
                         }
 
                         if let Some(new_focus) = new_focus.clone() {
@@ -1002,25 +1002,25 @@ impl CallbacksOfHitTest {
                             // Invoke callback
                             (callback_data.callback.cb)(&mut callback_data.data, callback_info)
                         } else {
-                            UpdateScreen::DoNothing
+                            Update::DoNothing
                         }
                     };
 
                     // let callback_return = (callback_data.callback.cb)(&mut callback_data.data, callback_info);
 
                     match callback_return {
-                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                            if ret.callbacks_update_screen == UpdateScreen::DoNothing {
+                        Update::RegenerateStyledDomForCurrentWindow => {
+                            if ret.callbacks_update_screen == Update::DoNothing {
                                 ret.callbacks_update_screen = callback_return;
                             }
                         },
-                        UpdateScreen::RegenerateStyledDomForAllWindows => {
-                            if ret.callbacks_update_screen == UpdateScreen::DoNothing ||
-                               ret.callbacks_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                        Update::RegenerateStyledDomForAllWindows => {
+                            if ret.callbacks_update_screen == Update::DoNothing ||
+                               ret.callbacks_update_screen == Update::RegenerateStyledDomForCurrentWindow {
                                 ret.callbacks_update_screen = callback_return;
                             }
                         },
-                        UpdateScreen::DoNothing => { }
+                        Update::DoNothing => { }
                     }
 
                     if let Some(new_focus) = new_focus.clone() {

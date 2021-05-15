@@ -25,7 +25,7 @@ use crate::{
     FastHashMap,
     callbacks::{
         TimerCallback, TimerCallbackInfo, RefAny, OptionDomNodeId,
-        TimerCallbackReturn, TimerCallbackType, UpdateScreen,
+        TimerCallbackReturn, TimerCallbackType, Update,
         ThreadCallback, WriteBackCallback, WriteBackCallbackType,
         CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
@@ -615,7 +615,7 @@ impl Timer {
         self
     }
 
-    /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `UpdateScreen::DoNothing`
+    /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `Update::DoNothing`
     pub fn invoke(&mut self, data: &mut RefAny, callback_info: CallbackInfo, frame_start: Instant, get_system_time_fn: GetSystemTimeCallback) -> TimerCallbackReturn {
 
         let instant_now = (get_system_time_fn.cb)();
@@ -629,7 +629,7 @@ impl Timer {
 
             if instant_now.duration_since(&last_run).smaller_than(&interval) {
                 return TimerCallbackReturn {
-                    should_update: UpdateScreen::DoNothing,
+                    should_update: Update::DoNothing,
                     should_terminate: TerminateTimer::Continue
                 };
             }
@@ -681,7 +681,7 @@ impl_option!(ThreadSendMsg, OptionThreadSendMsg, copy = false, [Debug, Clone, Pa
 #[repr(C, u8)]
 pub enum ThreadReceiveMsg {
     WriteBack(ThreadWriteBackMsg),
-    Update(UpdateScreen),
+    Update(Update),
 }
 
 impl_option!(ThreadReceiveMsg, OptionThreadReceiveMsg, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
@@ -1080,7 +1080,7 @@ extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) { }
 extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) { }
 
 /// Run all currently registered timers
-#[must_use = "the UpdateScreen result of running timers should not be ignored"]
+#[must_use = "the Update result of running timers should not be ignored"]
 #[cfg(feature = "opengl")]
 pub fn run_all_timers<'a, 'b>(
     data: &mut RefAny,
@@ -1107,9 +1107,9 @@ pub fn run_all_timers<'a, 'b>(
     css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     nodes_scrolled_in_callback: &mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
-) -> UpdateScreen {
+) -> Update {
 
-    let mut should_update_screen = UpdateScreen::DoNothing;
+    let mut should_update_screen = Update::DoNothing;
     let mut timers_to_terminate = Vec::new();
 
     for (key, timer) in current_timers.iter_mut() {
@@ -1157,17 +1157,17 @@ pub fn run_all_timers<'a, 'b>(
         let TimerCallbackReturn { should_update, should_terminate } = timer.invoke(data, callback_info, frame_start.clone(), system_callbacks.get_system_time_fn);
 
         match should_update {
-            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                if should_update_screen == UpdateScreen::DoNothing {
+            Update::RegenerateStyledDomForCurrentWindow => {
+                if should_update_screen == Update::DoNothing {
                     should_update_screen = should_update;
                 }
             },
-            UpdateScreen::RegenerateStyledDomForAllWindows => {
-                if should_update_screen == UpdateScreen::DoNothing || should_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow  {
+            Update::RegenerateStyledDomForAllWindows => {
+                if should_update_screen == Update::DoNothing || should_update_screen == Update::RegenerateStyledDomForCurrentWindow  {
                     should_update_screen = should_update;
                 }
             },
-            UpdateScreen::DoNothing => { }
+            Update::DoNothing => { }
         }
 
         if should_terminate == TerminateTimer::Terminate {
@@ -1183,7 +1183,7 @@ pub fn run_all_timers<'a, 'b>(
 }
 
 /// Remove all Threads that have finished executing
-#[must_use = "the UpdateScreen result of running Threads should not be ignored"]
+#[must_use = "the Update result of running Threads should not be ignored"]
 #[cfg(feature = "opengl")]
 pub fn clean_up_finished_threads<'a, 'b>(
     cleanup_threads: &mut FastHashMap<ThreadId, Thread>,
@@ -1208,9 +1208,9 @@ pub fn clean_up_finished_threads<'a, 'b>(
     css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     nodes_scrolled_in_callback: &mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
-) -> UpdateScreen {
+) -> Update {
 
-    let mut update_screen = UpdateScreen::DoNothing;
+    let mut update_screen = Update::DoNothing;
 
     let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
     let cursor_relative_to_item = OptionLogicalPosition::None;
@@ -1236,7 +1236,7 @@ pub fn clean_up_finished_threads<'a, 'b>(
         let _ = thread.sender_send(ThreadSendMsg::Tick);
 
         let update = match thread.receiver_try_recv() {
-            OptionThreadReceiveMsg::None => UpdateScreen::DoNothing,
+            OptionThreadReceiveMsg::None => Update::DoNothing,
             OptionThreadReceiveMsg::Some(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg { data, callback })) => {
                 let callback_info = CallbackInfo::new(
                    &layout_result.styled_dom.css_property_cache.ptr,
@@ -1277,15 +1277,15 @@ pub fn clean_up_finished_threads<'a, 'b>(
         };
 
         match update {
-            UpdateScreen::DoNothing => { },
-            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                if update_screen == UpdateScreen::DoNothing {
-                    update_screen = UpdateScreen::RegenerateStyledDomForCurrentWindow;
+            Update::DoNothing => { },
+            Update::RegenerateStyledDomForCurrentWindow => {
+                if update_screen == Update::DoNothing {
+                    update_screen = Update::RegenerateStyledDomForCurrentWindow;
                 }
             },
-            UpdateScreen::RegenerateStyledDomForAllWindows => {
-                if update_screen == UpdateScreen::DoNothing || update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow {
-                    update_screen = UpdateScreen::RegenerateStyledDomForAllWindows;
+            Update::RegenerateStyledDomForAllWindows => {
+                if update_screen == Update::DoNothing || update_screen == Update::RegenerateStyledDomForCurrentWindow {
+                    update_screen = Update::RegenerateStyledDomForAllWindows;
                 }
             }
         }

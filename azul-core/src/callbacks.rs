@@ -48,7 +48,7 @@ use crate::gl::OptionGlContextPtr;
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum UpdateScreen {
+pub enum Update {
     /// The screen does not need to redraw after the callback has been called
     DoNothing,
     /// After the callback is called, the screen needs to redraw (layout() function being called again)
@@ -632,10 +632,10 @@ impl_callback!(MarshaledLayoutCallbackInner);
 
 /// Stores a function pointer that is executed when the given UI element is hit
 ///
-/// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
+/// Must return an `Update` that denotes if the screen should be redrawn.
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
-/// an `UpdateScreen::Redraw` from the function
+/// an `Update::Redraw` from the function
 #[repr(C)]
 pub struct Callback { pub cb: CallbackType }
 impl_callback!(Callback);
@@ -1570,7 +1570,7 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut i
         Some(s) => s,
         None => {
             return TimerCallbackReturn {
-                should_update: UpdateScreen::DoNothing,
+                should_update: Update::DoNothing,
                 should_terminate: TerminateTimer::Terminate,
             };
         }
@@ -1582,7 +1582,7 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut i
         Some(s) => s,
         None => {
             return TimerCallbackReturn {
-                should_update: UpdateScreen::DoNothing,
+                should_update: Update::DoNothing,
                 should_terminate: TerminateTimer::Terminate,
             };
         }
@@ -1623,9 +1623,9 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut i
                 return TimerCallbackReturn {
                     should_terminate: TerminateTimer::Terminate,
                     should_update: if anim_data.relayout_on_finish {
-                        UpdateScreen::RegenerateStyledDomForCurrentWindow
+                        Update::RegenerateStyledDomForCurrentWindow
                     } else {
-                        UpdateScreen::DoNothing
+                        Update::DoNothing
                     },
                 };
             }
@@ -1637,20 +1637,20 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut i
         TimerCallbackReturn {
             should_terminate: TerminateTimer::Terminate,
             should_update: if anim_data.relayout_on_finish {
-                UpdateScreen::RegenerateStyledDomForCurrentWindow
+                Update::RegenerateStyledDomForCurrentWindow
             } else {
-                UpdateScreen::DoNothing
+                Update::DoNothing
             },
         }
     } else {
         TimerCallbackReturn {
             should_terminate: TerminateTimer::Continue,
-            should_update: UpdateScreen::DoNothing,
+            should_update: Update::DoNothing,
         }
     }
 }
 
-pub type CallbackReturn = UpdateScreen;
+pub type CallbackReturn = Update;
 pub type CallbackType = extern "C" fn(&mut RefAny, CallbackInfo) -> CallbackReturn;
 
 // -- opengl callback
@@ -1976,7 +1976,7 @@ impl Clone for TimerCallbackInfo {
     }
 }
 
-pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> UpdateScreen;
+pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> Update;
 
 /// Callback that can runs when a thread receives a `WriteBack` message
 #[repr(C)]
@@ -1986,7 +1986,7 @@ impl_callback!(WriteBackCallback);
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TimerCallbackReturn {
-    pub should_update: UpdateScreen,
+    pub should_update: Update,
     pub should_terminate: TerminateTimer,
 }
 

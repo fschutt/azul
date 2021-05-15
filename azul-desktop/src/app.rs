@@ -20,7 +20,7 @@ use azul_css::AzString;
 use azul_core::{
     window::WindowCreateOptions,
     task::{Timer, TimerId},
-    callbacks::{RefAny, UpdateScreen},
+    callbacks::{RefAny, Update},
     app_resources::{AppConfig, ImageRef, ImageCache},
 };
 use rust_fontconfig::FcFontCache;
@@ -386,7 +386,7 @@ fn run_inner(app: App) -> ! {
                 // run timers / tasks only every 60ms, not on every window event
                 use azul_core::task::Instant;
 
-                let mut update_screen_timers_tasks = UpdateScreen::DoNothing;
+                let mut update_screen_timers_tasks = Update::DoNothing;
                 coarsetime::Instant::update();
                 let frame_start = Instant::System((timer_std_start + translate_duration(
                     timer_coarse_frame.duration_since(timer_coarse_start)
@@ -445,7 +445,7 @@ fn run_inner(app: App) -> ! {
                     });
 
                     match update_screen_threads {
-                        UpdateScreen::DoNothing => {
+                        Update::DoNothing => {
                             let new_focus_node = new_focus_node.and_then(|ft| {
                                 ft.resolve(
                                     &window.internal.layout_results,
@@ -494,7 +494,7 @@ fn run_inner(app: App) -> ! {
                                 window.internal.current_window_state.focused_node = focus_change.new;
                             }
                         },
-                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                        Update::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
@@ -512,9 +512,9 @@ fn run_inner(app: App) -> ! {
                             );
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
-                        UpdateScreen::RegenerateStyledDomForAllWindows => {
-                            if update_screen_timers_tasks == UpdateScreen::DoNothing ||
-                               update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                        Update::RegenerateStyledDomForAllWindows => {
+                            if update_screen_timers_tasks == Update::DoNothing ||
+                               update_screen_timers_tasks == Update::RegenerateStyledDomForCurrentWindow {
                                 update_screen_timers_tasks = update_screen_threads;
                             }
                         }
@@ -600,7 +600,7 @@ fn run_inner(app: App) -> ! {
 
 
                     match update_screen_timers {
-                        UpdateScreen::DoNothing => {
+                        Update::DoNothing => {
                             let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results, window.internal.current_window_state.focused_node).ok());
                             let window_size = window.internal.get_layout_size();
 
@@ -641,7 +641,7 @@ fn run_inner(app: App) -> ! {
                                 window.internal.current_window_state.focused_node = focus_change.new;
                             }
                         },
-                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                        Update::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
@@ -652,9 +652,9 @@ fn run_inner(app: App) -> ! {
                             );
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
-                        UpdateScreen::RegenerateStyledDomForAllWindows => {
-                            if update_screen_timers_tasks == UpdateScreen::DoNothing ||
-                               update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                        Update::RegenerateStyledDomForAllWindows => {
+                            if update_screen_timers_tasks == Update::DoNothing ||
+                               update_screen_timers_tasks == Update::RegenerateStyledDomForCurrentWindow {
                                 update_screen_timers_tasks = update_screen_timers;
                             }
                         }
@@ -701,7 +701,7 @@ fn run_inner(app: App) -> ! {
                     if threads.get(&window_id).map(|w| w.is_empty()) == Some(true) { threads.remove(&window_id); }
                 }
 
-                if update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForAllWindows {
+                if update_screen_timers_tasks == Update::RegenerateStyledDomForAllWindows {
                     for (window_id, window) in active_windows.iter_mut() {
                         let mut resource_updates = Vec::new();
                         let mut transaction = WrTransaction::new();
@@ -835,16 +835,16 @@ fn run_inner(app: App) -> ! {
                         callback_results.update_focused_node = Some(None); // unset the focus
                     } else {
                         match callback_results.callbacks_update_screen {
-                            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                            Update::RegenerateStyledDomForCurrentWindow => {
                                 window.regenerate_styled_dom(&mut data, &image_cache, &mut updated_resources, &mut fc_cache);
                                 need_regenerate_display_list = true;
                                 need_refresh_hit_test = true;
                                 callback_results.update_focused_node = Some(None); // unset the focus
                             },
-                            UpdateScreen::RegenerateStyledDomForAllWindows => {
+                            Update::RegenerateStyledDomForAllWindows => {
                                 /* for window in active_windows { window.regenerate_styled_dom(); } */
                             },
-                            UpdateScreen::DoNothing => {
+                            Update::DoNothing => {
 
                                 let window_size = window.internal.get_layout_size();
 
@@ -1529,7 +1529,7 @@ fn create_window(
 
         extern "C" fn hot_reload_timer(_: &mut RefAny, _: &mut RefAny, _: TimerCallbackInfo) -> TimerCallbackReturn {
             TimerCallbackReturn {
-                should_update: UpdateScreen::RegenerateStyledDomForCurrentWindow,
+                should_update: Update::RegenerateStyledDomForCurrentWindow,
                 should_terminate: TerminateTimer::Continue,
             }
         }

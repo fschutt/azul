@@ -390,7 +390,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopThread(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId) -> bool { callbackinfo.stop_thread(thread_id) }
 
 /// Specifies if the screen should be updated after the callback function has returned
-pub type AzUpdateTT = azul_impl::callbacks::UpdateScreen;
+pub type AzUpdateTT = azul_impl::callbacks::Update;
 pub use AzUpdateTT as AzUpdate;
 
 /// Index of a Node in the internal `NodeDataContainer`
@@ -1603,7 +1603,7 @@ pub use AzCheckBoxTT as AzCheckBox;
 #[no_mangle] pub extern "C" fn AzCheckBox_dom(checkbox: &mut AzCheckBox) -> AzDom { checkbox.swap_with_default().dom() }
 
 /// Re-export of rust-allocated (stack based) `CheckBoxStateWrapper` struct
-pub type AzCheckBoxStateWrapperTT = crate::widgets::CheckBoxStateWrapper;
+pub type AzCheckBoxStateWrapperTT = crate::widgets::check_box::CheckBoxStateWrapper;
 pub use AzCheckBoxStateWrapperTT as AzCheckBoxStateWrapper;
 
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
@@ -1614,7 +1614,7 @@ pub use AzCheckBoxOnToggleTT as AzCheckBoxOnToggle;
 pub type AzCheckBoxOnToggleCallbackTT = crate::widgets::check_box::CheckBoxOnToggleCallback;
 pub use AzCheckBoxOnToggleCallbackTT as AzCheckBoxOnToggleCallback;
 
-pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
 pub type AzCheckBoxStateTT = crate::widgets::check_box::CheckBoxState;
 pub use AzCheckBoxStateTT as AzCheckBoxState;
@@ -1735,11 +1735,11 @@ pub use AzTextInputOnFocusLostCallbackTT as AzTextInputOnFocusLostCallback;
 
 pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `OnTextInputReturn` struct
-pub type AzOnTextInputReturnTT = crate::widgets::OnTextInputReturn;
+pub type AzOnTextInputReturnTT = crate::widgets::text_input::OnTextInputReturn;
 pub use AzOnTextInputReturnTT as AzOnTextInputReturn;
 
 /// Re-export of rust-allocated (stack based) `TextInputValid` struct
-pub type AzTextInputValidTT = crate::widgets::TextInputValid;
+pub type AzTextInputValidTT = crate::widgets::text_input::TextInputValid;
 pub use AzTextInputValidTT as AzTextInputValid;
 
 /// Re-export of rust-allocated (stack based) `NumberInput` struct
@@ -3543,6 +3543,10 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
+pub type AzOptionColorInputOnValueChangeTT = crate::widgets::color_input::OptionColorInputOnValueChange;
+pub use AzOptionColorInputOnValueChangeTT as AzOptionColorInputOnValueChange;
+
 /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
 pub type AzOptionButtonOnClickTT = crate::widgets::button::OptionButtonOnClick;
 pub use AzOptionButtonOnClickTT as AzOptionButtonOnClick;
@@ -5140,7 +5144,7 @@ mod test_sizes {
     }
 
     /// `AzCheckBoxOnToggleCallbackType` struct
-    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
     #[repr(C)]
@@ -8136,6 +8140,13 @@ mod test_sizes {
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
 
+    /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
+    #[repr(C, u8)]
+    pub enum AzOptionColorInputOnValueChange {
+        None,
+        Some(AzColorInputOnValueChange),
+    }
+
     /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
     #[repr(C, u8)]
     pub enum AzOptionButtonOnClick {
@@ -9253,7 +9264,7 @@ mod test_sizes {
     pub struct AzColorInputStateWrapper {
         pub inner: AzColorInputState,
         pub title: AzString,
-        pub on_value_change: AzColorInputOnValueChange,
+        pub on_value_change: AzOptionColorInputOnValueChange,
     }
 
     /// Re-export of rust-allocated (stack based) `TextInputState` struct
@@ -10244,7 +10255,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"), (Layout::new::<AzMarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInner>(), "AzLayoutCallbackInner"), (Layout::new::<AzLayoutCallbackInner>(), "AzLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
-        assert_eq!((Layout::new::<azul_impl::callbacks::UpdateScreen>(), "AzUpdate"), (Layout::new::<AzUpdate>(), "AzUpdate"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::Update>(), "AzUpdate"), (Layout::new::<AzUpdate>(), "AzUpdate"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::PositionInfoInner>(), "AzPositionInfoInner"), (Layout::new::<AzPositionInfoInner>(), "AzPositionInfoInner"));
@@ -10300,7 +10311,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnTextInputCallback>(), "AzTextInputOnTextInputCallback"), (Layout::new::<AzTextInputOnTextInputCallback>(), "AzTextInputOnTextInputCallback"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnVirtualKeyDownCallback>(), "AzTextInputOnVirtualKeyDownCallback"), (Layout::new::<AzTextInputOnVirtualKeyDownCallback>(), "AzTextInputOnVirtualKeyDownCallback"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnFocusLostCallback>(), "AzTextInputOnFocusLostCallback"), (Layout::new::<AzTextInputOnFocusLostCallback>(), "AzTextInputOnFocusLostCallback"));
-        assert_eq!((Layout::new::<crate::widgets::TextInputValid>(), "AzTextInputValid"), (Layout::new::<AzTextInputValid>(), "AzTextInputValid"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputValid>(), "AzTextInputValid"), (Layout::new::<AzTextInputValid>(), "AzTextInputValid"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputState>(), "AzNumberInputState"), (Layout::new::<AzNumberInputState>(), "AzNumberInputState"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnNumberInputCallback>(), "AzNumberInputOnNumberInputCallback"), (Layout::new::<AzNumberInputOnNumberInputCallback>(), "AzNumberInputOnNumberInputCallback"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
@@ -10595,7 +10606,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnTextInput>(), "AzTextInputOnTextInput"), (Layout::new::<AzTextInputOnTextInput>(), "AzTextInputOnTextInput"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnVirtualKeyDown>(), "AzTextInputOnVirtualKeyDown"), (Layout::new::<AzTextInputOnVirtualKeyDown>(), "AzTextInputOnVirtualKeyDown"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnFocusLost>(), "AzTextInputOnFocusLost"), (Layout::new::<AzTextInputOnFocusLost>(), "AzTextInputOnFocusLost"));
-        assert_eq!((Layout::new::<crate::widgets::OnTextInputReturn>(), "AzOnTextInputReturn"), (Layout::new::<AzOnTextInputReturn>(), "AzOnTextInputReturn"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::OnTextInputReturn>(), "AzOnTextInputReturn"), (Layout::new::<AzOnTextInputReturn>(), "AzOnTextInputReturn"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnNumberInput>(), "AzNumberInputOnNumberInput"), (Layout::new::<AzNumberInputOnNumberInput>(), "AzNumberInputOnNumberInput"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
@@ -10637,6 +10648,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<crate::widgets::color_input::OptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"), (Layout::new::<AzOptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"));
         assert_eq!((Layout::new::<crate::widgets::button::OptionButtonOnClick>(), "AzOptionButtonOnClick"), (Layout::new::<AzOptionButtonOnClick>(), "AzOptionButtonOnClick"));
         assert_eq!((Layout::new::<crate::widgets::check_box::OptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"), (Layout::new::<AzOptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"), (Layout::new::<AzOptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"));
@@ -10710,7 +10722,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
-        assert_eq!((Layout::new::<crate::widgets::CheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"), (Layout::new::<AzCheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"));
+        assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"), (Layout::new::<AzCheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputStateWrapper>(), "AzNumberInputStateWrapper"), (Layout::new::<AzNumberInputStateWrapper>(), "AzNumberInputStateWrapper"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));

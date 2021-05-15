@@ -1,24 +1,22 @@
-use azul_impl::{
+use azul_desktop::{
+    css::*,
     dom::{
-        TabIndex, Dom, IdOrClass, IdOrClass::Class,
-        NodeDataInlineCssProperty,
+        TabIndex, Dom, IdOrClass, IdOrClass::Class, EventFilter,
+        NodeDataInlineCssProperty, IdOrClassVec, NodeDataInlineCssPropertyVec,
         NodeDataInlineCssProperty::{Normal, Hover, Active, Focus},
     },
-    image::ImageRef,
-    css::*,
-    str::String as AzString,
-    callbacks::{CallbackType, Update, CallbackInfo, RefAny},
-    vec::{IdOrClassVec, StyleBackgroundContentVec, NodeDataInlineCssPropertyVec},
+    css::AzString,
+    callbacks::{Callback, CallbackInfo, CallbackType, Update, RefAny},
 };
 
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-container"))];
 static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-content"))];
 
-pub type CheckBoxOnToggleCallback = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
+pub type CheckBoxOnToggleCallbackType = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
 
 #[repr(C)]
 pub struct CheckBoxOnToggleCallback {
-    pub cb: CheckboxCallback,
+    pub cb: CheckBoxOnToggleCallbackType,
 }
 
 impl_callback!(CheckBoxOnToggleCallback);
@@ -139,9 +137,9 @@ impl CheckBox {
     }
 
     #[inline]
-    pub fn set_on_toggle(&mut self, on_toggle: CheckboxCallback, data: RefAny) {
-        self.state.on_toggle = Some(CheckBoxOnToggleFn {
-            callback: CheckBoxCallbackFn { cb: on_toggle },
+    pub fn set_on_toggle(&mut self, data: RefAny, on_toggle: CheckBoxOnToggleCallbackType) {
+        self.state.on_toggle = Some(CheckBoxOnToggle {
+            callback: CheckBoxOnToggleCallback { cb: on_toggle },
             data,
         }).into();
     }
@@ -149,12 +147,11 @@ impl CheckBox {
     #[inline]
     pub fn dom(self) -> Dom {
 
-        use azul::vec::DomVec;
-        use azul::dom::{
+        use azul_desktop::dom::{
             Dom, EventFilter, HoverEventFilter,
-            CallbackData,
+            CallbackData, DomVec,
         };
-        use azul::callbacks::Callback;
+        use azul_desktop::callbacks::Callback;
 
         Dom::div()
         .with_ids_and_classes(IdOrClassVec::from(CHECKBOX_CONTAINER_CLASS))
@@ -179,9 +176,9 @@ impl CheckBox {
 // handle input events for the checkbox
 mod input {
 
-    use azul::callbacks::{RefAny, CallbackInfo, Update};
-    use super::CheckBoxStateWrapper;
-    use azul::css::{CssProperty, StyleOpacity};
+    use azul_desktop::callbacks::{RefAny, CallbackInfo, Update};
+    use azul_desktop::css::{CssProperty, StyleOpacity};
+    use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
 
     pub(in super) extern "C" fn default_on_checkbox_clicked(check_box: &mut RefAny, mut info: CallbackInfo) -> Update {
 
@@ -190,7 +187,7 @@ mod input {
             None => return Update::DoNothing,
         };
 
-        let checkbox_content_id = match info.get_first_child(info.get_hit_node()).into_option() {
+        let checkbox_content_id = match info.get_first_child(info.get_hit_node()) {
             Some(s) => s,
             None => return Update::DoNothing,
         };
@@ -204,7 +201,7 @@ mod input {
             let inner = &check_box.inner;
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggleFn { callback, data }) => (callback)(data, &inner, &mut info),
+                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(data, &inner, &mut info),
                 None => Update::DoNothing,
             }
         };

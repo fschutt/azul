@@ -2098,7 +2098,7 @@ mod dll {
     }
 
     /// `AzCheckBoxOnToggleCallbackType` struct
-    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
     #[repr(C)]
@@ -6126,6 +6126,16 @@ mod dll {
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
 
+    /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionColorInputOnValueChange {
+        None,
+        Some(AzColorInputOnValueChange),
+    }
+
     /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -7649,7 +7659,7 @@ mod dll {
     pub struct AzColorInputStateWrapper {
         pub inner: AzColorInputState,
         pub title: AzString,
-        pub on_value_change: AzColorInputOnValueChange,
+        pub on_value_change: AzOptionColorInputOnValueChange,
     }
 
     /// Re-export of rust-allocated (stack based) `TextInputState` struct
@@ -14413,6 +14423,9 @@ pub mod option {
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
     impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
+    /// `OptionColorInputOnValueChange` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionColorInputOnValueChange as OptionColorInputOnValueChange;
     /// `OptionButtonOnClick` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionButtonOnClick as OptionButtonOnClick;

@@ -19,7 +19,7 @@ use crate::{
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
-    callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
+    callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, Update},
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
@@ -1267,7 +1267,7 @@ pub struct CallCallbacksResult {
     /// Whether the UI should be rendered anyways due to a (programmatic or user input) scroll event
     pub should_scroll_render: bool,
     /// Whether the callbacks say to rebuild the UI or not
-    pub callbacks_update_screen: UpdateScreen,
+    pub callbacks_update_screen: Update,
     /// WindowState that was (potentially) modified in the callbacks
     pub modified_window_state: Option<WindowState>,
     /// If a word changed (often times the case with text input), we don't need to relayout / rerender

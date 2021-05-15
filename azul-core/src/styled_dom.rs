@@ -42,7 +42,7 @@ use crate::{
         CompactDom, TagId, OptionTabIndex,
         NodeDataInlineCssProperty
     },
-    callbacks::{RefAny, UpdateScreen, CallbackInfo},
+    callbacks::{RefAny, Update, CallbackInfo},
     style::{
         CascadeInfo, CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, rule_ends_with,
@@ -2267,24 +2267,24 @@ pub struct DefaultScrollCallbackData {
 pub struct DefaultTabIndexCallbackData { }
 
 /// Default On::TabIndex event handler
-extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DefaultTabIndexCallbackData>() {
         Some(s) => s,
-        None => return UpdateScreen::DoNothing,
+        None => return Update::DoNothing,
     };
 
     println!("tab index! {:?}", data);
-    UpdateScreen::DoNothing
+    Update::DoNothing
 }
 
 /// Default On::Scroll event handler
-extern "C" fn default_on_scroll(data: &mut RefAny, info: CallbackInfo) -> UpdateScreen {
+extern "C" fn default_on_scroll(data: &mut RefAny, info: CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DefaultScrollCallbackData>() {
         Some(s) => s,
-        None => return UpdateScreen::DoNothing,
+        None => return Update::DoNothing,
     };
     println!("scrolling! {:?}", data);
-    UpdateScreen::DoNothing
+    Update::DoNothing
 }
 
 fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<AzNodeId, Vec<AzNodeId>>) {

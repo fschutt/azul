@@ -1553,7 +1553,7 @@ pub struct AzCheckBoxOnToggleCallback {
 }
 
 /// `AzCheckBoxOnToggleCallbackType` struct
-pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo) -> AzUpdate;
 
 /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
 #[repr(C)]
@@ -5139,6 +5139,13 @@ pub struct AzParentWithNodeDepthVec {
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
+#[repr(C, u8)]
+pub enum AzOptionColorInputOnValueChange {
+    None,
+    Some(AzColorInputOnValueChange),
+}
+
 /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
 #[repr(C, u8)]
 pub enum AzOptionButtonOnClick {
@@ -6498,7 +6505,7 @@ pub struct AzColorInputStateWrapper {
     #[pyo3(get, set)]
     pub title: AzString,
     #[pyo3(get, set)]
-    pub on_value_change: AzColorInputOnValueChange,
+    pub on_value_change: AzOptionColorInputOnValueChangeEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `TextInputState` struct
@@ -9186,6 +9193,13 @@ pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
+/// `AzOptionColorInputOnValueChangeEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionColorInputOnValueChange")]
+pub struct AzOptionColorInputOnValueChangeEnumWrapper {
+    pub inner: AzOptionColorInputOnValueChange,
+}
+
 /// `AzOptionButtonOnClickEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "OptionButtonOnClick")]
@@ -10035,7 +10049,7 @@ impl Clone for AzTouchState { fn clone(&self) -> Self { let r: &azul_impl::windo
 impl Clone for AzMarshaledLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::MarshaledLayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Callback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzUpdateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::UpdateScreen = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzUpdateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Update = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::DomId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPositionInfoInner { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::PositionInfoInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10091,7 +10105,7 @@ impl Clone for AzTextInputSelectionRange { fn clone(&self) -> Self { let r: &cra
 impl Clone for AzTextInputOnTextInputCallback { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnTextInputCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputOnVirtualKeyDownCallback { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnVirtualKeyDownCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputOnFocusLostCallback { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnFocusLostCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTextInputValidEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::TextInputValid = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTextInputValidEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputValid = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputState { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnNumberInputCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnNumberInputCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10386,7 +10400,7 @@ impl Clone for AzTextInputSelectionEnumWrapper { fn clone(&self) -> Self { let r
 impl Clone for AzTextInputOnTextInput { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnTextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputOnVirtualKeyDown { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnVirtualKeyDown = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputOnFocusLost { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOnTextInputReturn { fn clone(&self) -> Self { let r: &crate::widgets::OnTextInputReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOnTextInputReturn { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OnTextInputReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnNumberInput { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnNumberInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepth { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepth = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGl { fn clone(&self) -> Self { let r: &azul_impl::gl::GlContextPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10428,6 +10442,7 @@ impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r:
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionColorInputOnValueChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::OptionColorInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionButtonOnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::button::OptionButtonOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCheckBoxOnToggleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::check_box::OptionCheckBoxOnToggle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputOnTextInputEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnTextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10501,7 +10516,7 @@ impl Clone for AzStyleTransformEnumWrapper { fn clone(&self) -> Self { let r: &a
 impl Clone for AzStyleBackgroundPositionVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundPositionVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundRepeatVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundRepeatVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundSizeVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundSizeVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzCheckBoxStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzCheckBoxStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMapping { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMapping = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -12904,10 +12919,10 @@ impl AzUpdateEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzUpdateEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::callbacks::UpdateScreen = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::callbacks::Update = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::callbacks::UpdateScreen = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::callbacks::Update = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -19435,10 +19450,10 @@ impl AzCheckBoxStateWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzCheckBoxStateWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::check_box::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::check_box::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -19559,7 +19574,7 @@ impl PyObjectProtocol for AzColorInput {
 #[pymethods]
 impl AzColorInputStateWrapper {
     #[new]
-    fn __new__(inner: AzColorInputState, title: AzString, on_value_change: AzColorInputOnValueChange) -> Self {
+    fn __new__(inner: AzColorInputState, title: AzString, on_value_change: AzOptionColorInputOnValueChangeEnumWrapper) -> Self {
         Self {
             inner,
             title,
@@ -19936,10 +19951,10 @@ impl AzOnTextInputReturn {
 #[pyproto]
 impl PyObjectProtocol for AzOnTextInputReturn {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::OnTextInputReturn = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::text_input::OnTextInputReturn = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::OnTextInputReturn = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::text_input::OnTextInputReturn = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -19954,10 +19969,10 @@ impl AzTextInputValidEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzTextInputValidEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::TextInputValid = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::text_input::TextInputValid = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::TextInputValid = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::text_input::TextInputValid = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27051,6 +27066,24 @@ impl PyObjectProtocol for AzNodeDataVecDestructorEnumWrapper {
 }
 
 #[pymethods]
+impl AzOptionColorInputOnValueChangeEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionColorInputOnValueChangeEnumWrapper { AzOptionColorInputOnValueChangeEnumWrapper { inner: AzOptionColorInputOnValueChange::None } }
+    #[staticmethod]
+    fn Some(v: AzColorInputOnValueChange) -> AzOptionColorInputOnValueChangeEnumWrapper { AzOptionColorInputOnValueChangeEnumWrapper { inner: AzOptionColorInputOnValueChange::Some(v) } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionColorInputOnValueChangeEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::color_input::OptionColorInputOnValueChange = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::color_input::OptionColorInputOnValueChange = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzOptionButtonOnClickEnumWrapper {
     #[classattr]
     fn None() -> AzOptionButtonOnClickEnumWrapper { AzOptionButtonOnClickEnumWrapper { inner: AzOptionButtonOnClick::None } }
@@ -29420,6 +29453,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
+    m.add_class::<AzOptionColorInputOnValueChangeEnumWrapper>()?;
     m.add_class::<AzOptionButtonOnClickEnumWrapper>()?;
     m.add_class::<AzOptionCheckBoxOnToggleEnumWrapper>()?;
     m.add_class::<AzOptionTextInputOnTextInputEnumWrapper>()?;

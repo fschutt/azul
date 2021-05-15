@@ -82,7 +82,7 @@ typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
 struct AzCheckBoxState;
 typedef struct AzCheckBoxState AzCheckBoxState;
-typedef void (*AzCheckBoxOnToggleCallbackType)(AzRefAny* restrict A, AzCheckBoxState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzCheckBoxOnToggleCallbackType)(AzRefAny* restrict A, AzCheckBoxState* const B, AzCallbackInfo* restrict C);
 
 struct AzColorInputState;
 typedef struct AzColorInputState AzColorInputState;
@@ -6544,6 +6544,24 @@ struct AzParentWithNodeDepthVec {
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
 
+enum AzOptionColorInputOnValueChangeTag {
+   AzOptionColorInputOnValueChangeTag_None,
+   AzOptionColorInputOnValueChangeTag_Some,
+};
+typedef enum AzOptionColorInputOnValueChangeTag AzOptionColorInputOnValueChangeTag;
+
+struct AzOptionColorInputOnValueChangeVariant_None { AzOptionColorInputOnValueChangeTag tag; };
+typedef struct AzOptionColorInputOnValueChangeVariant_None AzOptionColorInputOnValueChangeVariant_None;
+struct AzOptionColorInputOnValueChangeVariant_Some { AzOptionColorInputOnValueChangeTag tag; AzColorInputOnValueChange payload; };
+typedef struct AzOptionColorInputOnValueChangeVariant_Some AzOptionColorInputOnValueChangeVariant_Some;
+union AzOptionColorInputOnValueChange {
+    AzOptionColorInputOnValueChangeVariant_None None;
+    AzOptionColorInputOnValueChangeVariant_Some Some;
+};
+typedef union AzOptionColorInputOnValueChange AzOptionColorInputOnValueChange;
+#define AzOptionColorInputOnValueChange_None { .None = { .tag = AzOptionColorInputOnValueChangeTag_None } }
+#define AzOptionColorInputOnValueChange_Some(v) { .Some = { .tag = AzOptionColorInputOnValueChangeTag_Some, .payload = v } }
+
 enum AzOptionButtonOnClickTag {
    AzOptionButtonOnClickTag_None,
    AzOptionButtonOnClickTag_Some,
@@ -8685,7 +8703,7 @@ typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
 struct AzColorInputStateWrapper {
     AzColorInputState inner;
     AzString title;
-    AzColorInputOnValueChange on_value_change;
+    AzOptionColorInputOnValueChange on_value_change;
 };
 typedef struct AzColorInputStateWrapper AzColorInputStateWrapper;
 

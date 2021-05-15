@@ -1434,7 +1434,7 @@
                 },
                 "Update": {
                     "doc": "Specifies if the screen should be updated after the callback function has returned",
-                    "external": "azul_impl::callbacks::UpdateScreen",
+                    "external": "azul_impl::callbacks::Update",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DoNothing": {"doc": "The screen does not need to redraw after the callback has been called"}},
@@ -5006,7 +5006,7 @@
                     }
                 },
                 "CheckBoxStateWrapper": {
-                    "external": "crate::widgets::CheckBoxStateWrapper",
+                    "external": "crate::widgets::check_box::CheckBoxStateWrapper",
                     "struct_fields": [
                         {"inner": {"type": "CheckBoxState"}},
                         {"on_toggle": {"type": "OptionCheckBoxOnToggle"}}
@@ -5032,7 +5032,7 @@
                             {"type": "CheckBoxState", "ref": "ref"},
                             {"type": "CallbackInfo", "ref": "refmut"}
                         ],
-                        "retunrs": "Update"
+                        "returns": {"type": "Update"}
                     }
                 },
                 "CheckBoxState": {
@@ -5111,7 +5111,7 @@
                     "struct_fields": [
                         {"inner": {"type": "ColorInputState"}},
                         {"title": {"type": "String"}},
-                        {"on_value_change": {"type": "ColorInputOnValueChange"}}
+                        {"on_value_change": {"type": "OptionColorInputOnValueChange"}}
                     ]
                 },
                 "ColorInputState": {
@@ -5370,14 +5370,14 @@
                     }
                 },
                 "OnTextInputReturn": {
-                    "external": "crate::widgets::OnTextInputReturn",
+                    "external": "crate::widgets::text_input::OnTextInputReturn",
                     "struct_fields": [
                         {"update": {"type": "Update"}},
                         {"valid": {"type": "TextInputValid"}}
                     ]
                 },
                 "TextInputValid": {
-                    "external": "crate::widgets::TextInputValid",
+                    "external": "crate::widgets::text_input::TextInputValid",
                     "enum_fields": [
                         {"Yes": {}},
                         {"No": {}}
@@ -12427,6 +12427,13 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionColorInputOnValueChange": {
+                    "external": "crate::widgets::color_input::OptionColorInputOnValueChange",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "ColorInputOnValueChange"}}
+                    ]
+                },
                 "OptionButtonOnClick": {
                     "external": "crate::widgets::button::OptionButtonOnClick",
                     "enum_fields": [
