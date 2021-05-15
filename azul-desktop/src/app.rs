@@ -373,7 +373,6 @@ fn run_inner(app: App) -> ! {
         }
 
         let mut windows_created = Vec::<WindowCreateOptions>::new();
-        let mut hit_tester_request = None;
 
         match event {
             Event::DeviceEvent { .. } => {
@@ -485,9 +484,7 @@ fn run_inner(app: App) -> ! {
                             }
 
                             if changes.did_resize_nodes() {
-                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                                    wr_translate_document_id(window.internal.document_id)))
-                                );
+                                window.force_synchronize_hit_tester_during();
                             }
 
                             if let Some(focus_change) = changes.focus_change {
@@ -501,15 +498,6 @@ fn run_inner(app: App) -> ! {
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
                             window.force_synchronize_hit_tester_during();
-
-                            // do the same thing again, but this time after the hit_tester has been updated
-                            let mut resource_updates = Vec::new();
-                            let mut transaction = WrTransaction::new();
-                            window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
-                            window.render_async(transaction, /* display list was rebuilt */ true);
-                            hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                                wr_translate_document_id(window.internal.document_id)))
-                            );
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         Update::RegenerateStyledDomForAllWindows => {
@@ -632,9 +620,7 @@ fn run_inner(app: App) -> ! {
                             }
 
                             if changes.did_resize_nodes() {
-                                hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                                    wr_translate_document_id(window.internal.document_id)))
-                                );
+                                window.force_synchronize_hit_tester_during();
                             }
 
                             if let Some(focus_change) = changes.focus_change {
@@ -647,9 +633,7 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
-                            hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                                wr_translate_document_id(window.internal.document_id)))
-                            );
+                            window.force_synchronize_hit_tester_during();
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         Update::RegenerateStyledDomForAllWindows => {
@@ -709,9 +693,7 @@ fn run_inner(app: App) -> ! {
                         window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                         window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
-                        hit_tester_request = Some((*window_id, window.render_api.request_hit_tester(
-                            wr_translate_document_id(window.internal.document_id)))
-                        );
+                        window.force_synchronize_hit_tester_during();
                         window.internal.current_window_state.focused_node = None; // unset the focus
                     }
                 }
@@ -962,9 +944,7 @@ fn run_inner(app: App) -> ! {
                 }
 
                 if need_refresh_hit_test {
-                    hit_tester_request = Some((window_id, window.render_api.request_hit_tester(
-                        wr_translate_document_id(window.internal.document_id)))
-                    );
+                    window.force_synchronize_hit_tester_during();
                 }
             },
             Event::UserEvent(UserEvent { window_id, composite_needed: _ }) => {
@@ -1203,15 +1183,6 @@ fn run_inner(app: App) -> ! {
                 }
             }
         }
-
-        /*
-        // resolve the hit-testing scene
-        if let Some((window_id, new_hit_test_results)) = hit_tester_request {
-            if let Some(w) = active_windows.get_mut(&window_id) {
-                w.hit_tester = new_hit_test_results.resolve();
-            }
-        }
-        */
 
         // end: handle control flow and app shutdown
         let new_control_flow = if !active_windows.is_empty() {
