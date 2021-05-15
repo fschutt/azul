@@ -47,7 +47,7 @@ pub struct CheckBoxOnToggle {
     pub callback: CheckBoxOnToggleCallback,
 }
 
-impl_option!(CheckBoxOnToggle, OptionCheckBoxOnToggle, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(CheckBoxOnToggle, OptionCheckBoxOnToggle, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]

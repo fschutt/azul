@@ -2181,15 +2181,15 @@ mod dll {
         pub max: f32,
     }
 
-    /// Re-export of rust-allocated (stack based) `NumberInputOnNumberInputCallback` struct
+    /// Re-export of rust-allocated (stack based) `NumberInputOnValueChangeCallback` struct
     #[repr(C)]
     #[derive(Clone)]
-    pub struct AzNumberInputOnNumberInputCallback {
-        pub cb: AzNumberInputOnNumberInputCallbackType,
+    pub struct AzNumberInputOnValueChangeCallback {
+        pub cb: AzNumberInputOnValueChangeCallbackType,
     }
 
-    /// `AzNumberInputOnNumberInputCallbackType` struct
-    pub type AzNumberInputOnNumberInputCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+    /// `AzNumberInputOnValueChangeCallbackType` struct
+    pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `Node` struct
     #[repr(C)]
@@ -5673,14 +5673,14 @@ mod dll {
         pub valid: AzTextInputValid,
     }
 
-    /// Re-export of rust-allocated (stack based) `NumberInputOnNumberInput` struct
+    /// Re-export of rust-allocated (stack based) `NumberInputOnValueChange` struct
     #[repr(C)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-    pub struct AzNumberInputOnNumberInput {
+    pub struct AzNumberInputOnValueChange {
         pub data: AzRefAny,
-        pub callback: AzNumberInputOnNumberInputCallback,
+        pub callback: AzNumberInputOnValueChangeCallback,
     }
 
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
@@ -6196,14 +6196,14 @@ mod dll {
         Some(AzTextInputSelection),
     }
 
-    /// Re-export of rust-allocated (stack based) `OptionNumberInputOnNumberInput` struct
+    /// Re-export of rust-allocated (stack based) `OptionNumberInputOnValueChange` struct
     #[repr(C, u8)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-    pub enum AzOptionNumberInputOnNumberInput {
+    pub enum AzOptionNumberInputOnValueChange {
         None,
-        Some(AzNumberInputOnNumberInput),
+        Some(AzNumberInputOnValueChange),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
@@ -7000,7 +7000,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzNumberInputStateWrapper {
         pub inner: AzNumberInputState,
-        pub on_value_change: AzOptionNumberInputOnNumberInput,
+        pub on_value_change: AzOptionNumberInputOnValueChange,
     }
 
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
@@ -11900,15 +11900,15 @@ pub mod widgets {
     /// `NumberInputState` struct
     
 #[doc(inline)] pub use crate::dll::AzNumberInputState as NumberInputState;
-    /// `NumberInputOnNumberInput` struct
+    /// `NumberInputOnValueChange` struct
     
-#[doc(inline)] pub use crate::dll::AzNumberInputOnNumberInput as NumberInputOnNumberInput;
-    /// `NumberInputOnNumberInputCallback` struct
+#[doc(inline)] pub use crate::dll::AzNumberInputOnValueChange as NumberInputOnValueChange;
+    /// `NumberInputOnValueChangeCallback` struct
     
-#[doc(inline)] pub use crate::dll::AzNumberInputOnNumberInputCallback as NumberInputOnNumberInputCallback;
-    /// `NumberInputOnNumberInputCallbackType` struct
+#[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallback as NumberInputOnValueChangeCallback;
+    /// `NumberInputOnValueChangeCallbackType` struct
     
-#[doc(inline)] pub use crate::dll::AzNumberInputOnNumberInputCallbackType as NumberInputOnNumberInputCallbackType;
+#[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallbackType as NumberInputOnValueChangeCallbackType;
 }
 
 pub mod style {
@@ -14444,9 +14444,9 @@ pub mod option {
     /// `OptionTextInputSelection` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionTextInputSelection as OptionTextInputSelection;
-    /// `OptionNumberInputOnNumberInput` struct
+    /// `OptionNumberInputOnValueChange` struct
     
-#[doc(inline)] pub use crate::dll::AzOptionNumberInputOnNumberInput as OptionNumberInputOnNumberInput;
+#[doc(inline)] pub use crate::dll::AzOptionNumberInputOnValueChange as OptionNumberInputOnValueChange;
     /// `OptionMenuItemIcon` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionMenuItemIcon as OptionMenuItemIcon;

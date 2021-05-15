@@ -40,7 +40,7 @@ pub struct ColorInputOnValueChange {
     pub callback: ColorInputOnValueChangeCallback,
 }
 
-impl_option!(ColorInputOnValueChange, OptionColorInputOnValueChange, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ColorInputOnValueChange, OptionColorInputOnValueChange, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 impl Default for ColorInputStateWrapper {
     fn default() -> Self {
@@ -95,7 +95,7 @@ impl ColorInput {
     }
 
     #[inline]
-    pub fn set_on_value_change(mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType) {
+    pub fn set_on_value_change(&mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType) {
         self.state.on_value_change = Some(ColorInputOnValueChange {
             callback: ColorInputOnValueChangeCallback { cb: callback },
             data
@@ -118,13 +118,14 @@ impl ColorInput {
             IdOrClass::Class, CallbackData,
         };
 
-        self.style.into_library_owned_vec().push(Normal(CssProperty::const_background_content(vec![
+        let mut style = self.style.into_library_owned_vec();
+        style.push(Normal(CssProperty::const_background_content(vec![
             StyleBackgroundContent::Color(self.state.inner.color)
         ].into())));
 
         Dom::div()
         .with_ids_and_classes(vec![Class("__azul_native_color_input".into())].into())
-        .with_inline_css_props(self.style.into())
+        .with_inline_css_props(style.into())
         .with_callbacks(vec![
             CallbackData {
                 event: EventFilter::Hover(HoverEventFilter::MouseUp),

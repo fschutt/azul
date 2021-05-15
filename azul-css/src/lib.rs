@@ -287,6 +287,7 @@ macro_rules! impl_vec_mut {($struct_type:ident, $struct_name:ident) => (
                     core::ptr::copy(ptr.offset(1), ptr, len - index - 1);
                 }
                 self.set_len(len - 1);
+                let _ = ret;
             }
         }
 

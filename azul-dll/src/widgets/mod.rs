@@ -74,8 +74,8 @@ pub mod drop_down; // TODO
 pub mod label;
 // /// Single line text input widget
 pub mod text_input;
-// /// Same as text input, but only allows numeric input
-// pub mod number_input;
+/// Same as text input, but only allows numeric input
+pub mod number_input;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

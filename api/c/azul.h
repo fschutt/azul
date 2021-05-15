@@ -100,7 +100,7 @@ typedef AzUpdate (*AzTextInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzT
 
 struct AzNumberInputState;
 typedef struct AzNumberInputState AzNumberInputState;
-typedef AzUpdate (*AzNumberInputOnNumberInputCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzNumberInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
 
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 
@@ -1478,10 +1478,10 @@ struct AzNumberInputState {
 };
 typedef struct AzNumberInputState AzNumberInputState;
 
-struct AzNumberInputOnNumberInputCallback {
-    AzNumberInputOnNumberInputCallbackType cb;
+struct AzNumberInputOnValueChangeCallback {
+    AzNumberInputOnValueChangeCallbackType cb;
 };
-typedef struct AzNumberInputOnNumberInputCallback AzNumberInputOnNumberInputCallback;
+typedef struct AzNumberInputOnValueChangeCallback AzNumberInputOnValueChangeCallback;
 
 struct AzNode {
     size_t parent;
@@ -6147,11 +6147,11 @@ struct AzOnTextInputReturn {
 };
 typedef struct AzOnTextInputReturn AzOnTextInputReturn;
 
-struct AzNumberInputOnNumberInput {
+struct AzNumberInputOnValueChange {
     AzRefAny data;
-    AzNumberInputOnNumberInputCallback callback;
+    AzNumberInputOnValueChangeCallback callback;
 };
-typedef struct AzNumberInputOnNumberInput AzNumberInputOnNumberInput;
+typedef struct AzNumberInputOnValueChange AzNumberInputOnValueChange;
 
 struct AzParentWithNodeDepth {
     size_t depth;
@@ -6670,23 +6670,23 @@ typedef union AzOptionTextInputSelection AzOptionTextInputSelection;
 #define AzOptionTextInputSelection_None { .None = { .tag = AzOptionTextInputSelectionTag_None } }
 #define AzOptionTextInputSelection_Some(v) { .Some = { .tag = AzOptionTextInputSelectionTag_Some, .payload = v } }
 
-enum AzOptionNumberInputOnNumberInputTag {
-   AzOptionNumberInputOnNumberInputTag_None,
-   AzOptionNumberInputOnNumberInputTag_Some,
+enum AzOptionNumberInputOnValueChangeTag {
+   AzOptionNumberInputOnValueChangeTag_None,
+   AzOptionNumberInputOnValueChangeTag_Some,
 };
-typedef enum AzOptionNumberInputOnNumberInputTag AzOptionNumberInputOnNumberInputTag;
+typedef enum AzOptionNumberInputOnValueChangeTag AzOptionNumberInputOnValueChangeTag;
 
-struct AzOptionNumberInputOnNumberInputVariant_None { AzOptionNumberInputOnNumberInputTag tag; };
-typedef struct AzOptionNumberInputOnNumberInputVariant_None AzOptionNumberInputOnNumberInputVariant_None;
-struct AzOptionNumberInputOnNumberInputVariant_Some { AzOptionNumberInputOnNumberInputTag tag; AzNumberInputOnNumberInput payload; };
-typedef struct AzOptionNumberInputOnNumberInputVariant_Some AzOptionNumberInputOnNumberInputVariant_Some;
-union AzOptionNumberInputOnNumberInput {
-    AzOptionNumberInputOnNumberInputVariant_None None;
-    AzOptionNumberInputOnNumberInputVariant_Some Some;
+struct AzOptionNumberInputOnValueChangeVariant_None { AzOptionNumberInputOnValueChangeTag tag; };
+typedef struct AzOptionNumberInputOnValueChangeVariant_None AzOptionNumberInputOnValueChangeVariant_None;
+struct AzOptionNumberInputOnValueChangeVariant_Some { AzOptionNumberInputOnValueChangeTag tag; AzNumberInputOnValueChange payload; };
+typedef struct AzOptionNumberInputOnValueChangeVariant_Some AzOptionNumberInputOnValueChangeVariant_Some;
+union AzOptionNumberInputOnValueChange {
+    AzOptionNumberInputOnValueChangeVariant_None None;
+    AzOptionNumberInputOnValueChangeVariant_Some Some;
 };
-typedef union AzOptionNumberInputOnNumberInput AzOptionNumberInputOnNumberInput;
-#define AzOptionNumberInputOnNumberInput_None { .None = { .tag = AzOptionNumberInputOnNumberInputTag_None } }
-#define AzOptionNumberInputOnNumberInput_Some(v) { .Some = { .tag = AzOptionNumberInputOnNumberInputTag_Some, .payload = v } }
+typedef union AzOptionNumberInputOnValueChange AzOptionNumberInputOnValueChange;
+#define AzOptionNumberInputOnValueChange_None { .None = { .tag = AzOptionNumberInputOnValueChangeTag_None } }
+#define AzOptionNumberInputOnValueChange_Some(v) { .Some = { .tag = AzOptionNumberInputOnValueChangeTag_Some, .payload = v } }
 
 enum AzOptionMenuItemIconTag {
    AzOptionMenuItemIconTag_None,
@@ -7883,7 +7883,7 @@ typedef struct AzCheckBoxStateWrapper AzCheckBoxStateWrapper;
 
 struct AzNumberInputStateWrapper {
     AzNumberInputState inner;
-    AzOptionNumberInputOnNumberInput on_value_change;
+    AzOptionNumberInputOnValueChange on_value_change;
 };
 typedef struct AzNumberInputStateWrapper AzNumberInputStateWrapper;
 

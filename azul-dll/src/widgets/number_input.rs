@@ -1,29 +1,29 @@
 //! Same as TextInput, but only allows a number
 
-use azul::str::String as AzString;
-use azul::callbacks::{RefAny, CallbackInfo, Update};
-use azul::vec::NodeDataInlineCssPropertyVec;
-use azul::dom::Dom;
+use azul_desktop::css::AzString;
+use azul_desktop::callbacks::{RefAny, CallbackInfo, Update};
+use azul_desktop::dom::{Dom, NodeDataInlineCssPropertyVec};
 use core::ops::Deref;
 use core::ops::DerefMut;
-use alloc::string::String;
+use std::string::String;
+use azul_desktop::css::{impl_option, impl_option_inner};
 
-use crate::text_input::{
+use crate::widgets::text_input::{
     TextInput, TextInputState,
     OnTextInputReturn,
-    TextInputCallback, VirtualKeyDownCallback, OnFocusLostCallback,
-    TextInputCallbackFn, VirtualKeyDownCallbackFn, OnFocusLostCallbackFn,
-    TextInputStateWrapper, TextInputValid
+    TextInputStateWrapper, TextInputValid,
+    TextInputOnFocusLostCallbackType, TextInputOnVirtualKeyDownCallbackType,
+    TextInputOnTextInputCallbackType,
 };
 
-pub type NumberInputOnNumberInputCallbackType = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
+pub type NumberInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
 
 #[repr(C)]
-pub struct NumberInputOnNumberInputCallback {
-    pub cb: NumberInputOnNumberInputCallbackType,
+pub struct NumberInputOnValueChangeCallback {
+    pub cb: NumberInputOnValueChangeCallbackType,
 }
 
-impl_callback!(NumberInputOnNumberInputCallback);
+impl_callback!(NumberInputOnValueChangeCallback);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -36,17 +36,17 @@ pub struct NumberInput {
 #[repr(C)]
 pub struct NumberInputStateWrapper {
     pub inner: NumberInputState,
-    pub on_value_change: OptionNumberInputOnNumberInput,
+    pub on_value_change: OptionNumberInputOnValueChange,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
-pub struct NumberInputOnNumberInput {
+pub struct NumberInputOnValueChange {
     pub data: RefAny,
-    pub callback: NumberInputOnNumberInputCallback,
+    pub callback: NumberInputOnValueChangeCallback,
 }
 
-impl_option!(NumberInputOnNumberInput, OptionNumberInputOnNumberInput, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(NumberInputOnValueChange, OptionNumberInputOnValueChange, copy = false, [Debug, Clone, PartialEq]);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -83,16 +83,16 @@ impl NumberInput {
         }
     }
 
-    pub fn set_on_text_input(&mut self, callback: TextInputCallback, data: RefAny) {
-        self.text_input.state.on_text_input = Some((TextInputCallbackFn { cb: callback }, data));
+    pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType) {
+        self.text_input.set_on_text_input(data, callback);
     }
 
-    pub fn set_on_virtual_key_down(&mut self, callback: VirtualKeyDownCallback, data: RefAny) {
-        self.text_input.state.on_virtual_key_down = Some((VirtualKeyDownCallbackFn { cb: callback }, data));
+    pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType) {
+        self.text_input.set_on_virtual_key_down(data, callback);
     }
 
-    pub fn set_on_focus_lost(mut self, callback: OnFocusLostCallback, data: RefAny) {
-        self.text_input.state.on_focus_lost = Some((OnFocusLostCallbackFn { cb: callback }, data));
+    pub fn set_on_focus_lost(mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
+        self.text_input.set_on_focus_lost(data, callback);
     }
 
     pub fn set_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) {
@@ -108,20 +108,23 @@ impl NumberInput {
     }
 
     // Function called when the input has been parsed as a number
-    pub fn set_on_value_change(mut self, callback: NumberInputCallback, data: RefAny) {
-        self.state.on_value_change = Some((NumberInputCallbackFn { cb: callback }, data));
+    pub fn set_on_value_change(mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType) {
+        self.state.on_value_change = Some(NumberInputOnValueChange {
+            callback: NumberInputOnValueChangeCallback { cb: callback },
+            data
+    }).into();
     }
 
     pub fn dom(mut self) -> Dom {
 
         let number_string = format!("{}", self.state.inner.number);
-        self.text_input.state.inner.text = number_string.chars().collect();
+        self.text_input.state.inner.text = number_string.chars()
+        .map(|s| s as u32).collect::<Vec<_>>().into();
 
         let state = RefAny::new(self.state);
 
-        self.text_input
-        .on_text_input(validate_text_input, state.clone())
-        .dom()
+        self.text_input.set_on_text_input(state, validate_text_input);
+        self.text_input.dom()
     }
 }
 
@@ -135,7 +138,10 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
         },
     };
 
-    let validated_input: String = state.text.iter().collect();
+    let validated_input: String = state.text.iter()
+    .filter_map(|c| core::char::from_u32(*c))
+    .collect();
+
     let validated_f32 = match validated_input.parse::<f32>() {
         Ok(s) => s,
         Err(_) => {
@@ -154,7 +160,7 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
         let inner = &number_input.inner;
 
         match onvaluechange.as_mut() {
-            Some((f, d)) => (f.cb)(d, &inner, info),
+            Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(data, &inner, info),
             None => Update::DoNothing,
         }
     };

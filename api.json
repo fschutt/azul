@@ -5405,7 +5405,7 @@
                     "external": "crate::widgets::number_input::NumberInputStateWrapper",
                     "struct_fields": [
                         {"inner": {"type": "NumberInputState"}},
-                        {"on_value_change": {"type": "OptionNumberInputOnNumberInput"}}
+                        {"on_value_change": {"type": "OptionNumberInputOnValueChange"}}
                     ]
                 },
                 "NumberInputState": {
@@ -5417,20 +5417,20 @@
                         {"max": {"type": "f32"}}
                     ]
                 },
-                "NumberInputOnNumberInput": {
-                    "external": "crate::widgets::number_input::NumberInputOnNumberInput",
+                "NumberInputOnValueChange": {
+                    "external": "crate::widgets::number_input::NumberInputOnValueChange",
                     "struct_fields": [
                         {"data": {"type": "RefAny"}},
-                        {"callback": {"type": "NumberInputOnNumberInputCallback"}}
+                        {"callback": {"type": "NumberInputOnValueChangeCallback"}}
                     ]
                 },
-                "NumberInputOnNumberInputCallback": {
-                    "external": "crate::widgets::number_input::NumberInputOnNumberInputCallback",
+                "NumberInputOnValueChangeCallback": {
+                    "external": "crate::widgets::number_input::NumberInputOnValueChangeCallback",
                     "struct_fields": [
-                        {"cb": {"type": "NumberInputOnNumberInputCallbackType"}}
+                        {"cb": {"type": "NumberInputOnValueChangeCallbackType"}}
                     ]
                 },
-                "NumberInputOnNumberInputCallbackType": {
+                "NumberInputOnValueChangeCallbackType": {
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
@@ -12476,11 +12476,11 @@
                         {"Some": {"type": "TextInputSelection"}}
                     ]
                 },
-                "OptionNumberInputOnNumberInput": {
-                    "external": "crate::widgets::number_input::OptionNumberInputOnNumberInput",
+                "OptionNumberInputOnValueChange": {
+                    "external": "crate::widgets::number_input::OptionNumberInputOnValueChange",
                     "enum_fields": [
                         {"None": {}},
-                        {"Some": {"type": "NumberInputOnNumberInput"}}
+                        {"Some": {"type": "NumberInputOnValueChange"}}
                     ]
                 },
                 "OptionMenuItemIcon": {

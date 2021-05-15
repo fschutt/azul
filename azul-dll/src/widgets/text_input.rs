@@ -448,7 +448,7 @@ pub enum TextInputSelection {
     FromTo(TextInputSelectionRange),
 }
 
-impl_option!(TextInputSelection, OptionTextInputSelection, [Debug, Clone, Hash, PartialEq, Eq]);
+impl_option!(TextInputSelection, OptionTextInputSelection, copy = false, [Debug, Clone, Hash, PartialEq, Eq]);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[repr(C)]
@@ -611,7 +611,7 @@ impl TextInputState {
             } else {
                 self.cursor_pos = start;
             }
-            let end: U32Vec = end.into();
+            let mut end: U32Vec = end.into();
             self.text.append(&mut end);
         }
     }

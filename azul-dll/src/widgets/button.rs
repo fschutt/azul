@@ -36,7 +36,7 @@ pub struct ButtonOnClick {
     pub callback: Callback,
 }
 
-impl_option!(ButtonOnClick, OptionButtonOnClick, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(ButtonOnClick, OptionButtonOnClick, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 const SANS_SERIF_STR: &str = "sans-serif";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
