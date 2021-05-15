@@ -181,7 +181,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
         elif (self_val == "ref"):
             fn_args += class_name.lower() + ": &" + class_ptr_name + ", "
         else:
-            raise Exception("wrong self value " + self_val)
+            raise Exception("wrong self value " + self_val + " " + class_name)
 
     if "fn_args" in f.keys():
         for arg_object in f["fn_args"]:
@@ -537,7 +537,7 @@ def generate_rust_dll(api_data):
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
             else:
-                raise Exception("structs without 'external' key are not allowed!")
+                raise Exception("structs without 'external' key are not allowed! " + class_name)
 
             if "constructors" in c.keys():
                 for fn_name in c["constructors"]:
@@ -703,6 +703,8 @@ def sort_structs_map(api_data, structs_map):
             for field in struct:
                 field_name = list(field.keys())[0]
                 field_type = list(field.values())[0]
+                if not "type" in field_type:
+                    raise Exception("missing type field in " + class_name + " " + field_name)
                 field_type = analyze_type(field_type["type"])[1]
                 if not(is_primitive_arg(field_type)):
                     found_c = search_for_class_by_class_name(api_data, field_type)

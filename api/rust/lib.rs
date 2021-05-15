@@ -1378,17 +1378,6 @@ mod dll {
         pub(crate) ptr: *const c_void,
     }
 
-    /// Describes the state of a menu item
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    pub enum AzMenuItemState {
-        Normal,
-        Greyed,
-        Disabled,
-    }
-
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)]
     #[derive(Debug)]
@@ -1649,6 +1638,17 @@ mod dll {
         Auto,
         OverrideInParent(u32),
         NoKeyboardFocus,
+    }
+
+    /// Describes the state of a menu item
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzMenuItemState {
+        Normal,
+        Greyed,
+        Disabled,
     }
 
     /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
@@ -2091,6 +2091,107 @@ mod dll {
         Center,
         Right,
     }
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzCheckBoxOnToggleCallback {
+        pub cb: AzCheckBoxOnToggleCallbackType,
+    }
+
+    /// `AzCheckBoxOnToggleCallbackType` struct
+    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzCheckBoxState {
+        pub checked: bool,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputOnValueChangeCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzColorInputOnValueChangeCallback {
+        pub cb: AzColorInputOnValueChangeCallbackType,
+    }
+
+    /// `AzColorInputOnValueChangeCallbackType` struct
+    pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzColorInputState, &mut AzCallbackInfo) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `TextInputSelectionRange` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInputSelectionRange {
+        pub from: usize,
+        pub to: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnTextInputCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzTextInputOnTextInputCallback {
+        pub cb: AzTextInputOnTextInputCallbackType,
+    }
+
+    /// `AzTextInputOnTextInputCallbackType` struct
+    pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDownCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzTextInputOnVirtualKeyDownCallback {
+        pub cb: AzTextInputOnVirtualKeyDownCallbackType,
+    }
+
+    /// `AzTextInputOnVirtualKeyDownCallbackType` struct
+    pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnFocusLostCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzTextInputOnFocusLostCallback {
+        pub cb: AzTextInputOnFocusLostCallbackType,
+    }
+
+    /// `AzTextInputOnFocusLostCallbackType` struct
+    pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `TextInputValid` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzTextInputValid {
+        Yes,
+        No,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNumberInputState {
+        pub previous: f32,
+        pub number: f32,
+        pub min: f32,
+        pub max: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputOnNumberInputCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNumberInputOnNumberInputCallback {
+        pub cb: AzNumberInputOnNumberInputCallbackType,
+    }
+
+    /// `AzNumberInputOnNumberInputCallbackType` struct
+    pub type AzNumberInputOnNumberInputCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `Node` struct
     #[repr(C)]
@@ -3894,26 +3995,6 @@ mod dll {
         pub sharing_info: AzRefCount,
     }
 
-    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzMenuCallback {
-        pub callback: AzCallback,
-        pub data: AzRefAny,
-    }
-
-    /// Icon of a menu entry
-    #[repr(C, u8)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    pub enum AzMenuItemIcon {
-        Checkbox(bool),
-        Image(AzImageRef),
-    }
-
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -3933,6 +4014,26 @@ mod dll {
     pub enum AzNotEventFilter {
         Hover(AzHoverEventFilter),
         Focus(AzFocusEventFilter),
+    }
+
+    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzMenuCallback {
+        pub callback: AzCallback,
+        pub data: AzRefAny,
+    }
+
+    /// Icon of a menu entry
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzMenuItemIcon {
+        Checkbox(bool),
+        Image(AzImageRef),
     }
 
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
@@ -5485,6 +5586,105 @@ mod dll {
         Exact(AzStyleBackfaceVisibility),
     }
 
+    /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzButtonOnClick {
+        pub data: AzRefAny,
+        pub callback: AzCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzCheckBoxOnToggle {
+        pub data: AzRefAny,
+        pub callback: AzCheckBoxOnToggleCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzColorInputState {
+        pub color: AzColorU,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputOnValueChange` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzColorInputOnValueChange {
+        pub data: AzRefAny,
+        pub callback: AzColorInputOnValueChangeCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputSelection` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzTextInputSelection {
+        All,
+        FromTo(AzTextInputSelectionRange),
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnTextInput` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInputOnTextInput {
+        pub data: AzRefAny,
+        pub callback: AzTextInputOnTextInputCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDown` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInputOnVirtualKeyDown {
+        pub data: AzRefAny,
+        pub callback: AzTextInputOnVirtualKeyDownCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnFocusLost` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInputOnFocusLost {
+        pub data: AzRefAny,
+        pub callback: AzTextInputOnFocusLostCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OnTextInputReturn` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzOnTextInputReturn {
+        pub update: AzUpdate,
+        pub valid: AzTextInputValid,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputOnNumberInput` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNumberInputOnNumberInput {
+        pub data: AzRefAny,
+        pub callback: AzNumberInputOnNumberInputCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -5926,6 +6126,76 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionButtonOnClick {
+        None,
+        Some(AzButtonOnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionCheckBoxOnToggle {
+        None,
+        Some(AzCheckBoxOnToggle),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputOnTextInput` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTextInputOnTextInput {
+        None,
+        Some(AzTextInputOnTextInput),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputOnVirtualKeyDown` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTextInputOnVirtualKeyDown {
+        None,
+        Some(AzTextInputOnVirtualKeyDown),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputOnFocusLost` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTextInputOnFocusLost {
+        None,
+        Some(AzTextInputOnFocusLost),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputSelection` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionTextInputSelection {
+        None,
+        Some(AzTextInputSelection),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNumberInputOnNumberInput` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNumberInputOnNumberInput {
+        None,
+        Some(AzNumberInputOnNumberInput),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
@@ -6523,6 +6793,21 @@ mod dll {
         pub _reserved_mut: *mut c_void,
     }
 
+    /// Re-export of rust-allocated (stack based) `EventFilter` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzEventFilter {
+        Hover(AzHoverEventFilter),
+        Not(AzNotEventFilter),
+        Focus(AzFocusEventFilter),
+        Window(AzWindowEventFilter),
+        Component(AzComponentEventFilter),
+        Application(AzApplicationEventFilter),
+    }
+
     /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
     #[repr(C)]
     #[derive(Debug)]
@@ -6539,21 +6824,6 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzVirtualKeyCodeCombo {
         pub keys: AzVirtualKeyCodeVec,
-    }
-
-    /// Re-export of rust-allocated (stack based) `EventFilter` struct
-    #[repr(C, u8)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    #[derive(Copy)]
-    pub enum AzEventFilter {
-        Hover(AzHoverEventFilter),
-        Not(AzNotEventFilter),
-        Focus(AzFocusEventFilter),
-        Window(AzWindowEventFilter),
-        Component(AzComponentEventFilter),
-        Application(AzApplicationEventFilter),
     }
 
     /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
@@ -6703,6 +6973,26 @@ mod dll {
         Inherit,
         Initial,
         Exact(AzStyleBackgroundSizeVec),
+    }
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxStateWrapper` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzCheckBoxStateWrapper {
+        pub inner: AzCheckBoxState,
+        pub on_toggle: AzOptionCheckBoxOnToggle,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputStateWrapper` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNumberInputStateWrapper {
+        pub inner: AzNumberInputState,
+        pub on_value_change: AzOptionNumberInputOnNumberInput,
     }
 
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
@@ -7199,20 +7489,6 @@ mod dll {
         Word(AzInlineTextContents),
     }
 
-    /// Regular labeled menu item
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzStringMenuItem {
-        pub label: AzString,
-        pub accelerator: AzOptionVirtualKeyCodeCombo,
-        pub callback: AzOptionMenuCallback,
-        pub state: AzMenuItemState,
-        pub icon: AzOptionMenuItemIcon,
-        pub children: AzMenuItemVec,
-    }
-
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -7260,6 +7536,20 @@ mod dll {
     pub enum AzIdOrClass {
         Id(AzString),
         Class(AzString),
+    }
+
+    /// Regular labeled menu item
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzStringMenuItem {
+        pub label: AzString,
+        pub accelerator: AzOptionVirtualKeyCodeCombo,
+        pub callback: AzOptionMenuCallback,
+        pub state: AzMenuItemState,
+        pub icon: AzOptionMenuItemIcon,
+        pub children: AzMenuItemVec,
     }
 
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
@@ -7351,6 +7641,30 @@ mod dll {
         Inherit,
         Initial,
         Exact(AzStyleTransformVec),
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzColorInputStateWrapper {
+        pub inner: AzColorInputState,
+        pub title: AzString,
+        pub on_value_change: AzColorInputOnValueChange,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInputState {
+        pub text: AzU32Vec,
+        pub placeholder: AzOptionString,
+        pub max_len: usize,
+        pub selection: AzOptionTextInputSelection,
+        pub cursor_pos: usize,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
@@ -7853,6 +8167,20 @@ mod dll {
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
 
+    /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInputStateWrapper {
+        pub inner: AzTextInputState,
+        pub on_text_input: AzOptionTextInputOnTextInput,
+        pub on_virtual_key_down: AzOptionTextInputOnVirtualKeyDown,
+        pub on_focus_lost: AzOptionTextInputOnFocusLost,
+        pub update_text_input_before_calling_focus_lost_fn: bool,
+        pub update_text_input_before_calling_vk_down_fn: bool,
+    }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -8238,6 +8566,72 @@ mod dll {
         Dynamic(AzDynamicCssProperty),
     }
 
+    /// Re-export of rust-allocated (stack based) `Button` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzButton {
+        pub label: AzString,
+        pub image: AzOptionImageRef,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub image_style: AzNodeDataInlineCssPropertyVec,
+        pub on_click: AzOptionButtonOnClick,
+    }
+
+    /// Re-export of rust-allocated (stack based) `CheckBox` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzCheckBox {
+        pub state: AzCheckBoxStateWrapper,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub content_style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `Label` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzLabel {
+        pub text: AzString,
+        pub style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInput` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzColorInput {
+        pub state: AzColorInputStateWrapper,
+        pub style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInput` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTextInput {
+        pub state: AzTextInputStateWrapper,
+        pub placeholder_style: AzNodeDataInlineCssPropertyVec,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub label_style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInput` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNumberInput {
+        pub text_input: AzTextInput,
+        pub state: AzNumberInputStateWrapper,
+    }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
     pub struct AzCssDeclarationVec {
@@ -8590,6 +8984,35 @@ mod dll {
         pub(crate) fn AzCssProperty_getValueString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getKeyValueString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_interpolate(_:  &AzCssProperty, _:  AzCssProperty, _:  f32, _:  AzInterpolateContext) -> AzCssProperty;
+        pub(crate) fn AzButton_new(_:  AzString) -> AzButton;
+        pub(crate) fn AzButton_setOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType);
+        pub(crate) fn AzButton_withOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType) -> AzButton;
+        pub(crate) fn AzButton_dom(_:  &mut AzButton) -> AzDom;
+        pub(crate) fn AzCheckBox_new(_:  bool) -> AzCheckBox;
+        pub(crate) fn AzCheckBox_setOnToggle(_:  &mut AzCheckBox, _:  AzRefAny, _:  AzCheckBoxOnToggleCallbackType);
+        pub(crate) fn AzCheckBox_withOnToggle(_:  &mut AzCheckBox, _:  AzRefAny, _:  AzCheckBoxOnToggleCallbackType) -> AzCheckBox;
+        pub(crate) fn AzCheckBox_dom(_:  &mut AzCheckBox) -> AzDom;
+        pub(crate) fn AzLabel_new(_:  AzString) -> AzLabel;
+        pub(crate) fn AzLabel_dom(_:  &mut AzLabel) -> AzDom;
+        pub(crate) fn AzColorInput_new(_:  AzColorU) -> AzColorInput;
+        pub(crate) fn AzColorInput_setOnValueChange(_:  &mut AzColorInput, _:  AzRefAny, _:  AzColorInputOnValueChangeCallbackType);
+        pub(crate) fn AzColorInput_withOnValueChange(_:  &mut AzColorInput, _:  AzRefAny, _:  AzColorInputOnValueChangeCallbackType) -> AzColorInput;
+        pub(crate) fn AzColorInput_dom(_:  &mut AzColorInput) -> AzDom;
+        pub(crate) fn AzTextInput_new(_:  AzString) -> AzTextInput;
+        pub(crate) fn AzTextInput_setOnTextInput(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType);
+        pub(crate) fn AzTextInput_withOnTextInput(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType) -> AzTextInput;
+        pub(crate) fn AzTextInput_setOnVirtualKeyDown(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType);
+        pub(crate) fn AzTextInput_withOnVirtualKeyDown(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType) -> AzTextInput;
+        pub(crate) fn AzTextInput_setOnFocusLost(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnFocusLostCallbackType);
+        pub(crate) fn AzTextInput_withOnFocusLost(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnFocusLostCallbackType) -> AzTextInput;
+        pub(crate) fn AzTextInput_setPlaceholderStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzTextInput_withPlaceholderStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec) -> AzTextInput;
+        pub(crate) fn AzTextInput_setContainerStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzTextInput_withContainerStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec) -> AzTextInput;
+        pub(crate) fn AzTextInput_setLabelStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzTextInput_withLabelStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec) -> AzTextInput;
+        pub(crate) fn AzTextInput_dom(_:  &mut AzTextInput) -> AzDom;
+        pub(crate) fn AzNumberInput_new(_:  f32) -> AzNumberInput;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -9760,33 +10183,6 @@ pub mod callbacks {
 
 }
 
-pub mod menu {
-    #![allow(dead_code, unused_imports)]
-    use crate::dll::*;
-    use core::ffi::c_void;
-    /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
-    
-#[doc(inline)] pub use crate::dll::AzMenu as Menu;
-    /// Item entry in a menu or menu bar
-    
-#[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
-    /// Regular labeled menu item
-    
-#[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
-    /// Combination of virtual key codes that have to be pressed together
-    
-#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;
-    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
-    
-#[doc(inline)] pub use crate::dll::AzMenuCallback as MenuCallback;
-    /// Icon of a menu entry
-    
-#[doc(inline)] pub use crate::dll::AzMenuItemIcon as MenuItemIcon;
-    /// Describes the state of a menu item
-    
-#[doc(inline)] pub use crate::dll::AzMenuItemState as MenuItemState;
-}
-
 pub mod dom {
     #![allow(dead_code, unused_imports)]
     //! `Dom` construction and configuration
@@ -10071,6 +10467,33 @@ pub mod dom {
     /// `NodeDataInlineCssProperty` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;
+}
+
+pub mod menu {
+    #![allow(dead_code, unused_imports)]
+    use crate::dll::*;
+    use core::ffi::c_void;
+    /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+    
+#[doc(inline)] pub use crate::dll::AzMenu as Menu;
+    /// Item entry in a menu or menu bar
+    
+#[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
+    /// Regular labeled menu item
+    
+#[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
+    /// Combination of virtual key codes that have to be pressed together
+    
+#[doc(inline)] pub use crate::dll::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;
+    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+    
+#[doc(inline)] pub use crate::dll::AzMenuCallback as MenuCallback;
+    /// Icon of a menu entry
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemIcon as MenuItemIcon;
+    /// Describes the state of a menu item
+    
+#[doc(inline)] pub use crate::dll::AzMenuItemState as MenuItemState;
 }
 
 pub mod css {
@@ -11280,6 +11703,204 @@ pub mod css {
         pub fn interpolate(&self, other: CssProperty, t: f32, context: InterpolateContext)  -> crate::css::CssProperty { unsafe { crate::dll::AzCssProperty_interpolate(self, other, t, context) } }
     }
 
+}
+
+pub mod widgets {
+    #![allow(dead_code, unused_imports)]
+    //! Default, built-in widgets (button, label, textinput, etc.)
+    use crate::dll::*;
+    use core::ffi::c_void;
+    use crate::str::String;
+    use crate::callbacks::{CallbackType, RefAny};
+    use crate::css::ColorU;
+    use crate::vec::NodeDataInlineCssPropertyVec;
+    /// `Button` struct
+    
+#[doc(inline)] pub use crate::dll::AzButton as Button;
+    impl Button {
+        /// Creates a new labeled button
+        pub fn new(label: String) -> Self { unsafe { crate::dll::AzButton_new(label) } }
+        /// Calls the `Button::set_on_click` function.
+        pub fn set_on_click(&mut self, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzButton_setOnClick(self, data, callback) } }
+        /// Calls the `Button::with_on_click` function.
+        pub fn with_on_click(&mut self, data: RefAny, callback: CallbackType)  -> crate::widgets::Button { unsafe { crate::dll::AzButton_withOnClick(self, data, callback) } }
+        /// Calls the `Button::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzButton_dom(self) } }
+    }
+
+    /// `ButtonOnClick` struct
+    
+#[doc(inline)] pub use crate::dll::AzButtonOnClick as ButtonOnClick;
+    /// `CheckBox` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckBox as CheckBox;
+    impl CheckBox {
+        /// Creates a new checkbox, disabled or enabled
+        pub fn new(checked: bool) -> Self { unsafe { crate::dll::AzCheckBox_new(checked) } }
+        /// Calls the `CheckBox::set_on_toggle` function.
+        pub fn set_on_toggle(&mut self, data: RefAny, callback: CheckBoxOnToggleCallbackType)  { unsafe { crate::dll::AzCheckBox_setOnToggle(self, data, callback) } }
+        /// Calls the `CheckBox::with_on_toggle` function.
+        pub fn with_on_toggle(&mut self, data: RefAny, callback: CheckBoxOnToggleCallbackType)  -> crate::widgets::CheckBox { unsafe { crate::dll::AzCheckBox_withOnToggle(self, data, callback) } }
+        /// Calls the `CheckBox::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzCheckBox_dom(self) } }
+    }
+
+    /// `CheckBoxStateWrapper` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckBoxStateWrapper as CheckBoxStateWrapper;
+    /// `CheckBoxOnToggle` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckBoxOnToggle as CheckBoxOnToggle;
+    /// `CheckBoxOnToggleCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckBoxOnToggleCallback as CheckBoxOnToggleCallback;
+    /// `CheckBoxOnToggleCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckBoxOnToggleCallbackType as CheckBoxOnToggleCallbackType;
+    /// `CheckBoxState` struct
+    
+#[doc(inline)] pub use crate::dll::AzCheckBoxState as CheckBoxState;
+    /// `Label` struct
+    
+#[doc(inline)] pub use crate::dll::AzLabel as Label;
+    impl Label {
+        /// Creates a new `Label` instance.
+        pub fn new(text: String) -> Self { unsafe { crate::dll::AzLabel_new(text) } }
+        /// Calls the `Label::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzLabel_dom(self) } }
+    }
+
+    /// `ColorInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorInput as ColorInput;
+    impl ColorInput {
+        /// Creates a new `ColorInput` instance.
+        pub fn new(color: ColorU) -> Self { unsafe { crate::dll::AzColorInput_new(color) } }
+        /// Calls the `ColorInput::set_on_value_change` function.
+        pub fn set_on_value_change(&mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType)  { unsafe { crate::dll::AzColorInput_setOnValueChange(self, data, callback) } }
+        /// Calls the `ColorInput::with_on_value_change` function.
+        pub fn with_on_value_change(&mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType)  -> crate::widgets::ColorInput { unsafe { crate::dll::AzColorInput_withOnValueChange(self, data, callback) } }
+        /// Calls the `ColorInput::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzColorInput_dom(self) } }
+    }
+
+    /// `ColorInputStateWrapper` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorInputStateWrapper as ColorInputStateWrapper;
+    /// `ColorInputState` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorInputState as ColorInputState;
+    /// `ColorInputOnValueChange` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorInputOnValueChange as ColorInputOnValueChange;
+    /// `ColorInputOnValueChangeCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorInputOnValueChangeCallback as ColorInputOnValueChangeCallback;
+    /// `ColorInputOnValueChangeCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzColorInputOnValueChangeCallbackType as ColorInputOnValueChangeCallbackType;
+    /// `TextInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInput as TextInput;
+    impl TextInput {
+        /// Creates a new `TextInput` instance.
+        pub fn new(initial_text: String) -> Self { unsafe { crate::dll::AzTextInput_new(initial_text) } }
+        /// Calls the `TextInput::set_on_text_input` function.
+        pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzTextInput_setOnTextInput(self, data, callback) } }
+        /// Calls the `TextInput::with_on_text_input` function.
+        pub fn with_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnTextInput(self, data, callback) } }
+        /// Calls the `TextInput::set_on_virtual_key_down` function.
+        pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  { unsafe { crate::dll::AzTextInput_setOnVirtualKeyDown(self, data, callback) } }
+        /// Calls the `TextInput::with_on_virtual_key_down` function.
+        pub fn with_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnVirtualKeyDown(self, data, callback) } }
+        /// Calls the `TextInput::set_on_focus_lost` function.
+        pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzTextInput_setOnFocusLost(self, data, callback) } }
+        /// Calls the `TextInput::with_on_focus_lost` function.
+        pub fn with_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnFocusLost(self, data, callback) } }
+        /// Calls the `TextInput::set_placeholder_style` function.
+        pub fn set_placeholder_style(&mut self, placeholder_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setPlaceholderStyle(self, placeholder_style) } }
+        /// Calls the `TextInput::with_placeholder_style` function.
+        pub fn with_placeholder_style(&mut self, placeholder_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withPlaceholderStyle(self, placeholder_style) } }
+        /// Calls the `TextInput::set_container_style` function.
+        pub fn set_container_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setContainerStyle(self, container_style) } }
+        /// Calls the `TextInput::with_container_style` function.
+        pub fn with_container_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withContainerStyle(self, container_style) } }
+        /// Calls the `TextInput::set_label_style` function.
+        pub fn set_label_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setLabelStyle(self, container_style) } }
+        /// Calls the `TextInput::with_label_style` function.
+        pub fn with_label_style(&mut self, label_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withLabelStyle(self, label_style) } }
+        /// Calls the `TextInput::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTextInput_dom(self) } }
+    }
+
+    /// `TextInputStateWrapper` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputStateWrapper as TextInputStateWrapper;
+    /// `TextInputState` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputState as TextInputState;
+    /// `TextInputSelection` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputSelection as TextInputSelection;
+    /// `TextInputSelectionRange` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputSelectionRange as TextInputSelectionRange;
+    /// `TextInputOnTextInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnTextInput as TextInputOnTextInput;
+    /// `TextInputOnTextInputCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnTextInputCallback as TextInputOnTextInputCallback;
+    /// `TextInputOnTextInputCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnTextInputCallbackType as TextInputOnTextInputCallbackType;
+    /// `TextInputOnVirtualKeyDown` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDown as TextInputOnVirtualKeyDown;
+    /// `TextInputOnVirtualKeyDownCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDownCallback as TextInputOnVirtualKeyDownCallback;
+    /// `TextInputOnVirtualKeyDownCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDownCallbackType as TextInputOnVirtualKeyDownCallbackType;
+    /// `TextInputOnFocusLost` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnFocusLost as TextInputOnFocusLost;
+    /// `TextInputOnFocusLostCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnFocusLostCallback as TextInputOnFocusLostCallback;
+    /// `TextInputOnFocusLostCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputOnFocusLostCallbackType as TextInputOnFocusLostCallbackType;
+    /// `OnTextInputReturn` struct
+    
+#[doc(inline)] pub use crate::dll::AzOnTextInputReturn as OnTextInputReturn;
+    /// `TextInputValid` struct
+    
+#[doc(inline)] pub use crate::dll::AzTextInputValid as TextInputValid;
+    /// `NumberInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInput as NumberInput;
+    impl NumberInput {
+        /// Creates a new `NumberInput` instance.
+        pub fn new(number: f32) -> Self { unsafe { crate::dll::AzNumberInput_new(number) } }
+    }
+
+    /// `NumberInputStateWrapper` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputStateWrapper as NumberInputStateWrapper;
+    /// `NumberInputState` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputState as NumberInputState;
+    /// `NumberInputOnNumberInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputOnNumberInput as NumberInputOnNumberInput;
+    /// `NumberInputOnNumberInputCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputOnNumberInputCallback as NumberInputOnNumberInputCallback;
+    /// `NumberInputOnNumberInputCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputOnNumberInputCallbackType as NumberInputOnNumberInputCallbackType;
 }
 
 pub mod style {
@@ -13794,6 +14415,27 @@ pub mod option {
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
     impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
+    /// `OptionButtonOnClick` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionButtonOnClick as OptionButtonOnClick;
+    /// `OptionCheckBoxOnToggle` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionCheckBoxOnToggle as OptionCheckBoxOnToggle;
+    /// `OptionTextInputOnTextInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionTextInputOnTextInput as OptionTextInputOnTextInput;
+    /// `OptionTextInputOnVirtualKeyDown` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionTextInputOnVirtualKeyDown as OptionTextInputOnVirtualKeyDown;
+    /// `OptionTextInputOnFocusLost` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionTextInputOnFocusLost as OptionTextInputOnFocusLost;
+    /// `OptionTextInputSelection` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionTextInputSelection as OptionTextInputSelection;
+    /// `OptionNumberInputOnNumberInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNumberInputOnNumberInput as OptionNumberInputOnNumberInput;
     /// `OptionMenuItemIcon` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionMenuItemIcon as OptionMenuItemIcon;

@@ -184,6 +184,7 @@ mod input {
     use azul::css::{CssProperty, StyleOpacity};
 
     pub(in super) extern "C" fn default_on_checkbox_clicked(check_box: &mut RefAny, mut info: CallbackInfo) -> Update {
+
         let mut check_box = match check_box.downcast_mut::<CheckBoxStateWrapper>() {
             Some(s) => s,
             None => return Update::DoNothing,
@@ -203,7 +204,7 @@ mod input {
             let inner = &check_box.inner;
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggleFn { callback, data })) => (callback)(data, &inner, &mut info),
+                Some(CheckBoxOnToggleFn { callback, data }) => (callback)(data, &inner, &mut info),
                 None => Update::DoNothing,
             }
         };

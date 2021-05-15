@@ -80,6 +80,28 @@ typedef void (*AzThreadCallbackType)(AzRefAny A, AzThreadSender B, AzThreadRecei
 
 typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
+struct AzCheckBoxState;
+typedef struct AzCheckBoxState AzCheckBoxState;
+typedef void (*AzCheckBoxOnToggleCallbackType)(AzRefAny* restrict A, AzCheckBoxState* const B, AzCallbackInfo* restrict C);
+
+struct AzColorInputState;
+typedef struct AzColorInputState AzColorInputState;
+typedef AzUpdate (*AzColorInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzColorInputState* const B, AzCallbackInfo* restrict C);
+
+struct AzTextInputState;
+typedef struct AzTextInputState AzTextInputState;
+struct AzOnTextInputReturn;
+typedef struct AzOnTextInputReturn AzOnTextInputReturn;
+typedef AzOnTextInputReturn (*AzTextInputOnTextInputCallbackType)(AzRefAny* restrict A, AzTextInputState* const B, AzCallbackInfo* restrict C);
+
+typedef AzOnTextInputReturn (*AzTextInputOnVirtualKeyDownCallbackType)(AzRefAny* restrict A, AzTextInputState* const B, AzCallbackInfo* restrict C);
+
+typedef AzUpdate (*AzTextInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzTextInputState* const B, AzCallbackInfo* restrict C);
+
+struct AzNumberInputState;
+typedef struct AzNumberInputState AzNumberInputState;
+typedef AzUpdate (*AzNumberInputOnNumberInputCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
+
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 
 struct AzInstantPtr;
@@ -859,13 +881,6 @@ struct AzRefCount {
 };
 typedef struct AzRefCount AzRefCount;
 
-enum AzMenuItemState {
-   AzMenuItemState_Normal,
-   AzMenuItemState_Greyed,
-   AzMenuItemState_Disabled,
-};
-typedef enum AzMenuItemState AzMenuItemState;
-
 enum AzOn {
    AzOn_MouseOver,
    AzOn_MouseDown,
@@ -1100,6 +1115,13 @@ typedef union AzTabIndex AzTabIndex;
 #define AzTabIndex_Auto { .Auto = { .tag = AzTabIndexTag_Auto } }
 #define AzTabIndex_OverrideInParent(v) { .OverrideInParent = { .tag = AzTabIndexTag_OverrideInParent, .payload = v } }
 #define AzTabIndex_NoKeyboardFocus { .NoKeyboardFocus = { .tag = AzTabIndexTag_NoKeyboardFocus } }
+
+enum AzMenuItemState {
+   AzMenuItemState_Normal,
+   AzMenuItemState_Greyed,
+   AzMenuItemState_Disabled,
+};
+typedef enum AzMenuItemState AzMenuItemState;
 
 enum AzNodeTypeKey {
    AzNodeTypeKey_Body,
@@ -1407,6 +1429,61 @@ enum AzStyleTextAlign {
    AzStyleTextAlign_Right,
 };
 typedef enum AzStyleTextAlign AzStyleTextAlign;
+
+struct AzCheckBoxOnToggleCallback {
+    AzCheckBoxOnToggleCallbackType cb;
+};
+typedef struct AzCheckBoxOnToggleCallback AzCheckBoxOnToggleCallback;
+
+struct AzCheckBoxState {
+    bool  checked;
+};
+typedef struct AzCheckBoxState AzCheckBoxState;
+
+struct AzColorInputOnValueChangeCallback {
+    AzColorInputOnValueChangeCallbackType cb;
+};
+typedef struct AzColorInputOnValueChangeCallback AzColorInputOnValueChangeCallback;
+
+struct AzTextInputSelectionRange {
+    size_t from;
+    size_t to;
+};
+typedef struct AzTextInputSelectionRange AzTextInputSelectionRange;
+
+struct AzTextInputOnTextInputCallback {
+    AzTextInputOnTextInputCallbackType cb;
+};
+typedef struct AzTextInputOnTextInputCallback AzTextInputOnTextInputCallback;
+
+struct AzTextInputOnVirtualKeyDownCallback {
+    AzTextInputOnVirtualKeyDownCallbackType cb;
+};
+typedef struct AzTextInputOnVirtualKeyDownCallback AzTextInputOnVirtualKeyDownCallback;
+
+struct AzTextInputOnFocusLostCallback {
+    AzTextInputOnFocusLostCallbackType cb;
+};
+typedef struct AzTextInputOnFocusLostCallback AzTextInputOnFocusLostCallback;
+
+enum AzTextInputValid {
+   AzTextInputValid_Yes,
+   AzTextInputValid_No,
+};
+typedef enum AzTextInputValid AzTextInputValid;
+
+struct AzNumberInputState {
+    float previous;
+    float number;
+    float min;
+    float max;
+};
+typedef struct AzNumberInputState AzNumberInputState;
+
+struct AzNumberInputOnNumberInputCallback {
+    AzNumberInputOnNumberInputCallbackType cb;
+};
+typedef struct AzNumberInputOnNumberInputCallback AzNumberInputOnNumberInputCallback;
 
 struct AzNode {
     size_t parent;
@@ -3535,30 +3612,6 @@ struct AzRefAny {
 };
 typedef struct AzRefAny AzRefAny;
 
-struct AzMenuCallback {
-    AzCallback callback;
-    AzRefAny data;
-};
-typedef struct AzMenuCallback AzMenuCallback;
-
-enum AzMenuItemIconTag {
-   AzMenuItemIconTag_Checkbox,
-   AzMenuItemIconTag_Image,
-};
-typedef enum AzMenuItemIconTag AzMenuItemIconTag;
-
-struct AzMenuItemIconVariant_Checkbox { AzMenuItemIconTag tag; bool payload; };
-typedef struct AzMenuItemIconVariant_Checkbox AzMenuItemIconVariant_Checkbox;
-struct AzMenuItemIconVariant_Image { AzMenuItemIconTag tag; AzImageRef payload; };
-typedef struct AzMenuItemIconVariant_Image AzMenuItemIconVariant_Image;
-union AzMenuItemIcon {
-    AzMenuItemIconVariant_Checkbox Checkbox;
-    AzMenuItemIconVariant_Image Image;
-};
-typedef union AzMenuItemIcon AzMenuItemIcon;
-#define AzMenuItemIcon_Checkbox(v) { .Checkbox = { .tag = AzMenuItemIconTag_Checkbox, .payload = v } }
-#define AzMenuItemIcon_Image(v) { .Image = { .tag = AzMenuItemIconTag_Image, .payload = v } }
-
 struct AzIFrameNode {
     AzIFrameCallback callback;
     AzRefAny data;
@@ -3582,6 +3635,30 @@ union AzNotEventFilter {
 typedef union AzNotEventFilter AzNotEventFilter;
 #define AzNotEventFilter_Hover(v) { .Hover = { .tag = AzNotEventFilterTag_Hover, .payload = v } }
 #define AzNotEventFilter_Focus(v) { .Focus = { .tag = AzNotEventFilterTag_Focus, .payload = v } }
+
+struct AzMenuCallback {
+    AzCallback callback;
+    AzRefAny data;
+};
+typedef struct AzMenuCallback AzMenuCallback;
+
+enum AzMenuItemIconTag {
+   AzMenuItemIconTag_Checkbox,
+   AzMenuItemIconTag_Image,
+};
+typedef enum AzMenuItemIconTag AzMenuItemIconTag;
+
+struct AzMenuItemIconVariant_Checkbox { AzMenuItemIconTag tag; bool payload; };
+typedef struct AzMenuItemIconVariant_Checkbox AzMenuItemIconVariant_Checkbox;
+struct AzMenuItemIconVariant_Image { AzMenuItemIconTag tag; AzImageRef payload; };
+typedef struct AzMenuItemIconVariant_Image AzMenuItemIconVariant_Image;
+union AzMenuItemIcon {
+    AzMenuItemIconVariant_Checkbox Checkbox;
+    AzMenuItemIconVariant_Image Image;
+};
+typedef union AzMenuItemIcon AzMenuItemIcon;
+#define AzMenuItemIcon_Checkbox(v) { .Checkbox = { .tag = AzMenuItemIconTag_Checkbox, .payload = v } }
+#define AzMenuItemIcon_Image(v) { .Image = { .tag = AzMenuItemIconTag_Image, .payload = v } }
 
 enum AzCssNthChildSelectorTag {
    AzCssNthChildSelectorTag_Number,
@@ -6007,6 +6084,77 @@ typedef union AzStyleBackfaceVisibilityValue AzStyleBackfaceVisibilityValue;
 #define AzStyleBackfaceVisibilityValue_Initial { .Initial = { .tag = AzStyleBackfaceVisibilityValueTag_Initial } }
 #define AzStyleBackfaceVisibilityValue_Exact(v) { .Exact = { .tag = AzStyleBackfaceVisibilityValueTag_Exact, .payload = v } }
 
+struct AzButtonOnClick {
+    AzRefAny data;
+    AzCallback callback;
+};
+typedef struct AzButtonOnClick AzButtonOnClick;
+
+struct AzCheckBoxOnToggle {
+    AzRefAny data;
+    AzCheckBoxOnToggleCallback callback;
+};
+typedef struct AzCheckBoxOnToggle AzCheckBoxOnToggle;
+
+struct AzColorInputState {
+    AzColorU color;
+};
+typedef struct AzColorInputState AzColorInputState;
+
+struct AzColorInputOnValueChange {
+    AzRefAny data;
+    AzColorInputOnValueChangeCallback callback;
+};
+typedef struct AzColorInputOnValueChange AzColorInputOnValueChange;
+
+enum AzTextInputSelectionTag {
+   AzTextInputSelectionTag_All,
+   AzTextInputSelectionTag_FromTo,
+};
+typedef enum AzTextInputSelectionTag AzTextInputSelectionTag;
+
+struct AzTextInputSelectionVariant_All { AzTextInputSelectionTag tag; };
+typedef struct AzTextInputSelectionVariant_All AzTextInputSelectionVariant_All;
+struct AzTextInputSelectionVariant_FromTo { AzTextInputSelectionTag tag; AzTextInputSelectionRange payload; };
+typedef struct AzTextInputSelectionVariant_FromTo AzTextInputSelectionVariant_FromTo;
+union AzTextInputSelection {
+    AzTextInputSelectionVariant_All All;
+    AzTextInputSelectionVariant_FromTo FromTo;
+};
+typedef union AzTextInputSelection AzTextInputSelection;
+#define AzTextInputSelection_All { .All = { .tag = AzTextInputSelectionTag_All } }
+#define AzTextInputSelection_FromTo(v) { .FromTo = { .tag = AzTextInputSelectionTag_FromTo, .payload = v } }
+
+struct AzTextInputOnTextInput {
+    AzRefAny data;
+    AzTextInputOnTextInputCallback callback;
+};
+typedef struct AzTextInputOnTextInput AzTextInputOnTextInput;
+
+struct AzTextInputOnVirtualKeyDown {
+    AzRefAny data;
+    AzTextInputOnVirtualKeyDownCallback callback;
+};
+typedef struct AzTextInputOnVirtualKeyDown AzTextInputOnVirtualKeyDown;
+
+struct AzTextInputOnFocusLost {
+    AzRefAny data;
+    AzTextInputOnFocusLostCallback callback;
+};
+typedef struct AzTextInputOnFocusLost AzTextInputOnFocusLost;
+
+struct AzOnTextInputReturn {
+    AzUpdate update;
+    AzTextInputValid valid;
+};
+typedef struct AzOnTextInputReturn AzOnTextInputReturn;
+
+struct AzNumberInputOnNumberInput {
+    AzRefAny data;
+    AzNumberInputOnNumberInputCallback callback;
+};
+typedef struct AzNumberInputOnNumberInput AzNumberInputOnNumberInput;
+
 struct AzParentWithNodeDepth {
     size_t depth;
     AzNodeId node_id;
@@ -6397,6 +6545,132 @@ struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepthVecDestructor destructor;
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
+
+enum AzOptionButtonOnClickTag {
+   AzOptionButtonOnClickTag_None,
+   AzOptionButtonOnClickTag_Some,
+};
+typedef enum AzOptionButtonOnClickTag AzOptionButtonOnClickTag;
+
+struct AzOptionButtonOnClickVariant_None { AzOptionButtonOnClickTag tag; };
+typedef struct AzOptionButtonOnClickVariant_None AzOptionButtonOnClickVariant_None;
+struct AzOptionButtonOnClickVariant_Some { AzOptionButtonOnClickTag tag; AzButtonOnClick payload; };
+typedef struct AzOptionButtonOnClickVariant_Some AzOptionButtonOnClickVariant_Some;
+union AzOptionButtonOnClick {
+    AzOptionButtonOnClickVariant_None None;
+    AzOptionButtonOnClickVariant_Some Some;
+};
+typedef union AzOptionButtonOnClick AzOptionButtonOnClick;
+#define AzOptionButtonOnClick_None { .None = { .tag = AzOptionButtonOnClickTag_None } }
+#define AzOptionButtonOnClick_Some(v) { .Some = { .tag = AzOptionButtonOnClickTag_Some, .payload = v } }
+
+enum AzOptionCheckBoxOnToggleTag {
+   AzOptionCheckBoxOnToggleTag_None,
+   AzOptionCheckBoxOnToggleTag_Some,
+};
+typedef enum AzOptionCheckBoxOnToggleTag AzOptionCheckBoxOnToggleTag;
+
+struct AzOptionCheckBoxOnToggleVariant_None { AzOptionCheckBoxOnToggleTag tag; };
+typedef struct AzOptionCheckBoxOnToggleVariant_None AzOptionCheckBoxOnToggleVariant_None;
+struct AzOptionCheckBoxOnToggleVariant_Some { AzOptionCheckBoxOnToggleTag tag; AzCheckBoxOnToggle payload; };
+typedef struct AzOptionCheckBoxOnToggleVariant_Some AzOptionCheckBoxOnToggleVariant_Some;
+union AzOptionCheckBoxOnToggle {
+    AzOptionCheckBoxOnToggleVariant_None None;
+    AzOptionCheckBoxOnToggleVariant_Some Some;
+};
+typedef union AzOptionCheckBoxOnToggle AzOptionCheckBoxOnToggle;
+#define AzOptionCheckBoxOnToggle_None { .None = { .tag = AzOptionCheckBoxOnToggleTag_None } }
+#define AzOptionCheckBoxOnToggle_Some(v) { .Some = { .tag = AzOptionCheckBoxOnToggleTag_Some, .payload = v } }
+
+enum AzOptionTextInputOnTextInputTag {
+   AzOptionTextInputOnTextInputTag_None,
+   AzOptionTextInputOnTextInputTag_Some,
+};
+typedef enum AzOptionTextInputOnTextInputTag AzOptionTextInputOnTextInputTag;
+
+struct AzOptionTextInputOnTextInputVariant_None { AzOptionTextInputOnTextInputTag tag; };
+typedef struct AzOptionTextInputOnTextInputVariant_None AzOptionTextInputOnTextInputVariant_None;
+struct AzOptionTextInputOnTextInputVariant_Some { AzOptionTextInputOnTextInputTag tag; AzTextInputOnTextInput payload; };
+typedef struct AzOptionTextInputOnTextInputVariant_Some AzOptionTextInputOnTextInputVariant_Some;
+union AzOptionTextInputOnTextInput {
+    AzOptionTextInputOnTextInputVariant_None None;
+    AzOptionTextInputOnTextInputVariant_Some Some;
+};
+typedef union AzOptionTextInputOnTextInput AzOptionTextInputOnTextInput;
+#define AzOptionTextInputOnTextInput_None { .None = { .tag = AzOptionTextInputOnTextInputTag_None } }
+#define AzOptionTextInputOnTextInput_Some(v) { .Some = { .tag = AzOptionTextInputOnTextInputTag_Some, .payload = v } }
+
+enum AzOptionTextInputOnVirtualKeyDownTag {
+   AzOptionTextInputOnVirtualKeyDownTag_None,
+   AzOptionTextInputOnVirtualKeyDownTag_Some,
+};
+typedef enum AzOptionTextInputOnVirtualKeyDownTag AzOptionTextInputOnVirtualKeyDownTag;
+
+struct AzOptionTextInputOnVirtualKeyDownVariant_None { AzOptionTextInputOnVirtualKeyDownTag tag; };
+typedef struct AzOptionTextInputOnVirtualKeyDownVariant_None AzOptionTextInputOnVirtualKeyDownVariant_None;
+struct AzOptionTextInputOnVirtualKeyDownVariant_Some { AzOptionTextInputOnVirtualKeyDownTag tag; AzTextInputOnVirtualKeyDown payload; };
+typedef struct AzOptionTextInputOnVirtualKeyDownVariant_Some AzOptionTextInputOnVirtualKeyDownVariant_Some;
+union AzOptionTextInputOnVirtualKeyDown {
+    AzOptionTextInputOnVirtualKeyDownVariant_None None;
+    AzOptionTextInputOnVirtualKeyDownVariant_Some Some;
+};
+typedef union AzOptionTextInputOnVirtualKeyDown AzOptionTextInputOnVirtualKeyDown;
+#define AzOptionTextInputOnVirtualKeyDown_None { .None = { .tag = AzOptionTextInputOnVirtualKeyDownTag_None } }
+#define AzOptionTextInputOnVirtualKeyDown_Some(v) { .Some = { .tag = AzOptionTextInputOnVirtualKeyDownTag_Some, .payload = v } }
+
+enum AzOptionTextInputOnFocusLostTag {
+   AzOptionTextInputOnFocusLostTag_None,
+   AzOptionTextInputOnFocusLostTag_Some,
+};
+typedef enum AzOptionTextInputOnFocusLostTag AzOptionTextInputOnFocusLostTag;
+
+struct AzOptionTextInputOnFocusLostVariant_None { AzOptionTextInputOnFocusLostTag tag; };
+typedef struct AzOptionTextInputOnFocusLostVariant_None AzOptionTextInputOnFocusLostVariant_None;
+struct AzOptionTextInputOnFocusLostVariant_Some { AzOptionTextInputOnFocusLostTag tag; AzTextInputOnFocusLost payload; };
+typedef struct AzOptionTextInputOnFocusLostVariant_Some AzOptionTextInputOnFocusLostVariant_Some;
+union AzOptionTextInputOnFocusLost {
+    AzOptionTextInputOnFocusLostVariant_None None;
+    AzOptionTextInputOnFocusLostVariant_Some Some;
+};
+typedef union AzOptionTextInputOnFocusLost AzOptionTextInputOnFocusLost;
+#define AzOptionTextInputOnFocusLost_None { .None = { .tag = AzOptionTextInputOnFocusLostTag_None } }
+#define AzOptionTextInputOnFocusLost_Some(v) { .Some = { .tag = AzOptionTextInputOnFocusLostTag_Some, .payload = v } }
+
+enum AzOptionTextInputSelectionTag {
+   AzOptionTextInputSelectionTag_None,
+   AzOptionTextInputSelectionTag_Some,
+};
+typedef enum AzOptionTextInputSelectionTag AzOptionTextInputSelectionTag;
+
+struct AzOptionTextInputSelectionVariant_None { AzOptionTextInputSelectionTag tag; };
+typedef struct AzOptionTextInputSelectionVariant_None AzOptionTextInputSelectionVariant_None;
+struct AzOptionTextInputSelectionVariant_Some { AzOptionTextInputSelectionTag tag; AzTextInputSelection payload; };
+typedef struct AzOptionTextInputSelectionVariant_Some AzOptionTextInputSelectionVariant_Some;
+union AzOptionTextInputSelection {
+    AzOptionTextInputSelectionVariant_None None;
+    AzOptionTextInputSelectionVariant_Some Some;
+};
+typedef union AzOptionTextInputSelection AzOptionTextInputSelection;
+#define AzOptionTextInputSelection_None { .None = { .tag = AzOptionTextInputSelectionTag_None } }
+#define AzOptionTextInputSelection_Some(v) { .Some = { .tag = AzOptionTextInputSelectionTag_Some, .payload = v } }
+
+enum AzOptionNumberInputOnNumberInputTag {
+   AzOptionNumberInputOnNumberInputTag_None,
+   AzOptionNumberInputOnNumberInputTag_Some,
+};
+typedef enum AzOptionNumberInputOnNumberInputTag AzOptionNumberInputOnNumberInputTag;
+
+struct AzOptionNumberInputOnNumberInputVariant_None { AzOptionNumberInputOnNumberInputTag tag; };
+typedef struct AzOptionNumberInputOnNumberInputVariant_None AzOptionNumberInputOnNumberInputVariant_None;
+struct AzOptionNumberInputOnNumberInputVariant_Some { AzOptionNumberInputOnNumberInputTag tag; AzNumberInputOnNumberInput payload; };
+typedef struct AzOptionNumberInputOnNumberInputVariant_Some AzOptionNumberInputOnNumberInputVariant_Some;
+union AzOptionNumberInputOnNumberInput {
+    AzOptionNumberInputOnNumberInputVariant_None None;
+    AzOptionNumberInputOnNumberInputVariant_Some Some;
+};
+typedef union AzOptionNumberInputOnNumberInput AzOptionNumberInputOnNumberInput;
+#define AzOptionNumberInputOnNumberInput_None { .None = { .tag = AzOptionNumberInputOnNumberInputTag_None } }
+#define AzOptionNumberInputOnNumberInput_Some(v) { .Some = { .tag = AzOptionNumberInputOnNumberInputTag_Some, .payload = v } }
 
 enum AzOptionMenuItemIconTag {
    AzOptionMenuItemIconTag_None,
@@ -7216,16 +7490,6 @@ struct AzLayoutCallbackInfo {
 };
 typedef struct AzLayoutCallbackInfo AzLayoutCallbackInfo;
 
-struct AzMenu {
-    AzMenuItemVec items;
-};
-typedef struct AzMenu AzMenu;
-
-struct AzVirtualKeyCodeCombo {
-    AzVirtualKeyCodeVec keys;
-};
-typedef struct AzVirtualKeyCodeCombo AzVirtualKeyCodeCombo;
-
 enum AzEventFilterTag {
    AzEventFilterTag_Hover,
    AzEventFilterTag_Not,
@@ -7263,6 +7527,16 @@ typedef union AzEventFilter AzEventFilter;
 #define AzEventFilter_Window(v) { .Window = { .tag = AzEventFilterTag_Window, .payload = v } }
 #define AzEventFilter_Component(v) { .Component = { .tag = AzEventFilterTag_Component, .payload = v } }
 #define AzEventFilter_Application(v) { .Application = { .tag = AzEventFilterTag_Application, .payload = v } }
+
+struct AzMenu {
+    AzMenuItemVec items;
+};
+typedef struct AzMenu AzMenu;
+
+struct AzVirtualKeyCodeCombo {
+    AzVirtualKeyCodeVec keys;
+};
+typedef struct AzVirtualKeyCodeCombo AzVirtualKeyCodeCombo;
 
 enum AzCssPathPseudoSelectorTag {
    AzCssPathPseudoSelectorTag_First,
@@ -7584,6 +7858,18 @@ typedef union AzStyleBackgroundSizeVecValue AzStyleBackgroundSizeVecValue;
 #define AzStyleBackgroundSizeVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundSizeVecValueTag_Inherit } }
 #define AzStyleBackgroundSizeVecValue_Initial { .Initial = { .tag = AzStyleBackgroundSizeVecValueTag_Initial } }
 #define AzStyleBackgroundSizeVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundSizeVecValueTag_Exact, .payload = v } }
+
+struct AzCheckBoxStateWrapper {
+    AzCheckBoxState inner;
+    AzOptionCheckBoxOnToggle on_toggle;
+};
+typedef struct AzCheckBoxStateWrapper AzCheckBoxStateWrapper;
+
+struct AzNumberInputStateWrapper {
+    AzNumberInputState inner;
+    AzOptionNumberInputOnNumberInput on_value_change;
+};
+typedef struct AzNumberInputStateWrapper AzNumberInputStateWrapper;
 
 struct AzStyledNode {
     AzStyledNodeState state;
@@ -8132,16 +8418,6 @@ typedef union AzInlineWord AzInlineWord;
 #define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
 #define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
 
-struct AzStringMenuItem {
-    AzString label;
-    AzOptionVirtualKeyCodeCombo accelerator;
-    AzOptionMenuCallback callback;
-    AzMenuItemState state;
-    AzOptionMenuItemIcon icon;
-    AzMenuItemVec children;
-};
-typedef struct AzStringMenuItem AzStringMenuItem;
-
 struct AzCallbackData {
     AzEventFilter event;
     AzCallback callback;
@@ -8214,6 +8490,16 @@ union AzIdOrClass {
 typedef union AzIdOrClass AzIdOrClass;
 #define AzIdOrClass_Id(v) { .Id = { .tag = AzIdOrClassTag_Id, .payload = v } }
 #define AzIdOrClass_Class(v) { .Class = { .tag = AzIdOrClassTag_Class, .payload = v } }
+
+struct AzStringMenuItem {
+    AzString label;
+    AzOptionVirtualKeyCodeCombo accelerator;
+    AzOptionMenuCallback callback;
+    AzMenuItemState state;
+    AzOptionMenuItemIcon icon;
+    AzMenuItemVec children;
+};
+typedef struct AzStringMenuItem AzStringMenuItem;
 
 enum AzCssPathSelectorTag {
    AzCssPathSelectorTag_Global,
@@ -8397,6 +8683,22 @@ typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
 #define AzStyleTransformVecValue_Inherit { .Inherit = { .tag = AzStyleTransformVecValueTag_Inherit } }
 #define AzStyleTransformVecValue_Initial { .Initial = { .tag = AzStyleTransformVecValueTag_Initial } }
 #define AzStyleTransformVecValue_Exact(v) { .Exact = { .tag = AzStyleTransformVecValueTag_Exact, .payload = v } }
+
+struct AzColorInputStateWrapper {
+    AzColorInputState inner;
+    AzString title;
+    AzColorInputOnValueChange on_value_change;
+};
+typedef struct AzColorInputStateWrapper AzColorInputStateWrapper;
+
+struct AzTextInputState {
+    AzU32Vec text;
+    AzOptionString placeholder;
+    size_t max_len;
+    AzOptionTextInputSelection selection;
+    size_t cursor_pos;
+};
+typedef struct AzTextInputState AzTextInputState;
 
 struct AzVertexAttribute {
     AzString name;
@@ -9322,6 +9624,16 @@ typedef union AzCssProperty AzCssProperty;
 #define AzCssProperty_PerspectiveOrigin(v) { .PerspectiveOrigin = { .tag = AzCssPropertyTag_PerspectiveOrigin, .payload = v } }
 #define AzCssProperty_BackfaceVisibility(v) { .BackfaceVisibility = { .tag = AzCssPropertyTag_BackfaceVisibility, .payload = v } }
 
+struct AzTextInputStateWrapper {
+    AzTextInputState inner;
+    AzOptionTextInputOnTextInput on_text_input;
+    AzOptionTextInputOnVirtualKeyDown on_virtual_key_down;
+    AzOptionTextInputOnFocusLost on_focus_lost;
+    bool  update_text_input_before_calling_focus_lost_fn;
+    bool  update_text_input_before_calling_vk_down_fn;
+};
+typedef struct AzTextInputStateWrapper AzTextInputStateWrapper;
+
 enum AzCssPropertySourceTag {
    AzCssPropertySourceTag_Css,
    AzCssPropertySourceTag_Inline,
@@ -9778,6 +10090,48 @@ union AzCssDeclaration {
 typedef union AzCssDeclaration AzCssDeclaration;
 #define AzCssDeclaration_Static(v) { .Static = { .tag = AzCssDeclarationTag_Static, .payload = v } }
 #define AzCssDeclaration_Dynamic(v) { .Dynamic = { .tag = AzCssDeclarationTag_Dynamic, .payload = v } }
+
+struct AzButton {
+    AzString label;
+    AzOptionImageRef image;
+    AzNodeDataInlineCssPropertyVec container_style;
+    AzNodeDataInlineCssPropertyVec image_style;
+    AzOptionButtonOnClick on_click;
+};
+typedef struct AzButton AzButton;
+
+struct AzCheckBox {
+    AzCheckBoxStateWrapper state;
+    AzNodeDataInlineCssPropertyVec container_style;
+    AzNodeDataInlineCssPropertyVec content_style;
+};
+typedef struct AzCheckBox AzCheckBox;
+
+struct AzLabel {
+    AzString text;
+    AzNodeDataInlineCssPropertyVec style;
+};
+typedef struct AzLabel AzLabel;
+
+struct AzColorInput {
+    AzColorInputStateWrapper state;
+    AzNodeDataInlineCssPropertyVec style;
+};
+typedef struct AzColorInput AzColorInput;
+
+struct AzTextInput {
+    AzTextInputStateWrapper state;
+    AzNodeDataInlineCssPropertyVec placeholder_style;
+    AzNodeDataInlineCssPropertyVec container_style;
+    AzNodeDataInlineCssPropertyVec label_style;
+};
+typedef struct AzTextInput AzTextInput;
+
+struct AzNumberInput {
+    AzTextInput text_input;
+    AzNumberInputStateWrapper state;
+};
+typedef struct AzNumberInput AzNumberInput;
 
 struct AzCssDeclarationVec {
     AzCssDeclaration* ptr;
@@ -10430,6 +10784,35 @@ extern DLLIMPORT AzString AzCssProperty_getKeyString(AzCssProperty* const csspro
 extern DLLIMPORT AzString AzCssProperty_getValueString(AzCssProperty* const cssproperty);
 extern DLLIMPORT AzString AzCssProperty_getKeyValueString(AzCssProperty* const cssproperty);
 extern DLLIMPORT AzCssProperty AzCssProperty_interpolate(AzCssProperty* const cssproperty, AzCssProperty  other, float t, AzInterpolateContext  context);
+extern DLLIMPORT AzButton AzButton_new(AzString  label);
+extern DLLIMPORT void AzButton_setOnClick(AzButton* restrict button, AzRefAny  data, AzCallbackType  callback);
+extern DLLIMPORT AzButton AzButton_withOnClick(AzButton* restrict button, AzRefAny  data, AzCallbackType  callback);
+extern DLLIMPORT AzDom AzButton_dom(AzButton* restrict button);
+extern DLLIMPORT AzCheckBox AzCheckBox_new(bool  checked);
+extern DLLIMPORT void AzCheckBox_setOnToggle(AzCheckBox* restrict checkbox, AzRefAny  data, AzCheckBoxOnToggleCallbackType  callback);
+extern DLLIMPORT AzCheckBox AzCheckBox_withOnToggle(AzCheckBox* restrict checkbox, AzRefAny  data, AzCheckBoxOnToggleCallbackType  callback);
+extern DLLIMPORT AzDom AzCheckBox_dom(AzCheckBox* restrict checkbox);
+extern DLLIMPORT AzLabel AzLabel_new(AzString  text);
+extern DLLIMPORT AzDom AzLabel_dom(AzLabel* restrict label);
+extern DLLIMPORT AzColorInput AzColorInput_new(AzColorU  color);
+extern DLLIMPORT void AzColorInput_setOnValueChange(AzColorInput* restrict colorinput, AzRefAny  data, AzColorInputOnValueChangeCallbackType  callback);
+extern DLLIMPORT AzColorInput AzColorInput_withOnValueChange(AzColorInput* restrict colorinput, AzRefAny  data, AzColorInputOnValueChangeCallbackType  callback);
+extern DLLIMPORT AzDom AzColorInput_dom(AzColorInput* restrict colorinput);
+extern DLLIMPORT AzTextInput AzTextInput_new(AzString  initial_text);
+extern DLLIMPORT void AzTextInput_setOnTextInput(AzTextInput* restrict textinput, AzRefAny  data, AzTextInputOnTextInputCallbackType  callback);
+extern DLLIMPORT AzTextInput AzTextInput_withOnTextInput(AzTextInput* restrict textinput, AzRefAny  data, AzTextInputOnTextInputCallbackType  callback);
+extern DLLIMPORT void AzTextInput_setOnVirtualKeyDown(AzTextInput* restrict textinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
+extern DLLIMPORT AzTextInput AzTextInput_withOnVirtualKeyDown(AzTextInput* restrict textinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
+extern DLLIMPORT void AzTextInput_setOnFocusLost(AzTextInput* restrict textinput, AzRefAny  data, AzTextInputOnFocusLostCallbackType  callback);
+extern DLLIMPORT AzTextInput AzTextInput_withOnFocusLost(AzTextInput* restrict textinput, AzRefAny  data, AzTextInputOnFocusLostCallbackType  callback);
+extern DLLIMPORT void AzTextInput_setPlaceholderStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  placeholder_style);
+extern DLLIMPORT AzTextInput AzTextInput_withPlaceholderStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  placeholder_style);
+extern DLLIMPORT void AzTextInput_setContainerStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  container_style);
+extern DLLIMPORT AzTextInput AzTextInput_withContainerStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  container_style);
+extern DLLIMPORT void AzTextInput_setLabelStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  container_style);
+extern DLLIMPORT AzTextInput AzTextInput_withLabelStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  label_style);
+extern DLLIMPORT AzDom AzTextInput_dom(AzTextInput* restrict textinput);
+extern DLLIMPORT AzNumberInput AzNumberInput_new(float number);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
 extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCache* const instance);
 extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);

@@ -193,7 +193,6 @@ version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-desktop",
- "azul-web",
  "flate2",
  "log",
  "pyo3 0.13.2 (git+https://github.com/PyO3/pyo3?rev=1ae3d8797315419e9843b7922a7a658b01dfe52a)",
@@ -238,14 +237,6 @@ dependencies = [
  "tinyvec",
  "ttf-parser 0.11.0",
  "unicode-normalization",
-]
-
-[[package]]
-name = "azul-web"
-version = "0.0.5"
-dependencies = [
- "azul-core",
- "azul-css",
 ]
 
 [[package]]

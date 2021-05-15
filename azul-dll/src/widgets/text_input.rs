@@ -63,7 +63,7 @@ impl_callback!(TextInputOnFocusLostCallback);
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct TextInputState {
-    pub text: CharVec,
+    pub text: U32Vec, // Vec<char>
     pub placeholder: OptionAzString,
     pub max_len: usize,
     pub selection: OptionTextInputSelection,

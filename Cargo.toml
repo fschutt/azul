@@ -3,7 +3,6 @@ members = [
     "api/rust",
     "azul-dll",
     "azul-desktop",
-    "azul-web",
     "azulc",
     "azul-css",
     "azul-core",

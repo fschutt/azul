@@ -5,6 +5,7 @@
 #![cfg_attr(feature ="rlib", crate_type = "rlib")]
 #![deny(improper_ctypes_definitions)]
 
+pub mod widgets;
 #[cfg(feature = "python-extension")]
 pub mod python;
 
@@ -583,34 +584,6 @@ pub use AzLayoutCallbackInfoTT as AzLayoutCallbackInfo;
 /// Returns an `ImageRef` referenced by a CSS ID
 #[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getImage(layoutcallbackinfo: &AzLayoutCallbackInfo, id: AzString) -> AzOptionImageRef { layoutcallbackinfo.get_image(&id).into() }
 
-/// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
-pub type AzMenuTT = azul_impl::window::Menu;
-pub use AzMenuTT as AzMenu;
-
-/// Item entry in a menu or menu bar
-pub type AzMenuItemTT = azul_impl::window::MenuItem;
-pub use AzMenuItemTT as AzMenuItem;
-
-/// Regular labeled menu item
-pub type AzStringMenuItemTT = azul_impl::window::StringMenuItem;
-pub use AzStringMenuItemTT as AzStringMenuItem;
-
-/// Combination of virtual key codes that have to be pressed together
-pub type AzVirtualKeyCodeComboTT = azul_impl::window::VirtualKeyCodeCombo;
-pub use AzVirtualKeyCodeComboTT as AzVirtualKeyCodeCombo;
-
-/// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
-pub type AzMenuCallbackTT = azul_impl::window::MenuCallback;
-pub use AzMenuCallbackTT as AzMenuCallback;
-
-/// Icon of a menu entry
-pub type AzMenuItemIconTT = azul_impl::window::MenuItemIcon;
-pub use AzMenuItemIconTT as AzMenuItemIcon;
-
-/// Describes the state of a menu item
-pub type AzMenuItemStateTT = azul_impl::window::MenuItemState;
-pub use AzMenuItemStateTT as AzMenuItemState;
-
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 pub use AzDomTT as AzDom;
@@ -839,6 +812,34 @@ pub use AzIdOrClassTT as AzIdOrClass;
 /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
 pub type AzNodeDataInlineCssPropertyTT = azul_impl::dom::NodeDataInlineCssProperty;
 pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
+
+/// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
+pub type AzMenuTT = azul_impl::window::Menu;
+pub use AzMenuTT as AzMenu;
+
+/// Item entry in a menu or menu bar
+pub type AzMenuItemTT = azul_impl::window::MenuItem;
+pub use AzMenuItemTT as AzMenuItem;
+
+/// Regular labeled menu item
+pub type AzStringMenuItemTT = azul_impl::window::StringMenuItem;
+pub use AzStringMenuItemTT as AzStringMenuItem;
+
+/// Combination of virtual key codes that have to be pressed together
+pub type AzVirtualKeyCodeComboTT = azul_impl::window::VirtualKeyCodeCombo;
+pub use AzVirtualKeyCodeComboTT as AzVirtualKeyCodeCombo;
+
+/// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+pub type AzMenuCallbackTT = azul_impl::window::MenuCallback;
+pub use AzMenuCallbackTT as AzMenuCallback;
+
+/// Icon of a menu entry
+pub type AzMenuItemIconTT = azul_impl::window::MenuItemIcon;
+pub use AzMenuItemIconTT as AzMenuItemIcon;
+
+/// Describes the state of a menu item
+pub type AzMenuItemStateTT = azul_impl::window::MenuItemState;
+pub use AzMenuItemStateTT as AzMenuItemState;
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
@@ -1573,6 +1574,198 @@ pub use AzCssPropertyTT as AzCssProperty;
 /// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
 #[no_mangle] pub extern "C" fn AzCssProperty_interpolate(cssproperty: &AzCssProperty, other: AzCssProperty, t: f32, context: AzInterpolateContext) -> AzCssProperty { cssproperty.interpolate(&other, t, &context) }
 
+/// Re-export of rust-allocated (stack based) `Button` struct
+pub type AzButtonTT = crate::widgets::button::Button;
+pub use AzButtonTT as AzButton;
+/// Creates a new labeled button
+#[no_mangle] pub extern "C" fn AzButton_new(label: AzString) -> AzButton { AzButton::new(label) }
+/// Equivalent to the Rust `Button::set_on_click()` function.
+#[no_mangle] pub extern "C" fn AzButton_setOnClick(button: &mut AzButton, data: AzRefAny, callback: AzCallbackType) { button.set_on_click(data, callback); }
+/// Equivalent to the Rust `Button::with_on_click()` function.
+#[no_mangle] pub extern "C" fn AzButton_withOnClick(button: &mut AzButton, data: AzRefAny, callback: AzCallbackType) -> AzButton { let mut button = button.swap_with_default(); button.set_on_click(data, callback); button }
+/// Equivalent to the Rust `Button::dom()` function.
+#[no_mangle] pub extern "C" fn AzButton_dom(button: &mut AzButton) -> AzDom { button.swap_with_default().dom() }
+
+/// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
+pub type AzButtonOnClickTT = crate::widgets::button::ButtonOnClick;
+pub use AzButtonOnClickTT as AzButtonOnClick;
+
+/// Re-export of rust-allocated (stack based) `CheckBox` struct
+pub type AzCheckBoxTT = crate::widgets::check_box::CheckBox;
+pub use AzCheckBoxTT as AzCheckBox;
+/// Creates a new checkbox, disabled or enabled
+#[no_mangle] pub extern "C" fn AzCheckBox_new(checked: bool) -> AzCheckBox { AzCheckBox::new(checked) }
+/// Equivalent to the Rust `CheckBox::set_on_toggle()` function.
+#[no_mangle] pub extern "C" fn AzCheckBox_setOnToggle(checkbox: &mut AzCheckBox, data: AzRefAny, callback: AzCheckBoxOnToggleCallbackType) { checkbox.set_on_toggle(data, callback); }
+/// Equivalent to the Rust `CheckBox::with_on_toggle()` function.
+#[no_mangle] pub extern "C" fn AzCheckBox_withOnToggle(checkbox: &mut AzCheckBox, data: AzRefAny, callback: AzCheckBoxOnToggleCallbackType) -> AzCheckBox { let mut checkbox = checkbox.swap_with_default(); checkbox.set_on_toggle(data, callback); checkbox }
+/// Equivalent to the Rust `CheckBox::dom()` function.
+#[no_mangle] pub extern "C" fn AzCheckBox_dom(checkbox: &mut AzCheckBox) -> AzDom { checkbox.swap_with_default().dom() }
+
+/// Re-export of rust-allocated (stack based) `CheckBoxStateWrapper` struct
+pub type AzCheckBoxStateWrapperTT = crate::widgets::CheckBoxStateWrapper;
+pub use AzCheckBoxStateWrapperTT as AzCheckBoxStateWrapper;
+
+/// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
+pub type AzCheckBoxOnToggleTT = crate::widgets::check_box::CheckBoxOnToggle;
+pub use AzCheckBoxOnToggleTT as AzCheckBoxOnToggle;
+
+/// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
+pub type AzCheckBoxOnToggleCallbackTT = crate::widgets::check_box::CheckBoxOnToggleCallback;
+pub use AzCheckBoxOnToggleCallbackTT as AzCheckBoxOnToggleCallback;
+
+pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+/// Re-export of rust-allocated (stack based) `CheckBoxState` struct
+pub type AzCheckBoxStateTT = crate::widgets::check_box::CheckBoxState;
+pub use AzCheckBoxStateTT as AzCheckBoxState;
+
+/// Re-export of rust-allocated (stack based) `Label` struct
+pub type AzLabelTT = crate::widgets::label::Label;
+pub use AzLabelTT as AzLabel;
+/// Creates a new `Label` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Label::new()` constructor.
+#[no_mangle] pub extern "C" fn AzLabel_new(text: AzString) -> AzLabel { AzLabel::new(text) }
+/// Equivalent to the Rust `Label::dom()` function.
+#[no_mangle] pub extern "C" fn AzLabel_dom(label: &mut AzLabel) -> AzDom { label.swap_with_default().dom() }
+
+/// Re-export of rust-allocated (stack based) `ColorInput` struct
+pub type AzColorInputTT = crate::widgets::color_input::ColorInput;
+pub use AzColorInputTT as AzColorInput;
+/// Creates a new `ColorInput` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `ColorInput::new()` constructor.
+#[no_mangle] pub extern "C" fn AzColorInput_new(color: AzColorU) -> AzColorInput { AzColorInput::new(color) }
+/// Equivalent to the Rust `ColorInput::set_on_value_change()` function.
+#[no_mangle] pub extern "C" fn AzColorInput_setOnValueChange(colorinput: &mut AzColorInput, data: AzRefAny, callback: AzColorInputOnValueChangeCallbackType) { colorinput.set_on_value_change(data, callback) }
+/// Equivalent to the Rust `ColorInput::with_on_value_change()` function.
+#[no_mangle] pub extern "C" fn AzColorInput_withOnValueChange(colorinput: &mut AzColorInput, data: AzRefAny, callback: AzColorInputOnValueChangeCallbackType) -> AzColorInput { let mut colorinput = colorinput.swap_with_default(); colorinput.set_on_value_change(data, callback); colorinput }
+/// Equivalent to the Rust `ColorInput::dom()` function.
+#[no_mangle] pub extern "C" fn AzColorInput_dom(colorinput: &mut AzColorInput) -> AzDom { label.swap_with_default().dom() }
+
+/// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
+pub type AzColorInputStateWrapperTT = crate::widgets::color_input::ColorInputStateWrapper;
+pub use AzColorInputStateWrapperTT as AzColorInputStateWrapper;
+
+/// Re-export of rust-allocated (stack based) `ColorInputState` struct
+pub type AzColorInputStateTT = crate::widgets::color_input::ColorInputState;
+pub use AzColorInputStateTT as AzColorInputState;
+
+/// Re-export of rust-allocated (stack based) `ColorInputOnValueChange` struct
+pub type AzColorInputOnValueChangeTT = crate::widgets::color_input::ColorInputOnValueChange;
+pub use AzColorInputOnValueChangeTT as AzColorInputOnValueChange;
+
+/// Re-export of rust-allocated (stack based) `ColorInputOnValueChangeCallback` struct
+pub type AzColorInputOnValueChangeCallbackTT = crate::widgets::color_input::ColorInputOnValueChangeCallback;
+pub use AzColorInputOnValueChangeCallbackTT as AzColorInputOnValueChangeCallback;
+
+pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzColorInputState, &mut AzCallbackInfo) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `TextInput` struct
+pub type AzTextInputTT = crate::widgets::text_input::TextInput;
+pub use AzTextInputTT as AzTextInput;
+/// Creates a new `TextInput` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TextInput::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTextInput_new(initial_text: AzString) -> AzTextInput { AzTextInput::new(initial_text) }
+/// Equivalent to the Rust `TextInput::set_on_text_input()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setOnTextInput(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnTextInputCallbackType) { textinput.set_on_text_input(data, callback) }
+/// Equivalent to the Rust `TextInput::with_on_text_input()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withOnTextInput(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnTextInputCallbackType) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_on_text_input(data, callback); textinput }
+/// Equivalent to the Rust `TextInput::set_on_virtual_key_down()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setOnVirtualKeyDown(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnVirtualKeyDownCallbackType) { textinput.set_on_virtual_key_down(data, callback) }
+/// Equivalent to the Rust `TextInput::with_on_virtual_key_down()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withOnVirtualKeyDown(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnVirtualKeyDownCallbackType) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_on_virtual_key_down(data, callback); textinput }
+/// Equivalent to the Rust `TextInput::set_on_focus_lost()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setOnFocusLost(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnFocusLostCallbackType) { textinput.set_on_focus_lost(data, callback) }
+/// Equivalent to the Rust `TextInput::with_on_focus_lost()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withOnFocusLost(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnFocusLostCallbackType) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_on_focus_lost(data, callback); textinput }
+/// Equivalent to the Rust `TextInput::set_placeholder_style()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setPlaceholderStyle(textinput: &mut AzTextInput, placeholder_style: AzNodeDataInlineCssPropertyVec) { textinput.set_placeholder_style(placeholder_style) }
+/// Equivalent to the Rust `TextInput::with_placeholder_style()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withPlaceholderStyle(textinput: &mut AzTextInput, placeholder_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_placeholder_style(placeholder_style); textinput }
+/// Equivalent to the Rust `TextInput::set_container_style()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setContainerStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) {  textinput.set_container_style(placeholder_style) }
+/// Equivalent to the Rust `TextInput::with_container_style()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withContainerStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_container_style(placeholder_style); textinput }
+/// Equivalent to the Rust `TextInput::set_label_style()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setLabelStyle(textinput: &mut AzTextInput, container_style: AzNodeDataInlineCssPropertyVec) { textinput.set_container_style(placeholder_style) }
+/// Equivalent to the Rust `TextInput::with_label_style()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withLabelStyle(textinput: &mut AzTextInput, label_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_label_style(placeholder_style); textinput }
+/// Equivalent to the Rust `TextInput::dom()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_dom(textinput: &mut AzTextInput) -> AzDom { textinput.swap_with_default().dom() }
+
+/// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
+pub type AzTextInputStateWrapperTT = crate::widgets::text_input::TextInputStateWrapper;
+pub use AzTextInputStateWrapperTT as AzTextInputStateWrapper;
+
+/// Re-export of rust-allocated (stack based) `TextInputState` struct
+pub type AzTextInputStateTT = crate::widgets::text_input::TextInputState;
+pub use AzTextInputStateTT as AzTextInputState;
+
+/// Re-export of rust-allocated (stack based) `TextInputSelection` struct
+pub type AzTextInputSelectionTT = crate::widgets::text_input::TextInputSelection;
+pub use AzTextInputSelectionTT as AzTextInputSelection;
+
+/// Re-export of rust-allocated (stack based) `TextInputSelectionRange` struct
+pub type AzTextInputSelectionRangeTT = crate::widgets::text_input::TextInputSelectionRange;
+pub use AzTextInputSelectionRangeTT as AzTextInputSelectionRange;
+
+/// Re-export of rust-allocated (stack based) `TextInputOnTextInput` struct
+pub type AzTextInputOnTextInputTT = crate::widgets::text_input::TextInputOnTextInput;
+pub use AzTextInputOnTextInputTT as AzTextInputOnTextInput;
+
+/// Re-export of rust-allocated (stack based) `TextInputOnTextInputCallback` struct
+pub type AzTextInputOnTextInputCallbackTT = crate::widgets::text_input::TextInputOnTextInputCallback;
+pub use AzTextInputOnTextInputCallbackTT as AzTextInputOnTextInputCallback;
+
+pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+/// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDown` struct
+pub type AzTextInputOnVirtualKeyDownTT = crate::widgets::text_input::TextInputOnVirtualKeyDown;
+pub use AzTextInputOnVirtualKeyDownTT as AzTextInputOnVirtualKeyDown;
+
+/// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDownCallback` struct
+pub type AzTextInputOnVirtualKeyDownCallbackTT = crate::widgets::text_input::TextInputOnVirtualKeyDownCallback;
+pub use AzTextInputOnVirtualKeyDownCallbackTT as AzTextInputOnVirtualKeyDownCallback;
+
+pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+/// Re-export of rust-allocated (stack based) `TextInputOnFocusLost` struct
+pub type AzTextInputOnFocusLostTT = crate::widgets::text_input::TextInputOnFocusLost;
+pub use AzTextInputOnFocusLostTT as AzTextInputOnFocusLost;
+
+/// Re-export of rust-allocated (stack based) `TextInputOnFocusLostCallback` struct
+pub type AzTextInputOnFocusLostCallbackTT = crate::widgets::text_input::TextInputOnFocusLostCallback;
+pub use AzTextInputOnFocusLostCallbackTT as AzTextInputOnFocusLostCallback;
+
+pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `OnTextInputReturn` struct
+pub type AzOnTextInputReturnTT = crate::widgets::OnTextInputReturn;
+pub use AzOnTextInputReturnTT as AzOnTextInputReturn;
+
+/// Re-export of rust-allocated (stack based) `TextInputValid` struct
+pub type AzTextInputValidTT = crate::widgets::TextInputValid;
+pub use AzTextInputValidTT as AzTextInputValid;
+
+/// Re-export of rust-allocated (stack based) `NumberInput` struct
+pub type AzNumberInputTT = crate::widgets::number_input::NumberInput;
+pub use AzNumberInputTT as AzNumberInput;
+/// Creates a new `NumberInput` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `NumberInput::new()` constructor.
+#[no_mangle] pub extern "C" fn AzNumberInput_new(number: f32) -> AzNumberInput { AzNumberInput::new(number) }
+
+/// Re-export of rust-allocated (stack based) `NumberInputStateWrapper` struct
+pub type AzNumberInputStateWrapperTT = crate::widgets::number_input::NumberInputStateWrapper;
+pub use AzNumberInputStateWrapperTT as AzNumberInputStateWrapper;
+
+/// Re-export of rust-allocated (stack based) `NumberInputState` struct
+pub type AzNumberInputStateTT = crate::widgets::number_input::NumberInputState;
+pub use AzNumberInputStateTT as AzNumberInputState;
+
+/// Re-export of rust-allocated (stack based) `NumberInputOnNumberInput` struct
+pub type AzNumberInputOnNumberInputTT = crate::widgets::number_input::NumberInputOnNumberInput;
+pub use AzNumberInputOnNumberInputTT as AzNumberInputOnNumberInput;
+
+/// Re-export of rust-allocated (stack based) `NumberInputOnNumberInputCallback` struct
+pub type AzNumberInputOnNumberInputCallbackTT = crate::widgets::number_input::NumberInputOnNumberInputCallback;
+pub use AzNumberInputOnNumberInputCallbackTT as AzNumberInputOnNumberInputCallback;
+
+pub type AzNumberInputOnNumberInputCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `Node` struct
 pub type AzNodeTT = azul_impl::styled_dom::AzNode;
 pub use AzNodeTT as AzNode;
@@ -3350,6 +3543,34 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
+pub type AzOptionButtonOnClickTT = crate::widgets::button::OptionButtonOnClick;
+pub use AzOptionButtonOnClickTT as AzOptionButtonOnClick;
+
+/// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
+pub type AzOptionCheckBoxOnToggleTT = crate::widgets::check_box::OptionCheckBoxOnToggle;
+pub use AzOptionCheckBoxOnToggleTT as AzOptionCheckBoxOnToggle;
+
+/// Re-export of rust-allocated (stack based) `OptionTextInputOnTextInput` struct
+pub type AzOptionTextInputOnTextInputTT = crate::widgets::text_input::OptionTextInputOnTextInput;
+pub use AzOptionTextInputOnTextInputTT as AzOptionTextInputOnTextInput;
+
+/// Re-export of rust-allocated (stack based) `OptionTextInputOnVirtualKeyDown` struct
+pub type AzOptionTextInputOnVirtualKeyDownTT = crate::widgets::text_input::OptionTextInputOnVirtualKeyDown;
+pub use AzOptionTextInputOnVirtualKeyDownTT as AzOptionTextInputOnVirtualKeyDown;
+
+/// Re-export of rust-allocated (stack based) `OptionTextInputOnFocusLost` struct
+pub type AzOptionTextInputOnFocusLostTT = crate::widgets::text_input::OptionTextInputOnFocusLost;
+pub use AzOptionTextInputOnFocusLostTT as AzOptionTextInputOnFocusLost;
+
+/// Re-export of rust-allocated (stack based) `OptionTextInputSelection` struct
+pub type AzOptionTextInputSelectionTT = crate::widgets::text_input::OptionTextInputSelection;
+pub use AzOptionTextInputSelectionTT as AzOptionTextInputSelection;
+
+/// Re-export of rust-allocated (stack based) `OptionNumberInputOnNumberInput` struct
+pub type AzOptionNumberInputOnNumberInputTT = crate::widgets::number_input::OptionNumberInputOnNumberInput;
+pub use AzOptionNumberInputOnNumberInputTT as AzOptionNumberInputOnNumberInput;
+
 /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
 pub type AzOptionMenuItemIconTT = azul_impl::window::OptionMenuItemIcon;
 pub use AzOptionMenuItemIconTT as AzOptionMenuItemIcon;
@@ -4344,14 +4565,6 @@ mod test_sizes {
         pub(crate) ptr: *const c_void,
     }
 
-    /// Describes the state of a menu item
-    #[repr(C)]
-    pub enum AzMenuItemState {
-        Normal,
-        Greyed,
-        Disabled,
-    }
-
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     #[repr(C)]
     pub enum AzOn {
@@ -4578,6 +4791,14 @@ mod test_sizes {
         Auto,
         OverrideInParent(u32),
         NoKeyboardFocus,
+    }
+
+    /// Describes the state of a menu item
+    #[repr(C)]
+    pub enum AzMenuItemState {
+        Normal,
+        Greyed,
+        Disabled,
     }
 
     /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
@@ -4913,6 +5134,89 @@ mod test_sizes {
         Center,
         Right,
     }
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
+    #[repr(C)]
+    pub struct AzCheckBoxOnToggleCallback {
+        pub cb: AzCheckBoxOnToggleCallbackType,
+    }
+
+    /// `AzCheckBoxOnToggleCallbackType` struct
+    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo);
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
+    #[repr(C)]
+    pub struct AzCheckBoxState {
+        pub checked: bool,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputOnValueChangeCallback` struct
+    #[repr(C)]
+    pub struct AzColorInputOnValueChangeCallback {
+        pub cb: AzColorInputOnValueChangeCallbackType,
+    }
+
+    /// `AzColorInputOnValueChangeCallbackType` struct
+    pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzColorInputState, &mut AzCallbackInfo) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `TextInputSelectionRange` struct
+    #[repr(C)]
+    pub struct AzTextInputSelectionRange {
+        pub from: usize,
+        pub to: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnTextInputCallback` struct
+    #[repr(C)]
+    pub struct AzTextInputOnTextInputCallback {
+        pub cb: AzTextInputOnTextInputCallbackType,
+    }
+
+    /// `AzTextInputOnTextInputCallbackType` struct
+    pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDownCallback` struct
+    #[repr(C)]
+    pub struct AzTextInputOnVirtualKeyDownCallback {
+        pub cb: AzTextInputOnVirtualKeyDownCallbackType,
+    }
+
+    /// `AzTextInputOnVirtualKeyDownCallbackType` struct
+    pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnFocusLostCallback` struct
+    #[repr(C)]
+    pub struct AzTextInputOnFocusLostCallback {
+        pub cb: AzTextInputOnFocusLostCallbackType,
+    }
+
+    /// `AzTextInputOnFocusLostCallbackType` struct
+    pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `TextInputValid` struct
+    #[repr(C)]
+    pub enum AzTextInputValid {
+        Yes,
+        No,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputState` struct
+    #[repr(C)]
+    pub struct AzNumberInputState {
+        pub previous: f32,
+        pub number: f32,
+        pub min: f32,
+        pub max: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputOnNumberInputCallback` struct
+    #[repr(C)]
+    pub struct AzNumberInputOnNumberInputCallback {
+        pub cb: AzNumberInputOnNumberInputCallbackType,
+    }
+
+    /// `AzNumberInputOnNumberInputCallbackType` struct
+    pub type AzNumberInputOnNumberInputCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `Node` struct
     #[repr(C)]
@@ -6294,20 +6598,6 @@ mod test_sizes {
         pub sharing_info: AzRefCount,
     }
 
-    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
-    #[repr(C)]
-    pub struct AzMenuCallback {
-        pub callback: AzCallback,
-        pub data: AzRefAny,
-    }
-
-    /// Icon of a menu entry
-    #[repr(C, u8)]
-    pub enum AzMenuItemIcon {
-        Checkbox(bool),
-        Image(AzImageRef),
-    }
-
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
     #[repr(C)]
     pub struct AzIFrameNode {
@@ -6320,6 +6610,20 @@ mod test_sizes {
     pub enum AzNotEventFilter {
         Hover(AzHoverEventFilter),
         Focus(AzFocusEventFilter),
+    }
+
+    /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
+    #[repr(C)]
+    pub struct AzMenuCallback {
+        pub callback: AzCallback,
+        pub data: AzRefAny,
+    }
+
+    /// Icon of a menu entry
+    #[repr(C, u8)]
+    pub enum AzMenuItemIcon {
+        Checkbox(bool),
+        Image(AzImageRef),
     }
 
     /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
@@ -7368,6 +7672,75 @@ mod test_sizes {
         Exact(AzStyleBackfaceVisibility),
     }
 
+    /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
+    #[repr(C)]
+    pub struct AzButtonOnClick {
+        pub data: AzRefAny,
+        pub callback: AzCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
+    #[repr(C)]
+    pub struct AzCheckBoxOnToggle {
+        pub data: AzRefAny,
+        pub callback: AzCheckBoxOnToggleCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputState` struct
+    #[repr(C)]
+    pub struct AzColorInputState {
+        pub color: AzColorU,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputOnValueChange` struct
+    #[repr(C)]
+    pub struct AzColorInputOnValueChange {
+        pub data: AzRefAny,
+        pub callback: AzColorInputOnValueChangeCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputSelection` struct
+    #[repr(C, u8)]
+    pub enum AzTextInputSelection {
+        All,
+        FromTo(AzTextInputSelectionRange),
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnTextInput` struct
+    #[repr(C)]
+    pub struct AzTextInputOnTextInput {
+        pub data: AzRefAny,
+        pub callback: AzTextInputOnTextInputCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDown` struct
+    #[repr(C)]
+    pub struct AzTextInputOnVirtualKeyDown {
+        pub data: AzRefAny,
+        pub callback: AzTextInputOnVirtualKeyDownCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputOnFocusLost` struct
+    #[repr(C)]
+    pub struct AzTextInputOnFocusLost {
+        pub data: AzRefAny,
+        pub callback: AzTextInputOnFocusLostCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OnTextInputReturn` struct
+    #[repr(C)]
+    pub struct AzOnTextInputReturn {
+        pub update: AzUpdate,
+        pub valid: AzTextInputValid,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputOnNumberInput` struct
+    #[repr(C)]
+    pub struct AzNumberInputOnNumberInput {
+        pub data: AzRefAny,
+        pub callback: AzNumberInputOnNumberInputCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     pub struct AzParentWithNodeDepth {
@@ -7763,6 +8136,55 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
+    #[repr(C, u8)]
+    pub enum AzOptionButtonOnClick {
+        None,
+        Some(AzButtonOnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
+    #[repr(C, u8)]
+    pub enum AzOptionCheckBoxOnToggle {
+        None,
+        Some(AzCheckBoxOnToggle),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputOnTextInput` struct
+    #[repr(C, u8)]
+    pub enum AzOptionTextInputOnTextInput {
+        None,
+        Some(AzTextInputOnTextInput),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputOnVirtualKeyDown` struct
+    #[repr(C, u8)]
+    pub enum AzOptionTextInputOnVirtualKeyDown {
+        None,
+        Some(AzTextInputOnVirtualKeyDown),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputOnFocusLost` struct
+    #[repr(C, u8)]
+    pub enum AzOptionTextInputOnFocusLost {
+        None,
+        Some(AzTextInputOnFocusLost),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTextInputSelection` struct
+    #[repr(C, u8)]
+    pub enum AzOptionTextInputSelection {
+        None,
+        Some(AzTextInputSelection),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNumberInputOnNumberInput` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNumberInputOnNumberInput {
+        None,
+        Some(AzNumberInputOnNumberInput),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
@@ -8176,6 +8598,17 @@ mod test_sizes {
         pub _reserved_mut: *mut c_void,
     }
 
+    /// Re-export of rust-allocated (stack based) `EventFilter` struct
+    #[repr(C, u8)]
+    pub enum AzEventFilter {
+        Hover(AzHoverEventFilter),
+        Not(AzNotEventFilter),
+        Focus(AzFocusEventFilter),
+        Window(AzWindowEventFilter),
+        Component(AzComponentEventFilter),
+        Application(AzApplicationEventFilter),
+    }
+
     /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
     #[repr(C)]
     pub struct AzMenu {
@@ -8186,17 +8619,6 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzVirtualKeyCodeCombo {
         pub keys: AzVirtualKeyCodeVec,
-    }
-
-    /// Re-export of rust-allocated (stack based) `EventFilter` struct
-    #[repr(C, u8)]
-    pub enum AzEventFilter {
-        Hover(AzHoverEventFilter),
-        Not(AzNotEventFilter),
-        Focus(AzFocusEventFilter),
-        Window(AzWindowEventFilter),
-        Component(AzComponentEventFilter),
-        Application(AzApplicationEventFilter),
     }
 
     /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
@@ -8312,6 +8734,20 @@ mod test_sizes {
         Inherit,
         Initial,
         Exact(AzStyleBackgroundSizeVec),
+    }
+
+    /// Re-export of rust-allocated (stack based) `CheckBoxStateWrapper` struct
+    #[repr(C)]
+    pub struct AzCheckBoxStateWrapper {
+        pub inner: AzCheckBoxState,
+        pub on_toggle: AzOptionCheckBoxOnToggle,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInputStateWrapper` struct
+    #[repr(C)]
+    pub struct AzNumberInputStateWrapper {
+        pub inner: AzNumberInputState,
+        pub on_value_change: AzOptionNumberInputOnNumberInput,
     }
 
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
@@ -8696,17 +9132,6 @@ mod test_sizes {
         Word(AzInlineTextContents),
     }
 
-    /// Regular labeled menu item
-    #[repr(C)]
-    pub struct AzStringMenuItem {
-        pub label: AzString,
-        pub accelerator: AzOptionVirtualKeyCodeCombo,
-        pub callback: AzOptionMenuCallback,
-        pub state: AzMenuItemState,
-        pub icon: AzOptionMenuItemIcon,
-        pub children: AzMenuItemVec,
-    }
-
     /// Re-export of rust-allocated (stack based) `CallbackData` struct
     #[repr(C)]
     pub struct AzCallbackData {
@@ -8742,6 +9167,17 @@ mod test_sizes {
     pub enum AzIdOrClass {
         Id(AzString),
         Class(AzString),
+    }
+
+    /// Regular labeled menu item
+    #[repr(C)]
+    pub struct AzStringMenuItem {
+        pub label: AzString,
+        pub accelerator: AzOptionVirtualKeyCodeCombo,
+        pub callback: AzOptionMenuCallback,
+        pub state: AzMenuItemState,
+        pub icon: AzOptionMenuItemIcon,
+        pub children: AzMenuItemVec,
     }
 
     /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
@@ -8812,6 +9248,24 @@ mod test_sizes {
         Inherit,
         Initial,
         Exact(AzStyleTransformVec),
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
+    #[repr(C)]
+    pub struct AzColorInputStateWrapper {
+        pub inner: AzColorInputState,
+        pub title: AzString,
+        pub on_value_change: AzColorInputOnValueChange,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInputState` struct
+    #[repr(C)]
+    pub struct AzTextInputState {
+        pub text: AzU32Vec,
+        pub placeholder: AzOptionString,
+        pub max_len: usize,
+        pub selection: AzOptionTextInputSelection,
+        pub cursor_pos: usize,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
@@ -9236,6 +9690,17 @@ mod test_sizes {
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
 
+    /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
+    #[repr(C)]
+    pub struct AzTextInputStateWrapper {
+        pub inner: AzTextInputState,
+        pub on_text_input: AzOptionTextInputOnTextInput,
+        pub on_virtual_key_down: AzOptionTextInputOnVirtualKeyDown,
+        pub on_focus_lost: AzOptionTextInputOnFocusLost,
+        pub update_text_input_before_calling_focus_lost_fn: bool,
+        pub update_text_input_before_calling_vk_down_fn: bool,
+    }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)]
     pub enum AzCssPropertySource {
@@ -9543,6 +10008,54 @@ mod test_sizes {
         Dynamic(AzDynamicCssProperty),
     }
 
+    /// Re-export of rust-allocated (stack based) `Button` struct
+    #[repr(C)]
+    pub struct AzButton {
+        pub label: AzString,
+        pub image: AzOptionImageRef,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub image_style: AzNodeDataInlineCssPropertyVec,
+        pub on_click: AzOptionButtonOnClick,
+    }
+
+    /// Re-export of rust-allocated (stack based) `CheckBox` struct
+    #[repr(C)]
+    pub struct AzCheckBox {
+        pub state: AzCheckBoxStateWrapper,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub content_style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `Label` struct
+    #[repr(C)]
+    pub struct AzLabel {
+        pub text: AzString,
+        pub style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ColorInput` struct
+    #[repr(C)]
+    pub struct AzColorInput {
+        pub state: AzColorInputStateWrapper,
+        pub style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TextInput` struct
+    #[repr(C)]
+    pub struct AzTextInput {
+        pub state: AzTextInputStateWrapper,
+        pub placeholder_style: AzNodeDataInlineCssPropertyVec,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub label_style: AzNodeDataInlineCssPropertyVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NumberInput` struct
+    #[repr(C)]
+    pub struct AzNumberInput {
+        pub text_input: AzTextInput,
+        pub state: AzNumberInputStateWrapper,
+    }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
     pub struct AzCssDeclarationVec {
@@ -9745,7 +10258,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::WriteBackCallback>(), "AzWriteBackCallback"), (Layout::new::<AzWriteBackCallback>(), "AzWriteBackCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::ThreadCallback>(), "AzThreadCallback"), (Layout::new::<AzThreadCallback>(), "AzThreadCallback"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefCount>(), "AzRefCount"), (Layout::new::<AzRefCount>(), "AzRefCount"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
         assert_eq!((Layout::new::<azul_impl::dom::On>(), "AzOn"), (Layout::new::<AzOn>(), "AzOn"));
         assert_eq!((Layout::new::<azul_impl::dom::HoverEventFilter>(), "AzHoverEventFilter"), (Layout::new::<AzHoverEventFilter>(), "AzHoverEventFilter"));
         assert_eq!((Layout::new::<azul_impl::dom::FocusEventFilter>(), "AzFocusEventFilter"), (Layout::new::<AzFocusEventFilter>(), "AzFocusEventFilter"));
@@ -9755,6 +10267,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityRole>(), "AzAccessibilityRole"), (Layout::new::<AzAccessibilityRole>(), "AzAccessibilityRole"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityState>(), "AzAccessibilityState"), (Layout::new::<AzAccessibilityState>(), "AzAccessibilityState"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
         assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeKey"), (Layout::new::<AzNodeTypeKey>(), "AzNodeTypeKey"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyType>(), "AzCssPropertyType"), (Layout::new::<AzCssPropertyType>(), "AzCssPropertyType"));
@@ -9782,6 +10295,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleCursor>(), "AzStyleCursor"), (Layout::new::<AzStyleCursor>(), "AzStyleCursor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTextAlign>(), "AzStyleTextAlign"), (Layout::new::<AzStyleTextAlign>(), "AzStyleTextAlign"));
+        assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxOnToggleCallback>(), "AzCheckBoxOnToggleCallback"), (Layout::new::<AzCheckBoxOnToggleCallback>(), "AzCheckBoxOnToggleCallback"));
+        assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxState>(), "AzCheckBoxState"), (Layout::new::<AzCheckBoxState>(), "AzCheckBoxState"));
+        assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputOnValueChangeCallback>(), "AzColorInputOnValueChangeCallback"), (Layout::new::<AzColorInputOnValueChangeCallback>(), "AzColorInputOnValueChangeCallback"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputSelectionRange>(), "AzTextInputSelectionRange"), (Layout::new::<AzTextInputSelectionRange>(), "AzTextInputSelectionRange"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnTextInputCallback>(), "AzTextInputOnTextInputCallback"), (Layout::new::<AzTextInputOnTextInputCallback>(), "AzTextInputOnTextInputCallback"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnVirtualKeyDownCallback>(), "AzTextInputOnVirtualKeyDownCallback"), (Layout::new::<AzTextInputOnVirtualKeyDownCallback>(), "AzTextInputOnVirtualKeyDownCallback"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnFocusLostCallback>(), "AzTextInputOnFocusLostCallback"), (Layout::new::<AzTextInputOnFocusLostCallback>(), "AzTextInputOnFocusLostCallback"));
+        assert_eq!((Layout::new::<crate::widgets::TextInputValid>(), "AzTextInputValid"), (Layout::new::<AzTextInputValid>(), "AzTextInputValid"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputState>(), "AzNumberInputState"), (Layout::new::<AzNumberInputState>(), "AzNumberInputState"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnNumberInputCallback>(), "AzNumberInputOnNumberInputCallback"), (Layout::new::<AzNumberInputOnNumberInputCallback>(), "AzNumberInputOnNumberInputCallback"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
@@ -9936,10 +10459,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackInfo>(), "AzIFrameCallbackInfo"), (Layout::new::<AzIFrameCallbackInfo>(), "AzIFrameCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackReturn>(), "AzTimerCallbackReturn"), (Layout::new::<AzTimerCallbackReturn>(), "AzTimerCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuCallback>(), "AzMenuCallback"), (Layout::new::<AzMenuCallback>(), "AzMenuCallback"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItemIcon>(), "AzMenuItemIcon"), (Layout::new::<AzMenuItemIcon>(), "AzMenuItemIcon"));
         assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuCallback>(), "AzMenuCallback"), (Layout::new::<AzMenuCallback>(), "AzMenuCallback"));
+        assert_eq!((Layout::new::<azul_impl::window::MenuItemIcon>(), "AzMenuItemIcon"), (Layout::new::<AzMenuItemIcon>(), "AzMenuItemIcon"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
         assert_eq!((Layout::new::<azul_impl::css::PixelValue>(), "AzPixelValue"), (Layout::new::<AzPixelValue>(), "AzPixelValue"));
         assert_eq!((Layout::new::<azul_impl::css::PixelValueNoPercent>(), "AzPixelValueNoPercent"), (Layout::new::<AzPixelValueNoPercent>(), "AzPixelValueNoPercent"));
@@ -10066,6 +10589,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformOriginValue>(), "AzStyleTransformOriginValue"), (Layout::new::<AzStyleTransformOriginValue>(), "AzStyleTransformOriginValue"));
         assert_eq!((Layout::new::<azul_impl::css::StylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
+        assert_eq!((Layout::new::<crate::widgets::button::ButtonOnClick>(), "AzButtonOnClick"), (Layout::new::<AzButtonOnClick>(), "AzButtonOnClick"));
+        assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxOnToggle>(), "AzCheckBoxOnToggle"), (Layout::new::<AzCheckBoxOnToggle>(), "AzCheckBoxOnToggle"));
+        assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputState>(), "AzColorInputState"), (Layout::new::<AzColorInputState>(), "AzColorInputState"));
+        assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputOnValueChange>(), "AzColorInputOnValueChange"), (Layout::new::<AzColorInputOnValueChange>(), "AzColorInputOnValueChange"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputSelection>(), "AzTextInputSelection"), (Layout::new::<AzTextInputSelection>(), "AzTextInputSelection"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnTextInput>(), "AzTextInputOnTextInput"), (Layout::new::<AzTextInputOnTextInput>(), "AzTextInputOnTextInput"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnVirtualKeyDown>(), "AzTextInputOnVirtualKeyDown"), (Layout::new::<AzTextInputOnVirtualKeyDown>(), "AzTextInputOnVirtualKeyDown"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnFocusLost>(), "AzTextInputOnFocusLost"), (Layout::new::<AzTextInputOnFocusLost>(), "AzTextInputOnFocusLost"));
+        assert_eq!((Layout::new::<crate::widgets::OnTextInputReturn>(), "AzOnTextInputReturn"), (Layout::new::<AzOnTextInputReturn>(), "AzOnTextInputReturn"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnNumberInput>(), "AzNumberInputOnNumberInput"), (Layout::new::<AzNumberInputOnNumberInput>(), "AzNumberInputOnNumberInput"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
         assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
@@ -10106,6 +10639,13 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<crate::widgets::button::OptionButtonOnClick>(), "AzOptionButtonOnClick"), (Layout::new::<AzOptionButtonOnClick>(), "AzOptionButtonOnClick"));
+        assert_eq!((Layout::new::<crate::widgets::check_box::OptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"), (Layout::new::<AzOptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"), (Layout::new::<AzOptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnVirtualKeyDown>(), "AzOptionTextInputOnVirtualKeyDown"), (Layout::new::<AzOptionTextInputOnVirtualKeyDown>(), "AzOptionTextInputOnVirtualKeyDown"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnFocusLost>(), "AzOptionTextInputOnFocusLost"), (Layout::new::<AzOptionTextInputOnFocusLost>(), "AzOptionTextInputOnFocusLost"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputSelection>(), "AzOptionTextInputSelection"), (Layout::new::<AzOptionTextInputSelection>(), "AzOptionTextInputSelection"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::OptionNumberInputOnNumberInput>(), "AzOptionNumberInputOnNumberInput"), (Layout::new::<AzOptionNumberInputOnNumberInput>(), "AzOptionNumberInputOnNumberInput"));
         assert_eq!((Layout::new::<azul_impl::window::OptionMenuItemIcon>(), "AzOptionMenuItemIcon"), (Layout::new::<AzOptionMenuItemIcon>(), "AzOptionMenuItemIcon"));
         assert_eq!((Layout::new::<azul_impl::window::OptionMenuCallback>(), "AzOptionMenuCallback"), (Layout::new::<AzOptionMenuCallback>(), "AzOptionMenuCallback"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::OptionPositionInfo>(), "AzOptionPositionInfo"), (Layout::new::<AzOptionPositionInfo>(), "AzOptionPositionInfo"));
@@ -10159,9 +10699,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationEasing"), (Layout::new::<AzAnimationEasing>(), "AzAnimationEasing"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"), (Layout::new::<AzRenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInfo>(), "AzLayoutCallbackInfo"), (Layout::new::<AzLayoutCallbackInfo>(), "AzLayoutCallbackInfo"));
+        assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::window::Menu>(), "AzMenu"), (Layout::new::<AzMenu>(), "AzMenu"));
         assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"), (Layout::new::<AzVirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"));
-        assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
         assert_eq!((Layout::new::<azul_impl::css::InterpolateResolver>(), "AzInterpolateContext"), (Layout::new::<AzInterpolateContext>(), "AzInterpolateContext"));
@@ -10172,6 +10712,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"), (Layout::new::<AzStyleBackgroundPositionVecValue>(), "AzStyleBackgroundPositionVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"), (Layout::new::<AzStyleBackgroundRepeatVecValue>(), "AzStyleBackgroundRepeatVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
+        assert_eq!((Layout::new::<crate::widgets::CheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"), (Layout::new::<AzCheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputStateWrapper>(), "AzNumberInputStateWrapper"), (Layout::new::<AzNumberInputStateWrapper>(), "AzNumberInputStateWrapper"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
         assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
@@ -10215,11 +10757,11 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineWord>(), "AzInlineWord"), (Layout::new::<AzInlineWord>(), "AzInlineWord"));
-        assert_eq!((Layout::new::<azul_impl::window::StringMenuItem>(), "AzStringMenuItem"), (Layout::new::<AzStringMenuItem>(), "AzStringMenuItem"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityInfo>(), "AzAccessibilityInfo"), (Layout::new::<AzAccessibilityInfo>(), "AzAccessibilityInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
+        assert_eq!((Layout::new::<azul_impl::window::StringMenuItem>(), "AzStringMenuItem"), (Layout::new::<AzStringMenuItem>(), "AzStringMenuItem"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
@@ -10227,6 +10769,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyleValue>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecValue>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
+        assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputStateWrapper>(), "AzColorInputStateWrapper"), (Layout::new::<AzColorInputStateWrapper>(), "AzColorInputStateWrapper"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputState>(), "AzTextInputState"), (Layout::new::<AzTextInputState>(), "AzTextInputState"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
@@ -10265,6 +10809,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"), (Layout::new::<AzStyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInputStateWrapper>(), "AzTextInputStateWrapper"), (Layout::new::<AzTextInputStateWrapper>(), "AzTextInputStateWrapper"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
@@ -10295,6 +10840,12 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::FocusTarget>(), "AzFocusTarget"), (Layout::new::<AzFocusTarget>(), "AzFocusTarget"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeData>(), "AzNodeData"), (Layout::new::<AzNodeData>(), "AzNodeData"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclaration>(), "AzCssDeclaration"), (Layout::new::<AzCssDeclaration>(), "AzCssDeclaration"));
+        assert_eq!((Layout::new::<crate::widgets::button::Button>(), "AzButton"), (Layout::new::<AzButton>(), "AzButton"));
+        assert_eq!((Layout::new::<crate::widgets::check_box::CheckBox>(), "AzCheckBox"), (Layout::new::<AzCheckBox>(), "AzCheckBox"));
+        assert_eq!((Layout::new::<crate::widgets::label::Label>(), "AzLabel"), (Layout::new::<AzLabel>(), "AzLabel"));
+        assert_eq!((Layout::new::<crate::widgets::color_input::ColorInput>(), "AzColorInput"), (Layout::new::<AzColorInput>(), "AzColorInput"));
+        assert_eq!((Layout::new::<crate::widgets::text_input::TextInput>(), "AzTextInput"), (Layout::new::<AzTextInput>(), "AzTextInput"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInput>(), "AzNumberInput"), (Layout::new::<AzNumberInput>(), "AzNumberInput"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVec>(), "AzCssDeclarationVec"), (Layout::new::<AzCssDeclarationVec>(), "AzCssDeclarationVec"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataVec>(), "AzNodeDataVec"), (Layout::new::<AzNodeDataVec>(), "AzNodeDataVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));

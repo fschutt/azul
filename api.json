@@ -4915,11 +4915,11 @@
                 "Button": {
                     "external": "crate::widgets::button::Button",
                     "struct_fields": [
-                        {"label": "String"},
-                        {"image": "OptionImageRef"},
-                        {"container_style": "NodeDataInlineCssPropertyVec"},
-                        {"image_style": "NodeDataInlineCssPropertyVec"},
-                        {"on_click": "OptionButtonOnClick"}
+                        {"label": {"type": "String"}},
+                        {"image": {"type": "OptionImageRef"}},
+                        {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"image_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"on_click": {"type": "OptionButtonOnClick"}}
                     ],
                     "constructors": {
                         "new": {
@@ -4960,16 +4960,16 @@
                 "ButtonOnClick": {
                     "external": "crate::widgets::button::ButtonOnClick",
                     "struct_fields": [
-                        {"data": "RefAny"},
-                        {"callback": "Callback"}
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "Callback"}}
                     ]
                 },
                 "CheckBox": {
                     "external": "crate::widgets::check_box::CheckBox",
                     "struct_fields": [
-                        {"state": "CheckBoxStateWrapper"},
-                        {"container_style": "NodeDataInlineCssPropertyVec"},
-                        {"content_style": "NodeDataInlineCssPropertyVec"}
+                        {"state": {"type": "CheckBoxStateWrapper"}},
+                        {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"content_style": {"type": "NodeDataInlineCssPropertyVec"}}
                     ],
                     "constructors": {
                         "new": {
@@ -5010,21 +5010,21 @@
                 "CheckBoxStateWrapper": {
                     "external": "crate::widgets::CheckBoxStateWrapper",
                     "struct_fields": [
-                        {"inner": "CheckBoxState"},
-                        {"on_toggle": "OptionCheckBoxOnToggle"}
+                        {"inner": {"type": "CheckBoxState"}},
+                        {"on_toggle": {"type": "OptionCheckBoxOnToggle"}}
                     ]
                 },
                 "CheckBoxOnToggle": {
                     "external": "crate::widgets::check_box::CheckBoxOnToggle",
                     "struct_fields": [
-                        {"data": "RefAny"}
-                        {"callback": "CheckBoxOnToggleCallback"}
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "CheckBoxOnToggleCallback"}}
                     ]
                 },
                 "CheckBoxOnToggleCallback": {
                     "external": "crate::widgets::check_box::CheckBoxOnToggleCallback",
                     "struct_fields": [
-                        {"cb": "CheckBoxOnToggleCallbackType"}
+                        {"cb": {"type": "CheckBoxOnToggleCallbackType"}}
                     ]
                 },
                 "CheckBoxOnToggleCallbackType": {
@@ -5040,22 +5040,22 @@
                 "CheckBoxState": {
                     "external": "crate::widgets::check_box::CheckBoxState",
                     "struct_fields": [
-                        {"checked": "bool"}
+                        {"checked": {"type": "bool"}}
                     ]
                 },
                 "Label": {
                     "external": "crate::widgets::label::Label",
                     "struct_fields": [
-                        {"text": "String"},
-                        {"style": "NodeDataInlineCssPropertyVec"}
+                        {"text": {"type": "String"}},
+                        {"style": {"type": "NodeDataInlineCssPropertyVec"}}
                     ],
                     "constructors": {
                         "new": {
                             "fn_args": [
                                 {"text": "String"}
-                            ]
-                        },
-                        "fn_body": "AzLabel::new(text)"
+                            ],
+                            "fn_body": "AzLabel::new(text)"
+                        }
                     },
                     "functions": {
                         "dom": {
@@ -5070,13 +5070,13 @@
                 "ColorInput": {
                     "external": "crate::widgets::color_input::ColorInput",
                     "struct_fields": [
-                        {"state": "ColorInputStateWrapper"},
-                        {"style": "NodeDataInlineCssPropertyVec"}
+                        {"state": {"type": "ColorInputStateWrapper"}},
+                        {"style": {"type": "NodeDataInlineCssPropertyVec"}}
                     ],
                     "constructors": {
                         "new": {
                             "fn_args": [
-                                {"color": "ColorU"},
+                                {"color": "ColorU"}
                             ],
                             "fn_body": "AzColorInput::new(color)"
                         }
@@ -5084,6 +5084,7 @@
                     "functions": {
                         "set_on_value_change": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "ColorInputOnValueChangeCallbackType"}
                             ],
@@ -5091,6 +5092,7 @@
                         },
                         "with_on_value_change": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "ColorInputOnValueChangeCallbackType"}
                             ],
@@ -5107,21 +5109,30 @@
                     }
                 },
                 "ColorInputStateWrapper": {
+                    "external": "crate::widgets::color_input::ColorInputStateWrapper",
                     "struct_fields": [
-                        {"inner": "ColorInputState"},
-                        {"title": "String"},
-                        {"on_value_change": "ColorInputOnValueChange"}
+                        {"inner": {"type": "ColorInputState"}},
+                        {"title": {"type": "String"}},
+                        {"on_value_change": {"type": "ColorInputOnValueChange"}}
+                    ]
+                },
+                "ColorInputState": {
+                    "external": "crate::widgets::color_input::ColorInputState",
+                    "struct_fields": [
+                        {"color": {"type": "ColorU"}}
                     ]
                 },
                 "ColorInputOnValueChange": {
+                    "external": "crate::widgets::color_input::ColorInputOnValueChange",
                     "struct_fields": [
-                        {"data": "RefAny"},
-                        {"callback": "ColorInputOnValueChangeCallback"}
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "ColorInputOnValueChangeCallback"}}
                     ]
                 },
                 "ColorInputOnValueChangeCallback": {
+                    "external": "crate::widgets::color_input::ColorInputOnValueChangeCallback",
                     "struct_fields": [
-                        {"cb": "ColorInputOnValueChangeCallbackType"}
+                        {"cb": {"type": "ColorInputOnValueChangeCallbackType"}}
                     ]
                 },
                 "ColorInputOnValueChangeCallbackType": {
@@ -5137,10 +5148,10 @@
                 "TextInput": {
                     "external": "crate::widgets::text_input::TextInput",
                     "struct_fields": [
-                        {"state": "TextInputStateWrapper"},
-                        {"placeholder_style": "NodeDataInlineCssPropertyVec"},
-                        {"container_style": "NodeDataInlineCssPropertyVec"},
-                        {"label_style": "NodeDataInlineCssPropertyVec"}
+                        {"state": {"type": "TextInputStateWrapper"}},
+                        {"placeholder_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"label_style": {"type": "NodeDataInlineCssPropertyVec"}}
                     ],
                     "constructors": {
                         "new": {
@@ -5153,6 +5164,7 @@
                     "functions": {
                         "set_on_text_input": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "TextInputOnTextInputCallbackType"}
                             ],
@@ -5160,6 +5172,7 @@
                         },
                         "with_on_text_input": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "TextInputOnTextInputCallbackType"}
                             ],
@@ -5168,6 +5181,7 @@
                         },
                         "set_on_virtual_key_down": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "TextInputOnVirtualKeyDownCallbackType"}
                             ],
@@ -5175,6 +5189,7 @@
                         },
                         "with_on_virtual_key_down": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "TextInputOnVirtualKeyDownCallbackType"}
                             ],
@@ -5183,6 +5198,7 @@
                         },
                         "set_on_focus_lost": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "TextInputOnFocusLostCallbackType"}
                             ],
@@ -5190,6 +5206,7 @@
                         },
                         "with_on_focus_lost": {
                             "fn_args": [
+                                {"self": "refmut"},
                                 {"data": "RefAny"},
                                 {"callback": "TextInputOnFocusLostCallbackType"}
                             ],
@@ -5198,39 +5215,45 @@
                         },
                         "set_placeholder_style": {
                             "fn_args": [
-                                {"placeholder_style": "NodeDataInlineCssPropertyVec"},
+                                {"self": "refmut"},
+                                {"placeholder_style": "NodeDataInlineCssPropertyVec"}
                             ],
                             "fn_body": "textinput.set_placeholder_style(placeholder_style)"
                         },
                         "with_placeholder_style": {
                             "fn_args": [
-                                {"placeholder_style": "NodeDataInlineCssPropertyVec"},
+                                {"self": "refmut"},
+                                {"placeholder_style": "NodeDataInlineCssPropertyVec"}
                             ],
                             "returns": {"type": "TextInput"},
                             "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_placeholder_style(placeholder_style); textinput"
                         },
                         "set_container_style": {
                             "fn_args": [
-                                {"container_style": "NodeDataInlineCssPropertyVec"},
+                                {"self": "refmut"},
+                                {"container_style": "NodeDataInlineCssPropertyVec"}
                             ],
                             "fn_body": " textinput.set_container_style(placeholder_style)"
                         },
                         "with_container_style": {
                             "fn_args": [
-                                {"container_style": "NodeDataInlineCssPropertyVec"},
+                                {"self": "refmut"},
+                                {"container_style": "NodeDataInlineCssPropertyVec"}
                             ],
                             "returns": {"type": "TextInput"},
                             "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_container_style(placeholder_style); textinput"
                         },
                         "set_label_style": {
                             "fn_args": [
-                                {"container_style": "NodeDataInlineCssPropertyVec"},
+                                {"self": "refmut"},
+                                {"container_style": "NodeDataInlineCssPropertyVec"}
                             ],
                             "fn_body": "textinput.set_container_style(placeholder_style)"
                         },
                         "with_label_style": {
                             "fn_args": [
-                                {"label_style": "NodeDataInlineCssPropertyVec"},
+                                {"self": "refmut"},
+                                {"label_style": "NodeDataInlineCssPropertyVec"}
                             ],
                             "returns": {"type": "TextInput"},
                             "fn_body": "let mut textinput = textinput.swap_with_default(); textinput.set_label_style(placeholder_style); textinput"
@@ -5247,35 +5270,49 @@
                 "TextInputStateWrapper": {
                     "external": "crate::widgets::text_input::TextInputStateWrapper",
                     "struct_fields": [
-                        {"inner": "TextInputState"},
-                        {"on_text_input": "OptionTextInputOnTextInput"},
-                        {"on_virtual_key_down": "OptionTextInputOnVirtualKeyDown"},
-                        {"on_focus_lost": "OptionTextInputOnFocusLost"},
-                        {"update_text_input_before_calling_focus_lost_fn": "bool"},
-                        {"update_text_input_before_calling_vk_down_fn": "bool"}
+                        {"inner": {"type": "TextInputState"}},
+                        {"on_text_input": {"type": "OptionTextInputOnTextInput"}},
+                        {"on_virtual_key_down": {"type": "OptionTextInputOnVirtualKeyDown"}},
+                        {"on_focus_lost": {"type": "OptionTextInputOnFocusLost"}},
+                        {"update_text_input_before_calling_focus_lost_fn": {"type": "bool"}},
+                        {"update_text_input_before_calling_vk_down_fn": {"type": "bool"}}
                     ]
                 },
                 "TextInputState": {
                     "external": "crate::widgets::text_input::TextInputState",
                     "struct_fields": [
-                        {"text": "CharVec"},
-                        {"placeholder": "OptionString"},
-                        {"max_len": "usize"},
-                        {"selection": "OptionTextInputSelection"},
-                        {"cursor_pos": "usize"}
+                        {"text": {"type": "U32Vec"}},
+                        {"placeholder": {"type": "OptionString"}},
+                        {"max_len": {"type": "usize"}},
+                        {"selection": {"type": "OptionTextInputSelection"}},
+                        {"cursor_pos": {"type": "usize"}}
+                    ]
+                },
+                "TextInputSelection": {
+                    "external": "crate::widgets::text_input::TextInputSelection",
+                    "enum_fields": [
+                        {"All": {}},
+                        {"FromTo": {"type": "TextInputSelectionRange"}}
+                    ]
+                },
+                "TextInputSelectionRange": {
+                    "external": "crate::widgets::text_input::TextInputSelectionRange",
+                    "struct_fields": [
+                        {"from": {"type": "usize"}},
+                        {"to": {"type": "usize"}}
                     ]
                 },
                 "TextInputOnTextInput": {
                     "external": "crate::widgets::text_input::TextInputOnTextInput",
                     "struct_fields": [
-                        {"data": "RefAny"},
-                        {"callback": "TextInputOnTextInputCallback"}
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "TextInputOnTextInputCallback"}}
                     ]
                 },
                 "TextInputOnTextInputCallback": {
                     "external": "crate::widgets::text_input::TextInputOnTextInputCallback",
                     "struct_fields": [
-                        {"cb": "TextInputOnTextInputCallbackType"}
+                        {"cb": {"type": "TextInputOnTextInputCallbackType"}}
                     ]
                 },
                 "TextInputOnTextInputCallbackType": {
@@ -5291,14 +5328,14 @@
                 "TextInputOnVirtualKeyDown": {
                     "external": "crate::widgets::text_input::TextInputOnVirtualKeyDown",
                     "struct_fields": [
-                        {"data": "RefAny"},
-                        {"callback": "TextInputOnVirtualKeyDownCallback"}
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "TextInputOnVirtualKeyDownCallback"}}
                     ]
                 },
                 "TextInputOnVirtualKeyDownCallback": {
                     "external": "crate::widgets::text_input::TextInputOnVirtualKeyDownCallback",
                     "struct_fields": [
-                        {"cb": "TextInputOnVirtualKeyDownCallbackType"}
+                        {"cb": {"type": "TextInputOnVirtualKeyDownCallbackType"}}
                     ]
                 },
                 "TextInputOnVirtualKeyDownCallbackType": {
@@ -5314,14 +5351,14 @@
                 "TextInputOnFocusLost": {
                     "external": "crate::widgets::text_input::TextInputOnFocusLost",
                     "struct_fields": [
-                        {"data": "RefAny"},
-                        {"callback": "TextInputOnFocusLostCallback"}
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "TextInputOnFocusLostCallback"}}
                     ]
                 },
                 "TextInputOnFocusLostCallback": {
                     "external": "crate::widgets::text_input::TextInputOnFocusLostCallback",
                     "struct_fields": [
-                        {"cb": "TextInputOnFocusLostCallbackType"}
+                        {"cb": {"type": "TextInputOnFocusLostCallbackType"}}
                     ]
                 },
                 "TextInputOnFocusLostCallbackType": {
@@ -5337,8 +5374,8 @@
                 "OnTextInputReturn": {
                     "external": "crate::widgets::OnTextInputReturn",
                     "struct_fields": [
-                        {"update": "Update"},
-                        {"valid": "TextInputValid"}
+                        {"update": {"type": "Update"}},
+                        {"valid": {"type": "TextInputValid"}}
                     ]
                 },
                 "TextInputValid": {
@@ -5350,10 +5387,60 @@
                 },
                 "NumberInput": {
                     "external": "crate::widgets::number_input::NumberInput",
-/*
-pub text_input: TextInput,
-pub state: NumberInputStateWrapper,
-*/
+                    "struct_fields": [
+                        {"text_input": {"type": "TextInput"}},
+                        {"state": {"type": "NumberInputStateWrapper"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"number": "f32"}
+                            ],
+                            "fn_body": "AzNumberInput::new(number)"
+                        }
+                    },
+                    "functions": {
+
+                    }
+                },
+                "NumberInputStateWrapper": {
+                    "external": "crate::widgets::number_input::NumberInputStateWrapper",
+                    "struct_fields": [
+                        {"inner": {"type": "NumberInputState"}},
+                        {"on_value_change": {"type": "OptionNumberInputOnNumberInput"}}
+                    ]
+                },
+                "NumberInputState": {
+                    "external": "crate::widgets::number_input::NumberInputState",
+                    "struct_fields": [
+                        {"previous": {"type": "f32"}},
+                        {"number": {"type": "f32"}},
+                        {"min": {"type": "f32"}},
+                        {"max": {"type": "f32"}}
+                    ]
+                },
+                "NumberInputOnNumberInput": {
+                    "external": "crate::widgets::number_input::NumberInputOnNumberInput",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NumberInputOnNumberInputCallback"}}
+                    ]
+                },
+                "NumberInputOnNumberInputCallback": {
+                    "external": "crate::widgets::number_input::NumberInputOnNumberInputCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NumberInputOnNumberInputCallbackType"}}
+                    ]
+                },
+                "NumberInputOnNumberInputCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "NumberInputState", "ref": "ref"},
+                            {"type": "CallbackInfo", "ref": "refmut"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
                 }
             }
         },
@@ -12342,6 +12429,55 @@ pub state: NumberInputStateWrapper,
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionButtonOnClick": {
+                    "external": "crate::widgets::button::OptionButtonOnClick",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "ButtonOnClick"}}
+                    ]
+                },
+                "OptionCheckBoxOnToggle": {
+                    "external": "crate::widgets::check_box::OptionCheckBoxOnToggle",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "CheckBoxOnToggle"}}
+                    ]
+                },
+                "OptionTextInputOnTextInput": {
+                    "external": "crate::widgets::text_input::OptionTextInputOnTextInput",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "TextInputOnTextInput"}}
+                    ]
+                },
+                "OptionTextInputOnVirtualKeyDown": {
+                    "external": "crate::widgets::text_input::OptionTextInputOnVirtualKeyDown",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "TextInputOnVirtualKeyDown"}}
+                    ]
+                },
+                "OptionTextInputOnFocusLost": {
+                    "external": "crate::widgets::text_input::OptionTextInputOnFocusLost",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "TextInputOnFocusLost"}}
+                    ]
+                },
+                "OptionTextInputSelection": {
+                    "external": "crate::widgets::text_input::OptionTextInputSelection",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "TextInputSelection"}}
+                    ]
+                },
+                "OptionNumberInputOnNumberInput": {
+                    "external": "crate::widgets::number_input::OptionNumberInputOnNumberInput",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NumberInputOnNumberInput"}}
+                    ]
+                },
                 "OptionMenuItemIcon": {
                     "external": "azul_impl::window::OptionMenuItemIcon",
                     "enum_fields": [

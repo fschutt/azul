@@ -47,9 +47,6 @@ pyo3-log = { version = "0.3.1", default-features = false, optional = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-azul-web = { path = "../azul-web", version = "0.0.5", default-features = false }
-
 [build-dependencies]
 tar = "0.4"
 flate2 = "1.0.14"
