@@ -1081,14 +1081,38 @@ def generate_python_api(api_data, structs_map, functions_map):
 
     # Functions that have to be implemented manually
     manual_implementations = [
-        ("app", "App", "new"),
-        ("window", "WindowCreateOptions", "new"),
-        ("window", "WindowState", "new"),
+
+        ("app", "App", "new"), # ok: replaced
+        ("window", "WindowCreateOptions", "new"), # ok: replaced
+        ("window", "WindowState", "new"), # ok: replaced
+
         ("task", "Timer", "new"),
-        ("callbacks", "RefAny", "new_c"), # unnecessary, use PyAny
+        ("callbacks", "CallbackInfo", "start_thread"),
+        ("dom", "Dom", "iframe"),
+        ("dom", "Dom", "set_dataset"),
+        ("dom", "Dom", "with_dataset"),
+        ("dom", "NodeData", "iframe"),
+        ("dom", "NodeData", "set_dataset"),
+        ("dom", "NodeData", "with_dataset"),
+        ("widgets", "Button", "set_on_click"),
+        ("widgets", "Button", "with_on_click"),
+        ("widgets", "CheckBox", "set_on_toggle"),
+        ("widgets", "CheckBox", "with_on_toggle"),
+        ("widgets", "ColorInput", "set_on_value_change"),
+        ("widgets", "ColorInput", "with_on_value_change"),
+        ("widgets", "TextInput", "set_on_text_input"),
+        ("widgets", "TextInput", "with_on_text_input"),
+        ("widgets", "TextInput", "set_on_virtual_key_down"),
+        ("widgets", "TextInput", "with_on_virtual_key_down"),
+        ("widgets", "TextInput", "set_on_focus_lost"),
+        ("widgets", "TextInput", "with_on_focus_lost"),
+        ("image", "ImageRef", "callback"),
 
         # unnecessary due to Python string wrappers
         ("str", "String", "as_refstr"),
+        ("str", "String", "copy_from_bytes"),
+        ("vec", "U8Vec", "copy_from_bytes"),
+        ("callbacks", "RefAny", "new_c"), # unnecessary, use PyAny
         ("vec", "TesselatedSvgNodeVec", "as_ref_vec"),
         ("vec", "U8Vec", "as_ref_vec"),
     ]
@@ -1184,6 +1208,11 @@ def generate_python_api(api_data, structs_map, functions_map):
         "ThreadReceiverDestructorFn": {},
         "ThreadSenderDestructorFn": {},
         "FontMetrics": {},
+        "ColorInputOnValueChangeCallback": {},
+        "TextInputOnTextInputCallback": {},
+        "TextInputOnVirtualKeyDownCallback": {},
+        "TextInputOnFocusLostCallback": {},
+        "NumberInputOnValueChangeCallback": {},
     }
 
     python_replacements = {
@@ -1323,6 +1352,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                             analyzed = analyze_type(arg_type)
                             if len(analyzed[0]) != 0 or arg_type == "RefAny":
                                 break_outer_flag = True
+                                raise Exception("function " + class_name + " " + constructor_name + " cannot take RefAny as argument in Python API")
                                 continue # no constructor can take pointers in the Python API
                         if break_outer_flag:
                             continue # break outer loop
@@ -1422,6 +1452,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                             arg_type = f[arg_name]
                             analyzed = analyze_type(arg_type)
                             if len(analyzed[0]) != 0 or arg_type == "RefAny":
+                                raise Exception("function " + class_name + " " + function_name + " cannot take RefAny as argument in Python API")
                                 break_outer_flag = True
                                 continue # no constructor can take pointers in the Python API
                         if break_outer_flag:

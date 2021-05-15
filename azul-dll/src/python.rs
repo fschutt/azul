@@ -19639,12 +19639,6 @@ impl PyObjectProtocol for AzColorInputOnValueChange {
 
 #[pymethods]
 impl AzColorInputOnValueChangeCallback {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]
@@ -19834,12 +19828,6 @@ impl PyObjectProtocol for AzTextInputOnTextInput {
 
 #[pymethods]
 impl AzTextInputOnTextInputCallback {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]
@@ -19876,12 +19864,6 @@ impl PyObjectProtocol for AzTextInputOnVirtualKeyDown {
 
 #[pymethods]
 impl AzTextInputOnVirtualKeyDownCallback {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]
@@ -19918,12 +19900,6 @@ impl PyObjectProtocol for AzTextInputOnFocusLost {
 
 #[pymethods]
 impl AzTextInputOnFocusLostCallback {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]
@@ -20066,12 +20042,6 @@ impl PyObjectProtocol for AzNumberInputOnValueChange {
 
 #[pymethods]
 impl AzNumberInputOnValueChangeCallback {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]
