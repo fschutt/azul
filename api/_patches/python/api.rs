@@ -430,6 +430,7 @@ extern "C" fn invoke_python_callback(data: &mut azul_impl::callbacks::RefAny, in
     // call callback into python
     let s: azul_impl::callbacks::Update = Python::with_gil(|py| {
         let info: AzCallbackInfo = unsafe { mem::transmute(info) };
+
         match py_function.call1(py.clone(), (py_data.clone_ref(py.clone()), info)) {
             Ok(o) => match o.as_ref(py).extract::<AzUpdateEnumWrapper>() {
                 Ok(o) => unsafe { mem::transmute(o.clone()) },

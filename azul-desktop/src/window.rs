@@ -59,6 +59,8 @@ use azul_css::{LayoutPoint, AzString, OptionAzString, LayoutSize};
 use glutin::monitor::MonitorHandle as WinitMonitorHandle;
 pub use azul_core::window::*;
 use rust_fontconfig::FcFontCache;
+#[cfg(target_os = "windows")]
+use winapi::shared::windef::HMENU;
 
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
@@ -311,6 +313,12 @@ pub struct Window {
     /// the `renderer` gets destroyed before the other fields do, that is why the
     /// renderer can be `None`
     pub(crate) renderer: Option<WrRenderer>,
+    /// Optional menu bar attached to the top of the window
+    #[cfg(target_os = "windows")]
+    pub(crate) menu_bar: Option<HMENU>,
+    /// Optional context popup menu that is currently open
+    #[cfg(target_os = "windows")]
+    pub(crate) context_menu: Option<HMENU>,
 }
 
 impl Window {
@@ -571,6 +579,12 @@ impl Window {
             // software_gl,
             hardware_gl,
             internal,
+            /// Optional menu bar attached to the top of the window
+            #[cfg(target_os = "windows")]
+            menu_bar: None,
+            /// Optional context popup menu that is currently open
+            #[cfg(target_os = "windows")]
+            context_menu: None,
         };
 
         let mut txn = WrTransaction::new();

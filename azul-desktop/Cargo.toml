@@ -30,6 +30,9 @@ rust-fontconfig         = { version = "0.1.5", default-features = false, feature
 strfmt                  = { version = "0.1.6", default-features = false }
 coarsetime              = { version = "0.1.19", default-features = false }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi                  = { version = "0.3.9", default-features = false, features = ["winuser"] }
+
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 webrender = { git = "https://github.com/servo/webrender", rev = "19aca39f3d520449f82f8b736b0f70358a1440d5", default-features = false }
 

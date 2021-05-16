@@ -185,6 +185,7 @@ dependencies = [
  "strfmt",
  "tinyfiledialogs",
  "webrender",
+ "winapi 0.3.9",
 ]
 
 [[package]]

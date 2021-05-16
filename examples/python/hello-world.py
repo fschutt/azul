@@ -12,7 +12,7 @@ class DataModel:
 def my_layout_func(data, info):
     label = Label("{}".format(data.counter))
     button = Button("Update counter")
-    # button.set_on_click(data, my_on_click)
+    button.set_on_click(data, my_on_click)
 
     dom = Dom.body()
     dom.add_child(label.dom())
@@ -24,12 +24,9 @@ def my_layout_func(data, info):
 def my_on_click(data, info):
     data.counter += 1;
 
-    # tell azul to call the myLayoutFunc again
+    # tell azul to call the my_layout_func again
     return Update.RefreshDom
 
-def main():
-    model = DataModel(5)
-    app = App(model, AppConfig(LayoutSolver.Default))
-    app.run(WindowCreateOptions(my_layout_func))
-
-main()
+model = DataModel(5)
+app = App(model, AppConfig(LayoutSolver.Default))
+app.run(WindowCreateOptions(my_layout_func))

@@ -1086,10 +1086,6 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("window", "WindowCreateOptions", "new"), # ok: replaced
         ("window", "WindowState", "new"), # ok: replaced
 
-        ("task", "Timer", "new"),
-        ("callbacks", "CallbackInfo", "start_thread"),
-        ("image", "ImageRef", "callback"),
-
         ("dom", "Dom", "iframe"), # ok: replaced
         ("dom", "Dom", "set_dataset"), # ok: replaced
         ("dom", "Dom", "with_dataset"), # ok: replaced
@@ -1102,8 +1098,13 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("dom", "NodeData", "set_dataset"), # ok: replaced
         ("dom", "NodeData", "with_dataset"), # ok: replaced
 
-        ("widgets", "Button", "set_on_click"),
-        ("widgets", "Button", "with_on_click"),
+        ("widgets", "Button", "set_on_click"), # ok: replaced
+        ("widgets", "Button", "with_on_click"), # ok: replaced
+
+        ("task", "Timer", "new"),
+        ("callbacks", "CallbackInfo", "start_thread"),
+        ("image", "ImageRef", "callback"),
+
         ("widgets", "CheckBox", "set_on_toggle"),
         ("widgets", "CheckBox", "with_on_toggle"),
         ("widgets", "ColorInput", "set_on_value_change"),
@@ -1128,6 +1129,7 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("app", "App"): read_file(root_folder + "/api/_patches/python/app.rs"),
         ("dom", "Dom"): read_file(root_folder + "/api/_patches/python/dom.rs"),
         ("dom", "NodeData"): read_file(root_folder + "/api/_patches/python/nodedata.rs"),
+        ("widgets", "Button"): read_file(root_folder + "/api/_patches/python/button.rs"),
         ("callbacks", "LayoutCallback"): read_file(root_folder + "/api/_patches/python/layout_callback.rs"),
         ("window", "WindowCreateOptions"): read_file(root_folder + "/api/_patches/python/window_create_options.rs"),
         ("window", "WindowState"): read_file(root_folder + "/api/_patches/python/window_state.rs"),
