@@ -832,10 +832,18 @@ pub use AzMenuTT as AzMenu;
 /// Item entry in a menu or menu bar
 pub type AzMenuItemTT = azul_impl::window::MenuItem;
 pub use AzMenuItemTT as AzMenuItem;
+/// Creates a new menu item
+#[no_mangle] pub extern "C" fn AzMenuItem_new(label: AzString, callback: AzOptionMenuCallback) -> AzMenuItem { AzMenuItem::String(AzStringMenuItem { label, accelerator: None.into(), callback, state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() }) }
 
 /// Regular labeled menu item
 pub type AzStringMenuItemTT = azul_impl::window::StringMenuItem;
 pub use AzStringMenuItemTT as AzStringMenuItem;
+/// Creates a new menu item
+#[no_mangle] pub extern "C" fn AzStringMenuItem_new(label: AzString) -> AzStringMenuItem { AzStringMenuItem { label, accelerator: None.into(), callback: None.into(), state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() } }
+/// Adds a child submenu to the current menu
+#[no_mangle] pub extern "C" fn AzStringMenuItem_addChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) { let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); }
+/// Adds a child submenu to the current menu
+#[no_mangle] pub extern "C" fn AzStringMenuItem_withChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem }
 
 /// Combination of virtual key codes that have to be pressed together
 pub type AzVirtualKeyCodeComboTT = azul_impl::window::VirtualKeyCodeCombo;

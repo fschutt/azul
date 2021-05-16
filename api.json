@@ -2969,7 +2969,17 @@
                         {"Label": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
                         {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
                         {"BreakLine": {"doc": "Breaks items in a menu onto separate lines, usually only rendered in horizontal menu bars"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "new": {
+                            "doc": "Creates a new menu item",
+                            "fn_args": [
+                                {"label": "String"},
+                                {"callback": "OptionMenuCallback"}
+                            ],
+                            "fn_body": "AzMenuItem::String(AzStringMenuItem { label, accelerator: None.into(), callback, state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() })"
+                        }
+                    }
                 },
                 "StringMenuItem": {
                     "doc": "Regular labeled menu item",
@@ -2981,7 +2991,35 @@
                         {"state": {"type": "MenuItemState", "doc": "State of the menu entry (normal, greyed, disabled)"}},
                         {"icon": {"type": "OptionMenuItemIcon", "doc": "Optional icon (checkbox or custom image) of the menu entry"}},
                         {"children": {"type": "MenuItemVec", "doc": "Sub-menus of the window (empty by default)"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "new": {
+                            "doc": "Creates a new menu item",
+                            "fn_args": [
+                                {"label": "String"}
+                            ],
+                            "fn_body": "AzStringMenuItem { label, accelerator: None.into(), callback: None.into(), state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() }"
+                        }
+                    },
+                    "functions": {
+                        "add_child": {
+                            "doc": "Adds a child submenu to the current menu",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"child": "MenuItem"}
+                            ],
+                            "fn_body": "let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into();"
+                        },
+                        "with_child": {
+                            "doc": "Adds a child submenu to the current menu",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"child": "MenuItem"}
+                            ],
+                            "returns": {"type": "StringMenuItem"},
+                            "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem"
+                        }
+                    }
                 },
                 "VirtualKeyCodeCombo": {
                     "doc": "Combination of virtual key codes that have to be pressed together",

@@ -484,7 +484,7 @@ fn run_inner(app: App) -> ! {
                             }
 
                             if changes.did_resize_nodes() {
-                                window.force_synchronize_hit_tester_during();
+                                // window.force_synchronize_hit_tester_during();
                             }
 
                             if let Some(focus_change) = changes.focus_change {
@@ -497,7 +497,7 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
-                            window.force_synchronize_hit_tester_during();
+                            // window.force_synchronize_hit_tester_during();
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         Update::RegenerateStyledDomForAllWindows => {
@@ -620,7 +620,7 @@ fn run_inner(app: App) -> ! {
                             }
 
                             if changes.did_resize_nodes() {
-                                window.force_synchronize_hit_tester_during();
+                                // window.force_synchronize_hit_tester_during();
                             }
 
                             if let Some(focus_change) = changes.focus_change {
@@ -633,7 +633,7 @@ fn run_inner(app: App) -> ! {
                             window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                             window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
-                            window.force_synchronize_hit_tester_during();
+                            // window.force_synchronize_hit_tester_during();
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         },
                         Update::RegenerateStyledDomForAllWindows => {
@@ -693,7 +693,7 @@ fn run_inner(app: App) -> ! {
                         window.regenerate_styled_dom(&mut data, &image_cache, &mut resource_updates, &mut fc_cache);
                         window.rebuild_display_list(&mut transaction, &image_cache, resource_updates);
                         window.render_async(transaction, /* display list was rebuilt */ true);
-                        window.force_synchronize_hit_tester_during();
+                        // window.force_synchronize_hit_tester_during();
                         window.internal.current_window_state.focused_node = None; // unset the focus
                     }
                 }
@@ -710,16 +710,40 @@ fn run_inner(app: App) -> ! {
                     None => {return; },
                 };
 
-                window.display.window().set_visible(window.internal.current_window_state.flags.is_visible);
-                #[cfg(target_os = "windows")] {
-                    // workaround for windows bug: window cannot be maximized without being visible
-                    if window.internal.current_window_state.flags.is_maximized {
-                        window.display.window().set_maximized(true);
+                if let Some(lock) = window.frame_lock.clone() {
+                    if lock {
+                        // frame is currently rendering, skip frame and try again
+                        window.display.window().request_redraw();
+                    } else {
+                        // frame finished rendering should be swapped
+                        window.display.window().set_visible(window.internal.current_window_state.flags.is_visible);
+                        #[cfg(target_os = "windows")] {
+                            // workaround for windows bug: window cannot be maximized without being visible
+                            if window.internal.current_window_state.flags.is_maximized {
+                                window.display.window().set_maximized(true);
+                            }
+                        }
+                        window.render_block_and_swap();
+                        window.frame_lock = None;
                     }
                 }
 
                 *control_flow = ControlFlow::Wait;
                 return;
+            },
+            Event::WindowEvent { event: GlutinWindowEvent::Command(c), window_id } => {
+                println!("got command from menu: {}", c);
+
+                let window = match active_windows.get_mut(&window_id) {
+                    Some(s) => s,
+                    None => { return; },
+                };
+
+                // if let Some(update) = window.invoke_menubar_callback(c, CallbackInfo { ... }) {
+                    //
+                // } else if let Some(update) = window.invoke_context_menu_callback(c, CallbackInfo { ... }) {
+                    //
+                // }
             },
             Event::WindowEvent { event, window_id } => {
 
@@ -781,7 +805,6 @@ fn run_inner(app: App) -> ! {
                     // previous_window_state = current_window_state, nothing to do
                     if (events.is_empty() && !is_first_frame) || layout_callback_changed { break; }
 
-                    let scroll_event = window.internal.current_window_state.get_scroll_amount();
                     let nodes_to_check = NodesToCheck::new(&hit_test, &events);
                     let mut callback_results = fc_cache.apply_closure(|fc_cache| {
                         window.call_callbacks(
@@ -944,7 +967,7 @@ fn run_inner(app: App) -> ! {
                 }
 
                 if need_refresh_hit_test {
-                    window.force_synchronize_hit_tester_during();
+                    // window.force_synchronize_hit_tester_during();
                 }
             },
             Event::UserEvent(UserEvent { window_id, composite_needed: _ }) => {
@@ -955,9 +978,17 @@ fn run_inner(app: App) -> ! {
                 };
 
                 // transaction has finished, now render
-                window.render_block_and_swap();
+                window.force_synchronize_hit_tester_during();
+                window.frame_lock = Some(false); // set the window to start rendering
+                window.display.window().request_redraw();
                 *control_flow = ControlFlow::Wait;
                 return;
+            },
+            Event::MainEventsCleared |
+            Event::NewEvents(StartCause::Init) => {
+                for w in active_windows.values() {
+                    w.display.window().request_redraw();
+                }
             },
             _ => { },
         }
@@ -1449,6 +1480,7 @@ fn process_window_event(
             // TODO!
         },
         GlutinWindowEvent::Destroyed => { },
+        GlutinWindowEvent::Command(_) => { }, // handled before this function
     }
 }
 

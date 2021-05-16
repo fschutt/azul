@@ -1101,6 +1101,9 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("widgets", "Button", "set_on_click"), # ok: replaced
         ("widgets", "Button", "with_on_click"), # ok: replaced
 
+        # menu, MenuItem, with_callback
+        # menu, StringMenuItem, with_callback
+
         ("task", "Timer", "new"),
         ("callbacks", "CallbackInfo", "start_thread"),
         ("image", "ImageRef", "callback"),

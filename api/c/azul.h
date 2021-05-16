@@ -10799,6 +10799,10 @@ extern DLLIMPORT void AzNodeData_setMenuBar(AzNodeData* restrict nodedata, AzMen
 extern DLLIMPORT void AzNodeData_setContextMenu(AzNodeData* restrict nodedata, AzMenu  context_menu);
 extern DLLIMPORT uint64_t AzNodeData_hash(AzNodeData* const nodedata);
 extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
+extern DLLIMPORT AzMenuItem AzMenuItem_new(AzString  label, AzOptionMenuCallback  callback);
+extern DLLIMPORT AzStringMenuItem AzStringMenuItem_new(AzString  label);
+extern DLLIMPORT void AzStringMenuItem_addChild(AzStringMenuItem* restrict stringmenuitem, AzMenuItem  child);
+extern DLLIMPORT AzStringMenuItem AzStringMenuItem_withChild(AzStringMenuItem* restrict stringmenuitem, AzMenuItem  child);
 extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
 extern DLLIMPORT AzColorU AzColorU_fromStr(AzString  string);

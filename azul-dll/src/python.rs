@@ -15454,17 +15454,24 @@ impl PyObjectProtocol for AzMenuItemEnumWrapper {
 #[pymethods]
 impl AzStringMenuItem {
     #[new]
-    fn __new__(label: AzString, accelerator: AzOptionVirtualKeyCodeComboEnumWrapper, callback: AzOptionMenuCallbackEnumWrapper, state: AzMenuItemStateEnumWrapper, icon: AzOptionMenuItemIconEnumWrapper, children: AzMenuItemVec) -> Self {
-        Self {
-            label,
-            accelerator,
-            callback,
-            state,
-            icon,
-            children,
-        }
+    fn new(label: String) -> AzStringMenuItem {
+        let label = pystring_to_azstring(&label);
+        unsafe { mem::transmute(crate::AzStringMenuItem_new(
+            mem::transmute(label),
+        )) }
     }
-
+    fn add_child(&mut self, child: AzMenuItemEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzStringMenuItem_addChild(
+            mem::transmute(self),
+            mem::transmute(child),
+        )) }
+    }
+    fn with_child(&mut self, child: AzMenuItemEnumWrapper) -> AzStringMenuItem {
+        unsafe { mem::transmute(crate::AzStringMenuItem_withChild(
+            mem::transmute(self),
+            mem::transmute(child),
+        )) }
+    }
 }
 
 #[pyproto]

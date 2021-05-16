@@ -391,6 +391,10 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
 
 impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
 
+    pub fn get_extended_lifetime(&self, id: NodeId) -> Option<&'a T> {
+        self.internal.get(id.index())
+    }
+
     pub fn from_slice(data: &'a [T]) -> NodeDataContainerRef<'a, T> {
         NodeDataContainerRef { internal: data }
     }

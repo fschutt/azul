@@ -8991,6 +8991,10 @@ mod dll {
         pub(crate) fn AzNodeData_setContextMenu(_:  &mut AzNodeData, _:  AzMenu);
         pub(crate) fn AzNodeData_hash(_:  &AzNodeData) -> u64;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
+        pub(crate) fn AzMenuItem_new(_:  AzString, _:  AzOptionMenuCallback) -> AzMenuItem;
+        pub(crate) fn AzStringMenuItem_new(_:  AzString) -> AzStringMenuItem;
+        pub(crate) fn AzStringMenuItem_addChild(_:  &mut AzStringMenuItem, _:  AzMenuItem);
+        pub(crate) fn AzStringMenuItem_withChild(_:  &mut AzStringMenuItem, _:  AzMenuItem) -> AzStringMenuItem;
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
         pub(crate) fn AzColorU_fromStr(_:  AzString) -> AzColorU;
@@ -10501,15 +10505,31 @@ pub mod menu {
     #![allow(dead_code, unused_imports)]
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::str::String;
+    use crate::option::OptionMenuCallback;
     /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
     
 #[doc(inline)] pub use crate::dll::AzMenu as Menu;
     /// Item entry in a menu or menu bar
     
 #[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
+    impl MenuItem {
+        /// Creates a new menu item
+        pub fn new(label: String, callback: OptionMenuCallback) -> Self { unsafe { crate::dll::AzMenuItem_new(label, callback) } }
+    }
+
     /// Regular labeled menu item
     
 #[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
+    impl StringMenuItem {
+        /// Creates a new menu item
+        pub fn new(label: String) -> Self { unsafe { crate::dll::AzStringMenuItem_new(label) } }
+        /// Adds a child submenu to the current menu
+        pub fn add_child(&mut self, child: MenuItem)  { unsafe { crate::dll::AzStringMenuItem_addChild(self, child) } }
+        /// Adds a child submenu to the current menu
+        pub fn with_child(&mut self, child: MenuItem)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChild(self, child) } }
+    }
+
     /// Combination of virtual key codes that have to be pressed together
     
 #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;

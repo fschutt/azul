@@ -931,6 +931,31 @@ impl WindowInternal {
             libm::roundf(self.current_window_state.size.dimensions.height) as isize
         )
     }
+
+    /// Returns the menu bar set on the LayoutResults[0] node 0 or None
+    pub fn get_menu_bar<'a>(&'a self) -> Option<&'a Box<Menu>> {
+        let lr = self.layout_results.get(0)?;
+        let ndc = lr.styled_dom.node_data.as_container();
+        let nd = ndc.get_extended_lifetime(NodeId::ZERO)?;
+        nd.get_menu_bar()
+    }
+
+    /// Returns the current context menu on the nearest hit node
+    /// or None if no context menu was found
+    pub fn get_context_menu<'a>(&'a self, hit_test: &FullHitTest) -> Option<&'a Box<Menu>> {
+        let mut context_menu = None;
+
+        for (dom_id, hit_test) in hit_test.hovered_nodes.iter() {
+            let layout_result = self.layout_results.get(dom_id.inner)?;
+            for node_id in hit_test.regular_hit_test_nodes.keys() {
+                let ndc = layout_result.styled_dom.node_data.as_container();
+                if let Some(cm) = ndc.get_extended_lifetime(*node_id).and_then(|node| node.get_context_menu()) {
+                    context_menu = Some(cm);
+                }
+            }
+        }
+        context_menu
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
@@ -2415,6 +2440,18 @@ pub struct Menu {
     pub items: MenuItemVec,
 }
 
+impl Menu {
+    pub fn get_hash(&self) -> u64 {
+        use ahash::AHasher as HashAlgorithm;
+        use core::hash::{Hash, Hasher};
+
+        let mut hasher = HashAlgorithm::default();
+        self.hash(&mut hasher);
+
+        hasher.finish()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub enum MenuItem {
@@ -2453,6 +2490,20 @@ pub struct StringMenuItem {
     pub children: MenuItemVec,
 }
 
+impl StringMenuItem {
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut default = Self {
+            label: AzString::from_const_str(""),
+            accelerator: None.into(),
+            callback: None.into(),
+            state: MenuItemState::Normal,
+            icon: None.into(),
+            children: Vec::new().into(),
+        };
+        core::mem::swap(&mut default, self);
+        default
+    }
+}
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct VirtualKeyCodeCombo {

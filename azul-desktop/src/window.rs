@@ -60,11 +60,25 @@ use glutin::monitor::MonitorHandle as WinitMonitorHandle;
 pub use azul_core::window::*;
 use rust_fontconfig::FcFontCache;
 #[cfg(target_os = "windows")]
+use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+#[cfg(target_os = "windows")]
 use winapi::shared::windef::HMENU;
+#[cfg(target_os = "windows")]
+use azul_core::callbacks::{CallbackInfo, Update};
+#[cfg(target_os = "windows")]
+use std::collections::BTreeMap;
 
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
+
+#[cfg(target_os = "windows")]
+static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1); // 0 = no command
+
+#[cfg(target_os = "windows")]
+fn get_new_command_id() -> usize {
+    WINDOWS_UNIQUE_COMMAND_ID_GENERATOR.fetch_add(1, AtomicOrdering::SeqCst)
+}
 
 #[derive(Debug)]
 pub enum LazyFcCache {
@@ -313,12 +327,14 @@ pub struct Window {
     /// the `renderer` gets destroyed before the other fields do, that is why the
     /// renderer can be `None`
     pub(crate) renderer: Option<WrRenderer>,
+    /// Frame lock to see whether the current frame has finished
+    pub(crate) frame_lock: Option<bool>,
     /// Optional menu bar attached to the top of the window
     #[cfg(target_os = "windows")]
-    pub(crate) menu_bar: Option<HMENU>,
+    pub(crate) menu_bar: Option<WindowsMenuBar>,
     /// Optional context popup menu that is currently open
     #[cfg(target_os = "windows")]
-    pub(crate) context_menu: Option<HMENU>,
+    pub(crate) context_menu: Option<WindowsContextMenu>,
 }
 
 impl Window {
@@ -392,7 +408,7 @@ impl Window {
 
         // set the visibility of the window initially to false, only show the
         // window after the first frame has been drawn + swapped
-        let window_builder = window_builder.with_visible(false);
+        // let window_builder = window_builder.with_visible(false);
 
         // Only create a context with VSync and SRGB if the context creation works
         let (glutin_window, window_renderer_info) = Self::create_glutin_window(
@@ -572,6 +588,7 @@ impl Window {
         let mut window = Window {
             display: window_context,
             window_handle,
+            frame_lock: Some(true),
             render_api,
             hit_tester,
             renderer: Some(renderer),
@@ -591,6 +608,7 @@ impl Window {
         window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
         window.render_async(txn, true);
         window.force_synchronize_hit_tester_initial(image_cache);
+        // window.set_menu_bar();
 
         Ok(window)
     }
@@ -711,6 +729,8 @@ impl Window {
                 }
             );
         });
+
+        // self.set_menu_bar();
     }
 
     /// Only re-build the display list and send it to webrender
@@ -1229,7 +1249,6 @@ impl Window {
             r.update();
             let _ = r.render(framebuffer_size, 0);
             clean_up_unused_opengl_textures(r.flush_pipeline_info(), &self.internal.document_id);
-            // self.display.window().request_redraw();
         }
 
         self.display.windowed_context().unwrap().swap_buffers().unwrap();
@@ -1239,6 +1258,144 @@ impl Window {
         gl.bind_texture(gl::TEXTURE_2D, 0);
         gl.use_program(current_program[0] as u32);
         // self.display.make_not_current();
+    }
+
+    /// Sets or updates the windows menu bar
+    pub fn set_menu_bar(&mut self) {
+        #[cfg(target_os = "windows")] {
+            self.set_menu_bar_windows();
+        }
+        #[cfg(not(target_os = "windows"))] {
+            return; // TODO: implement menu on other platforms
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn set_menu_bar_windows(&mut self) {
+
+        use winapi::um::winuser::SetMenu;
+        use winapi::shared::windef::HWND;
+
+        let menu_bar = self.internal.get_menu_bar();
+
+        match (&mut self.menu_bar, menu_bar) {
+            (Some(old), None) => {
+                let new_menu_bar = Self::remove_menu_bar_windows(old);
+                self.menu_bar = None;
+            },
+            (None, Some(new)) => {
+                let new_menu_bar = Self::add_menu_bar_windows(new);
+                match &mut self.window_handle {
+                    RawWindowHandle::Windows(WindowsHandle { hwnd, .. }) => {
+                        unsafe { SetMenu(*hwnd as HWND, new_menu_bar._native_ptr); }
+                    },
+                    _ => { },
+                }
+                self.menu_bar = Some(new_menu_bar);
+            }
+            (Some(old), Some(new)) => {
+                if old.hash != new.get_hash() {
+                    let new_menu_bar = Self::add_menu_bar_windows(new);
+                    match &mut self.window_handle {
+                        RawWindowHandle::Windows(WindowsHandle { hwnd, .. }) => {
+                            unsafe { SetMenu(*hwnd as HWND, new_menu_bar._native_ptr); }
+                        },
+                        _ => { },
+                    }
+                    self.menu_bar = Some(new_menu_bar);
+                }
+            },
+            (None, None) => { } // do nothing
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn add_menu_bar_windows(new: &Box<Menu>) -> WindowsMenuBar {
+
+        fn recursive_construct_menu(menu: &mut HMENU, items: &[MenuItem], command_map: &mut BTreeMap<u16, MenuCallback>) {
+
+            fn convert_widestring(input: &str) -> Vec<u16> {
+                let mut v: Vec<u16> = input.chars().filter_map(|s| {
+                    use std::convert::TryInto;
+                    (s as u32).try_into().ok()
+                }).collect();
+                v.push(0);
+                v
+            }
+
+            use winapi::um::winuser::{MF_STRING, MF_SEPARATOR, MF_POPUP, MF_MENUBREAK};
+            use winapi::shared::basetsd::UINT_PTR;
+            use winapi::um::winuser::{CreateMenu, AppendMenuW};
+
+            for item in items.as_ref() {
+                match item {
+                    MenuItem::String(mi) => {
+                        if mi.children.as_ref().is_empty() {
+                            // no children
+                            let command = match mi.callback.as_ref() {
+                                None => {
+                                    0
+                                },
+                                Some(c) => {
+                                    let new_command_id = get_new_command_id().min(core::u16::MAX as usize) as u16;
+                                    command_map.insert(new_command_id, c.clone());
+                                    new_command_id as usize
+                                }
+                            };
+                            unsafe { AppendMenuW(*menu, MF_STRING, command, convert_widestring(mi.label.as_str()).as_ptr()) };
+                        } else {
+                            let mut root = unsafe { CreateMenu() };
+                            recursive_construct_menu(&mut root, mi.children.as_ref(), command_map);
+                            unsafe { AppendMenuW(*menu, MF_POPUP, root as UINT_PTR, convert_widestring(mi.label.as_str()).as_ptr()) };
+                        }
+                    },
+                    MenuItem::Separator => {
+                        unsafe { AppendMenuW(*menu, MF_SEPARATOR, 0, core::ptr::null_mut()); }
+                    }
+                    MenuItem::BreakLine => {
+                        unsafe { AppendMenuW(*menu, MF_MENUBREAK, 0, core::ptr::null_mut()); }
+                    }
+                }
+            }
+        }
+
+        use winapi::um::winuser::CreateMenu;
+
+        let hash = new.get_hash();
+
+        let mut root = unsafe { CreateMenu() };
+        let mut command_map = BTreeMap::new();
+
+        recursive_construct_menu(&mut root, new.items.as_ref(), &mut command_map);
+
+        WindowsMenuBar {
+            _native_ptr: root,
+            callbacks: command_map,
+            hash,
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn remove_menu_bar_windows(old: &mut WindowsMenuBar) {
+        // DeleteMenu { }
+        // RemoveMenu { }
+    }
+
+    // Invokes a callback if necessary
+    pub fn invoke_menubar_callback(&mut self, command: u16, info: CallbackInfo) -> Option<Update> {
+        #[cfg(target_os = "windows")] {
+            self.invoke_menubar_callback_windows(command, info)
+        }
+        #[cfg(not(target_os = "windows"))] {
+            None
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn invoke_menubar_callback_windows(&mut self, command: u16, info: CallbackInfo) -> Option<Update> {
+        let m = self.menu_bar.as_mut()?;
+        let MenuCallback { callback, data } = m.callbacks.get_mut(&command)?;
+        Some((callback.cb)(data, info))
     }
 }
 
@@ -1293,6 +1450,24 @@ impl Drop for Window {
         }
         */
     }
+}
+
+#[cfg(target_os = "windows")]
+pub struct WindowsMenuBar {
+    pub _native_ptr: HMENU,
+    /// Map from Command -> callback to call
+    pub callbacks: BTreeMap<u16, MenuCallback>,
+    /// Hash of the menu bar structure
+    pub hash: u64,
+}
+
+#[cfg(target_os = "windows")]
+pub struct WindowsContextMenu {
+    pub _native_ptr: HMENU,
+    /// Map from Command -> callback to call
+    pub callbacks: BTreeMap<u16, MenuCallback>,
+    /// Hash of the context menu
+    pub hash: u64,
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert

@@ -13,7 +13,7 @@ autoexamples = false
 
 [dependencies]
 gleam                   = { version = "0.13.1", default-features = false }
-glutin                  = { version = "0.26.0", default-features = false, features = ["x11", "wayland"] } # NOTE: wayland currently has dependency issues, but works!
+glutin                  = { version = "0.26.0", default-features = false, package = "azul-glutin", features = ["x11", "wayland"] } # NOTE: wayland currently has dependency issues, but works!
 tinyfiledialogs         = { version = "3.3.9",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
 raw-window-handle       = { version = "0.3.3", default-features = false }

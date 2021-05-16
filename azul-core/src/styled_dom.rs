@@ -438,6 +438,12 @@ impl CssPropertyCache {
                     break;
                 }
 
+                // check for context menu
+                if node_data.get_context_menu().is_some() {
+                    node_should_have_tag = true;
+                    break;
+                }
+
                 // check for :hover
                 let node_has_hover_props = node_data.inline_css_props.as_ref().iter()
                 .any(|p| match p { NodeDataInlineCssProperty::Hover(_) => true, _ => false }) ||

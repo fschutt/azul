@@ -26,6 +26,7 @@ static LABEL_STYLE_WINDOWS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_display(LayoutDisplay::Flex)),
     Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
     Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
@@ -38,6 +39,7 @@ static LABEL_STYLE_LINUX: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_display(LayoutDisplay::Flex)),
     Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
     Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
@@ -50,6 +52,7 @@ static LABEL_STYLE_MAC: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_display(LayoutDisplay::Flex)),
     Normal(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
     Normal(CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+    Normal(CssProperty::const_align_items(LayoutAlignItems::Center)),
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
 
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
