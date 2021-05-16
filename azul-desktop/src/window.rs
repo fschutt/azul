@@ -47,7 +47,7 @@ use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use crate::compositor::Compositor;
 use azul_core::{
-    callbacks::{PipelineId, DocumentId, RefAny},
+    callbacks::{PipelineId, DocumentId, RefAny, CallbackInfo, Update},
     task::ExternalSystemCallbacks,
     display_list::{CachedDisplayList, RenderCallbacks},
     app_resources::{ResourceUpdate, ImageCache},
@@ -63,8 +63,6 @@ use rust_fontconfig::FcFontCache;
 use core::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 #[cfg(target_os = "windows")]
 use winapi::shared::windef::HMENU;
-#[cfg(target_os = "windows")]
-use azul_core::callbacks::{CallbackInfo, Update};
 #[cfg(target_os = "windows")]
 use std::collections::BTreeMap;
 
