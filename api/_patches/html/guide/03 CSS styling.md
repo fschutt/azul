@@ -1,41 +1,9 @@
-## Supported CSS attributes
+<h2>List of supported CSS attributes</h2>
 
+<p></p>
 This is a list of CSS attributes that are currently implemented. They work in
 the same way as on a regular web page, except if noted otherwise:
 
-- `border-radius`
-- `background-color`
-- `color` (also as an non-standard alias: `font-color`)
-- `letter-spacing`
-- `border`, `border-top`, `border-bottom`, `border-left`, `border-right`
-- `padding`, `padding-top`, `padding-bottom`, `padding-left`, `padding-right`
-- `margin`, `margin-top`, `margin-bottom`, `margin-left`, `margin-right`
-- `background`                              [see #1]
-- `font-size`
-- `font-family`
-- `box-shadow`, `box-shadow-top`, `box-shadow-bottom`, `box-shadow-left`, `box-shadow-right` [see #2]
-- `line-height`
-- `position`: [`static` | `relative` | `absolute`]
-- `top`, `left`, `right`, `bottom` (only affects relative and absolute positioned items)
-- `width`, `min-width`, `max-width`
-- `height`, `min-height`, `max-height`
-- `overflow`, `overflow-x`, `overflow-y`
-- `text-align`                              [see #3]
-- `flex-direction`
-- `flex-grow`
-- `flex-shrink` (parses, but currently has no effect)
-- `flex-wrap` (parses, but currently has no effect)
-- `justify-content` (also as an non-standard alias: `align-main-axis`)
-- `align-items` (also as an non-standard alias: `align-cross-axis`)
-
-## Supported pseudo selectors
-
-- `:first`
-- `:nth-child(x)`
-- `:last`
-- `:hover` [WIP]
-- `:active` [WIP]
-- `:focus` [WIP]
 
 You can limit the inheritance of properties either to direct children only (using `>`) or to all children
 (using ` `). I.e. `div#my_div.class` has a different effect than `div #my_div .class` or `div > #my_div > .class`.
@@ -89,7 +57,7 @@ last stylesheet that could be parsed correctly.
 
 ## Protected class names
 
-In general, you should avoid defining any CSS classes in your stylesheet that start 
+In general, you should avoid defining any CSS classes in your stylesheet that start
 with `__azul-native-` if you use `Css::native()`, `override_native` or `hot_reload_override_native`.
 Otherwise, you will override built-in native styles, unless that's what you're going for,
 it's better to not name your classes this way.
@@ -98,8 +66,8 @@ it's better to not name your classes this way.
 
 Azul knows about two types of CSS key-value pairs: static and dynamic. Because
 the CSS is only parsed once (at the start of the application), you cannot modify it
-during runtime. However, you can specify IDs for certain properties, in order to 
-change the style of the application during runtime (for example to change the color 
+during runtime. However, you can specify IDs for certain properties, in order to
+change the style of the application during runtime (for example to change the color
 of a button on a `On::Hover` or `On::MouseDown` event). This API is also used for
 animations (TODO) and `:hover`, `:focus` pseudo-selectors.
 
@@ -125,7 +93,7 @@ change the style dynamically from Rust):
 use azul::prelude::{CssProperty, LayoutWidth};
 
 impl Layout for DataModel {
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> { 
+    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
         Dom::new(NodeType::Div)
         .with_class("my_class")
         .with_css_override("my_property_id", CssProperty::Width(LayoutWidth::px(700.0)))
@@ -155,7 +123,7 @@ sequence of actions that have to be executed and thereby make the style more
 unit-testing friendly.
 
 Also notice: If the `set_dynamic_property` gets a different type for your ID (let's say you
-typed `height` instead of `width`, it will not override the target value, but print an 
+typed `height` instead of `width`, it will not override the target value, but print an
 error (if logging is enabled)).
 
 ## Layout system
@@ -179,7 +147,7 @@ The layout model follows closely to the CSS flexbox model (although many propert
 
 1. All measurements respect HiDPI screens and azul is fully HiDPI aware. Em values
    are measured as `1em = 16px`
-2. CSS key-value pairs are parsed from top to bottom, and get overwritten in 
+2. CSS key-value pairs are parsed from top to bottom, and get overwritten in
    that order, for example:
    ```css
    #my_div {
@@ -190,7 +158,7 @@ The layout model follows closely to the CSS flexbox model (although many propert
    ... will draw a linear gradient, not the image, since the `linear-gradient` value
    overwrote the `image` rule.
 3. Attributes in CSS paths are not (and aren't planned to be) supported,
-   since this is a fundamental difference between how HTML and the `layout()` 
+   since this is a fundamental difference between how HTML and the `layout()`
    function work.
 5. `auto` as a value is only valid inside of dynamic CSS attributes, currently
    values such as `auto` and `inherit` do not work as general values.
