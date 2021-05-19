@@ -3190,7 +3190,9 @@ def main():
     print("generating API...")
     generate_api()
     print("generating documentation in /target/html...")
-    generate_docs()
+    while True:
+        generate_docs()
+        time.sleep(1)
     print("building azulc (release mode)...")
     # build_azulc()
     print("building azul-dll (release mode)...")
