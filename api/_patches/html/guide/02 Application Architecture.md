@@ -207,3 +207,214 @@ print(str(data._py_data)) // prints "5"</code>
     wrapper-methods that "wrap" a user-provided <code>RefAny</code> and a callback
     to be called when your custom event is ready:
 </p>
+
+<code class="expand">class MyWidget:
+    def __init__():
+        self.on_text_clicked = None
+
+    # Allow users to set a custom event
+    def set_on_text_clicked(data, callback):
+        self.on_text_clicked = tuple(data, callback)
+
+    def dom():
+        dom = Dom.text("hello")
+        if self.on_text_clicked is not None:
+            dom.add_callback(On.MouseUp, self.on_text_clicked, _handle_event)
+        return dom
+
+# Note that data is the tuple(data, callback):
+# you can use custom classes in order to customize callbacks
+# in total, this provides more flexibility than @override
+def _handle_event(data, callbackinfo):
+
+    # "data" contains the **user-provided** callback
+    # and a RefAny to **user-provided** data
+    #
+    # In this example, we you can now choose to
+    # invoke or not invoke the callback depending on whether
+    # the text of the object was hit
+
+    text = callbackinfo.get_inline_text(callbackinfo.get_hit_node())
+    if text is None:
+        return Update.DoNothing
+
+    text_hit = None
+    hits = text.hit_test(info.get_hit_relative_to_item())
+    if len(text_hits) != 0:
+        text_hit = hits[0]
+    else:
+        return Update.DoNothing
+
+    # do some default processing here
+    print("before invoking user callback: text was hit")
+
+    # invoke the user-provided function with additional information
+    result = (data[1])(data[0], callbackinfo, text_hit)
+
+    print("after invoking user callback: user returned" + str(result))
+
+    # return the result of the user-provided callback to Azul
+    return result
+</code>
+
+<p>
+    The important part is that you can now customize the callback type
+    (including the return type) and invoke the callback with extra data
+    in order to do pre- and post-processing of user callbacks.
+</p>
+
+<br/>
+<h2>Backreferences</h2>
+
+<p>
+    The programming pattern that naturally emerges from this architecture
+    are "backreferences" or: the lower-level widget (<code>Dom.div</code>,
+    <code>TextInput</code>, etc.) can take optional function pointers and
+    data references to higher-level widgets (such as <code>NumberInput</code>,
+    <code>EMailInput</code>), which then perform validation for you.
+</p>
+
+<code class="expand">class TextInput:
+    text: String
+    # "backreference" to user-provided callback + data
+    user_focus_lost_callback: Optional[tuple(data, callback)]
+
+    def __init__(text):
+        self.text = text
+        self.user_focus_lost_callback = None
+
+    def set_on_focus_lost(data, callback):
+        self.user_focus_lost_callback = tuple(data, callback)
+
+    def dom():
+        dom = Dom.text(self.text)
+        refany = RefAny(self)
+        dom.set_callback(On.TextInput, refany, _on_text_input)
+        dom.add_callback(On.FocusLost, refany, _on_focus_lost)
+        return dom
+
+# callback knows that "data" is of type TextInput
+def _on_text_input(data, callbackinfo):
+    data.text += callbackinfo.get_keyboard_input().current_char
+    callbackinfo.set_text_contents(callbackinfo.get_hit_node_id(), data.text)
+    return Update.DoNothing
+
+def _on_focus_lost(data, callbackinfo):
+    user_cb = None
+    if data.user_focus_lost_callback is None:
+        return Update.DoNothing
+    else:
+        user_cb = data.user_focus_lost_callback
+
+    # invoke the user-provided callback with the extra information
+    return (user_cb[1])(user_cb[0], self.string)
+</code>
+
+<code class="expand">class NumberInput:
+    number: Integer
+    # "backreference" to user-provided callback + data
+    on_number_input: Optional[tuple(data, callback)]
+
+    def __init__(number):
+        self.number = number
+        self.on_number_input = None
+
+    def set_on_number_input(data, callback):
+        self.on_number_input = tuple(data, callback)
+
+    def dom():
+        ti = TextInput("{}".format(self.number))
+        ti.set_on_focus_lost(RefAny(self), _validate_text_input_as_number)
+        return
+
+def _validate_text_input_as_number(data, callbackinfo, string):
+    if data.on_number_input is None:
+        return Update.DoNothing
+
+    number = string_to_number(string)
+    if number is None:
+        return Update.DoNothing # input string is not a number
+
+    # string has now been validated as a number
+    # optionally can also validate min / max input, etc.
+    (data.on_number_input[1])(data.on_number_input[0], callbackinfo, number)
+</code>
+
+<code class="expand">class MyApplication:
+    user_age: None
+
+    def __init__(initial_age):
+        self.user_age = initial_age
+
+def layoutFunc(data, layoutinfo):
+    ni = NumberInput(initial_age)
+    ni.set_on_number_input(data, _on_age_input)
+    return ni.dom().style(Css.empty())
+
+# will only get called when the text input is a valid number
+def _on_age_input(data, callbackinfo, new_age):
+    if new_age < 18:
+        MsgBox.ok("You must be older than 18 to proceed")
+        return Update.DoNothing
+    else:
+        data.user_age = new_age
+        return Update.RefreshDom</code>
+<code class="expand">app = App(MyApplication(18), AppConfig(LayoutSolver.Default))
+app.run(WindowCreateOptions(layoutFunc))
+</code>
+
+<p>For the sake of brevity the code uses <code>RefAny(self)</code> to create
+    new <code>RefAny</code> references. All built-in widgets use extra
+    classes such as <code>TextInputOnClickedData</code>, <code>TextInputOnFocusLostData</code>
+    to separate the <code>TextInput</code> from the data it has to carry
+    even further.
+</p>
+
+<p>
+    When the user presses the "TAB" or "shift + TAB" key, the current
+    field loses focus and thereby tirgges an <code>On.FocusLost</code>
+    and <code>On.FocusReceived</code> event. If it isn't already
+    clear from reading the code, here is how the event "travels" through
+    the classes (from the low-level <code>on_focus_lost</code> to the
+    high-level <code>on_age_input</code>):
+</p>
+
+<code class="expand">1. _on_focus_lost(&mut RefAny&lt;TextInput&gt;)
+2. _validate_text_input_as_number(&mut RefAny&lt;NumberInput&gt;, string)
+3. _on_age_input(&mut RefAny&lt;MyApplication&gt;, number)
+</code>
+
+<p>
+    The closer you get to the application, the more custom your function callback
+    types will be. Note that the only "state" that gets passed into callbacks is
+    via function arguments. Functional programmers can see this as an
+    "application" of function parameters: the actual core state management
+    is hidden completely.
+</p>
+
+<br/>
+<h2>Non-linear widget hierarchies</h2>
+
+<p>
+    Let's take the example of a node graph: Draggable nodes can be added and removed,
+    contain text, number and color inputs, check- and radio boxes, contain inputs and outputs
+    (which need to validate their input and output types when they are connected).
+</p>
+
+<p>
+    Node graphs are pretty much a litmus test to how flexible your UI toolkit is:
+    In any object-oriented toolkit you will get problems designing the hierachy here.
+</p>
+
+<br/>
+<img src="https://docs.unrealengine.com/Images/ProgrammingAndScripting/Blueprints/UserGuide/Nodes/SelectNode.jpg" style="width:100%;"/>
+
+<p>
+    Azul includess a built-in <code>NodeGraph</code> as a default widget, so let's
+    take a look at the implementation:
+</p>
+
+<br/>
+<br/>
+
+<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
