@@ -65,3 +65,8 @@ the lifetimes - your callbacks should now look like this:
 ```rust
 fn my_callback(state: State, cb: CbInfo) -> Dom<DataModel> { /* */ }
 ```
+
+<br/>
+<br/>
+
+<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
