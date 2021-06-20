@@ -282,3 +282,8 @@ to draw your own vector data (for example in order to make a vector graphics edi
 you can build the "SVG layers" yourself (ex. from the SVG data). Each layer is
 batch-rendered, so you can draw many lines or polygons in one draw call, as long as
 they share the same `SvgStyle`.
+
+<br/>
+<br/>
+
+<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>

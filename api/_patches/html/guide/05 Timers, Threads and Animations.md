@@ -154,3 +154,8 @@ be prepared for a UI visualization from a non-main thread.
 
 In this chapter you've learned how to use timers, async IO and handle thread-safe and non-thread safe data
 within your data model.
+
+<br/>
+<br/>
+
+<a href="$$ROOT_RELATIVE$$/guide">Back to overview</a>
