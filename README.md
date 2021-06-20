@@ -268,8 +268,8 @@ directory:
 python3 ./build.py
 ```
 
-- Class documentation is available at [azul.rs/api](https://azul.rs/api/)
-- Tutorials is available under [azul.rs/guide](https://azul.rs/guide/).
+- Class documentation is available at [azul.rs/api](https://azul.rs/api)
+- Tutorials is available under [azul.rs/guide](https://azul.rs/guide).
 
 NOTE: The class documentation can also be printed as a
 PDF if you prefer that.
