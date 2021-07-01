@@ -10454,35 +10454,35 @@ unsafe impl Send for AzStylesheetVec { }
 impl Clone for AzApp { fn clone(&self) -> Self { let r: &azul_impl::app::AzAppPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAppLogLevelEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::AppLogLevel = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutSolverEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::LayoutSolverVersion = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVsyncEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::Vsync = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzSrgbEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::Srgb = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzHwAccelerationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::HwAcceleration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVsyncEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::Vsync = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSrgbEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::Srgb = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzHwAccelerationEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::HwAcceleration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutPoint { fn clone(&self) -> Self { let r: &azul_impl::css::LayoutPoint = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutSize { fn clone(&self) -> Self { let r: &azul_impl::css::LayoutSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzIOSHandle { fn clone(&self) -> Self { let r: &azul_impl::window::IOSHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMacOSHandle { fn clone(&self) -> Self { let r: &azul_impl::window::MacOSHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzXlibHandle { fn clone(&self) -> Self { let r: &azul_impl::window::XlibHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzXcbHandle { fn clone(&self) -> Self { let r: &azul_impl::window::XcbHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWaylandHandle { fn clone(&self) -> Self { let r: &azul_impl::window::WaylandHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowsHandle { fn clone(&self) -> Self { let r: &azul_impl::window::WindowsHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWebHandle { fn clone(&self) -> Self { let r: &azul_impl::window::WebHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzAndroidHandle { fn clone(&self) -> Self { let r: &azul_impl::window::AndroidHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzXWindowTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::XWindowType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzPhysicalPositionI32 { fn clone(&self) -> Self { let r: &azul_impl::window::PhysicalPositionI32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzPhysicalSizeU32 { fn clone(&self) -> Self { let r: &azul_impl::window::PhysicalSizeU32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLogicalPosition { fn clone(&self) -> Self { let r: &azul_impl::window::LogicalPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLogicalSize { fn clone(&self) -> Self { let r: &azul_impl::window::LogicalSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzIconKey { fn clone(&self) -> Self { let r: &azul_impl::window::IconKey = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVirtualKeyCodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::VirtualKeyCode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowFlags { fn clone(&self) -> Self { let r: &azul_impl::window::WindowFlags = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzDebugState { fn clone(&self) -> Self { let r: &azul_impl::window::DebugState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMouseCursorTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MouseCursorType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzRendererTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::RendererType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMacWindowOptions { fn clone(&self) -> Self { let r: &azul_impl::window::MacWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWasmWindowOptions { fn clone(&self) -> Self { let r: &azul_impl::window::WasmWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzFullScreenModeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::FullScreenMode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::WindowTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTouchState { fn clone(&self) -> Self { let r: &azul_impl::window::TouchState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzIOSHandle { fn clone(&self) -> Self { let r: &azul_core::window::IOSHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMacOSHandle { fn clone(&self) -> Self { let r: &azul_core::window::MacOSHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzXlibHandle { fn clone(&self) -> Self { let r: &azul_core::window::XlibHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzXcbHandle { fn clone(&self) -> Self { let r: &azul_core::window::XcbHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWaylandHandle { fn clone(&self) -> Self { let r: &azul_core::window::WaylandHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowsHandle { fn clone(&self) -> Self { let r: &azul_core::window::WindowsHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWebHandle { fn clone(&self) -> Self { let r: &azul_core::window::WebHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAndroidHandle { fn clone(&self) -> Self { let r: &azul_core::window::AndroidHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzXWindowTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::XWindowType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzPhysicalPositionI32 { fn clone(&self) -> Self { let r: &azul_core::window::PhysicalPositionI32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzPhysicalSizeU32 { fn clone(&self) -> Self { let r: &azul_core::window::PhysicalSizeU32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLogicalPosition { fn clone(&self) -> Self { let r: &azul_core::window::LogicalPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLogicalSize { fn clone(&self) -> Self { let r: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzIconKey { fn clone(&self) -> Self { let r: &azul_core::window::IconKey = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVirtualKeyCodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowFlags { fn clone(&self) -> Self { let r: &azul_core::window::WindowFlags = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzDebugState { fn clone(&self) -> Self { let r: &azul_core::window::DebugState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMouseCursorTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MouseCursorType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzRendererTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::RendererType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMacWindowOptions { fn clone(&self) -> Self { let r: &azul_core::window::MacWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWasmWindowOptions { fn clone(&self) -> Self { let r: &azul_core::window::WasmWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFullScreenModeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::FullScreenMode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::WindowTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTouchState { fn clone(&self) -> Self { let r: &azul_core::window::TouchState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMarshaledLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::MarshaledLayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Callback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10507,7 +10507,7 @@ impl Clone for AzApplicationEventFilterEnumWrapper { fn clone(&self) -> Self { l
 impl Clone for AzAccessibilityRoleEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityRole = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTabIndexEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::TabIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenuItemStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeKeyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NodeTypeTag = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssNthChildPattern { fn clone(&self) -> Self { let r: &azul_impl::css::CssNthChildPattern = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPropertyType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10597,7 +10597,7 @@ impl Clone for AzMsgBoxYesNoEnumWrapper { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzMsgBoxOkCancelEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dialogs::OkCancel = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFileDialog { fn clone(&self) -> Self { let r: &azul_impl::dialogs::FileDialog = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorPickerDialog { fn clone(&self) -> Self { let r: &azul_impl::dialogs::ColorPickerDialog = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzSystemClipboard { fn clone(&self) -> Self { let r: &azul_impl::window::Clipboard = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSystemClipboard { fn clone(&self) -> Self { let r: &azul_impl::app::Clipboard = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInstantPtrCloneFn { fn clone(&self) -> Self { let r: &azul_impl::task::InstantPtrCloneCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInstantPtrDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::InstantPtrDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSystemTick { fn clone(&self) -> Self { let r: &azul_impl::task::SystemTick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10621,7 +10621,7 @@ impl Clone for AzThreadReceiverDestructorFn { fn clone(&self) -> Self { let r: &
 impl Clone for AzThreadSenderDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSenderDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTesselatedSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TesselatedSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFmtArgVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::str::FmtArgVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10629,8 +10629,8 @@ impl Clone for AzInlineLineVecDestructorEnumWrapper { fn clone(&self) -> Self { 
 impl Clone for AzInlineWordVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineWordVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineGlyphVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineGlyphVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineTextHitVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineTextHitVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMonitorVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MonitorVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVideoModeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::VideoModeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMonitorVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MonitorVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVideoModeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::VideoModeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::DomVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIdOrClassVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::IdOrClassVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataInlineCssPropertyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10646,10 +10646,10 @@ impl Clone for AzVertexAttributeVecDestructorEnumWrapper { fn clone(&self) -> Se
 impl Clone for AzSvgPathElementVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVertexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVertexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzU32VecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::U32VecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzXWindowTypeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::XWindowTypeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVirtualKeyCodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzXWindowTypeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::XWindowTypeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVirtualKeyCodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfoVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfoVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzScanCodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::ScanCodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzScanCodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::ScanCodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclarationVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPathSelectorVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPathSelectorVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStylesheetVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StylesheetVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10662,7 +10662,7 @@ impl Clone for AzDebugMessageVecDestructorEnumWrapper { fn clone(&self) -> Self 
 impl Clone for AzGLuintVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::GLuintVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGLintVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::GLintVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStringVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StringVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzStringPairVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::StringPairVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStringPairVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::StringPairVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNormalizedLinearColorStopVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedLinearColorStopVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNormalizedRadialColorStopVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedRadialColorStopVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeIdVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10674,23 +10674,23 @@ impl Clone for AzNodeDataVecDestructorEnumWrapper { fn clone(&self) -> Self { le
 impl Clone for AzOptionI16EnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionI16 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionU16EnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionU16 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionU32EnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionU32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionHwndHandleEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionHwndHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionX11VisualEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionX11Visual = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionHwndHandleEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionHwndHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionX11VisualEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionX11Visual = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionI32EnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionI32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionF32EnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionF32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionCharEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionChar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionCharEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionChar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionUsizeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::OptionUsize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgParseErrorPosition { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlTextPos = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSystemCallbacks { fn clone(&self) -> Self { let r: &azul_impl::task::ExternalSystemCallbacks = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzRendererOptions { fn clone(&self) -> Self { let r: &azul_impl::window::RendererOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzRendererOptions { fn clone(&self) -> Self { let r: &azul_core::window::RendererOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutRect { fn clone(&self) -> Self { let r: &azul_impl::css::LayoutRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzRawWindowHandleEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::RawWindowHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLogicalRect { fn clone(&self) -> Self { let r: &azul_impl::window::LogicalRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzAcceleratorKeyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::AcceleratorKey = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzCursorPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::CursorPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::WindowPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzImePositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::ImePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVideoMode { fn clone(&self) -> Self { let r: &azul_impl::window::VideoMode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzRawWindowHandleEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::RawWindowHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLogicalRect { fn clone(&self) -> Self { let r: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzAcceleratorKeyEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::AcceleratorKey = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzCursorPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::CursorPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::WindowPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzImePositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::ImePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVideoMode { fn clone(&self) -> Self { let r: &azul_core::window::VideoMode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomNodeId { fn clone(&self) -> Self { let r: &azul_impl::callbacks::DomNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPositionInfoEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::PositionInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzHidpiAdjustedBounds { fn clone(&self) -> Self { let r: &azul_impl::callbacks::HidpiAdjustedBounds = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10701,8 +10701,8 @@ impl Clone for AzTimerCallbackReturn { fn clone(&self) -> Self { let r: &azul_im
 impl Clone for AzRefAny { fn clone(&self) -> Self { let r: &azul_impl::callbacks::RefAny = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIFrameNode { fn clone(&self) -> Self { let r: &azul_impl::dom::IFrameNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNotEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NotEventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenuCallback { fn clone(&self) -> Self { let r: &azul_impl::window::MenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuCallback { fn clone(&self) -> Self { let r: &azul_core::window::MenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssNthChildSelectorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssNthChildSelector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPixelValue { fn clone(&self) -> Self { let r: &azul_impl::css::PixelValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPixelValueNoPercent { fn clone(&self) -> Self { let r: &azul_impl::css::PixelValueNoPercent = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10854,21 +10854,21 @@ impl Clone for AzDurationEnumWrapper { fn clone(&self) -> Self { let r: &azul_im
 impl Clone for AzThreadSendMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSendMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadWriteBackMsg { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadWriteBackMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVec { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenuItemVec { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemVec { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVec { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineGlyphVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineGlyphVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineTextHitVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineTextHitVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVideoModeVec { fn clone(&self) -> Self { let r: &azul_impl::window::VideoModeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVideoModeVec { fn clone(&self) -> Self { let r: &azul_core::window::VideoModeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomVec { fn clone(&self) -> Self { let r: &azul_impl::dom::DomVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundPositionVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundPositionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundRepeatVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundRepeatVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundSizeVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundSizeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVertexVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVertexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzU32Vec { fn clone(&self) -> Self { let r: &azul_impl::css::U32Vec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzXWindowTypeVec { fn clone(&self) -> Self { let r: &azul_impl::window::XWindowTypeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVirtualKeyCodeVec { fn clone(&self) -> Self { let r: &azul_impl::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzXWindowTypeVec { fn clone(&self) -> Self { let r: &azul_core::window::XWindowTypeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVirtualKeyCodeVec { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfoVec { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfoVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzScanCodeVec { fn clone(&self) -> Self { let r: &azul_impl::window::ScanCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzScanCodeVec { fn clone(&self) -> Self { let r: &azul_core::window::ScanCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzU16Vec { fn clone(&self) -> Self { let r: &azul_impl::css::U16Vec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzF32Vec { fn clone(&self) -> Self { let r: &azul_impl::css::F32Vec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzU8Vec { fn clone(&self) -> Self { let r: &azul_impl::css::U8Vec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10887,34 +10887,34 @@ impl Clone for AzOptionTextInputOnVirtualKeyDownEnumWrapper { fn clone(&self) ->
 impl Clone for AzOptionTextInputOnFocusLostEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputSelectionEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputSelection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNumberInputOnValueChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::number_input::OptionNumberInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionMenuCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMenuCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionPositionInfoEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::OptionPositionInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTimerIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionTimerId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionThreadIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionThreadId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionImageRefEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::OptionImageRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionFontRefEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionFontRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionSystemClipboardEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionClipboard = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionSystemClipboardEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::app::OptionClipboard = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionGlEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::OptionGlContextPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionPercentageValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionPercentageValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionAngleValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionAngleValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionRendererOptionsEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionRendererOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionRendererOptionsEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionRendererOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::OptionCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionThreadSendMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionThreadSendMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionLayoutRectEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionLayoutRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionRefAnyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::OptionRefAny = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionLayoutPointEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionLayoutPoint = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionLayoutSizeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionLayoutSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionWindowThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionWindowTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionWindowThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionWindowTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::OptionNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionDomNodeIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::OptionDomNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionColorUEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionColorU = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionSvgDashPatternEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::OptionSvgDashPattern = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionLogicalPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionLogicalPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionPhysicalPositionI32EnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionPhysicalPositionI32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionMouseCursorTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMouseCursorType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionLogicalSizeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionLogicalSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionVirtualKeyCodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionVirtualKeyCode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionLogicalPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionLogicalPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionPhysicalPositionI32EnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionPhysicalPositionI32 = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMouseCursorTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMouseCursorType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionLogicalSizeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionLogicalSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionVirtualKeyCodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionVirtualKeyCode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionImageMaskEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::OptionImageMask = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTabIndexEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::OptionTabIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTagIdEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::OptionTagId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10928,21 +10928,21 @@ impl Clone for AzInvalidCharMultipleError { fn clone(&self) -> Self { let r: &az
 impl Clone for AzInvalidQuoteError { fn clone(&self) -> Self { let r: &azul_impl::xml::InvalidQuoteError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInvalidSpaceError { fn clone(&self) -> Self { let r: &azul_impl::xml::InvalidSpaceError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAppConfig { fn clone(&self) -> Self { let r: &azul_impl::resources::AppConfig = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzSmallWindowIconBytes { fn clone(&self) -> Self { let r: &azul_impl::window::SmallWindowIconBytes = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLargeWindowIconBytes { fn clone(&self) -> Self { let r: &azul_impl::window::LargeWindowIconBytes = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::WindowIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTaskBarIcon { fn clone(&self) -> Self { let r: &azul_impl::window::TaskBarIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowSize { fn clone(&self) -> Self { let r: &azul_impl::window::WindowSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzKeyboardState { fn clone(&self) -> Self { let r: &azul_impl::window::KeyboardState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMouseState { fn clone(&self) -> Self { let r: &azul_impl::window::MouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSmallWindowIconBytes { fn clone(&self) -> Self { let r: &azul_core::window::SmallWindowIconBytes = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLargeWindowIconBytes { fn clone(&self) -> Self { let r: &azul_core::window::LargeWindowIconBytes = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::WindowIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTaskBarIcon { fn clone(&self) -> Self { let r: &azul_core::window::TaskBarIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowSize { fn clone(&self) -> Self { let r: &azul_core::window::WindowSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzKeyboardState { fn clone(&self) -> Self { let r: &azul_core::window::KeyboardState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMouseState { fn clone(&self) -> Self { let r: &azul_core::window::MouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMarshaledLayoutCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::MarshaledLayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineTextContents { fn clone(&self) -> Self { let r: &azul_core::callbacks::InlineTextContents = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAnimationEasingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::AnimationInterpolationFunction = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRenderImageCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::RenderImageCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzEventFilterEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::EventFilter = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenu { fn clone(&self) -> Self { let r: &azul_impl::window::Menu = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzVirtualKeyCodeCombo { fn clone(&self) -> Self { let r: &azul_impl::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenu { fn clone(&self) -> Self { let r: &azul_core::window::Menu = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzVirtualKeyCodeCombo { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPathPseudoSelectorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPathPseudoSelector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAnimationInterpolationFunctionEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::AnimationInterpolationFunction = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInterpolateContext { fn clone(&self) -> Self { let r: &azul_impl::css::InterpolateResolver = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10976,13 +10976,13 @@ impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl
 impl Clone for AzStringVec { fn clone(&self) -> Self { let r: &azul_impl::css::StringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMappingVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMappingVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionVirtualKeyCodeComboEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionMouseStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionMouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionKeyboardStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionKeyboardState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionVirtualKeyCodeComboEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMouseStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionKeyboardStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionKeyboardState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionStringVecEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionStringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionThreadReceiveMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionThreadReceiveMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionTaskBarIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionTaskBarIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionWindowIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionWindowIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionTaskBarIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionTaskBarIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionWindowIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionWindowIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionStringEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionAzString = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextureEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::OptionTexture = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionInstantEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::OptionInstant = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10992,17 +10992,17 @@ impl Clone for AzUnexpectedCloseTagError { fn clone(&self) -> Self { let r: &azu
 impl Clone for AzUnknownEntityReferenceError { fn clone(&self) -> Self { let r: &azul_impl::xml::UnknownEntityReferenceError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDuplicatedAttributeError { fn clone(&self) -> Self { let r: &azul_impl::xml::DuplicatedAttributeError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInvalidStringError { fn clone(&self) -> Self { let r: &azul_impl::xml::InvalidStringError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowsWindowOptions { fn clone(&self) -> Self { let r: &azul_impl::window::WindowsWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWaylandTheme { fn clone(&self) -> Self { let r: &azul_impl::window::WaylandTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzStringPair { fn clone(&self) -> Self { let r: &azul_impl::window::AzStringPair = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMonitor { fn clone(&self) -> Self { let r: &azul_impl::window::Monitor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowsWindowOptions { fn clone(&self) -> Self { let r: &azul_core::window::WindowsWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWaylandTheme { fn clone(&self) -> Self { let r: &azul_core::window::WaylandTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStringPair { fn clone(&self) -> Self { let r: &azul_core::window::AzStringPair = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMonitor { fn clone(&self) -> Self { let r: &azul_core::window::Monitor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineWordEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::callbacks::InlineWord = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallbackData { fn clone(&self) -> Self { let r: &azul_impl::dom::CallbackData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityInfo { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIdOrClassEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::IdOrClass = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzStringMenuItem { fn clone(&self) -> Self { let r: &azul_impl::window::StringMenuItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStringMenuItem { fn clone(&self) -> Self { let r: &azul_core::window::StringMenuItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPathSelectorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPathSelector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundContentEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundContent = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzScrollbarInfo { fn clone(&self) -> Self { let r: &azul_impl::css::ScrollbarInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11028,7 +11028,7 @@ impl Clone for AzFmtArg { fn clone(&self) -> Self { let r: &azul_impl::str::FmtA
 impl Clone for AzStyleFontFamilyVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFmtArgVec { fn clone(&self) -> Self { let r: &azul_impl::str::FmtArgVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineWordVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineWordVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMonitorVec { fn clone(&self) -> Self { let r: &azul_impl::window::MonitorVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMonitorVec { fn clone(&self) -> Self { let r: &azul_core::window::MonitorVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIdOrClassVec { fn clone(&self) -> Self { let r: &azul_impl::dom::IdOrClassVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundContentVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundContentVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11036,16 +11036,16 @@ impl Clone for AzVertexAttributeVec { fn clone(&self) -> Self { let r: &azul_imp
 impl Clone for AzCssPathSelectorVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssPathSelectorVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallbackDataVec { fn clone(&self) -> Self { let r: &azul_impl::dom::CallbackDataVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDebugMessageVec { fn clone(&self) -> Self { let r: &azul_impl::gl::AzDebugMessageVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzStringPairVec { fn clone(&self) -> Self { let r: &azul_impl::window::StringPairVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStringPairVec { fn clone(&self) -> Self { let r: &azul_core::window::StringPairVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionFileTypeListEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dialogs::OptionFileTypeList = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionFileEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::file::OptionFile = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionRawImageEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::OptionRawImage = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionWaylandThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionWaylandTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionWaylandThemeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionWaylandTheme = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzResultRawImageDecodeImageErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::decode::ResultRawImageDecodeImageError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlStreamErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlStreamError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzLinuxWindowOptions { fn clone(&self) -> Self { let r: &azul_impl::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzLinuxWindowOptions { fn clone(&self) -> Self { let r: &azul_core::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineLine { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLine = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzMenuItemEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::MenuItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzMenuItemEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPath { fn clone(&self) -> Self { let r: &azul_impl::css::CssPath = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundContentVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundContentVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11062,8 +11062,8 @@ impl Clone for AzCssPropertyVec { fn clone(&self) -> Self { let r: &azul_impl::c
 impl Clone for AzSvgMultiPolygonVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygonVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCssPropertyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionCssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlTextError { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlTextError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzPlatformSpecificOptions { fn clone(&self) -> Self { let r: &azul_impl::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowState { fn clone(&self) -> Self { let r: &azul_impl::window::WindowState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzPlatformSpecificOptions { fn clone(&self) -> Self { let r: &azul_core::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowState { fn clone(&self) -> Self { let r: &azul_core::window::WindowState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::CallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineText { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineText = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFocusTargetPath { fn clone(&self) -> Self { let r: &azul_impl::callbacks::FocusTargetPath = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11074,10 +11074,10 @@ impl Clone for AzDynamicCssProperty { fn clone(&self) -> Self { let r: &azul_imp
 impl Clone for AzSvgNodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgStyledNode { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgStyledNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataInlineCssPropertyVec { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataInlineCssPropertyVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOptionWindowStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::window::OptionWindowState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionWindowStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionWindowState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionInlineTextEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::OptionInlineText = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlParseErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlParseError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowCreateOptions { fn clone(&self) -> Self { let r: &azul_impl::window::WindowCreateOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowCreateOptions { fn clone(&self) -> Self { let r: &azul_core::window::WindowCreateOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFocusTargetEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::FocusTarget = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeData { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclaration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11324,10 +11324,10 @@ impl AzWindowCreateOptions {
 #[pyproto]
 impl PyObjectProtocol for AzWindowCreateOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowCreateOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowCreateOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowCreateOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowCreateOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11347,10 +11347,10 @@ impl AzRendererOptions {
 #[pyproto]
 impl PyObjectProtocol for AzRendererOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::RendererOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::RendererOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::RendererOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::RendererOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11365,10 +11365,10 @@ impl AzVsyncEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzVsyncEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Vsync = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Vsync = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Vsync = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Vsync = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11383,10 +11383,10 @@ impl AzSrgbEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzSrgbEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Srgb = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Srgb = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Srgb = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Srgb = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11401,10 +11401,10 @@ impl AzHwAccelerationEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzHwAccelerationEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::HwAcceleration = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::HwAcceleration = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::HwAcceleration = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::HwAcceleration = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11499,10 +11499,10 @@ impl AzRawWindowHandleEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzRawWindowHandleEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::RawWindowHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::RawWindowHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::RawWindowHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::RawWindowHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11513,10 +11513,10 @@ impl AzIOSHandle {
 #[pyproto]
 impl PyObjectProtocol for AzIOSHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::IOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::IOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::IOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::IOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11527,10 +11527,10 @@ impl AzMacOSHandle {
 #[pyproto]
 impl PyObjectProtocol for AzMacOSHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MacOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MacOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MacOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MacOSHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11541,10 +11541,10 @@ impl AzXlibHandle {
 #[pyproto]
 impl PyObjectProtocol for AzXlibHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XlibHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XlibHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XlibHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XlibHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11555,10 +11555,10 @@ impl AzXcbHandle {
 #[pyproto]
 impl PyObjectProtocol for AzXcbHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XcbHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XcbHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XcbHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XcbHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11569,10 +11569,10 @@ impl AzWaylandHandle {
 #[pyproto]
 impl PyObjectProtocol for AzWaylandHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WaylandHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WaylandHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WaylandHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WaylandHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11583,10 +11583,10 @@ impl AzWindowsHandle {
 #[pyproto]
 impl PyObjectProtocol for AzWindowsHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowsHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowsHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowsHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowsHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11604,10 +11604,10 @@ impl AzWebHandle {
 #[pyproto]
 impl PyObjectProtocol for AzWebHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WebHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WebHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WebHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WebHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11618,10 +11618,10 @@ impl AzAndroidHandle {
 #[pyproto]
 impl PyObjectProtocol for AzAndroidHandle {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::AndroidHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::AndroidHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::AndroidHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::AndroidHandle = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11660,10 +11660,10 @@ impl AzXWindowTypeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzXWindowTypeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XWindowType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XWindowType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XWindowType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XWindowType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11682,10 +11682,10 @@ impl AzPhysicalPositionI32 {
 #[pyproto]
 impl PyObjectProtocol for AzPhysicalPositionI32 {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::PhysicalPositionI32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::PhysicalPositionI32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::PhysicalPositionI32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::PhysicalPositionI32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11704,10 +11704,10 @@ impl AzPhysicalSizeU32 {
 #[pyproto]
 impl PyObjectProtocol for AzPhysicalSizeU32 {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::PhysicalSizeU32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::PhysicalSizeU32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::PhysicalSizeU32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::PhysicalSizeU32 = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11726,10 +11726,10 @@ impl AzLogicalRect {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalRect {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LogicalRect = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LogicalRect = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11748,10 +11748,10 @@ impl AzLogicalPosition {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalPosition {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LogicalPosition = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LogicalPosition = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LogicalPosition = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LogicalPosition = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11770,10 +11770,10 @@ impl AzLogicalSize {
 #[pyproto]
 impl PyObjectProtocol for AzLogicalSize {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LogicalSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LogicalSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11791,10 +11791,10 @@ impl AzIconKey {
 #[pyproto]
 impl PyObjectProtocol for AzIconKey {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::IconKey = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::IconKey = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::IconKey = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::IconKey = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11813,10 +11813,10 @@ impl AzSmallWindowIconBytes {
 #[pyproto]
 impl PyObjectProtocol for AzSmallWindowIconBytes {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::SmallWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::SmallWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::SmallWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::SmallWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11835,10 +11835,10 @@ impl AzLargeWindowIconBytes {
 #[pyproto]
 impl PyObjectProtocol for AzLargeWindowIconBytes {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LargeWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LargeWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LargeWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LargeWindowIconBytes = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11853,10 +11853,10 @@ impl AzWindowIconEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzWindowIconEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -11875,10 +11875,10 @@ impl AzTaskBarIcon {
 #[pyproto]
 impl PyObjectProtocol for AzTaskBarIcon {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::TaskBarIcon = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::TaskBarIcon = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::TaskBarIcon = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::TaskBarIcon = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12215,10 +12215,10 @@ impl AzVirtualKeyCodeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzVirtualKeyCodeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12237,10 +12237,10 @@ impl AzAcceleratorKeyEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzAcceleratorKeyEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::AcceleratorKey = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::AcceleratorKey = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::AcceleratorKey = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::AcceleratorKey = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12262,10 +12262,10 @@ impl AzWindowSize {
 #[pyproto]
 impl PyObjectProtocol for AzWindowSize {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowSize = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12295,10 +12295,10 @@ impl AzWindowFlags {
 #[pyproto]
 impl PyObjectProtocol for AzWindowFlags {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowFlags = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowFlags = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowFlags = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowFlags = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12342,10 +12342,10 @@ impl AzDebugState {
 #[pyproto]
 impl PyObjectProtocol for AzDebugState {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::DebugState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::DebugState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::DebugState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::DebugState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12370,10 +12370,10 @@ impl AzKeyboardState {
 #[pyproto]
 impl PyObjectProtocol for AzKeyboardState {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::KeyboardState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::KeyboardState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::KeyboardState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::KeyboardState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12454,10 +12454,10 @@ impl AzMouseCursorTypeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzMouseCursorTypeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12474,10 +12474,10 @@ impl AzCursorPositionEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzCursorPositionEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::CursorPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::CursorPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::CursorPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::CursorPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12502,10 +12502,10 @@ impl AzMouseState {
 #[pyproto]
 impl PyObjectProtocol for AzMouseState {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MouseState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MouseState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MouseState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MouseState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12526,10 +12526,10 @@ impl AzPlatformSpecificOptions {
 #[pyproto]
 impl PyObjectProtocol for AzPlatformSpecificOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12551,10 +12551,10 @@ impl AzWindowsWindowOptions {
 #[pyproto]
 impl PyObjectProtocol for AzWindowsWindowOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowsWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowsWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowsWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowsWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12565,10 +12565,10 @@ impl AzWaylandTheme {
 #[pyproto]
 impl PyObjectProtocol for AzWaylandTheme {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WaylandTheme = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WaylandTheme = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WaylandTheme = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WaylandTheme = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12583,10 +12583,10 @@ impl AzRendererTypeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzRendererTypeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::RendererType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::RendererType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::RendererType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::RendererType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12605,10 +12605,10 @@ impl AzStringPair {
 #[pyproto]
 impl PyObjectProtocol for AzStringPair {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::AzStringPair = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::AzStringPair = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::AzStringPair = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::AzStringPair = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12637,10 +12637,10 @@ impl AzLinuxWindowOptions {
 #[pyproto]
 impl PyObjectProtocol for AzLinuxWindowOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::LinuxWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12658,10 +12658,10 @@ impl AzMacWindowOptions {
 #[pyproto]
 impl PyObjectProtocol for AzMacWindowOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MacWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MacWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MacWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MacWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12679,10 +12679,10 @@ impl AzWasmWindowOptions {
 #[pyproto]
 impl PyObjectProtocol for AzWasmWindowOptions {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WasmWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WasmWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WasmWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WasmWindowOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12701,10 +12701,10 @@ impl AzFullScreenModeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzFullScreenModeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::FullScreenMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::FullScreenMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::FullScreenMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::FullScreenMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12719,10 +12719,10 @@ impl AzWindowThemeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzWindowThemeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12737,10 +12737,10 @@ impl AzWindowPositionEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzWindowPositionEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12755,10 +12755,10 @@ impl AzImePositionEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzImePositionEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::ImePosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::ImePosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::ImePosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::ImePosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12776,10 +12776,10 @@ impl AzTouchState {
 #[pyproto]
 impl PyObjectProtocol for AzTouchState {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::TouchState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::TouchState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::TouchState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::TouchState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12803,10 +12803,10 @@ impl AzMonitor {
 #[pyproto]
 impl PyObjectProtocol for AzMonitor {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Monitor = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Monitor = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Monitor = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Monitor = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12826,10 +12826,10 @@ impl AzVideoMode {
 #[pyproto]
 impl PyObjectProtocol for AzVideoMode {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VideoMode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VideoMode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VideoMode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VideoMode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -12854,10 +12854,10 @@ impl AzWindowState {
 #[pyproto]
 impl PyObjectProtocol for AzWindowState {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::WindowState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::WindowState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15424,10 +15424,10 @@ impl AzMenu {
 #[pyproto]
 impl PyObjectProtocol for AzMenu {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15444,10 +15444,10 @@ impl AzMenuItemEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzMenuItemEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItem = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItem = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItem = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItem = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15477,10 +15477,10 @@ impl AzStringMenuItem {
 #[pyproto]
 impl PyObjectProtocol for AzStringMenuItem {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::StringMenuItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::StringMenuItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::StringMenuItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::StringMenuItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15498,10 +15498,10 @@ impl AzVirtualKeyCodeCombo {
 #[pyproto]
 impl PyObjectProtocol for AzVirtualKeyCodeCombo {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCodeCombo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15520,10 +15520,10 @@ impl AzMenuCallback {
 #[pyproto]
 impl PyObjectProtocol for AzMenuCallback {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15538,10 +15538,10 @@ impl AzMenuItemIconEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzMenuItemIconEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -15558,10 +15558,10 @@ impl AzMenuItemStateEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzMenuItemStateEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -24881,10 +24881,10 @@ impl AzSystemClipboard {
 #[pyproto]
 impl PyObjectProtocol for AzSystemClipboard {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Clipboard = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::app::Clipboard = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::Clipboard = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::app::Clipboard = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -25503,12 +25503,12 @@ impl AzMenuItemVec {
     /// Creates a new `MenuItemEnumWrapperVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzMenuItemEnumWrapper>) -> Self {
-        let m: azul_impl::window::MenuItemVec = azul_impl::window::MenuItemVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::MenuItemVec = azul_core::window::MenuItemVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the MenuItemEnumWrapper as a Python array
     fn array(&self) -> Vec<AzMenuItemEnumWrapper> {
-        let m: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -25516,10 +25516,10 @@ impl AzMenuItemVec {
 #[pyproto]
 impl PyObjectProtocol for AzMenuItemVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -25717,12 +25717,12 @@ impl AzMonitorVec {
     /// Creates a new `MonitorVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzMonitor>) -> Self {
-        let m: azul_impl::window::MonitorVec = azul_impl::window::MonitorVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::MonitorVec = azul_core::window::MonitorVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the Monitor as a Python array
     fn array(&self) -> Vec<AzMonitor> {
-        let m: &azul_impl::window::MonitorVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::MonitorVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -25730,10 +25730,10 @@ impl AzMonitorVec {
 #[pyproto]
 impl PyObjectProtocol for AzMonitorVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MonitorVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MonitorVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MonitorVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MonitorVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -25742,12 +25742,12 @@ impl AzVideoModeVec {
     /// Creates a new `VideoModeVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzVideoMode>) -> Self {
-        let m: azul_impl::window::VideoModeVec = azul_impl::window::VideoModeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::VideoModeVec = azul_core::window::VideoModeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the VideoMode as a Python array
     fn array(&self) -> Vec<AzVideoMode> {
-        let m: &azul_impl::window::VideoModeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::VideoModeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -25755,10 +25755,10 @@ impl AzVideoModeVec {
 #[pyproto]
 impl PyObjectProtocol for AzVideoModeVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VideoModeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VideoModeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VideoModeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VideoModeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26142,12 +26142,12 @@ impl AzXWindowTypeVec {
     /// Creates a new `XWindowTypeEnumWrapperVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzXWindowTypeEnumWrapper>) -> Self {
-        let m: azul_impl::window::XWindowTypeVec = azul_impl::window::XWindowTypeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::XWindowTypeVec = azul_core::window::XWindowTypeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the XWindowTypeEnumWrapper as a Python array
     fn array(&self) -> Vec<AzXWindowTypeEnumWrapper> {
-        let m: &azul_impl::window::XWindowTypeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::XWindowTypeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -26155,10 +26155,10 @@ impl AzXWindowTypeVec {
 #[pyproto]
 impl PyObjectProtocol for AzXWindowTypeVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XWindowTypeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XWindowTypeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XWindowTypeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XWindowTypeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26167,12 +26167,12 @@ impl AzVirtualKeyCodeVec {
     /// Creates a new `VirtualKeyCodeEnumWrapperVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzVirtualKeyCodeEnumWrapper>) -> Self {
-        let m: azul_impl::window::VirtualKeyCodeVec = azul_impl::window::VirtualKeyCodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::VirtualKeyCodeVec = azul_core::window::VirtualKeyCodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the VirtualKeyCodeEnumWrapper as a Python array
     fn array(&self) -> Vec<AzVirtualKeyCodeEnumWrapper> {
-        let m: &azul_impl::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -26180,10 +26180,10 @@ impl AzVirtualKeyCodeVec {
 #[pyproto]
 impl PyObjectProtocol for AzVirtualKeyCodeVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26217,12 +26217,12 @@ impl AzScanCodeVec {
     /// Creates a new `ScanCodeVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzScanCode>) -> Self {
-        let m: azul_impl::window::ScanCodeVec = azul_impl::window::ScanCodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::ScanCodeVec = azul_core::window::ScanCodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the ScanCode as a Python array
     fn array(&self) -> Vec<AzScanCode> {
-        let m: &azul_impl::window::ScanCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::ScanCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -26230,10 +26230,10 @@ impl AzScanCodeVec {
 #[pyproto]
 impl PyObjectProtocol for AzScanCodeVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::ScanCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::ScanCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::ScanCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::ScanCodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26531,12 +26531,12 @@ impl AzStringPairVec {
     /// Creates a new `StringPairVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzStringPair>) -> Self {
-        let m: azul_impl::window::StringPairVec = azul_impl::window::StringPairVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::window::StringPairVec = azul_core::window::StringPairVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the StringPair as a Python array
     fn array(&self) -> Vec<AzStringPair> {
-        let m: &azul_impl::window::StringPairVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::window::StringPairVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -26544,10 +26544,10 @@ impl AzStringPairVec {
 #[pyproto]
 impl PyObjectProtocol for AzStringPairVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::StringPairVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::StringPairVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::StringPairVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::StringPairVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26798,10 +26798,10 @@ impl AzMenuItemVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzMenuItemVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MenuItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26942,10 +26942,10 @@ impl AzMonitorVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzMonitorVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MonitorVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MonitorVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::MonitorVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::MonitorVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -26960,10 +26960,10 @@ impl AzVideoModeVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzVideoModeVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VideoModeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VideoModeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VideoModeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VideoModeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27248,10 +27248,10 @@ impl AzXWindowTypeVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzXWindowTypeVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XWindowTypeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XWindowTypeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::XWindowTypeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::XWindowTypeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27266,10 +27266,10 @@ impl AzVirtualKeyCodeVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzVirtualKeyCodeVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27302,10 +27302,10 @@ impl AzScanCodeVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzScanCodeVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::ScanCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::ScanCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::ScanCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::ScanCodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27536,10 +27536,10 @@ impl AzStringPairVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzStringPairVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::StringPairVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::StringPairVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::StringPairVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::StringPairVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27842,10 +27842,10 @@ impl AzOptionMenuItemIconEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionMenuItemIconEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMenuItemIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27860,10 +27860,10 @@ impl AzOptionMenuCallbackEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionMenuCallbackEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMenuCallback = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMenuCallback = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMenuCallback = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMenuCallback = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -27878,10 +27878,10 @@ impl AzOptionVirtualKeyCodeComboEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionVirtualKeyCodeComboEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28058,10 +28058,10 @@ impl AzOptionSystemClipboardEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionSystemClipboardEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionClipboard = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::app::OptionClipboard = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionClipboard = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::app::OptionClipboard = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28094,10 +28094,10 @@ impl AzOptionWindowStateEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionWindowStateEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWindowState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWindowState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWindowState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWindowState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28112,10 +28112,10 @@ impl AzOptionMouseStateEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionMouseStateEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMouseState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMouseState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMouseState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMouseState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28130,10 +28130,10 @@ impl AzOptionKeyboardStateEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionKeyboardStateEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionKeyboardState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionKeyboardState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionKeyboardState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionKeyboardState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28256,10 +28256,10 @@ impl AzOptionRendererOptionsEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionRendererOptionsEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionRendererOptions = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionRendererOptions = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionRendererOptions = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionRendererOptions = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28400,10 +28400,10 @@ impl AzOptionWindowThemeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionWindowThemeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28508,10 +28508,10 @@ impl AzOptionWaylandThemeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionWaylandThemeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWaylandTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWaylandTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWaylandTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWaylandTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28526,10 +28526,10 @@ impl AzOptionTaskBarIconEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionTaskBarIconEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionTaskBarIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionTaskBarIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionTaskBarIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionTaskBarIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28542,10 +28542,10 @@ impl AzOptionHwndHandleEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionHwndHandleEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionHwndHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionHwndHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionHwndHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionHwndHandle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28560,10 +28560,10 @@ impl AzOptionLogicalPositionEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionLogicalPositionEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionLogicalPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionLogicalPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionLogicalPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionLogicalPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28578,10 +28578,10 @@ impl AzOptionPhysicalPositionI32EnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionPhysicalPositionI32EnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionPhysicalPositionI32 = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionPhysicalPositionI32 = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionPhysicalPositionI32 = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionPhysicalPositionI32 = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28596,10 +28596,10 @@ impl AzOptionWindowIconEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionWindowIconEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionWindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionWindowIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28630,10 +28630,10 @@ impl AzOptionX11VisualEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionX11VisualEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionX11Visual = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionX11Visual = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionX11Visual = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionX11Visual = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28684,10 +28684,10 @@ impl AzOptionMouseCursorTypeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionMouseCursorTypeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionMouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionMouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28702,10 +28702,10 @@ impl AzOptionLogicalSizeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionLogicalSizeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionLogicalSize = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionLogicalSize = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionLogicalSize = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionLogicalSize = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28720,10 +28720,10 @@ impl AzOptionCharEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionCharEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionChar = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionChar = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionChar = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionChar = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -28738,10 +28738,10 @@ impl AzOptionVirtualKeyCodeEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzOptionVirtualKeyCodeEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionVirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionVirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::window::OptionVirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::window::OptionVirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 

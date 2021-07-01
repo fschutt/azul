@@ -24,10 +24,12 @@ extern crate azul_core;
 extern crate azul_text_layout;
 extern crate azulc_lib;
 extern crate raw_window_handle;
+#[cfg(not(target_os = "windows"))]
 extern crate glutin;
 extern crate webrender;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
+#[cfg(not(target_os = "windows"))]
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
@@ -43,6 +45,8 @@ extern crate core_foundation;
 
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
+/// Windowing backend for the platforms window manager (Win32, NSView, X11, Wayland)
+pub mod shell;
 pub use azul_core::task;
 pub use azul_core::callbacks;
 /// CSS type definitions / CSS parsing functions
@@ -59,6 +63,7 @@ pub use azul_core::gl;
 pub use azul_core::styled_dom;
 pub use azul_core::style;
 /// Window state handling and window-related information
+#[cfg(not(target_os = "windows"))]
 pub mod window;
 /// Font & image resource handling, lookup and caching
 pub mod resources {
@@ -77,7 +82,6 @@ mod compositor;
 #[cfg(feature = "logging")]
 mod logging;
 mod wr_translate;
-mod display_shader;
 
 /// `GetTextLayout` trait definition
 pub mod traits {
@@ -112,6 +116,7 @@ pub mod xml {
 pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
-    pub use glutin::CreationError;
     pub use azulc_lib::font_loading::FontReloadError;
+    #[cfg(not(target_os = "windows"))]
+    pub use glutin::CreationError;
 }

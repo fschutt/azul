@@ -9,9 +9,9 @@ use azul_desktop::{
         Dom, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
         NodeDataInlineCssProperty::{Normal, Hover, Focus}
     },
-    window::{KeyboardState, VirtualKeyCode},
     callbacks::{RefAny, Callback, CallbackInfo, Update},
 };
+use azul_core::window::{KeyboardState, VirtualKeyCode};
 use std::vec::Vec;
 use std::string::String;
 

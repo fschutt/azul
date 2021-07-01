@@ -1,3 +1,5 @@
+#![not(target_os = "windows")]
+
 use std::time::Duration as StdDuration;
 use std::thread::JoinHandle;
 use std::sync::Mutex;
@@ -44,7 +46,6 @@ use glutin::{
     Context as GlutinContext,
 };
 use gleam::gl::{self, Gl};
-use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use crate::compositor::Compositor;
 use azul_core::{
     callbacks::{PipelineId, DocumentId, RefAny, CallbackInfo, Update},
@@ -76,36 +77,6 @@ static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1); /
 #[cfg(target_os = "windows")]
 fn get_new_command_id() -> usize {
     WINDOWS_UNIQUE_COMMAND_ID_GENERATOR.fetch_add(1, AtomicOrdering::SeqCst)
-}
-
-#[derive(Debug)]
-pub enum LazyFcCache {
-    Resolved(FcFontCache),
-    InProgress(Option<JoinHandle<FcFontCache>>)
-}
-
-impl LazyFcCache {
-    pub fn apply_closure<T, F: FnOnce(&mut FcFontCache) -> T>(&mut self, closure: F) -> T{
-        let mut replace = None;
-
-        let result = match self {
-            LazyFcCache::Resolved(c) => { closure(c) },
-            LazyFcCache::InProgress(j) => {
-                let mut font_cache = j.take().and_then(|j| Some(j.join().ok()))
-                .unwrap_or_default()
-                .unwrap_or_default();
-                let r = closure(&mut font_cache);
-                replace = Some(font_cache);
-                r
-            }
-        };
-
-        if let Some(replace) = replace {
-            *self = LazyFcCache::Resolved(replace);
-        }
-
-        result
-    }
 }
 
 /// returns a unique identifier for the monitor, used for hashing
@@ -1525,45 +1496,6 @@ fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransacti
         floats,
         colors: Vec::new(), // TODO: animate colors?
     });
-}
-
-/// Clipboard is an empty class with only static methods,
-/// which is why it doesn't have any #[derive] markers.
-#[repr(C)]
-#[derive(Clone)]
-pub struct Clipboard {
-    pub _native: Box<Arc<Mutex<SystemClipboard>>>,
-}
-
-impl fmt::Debug for Clipboard {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Clipboard {{ ... }}")
-    }
-}
-
-impl_option!(Clipboard, OptionClipboard, copy = false, [Clone, Debug]);
-
-impl Clipboard {
-
-    pub fn new() -> Option<Self> {
-        let clipboard = SystemClipboard::new().ok()?;
-        Some(Self { _native: Box::new(Arc::new(Mutex::new(clipboard))) })
-    }
-
-    /// Returns the contents of the system clipboard
-    pub fn get_clipboard_string(&self) -> Option<AzString> {
-        self._native.lock().ok()?.get_string_contents().map(|o| o.into()).ok()
-    }
-
-    /// Sets the contents of the system clipboard
-    pub fn set_clipboard_string(&mut self, contents: AzString) -> Option<()> {
-        Arc::get_mut(&mut *self._native)?.get_mut().ok()?.set_string_contents(contents.into_library_owned_string()).ok()?;
-        Some(())
-    }
-}
-
-impl Drop for Clipboard {
-    fn drop(&mut self) { }
 }
 
 fn synchronize_os_window_platform_extensions(

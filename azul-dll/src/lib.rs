@@ -57,25 +57,25 @@ pub use AzSystemCallbacksTT as AzSystemCallbacks;
 #[no_mangle] pub extern "C" fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks { AzSystemCallbacks::rust_internal() }
 
 /// Options on how to initially create the window
-pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
+pub type AzWindowCreateOptionsTT = azul_core::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new window configuration with a custom layout callback
 #[no_mangle] pub extern "C" fn AzWindowCreateOptions_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { AzWindowCreateOptions::new(layout_callback) }
 
 /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
-pub type AzRendererOptionsTT = azul_impl::window::RendererOptions;
+pub type AzRendererOptionsTT = azul_core::window::RendererOptions;
 pub use AzRendererOptionsTT as AzRendererOptions;
 
 /// Whether the renderer has VSync enabled
-pub type AzVsyncTT = azul_impl::window::Vsync;
+pub type AzVsyncTT = azul_core::window::Vsync;
 pub use AzVsyncTT as AzVsync;
 
 /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
-pub type AzSrgbTT = azul_impl::window::Srgb;
+pub type AzSrgbTT = azul_core::window::Srgb;
 pub use AzSrgbTT as AzSrgb;
 
 /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
-pub type AzHwAccelerationTT = azul_impl::window::HwAcceleration;
+pub type AzHwAccelerationTT = azul_core::window::HwAcceleration;
 pub use AzHwAccelerationTT as AzHwAcceleration;
 
 /// Offset in physical pixels (integer units)
@@ -91,183 +91,183 @@ pub type AzLayoutRectTT = azul_impl::css::LayoutRect;
 pub use AzLayoutRectTT as AzLayoutRect;
 
 /// Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions
-pub type AzRawWindowHandleTT = azul_impl::window::RawWindowHandle;
+pub type AzRawWindowHandleTT = azul_core::window::RawWindowHandle;
 pub use AzRawWindowHandleTT as AzRawWindowHandle;
 
 /// Re-export of rust-allocated (stack based) `IOSHandle` struct
-pub type AzIOSHandleTT = azul_impl::window::IOSHandle;
+pub type AzIOSHandleTT = azul_core::window::IOSHandle;
 pub use AzIOSHandleTT as AzIOSHandle;
 
 /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
-pub type AzMacOSHandleTT = azul_impl::window::MacOSHandle;
+pub type AzMacOSHandleTT = azul_core::window::MacOSHandle;
 pub use AzMacOSHandleTT as AzMacOSHandle;
 
 /// Re-export of rust-allocated (stack based) `XlibHandle` struct
-pub type AzXlibHandleTT = azul_impl::window::XlibHandle;
+pub type AzXlibHandleTT = azul_core::window::XlibHandle;
 pub use AzXlibHandleTT as AzXlibHandle;
 
 /// Re-export of rust-allocated (stack based) `XcbHandle` struct
-pub type AzXcbHandleTT = azul_impl::window::XcbHandle;
+pub type AzXcbHandleTT = azul_core::window::XcbHandle;
 pub use AzXcbHandleTT as AzXcbHandle;
 
 /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
-pub type AzWaylandHandleTT = azul_impl::window::WaylandHandle;
+pub type AzWaylandHandleTT = azul_core::window::WaylandHandle;
 pub use AzWaylandHandleTT as AzWaylandHandle;
 
 /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
-pub type AzWindowsHandleTT = azul_impl::window::WindowsHandle;
+pub type AzWindowsHandleTT = azul_core::window::WindowsHandle;
 pub use AzWindowsHandleTT as AzWindowsHandle;
 
 /// Re-export of rust-allocated (stack based) `WebHandle` struct
-pub type AzWebHandleTT = azul_impl::window::WebHandle;
+pub type AzWebHandleTT = azul_core::window::WebHandle;
 pub use AzWebHandleTT as AzWebHandle;
 
 /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
-pub type AzAndroidHandleTT = azul_impl::window::AndroidHandle;
+pub type AzAndroidHandleTT = azul_core::window::AndroidHandle;
 pub use AzAndroidHandleTT as AzAndroidHandle;
 
 /// X11 window hint: Type of window
-pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
+pub type AzXWindowTypeTT = azul_core::window::XWindowType;
 pub use AzXWindowTypeTT as AzXWindowType;
 
 /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
-pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPositionI32;
+pub type AzPhysicalPositionI32TT = azul_core::window::PhysicalPositionI32;
 pub use AzPhysicalPositionI32TT as AzPhysicalPositionI32;
 
 /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
-pub type AzPhysicalSizeU32TT = azul_impl::window::PhysicalSizeU32;
+pub type AzPhysicalSizeU32TT = azul_core::window::PhysicalSizeU32;
 pub use AzPhysicalSizeU32TT as AzPhysicalSizeU32;
 
 /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
-pub type AzLogicalRectTT = azul_impl::window::LogicalRect;
+pub type AzLogicalRectTT = azul_core::window::LogicalRect;
 pub use AzLogicalRectTT as AzLogicalRect;
 
 /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
-pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
+pub type AzLogicalPositionTT = azul_core::window::LogicalPosition;
 pub use AzLogicalPositionTT as AzLogicalPosition;
 
 /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
-pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
+pub type AzLogicalSizeTT = azul_core::window::LogicalSize;
 pub use AzLogicalSizeTT as AzLogicalSize;
 
 /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
-pub type AzIconKeyTT = azul_impl::window::IconKey;
+pub type AzIconKeyTT = azul_core::window::IconKey;
 pub use AzIconKeyTT as AzIconKey;
 
 /// Small (16x16x4) window icon, usually shown in the window titlebar
-pub type AzSmallWindowIconBytesTT = azul_impl::window::SmallWindowIconBytes;
+pub type AzSmallWindowIconBytesTT = azul_core::window::SmallWindowIconBytes;
 pub use AzSmallWindowIconBytesTT as AzSmallWindowIconBytes;
 
 /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
-pub type AzLargeWindowIconBytesTT = azul_impl::window::LargeWindowIconBytes;
+pub type AzLargeWindowIconBytesTT = azul_core::window::LargeWindowIconBytes;
 pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
 
 /// Window "favicon", usually shown in the top left of the window on Windows
-pub type AzWindowIconTT = azul_impl::window::WindowIcon;
+pub type AzWindowIconTT = azul_core::window::WindowIcon;
 pub use AzWindowIconTT as AzWindowIcon;
 
 /// Application taskbar icon, 256x256x4 bytes in size
-pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
+pub type AzTaskBarIconTT = azul_core::window::TaskBarIcon;
 pub use AzTaskBarIconTT as AzTaskBarIcon;
 
 /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
-pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
+pub type AzVirtualKeyCodeTT = azul_core::window::VirtualKeyCode;
 pub use AzVirtualKeyCodeTT as AzVirtualKeyCode;
 
 /// Symbolic accelerator key (ctrl, alt, shift)
-pub type AzAcceleratorKeyTT = azul_impl::window::AcceleratorKey;
+pub type AzAcceleratorKeyTT = azul_core::window::AcceleratorKey;
 pub use AzAcceleratorKeyTT as AzAcceleratorKey;
 
 /// Minimum / maximum / current size of the window in logical dimensions
-pub type AzWindowSizeTT = azul_impl::window::WindowSize;
+pub type AzWindowSizeTT = azul_core::window::WindowSize;
 pub use AzWindowSizeTT as AzWindowSize;
 
 /// Boolean flags relating to the current window state
-pub type AzWindowFlagsTT = azul_impl::window::WindowFlags;
+pub type AzWindowFlagsTT = azul_core::window::WindowFlags;
 pub use AzWindowFlagsTT as AzWindowFlags;
 
 /// Debugging information, will be rendered as an overlay on top of the UI
-pub type AzDebugStateTT = azul_impl::window::DebugState;
+pub type AzDebugStateTT = azul_core::window::DebugState;
 pub use AzDebugStateTT as AzDebugState;
 
 /// Current keyboard state, stores what keys / characters have been pressed
-pub type AzKeyboardStateTT = azul_impl::window::KeyboardState;
+pub type AzKeyboardStateTT = azul_core::window::KeyboardState;
 pub use AzKeyboardStateTT as AzKeyboardState;
 
 /// Current icon of the mouse cursor
-pub type AzMouseCursorTypeTT = azul_impl::window::MouseCursorType;
+pub type AzMouseCursorTypeTT = azul_core::window::MouseCursorType;
 pub use AzMouseCursorTypeTT as AzMouseCursorType;
 
 /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
-pub type AzCursorPositionTT = azul_impl::window::CursorPosition;
+pub type AzCursorPositionTT = azul_core::window::CursorPosition;
 pub use AzCursorPositionTT as AzCursorPosition;
 
 /// Current mouse / cursor state
-pub type AzMouseStateTT = azul_impl::window::MouseState;
+pub type AzMouseStateTT = azul_core::window::MouseState;
 pub use AzMouseStateTT as AzMouseState;
 
 /// Platform-specific window configuration, i.e. WM options that are not cross-platform
-pub type AzPlatformSpecificOptionsTT = azul_impl::window::PlatformSpecificOptions;
+pub type AzPlatformSpecificOptionsTT = azul_core::window::PlatformSpecificOptions;
 pub use AzPlatformSpecificOptionsTT as AzPlatformSpecificOptions;
 
 /// Window configuration specific to Win32
-pub type AzWindowsWindowOptionsTT = azul_impl::window::WindowsWindowOptions;
+pub type AzWindowsWindowOptionsTT = azul_core::window::WindowsWindowOptions;
 pub use AzWindowsWindowOptionsTT as AzWindowsWindowOptions;
 
 /// CSD theme of the window title / button controls
-pub type AzWaylandThemeTT = azul_impl::window::WaylandTheme;
+pub type AzWaylandThemeTT = azul_core::window::WaylandTheme;
 pub use AzWaylandThemeTT as AzWaylandTheme;
 
 /// Renderer type of the current windows OpenGL context
-pub type AzRendererTypeTT = azul_impl::window::RendererType;
+pub type AzRendererTypeTT = azul_core::window::RendererType;
 pub use AzRendererTypeTT as AzRendererType;
 
 /// Key-value pair, used for setting WM hints values specific to GNOME
-pub type AzStringPairTT = azul_impl::window::AzStringPair;
+pub type AzStringPairTT = azul_core::window::AzStringPair;
 pub use AzStringPairTT as AzStringPair;
 
 /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
-pub type AzLinuxWindowOptionsTT = azul_impl::window::LinuxWindowOptions;
+pub type AzLinuxWindowOptionsTT = azul_core::window::LinuxWindowOptions;
 pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
 
 /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
-pub type AzMacWindowOptionsTT = azul_impl::window::MacWindowOptions;
+pub type AzMacWindowOptionsTT = azul_core::window::MacWindowOptions;
 pub use AzMacWindowOptionsTT as AzMacWindowOptions;
 
 /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
-pub type AzWasmWindowOptionsTT = azul_impl::window::WasmWindowOptions;
+pub type AzWasmWindowOptionsTT = azul_core::window::WasmWindowOptions;
 pub use AzWasmWindowOptionsTT as AzWasmWindowOptions;
 
 /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
-pub type AzFullScreenModeTT = azul_impl::window::FullScreenMode;
+pub type AzFullScreenModeTT = azul_core::window::FullScreenMode;
 pub use AzFullScreenModeTT as AzFullScreenMode;
 
 /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
-pub type AzWindowThemeTT = azul_impl::window::WindowTheme;
+pub type AzWindowThemeTT = azul_core::window::WindowTheme;
 pub use AzWindowThemeTT as AzWindowTheme;
 
 /// Position of the top left corner of the window relative to the top left of the monitor
-pub type AzWindowPositionTT = azul_impl::window::WindowPosition;
+pub type AzWindowPositionTT = azul_core::window::WindowPosition;
 pub use AzWindowPositionTT as AzWindowPosition;
 
 /// Position of the virtual keyboard necessary to insert CJK characters
-pub type AzImePositionTT = azul_impl::window::ImePosition;
+pub type AzImePositionTT = azul_core::window::ImePosition;
 pub use AzImePositionTT as AzImePosition;
 
 /// Current state of touch devices / touch inputs
-pub type AzTouchStateTT = azul_impl::window::TouchState;
+pub type AzTouchStateTT = azul_core::window::TouchState;
 pub use AzTouchStateTT as AzTouchState;
 
 /// Information about a single (or many) monitors, useful for dock widgets
-pub type AzMonitorTT = azul_impl::window::Monitor;
+pub type AzMonitorTT = azul_core::window::Monitor;
 pub use AzMonitorTT as AzMonitor;
 
 /// Describes a rendering configuration for a monitor
-pub type AzVideoModeTT = azul_impl::window::VideoMode;
+pub type AzVideoModeTT = azul_core::window::VideoMode;
 pub use AzVideoModeTT as AzVideoMode;
 
 /// Re-export of rust-allocated (stack based) `WindowState` struct
-pub type AzWindowStateTT = azul_impl::window::WindowState;
+pub type AzWindowStateTT = azul_core::window::WindowState;
 pub use AzWindowStateTT as AzWindowState;
 /// Creates a new WindowState with default settings and a custom layout callback
 #[no_mangle] pub extern "C" fn AzWindowState_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { AzWindowState::new(layout_callback) }
@@ -826,17 +826,17 @@ pub type AzNodeDataInlineCssPropertyTT = azul_impl::dom::NodeDataInlineCssProper
 pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 
 /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
-pub type AzMenuTT = azul_impl::window::Menu;
+pub type AzMenuTT = azul_core::window::Menu;
 pub use AzMenuTT as AzMenu;
 
 /// Item entry in a menu or menu bar
-pub type AzMenuItemTT = azul_impl::window::MenuItem;
+pub type AzMenuItemTT = azul_core::window::MenuItem;
 pub use AzMenuItemTT as AzMenuItem;
 /// Creates a new menu item
 #[no_mangle] pub extern "C" fn AzMenuItem_new(label: AzString, callback: AzOptionMenuCallback) -> AzMenuItem { AzMenuItem::String(AzStringMenuItem { label, accelerator: None.into(), callback, state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() }) }
 
 /// Regular labeled menu item
-pub type AzStringMenuItemTT = azul_impl::window::StringMenuItem;
+pub type AzStringMenuItemTT = azul_core::window::StringMenuItem;
 pub use AzStringMenuItemTT as AzStringMenuItem;
 /// Creates a new menu item
 #[no_mangle] pub extern "C" fn AzStringMenuItem_new(label: AzString) -> AzStringMenuItem { AzStringMenuItem { label, accelerator: None.into(), callback: None.into(), state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() } }
@@ -846,19 +846,19 @@ pub use AzStringMenuItemTT as AzStringMenuItem;
 #[no_mangle] pub extern "C" fn AzStringMenuItem_withChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem }
 
 /// Combination of virtual key codes that have to be pressed together
-pub type AzVirtualKeyCodeComboTT = azul_impl::window::VirtualKeyCodeCombo;
+pub type AzVirtualKeyCodeComboTT = azul_core::window::VirtualKeyCodeCombo;
 pub use AzVirtualKeyCodeComboTT as AzVirtualKeyCodeCombo;
 
 /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
-pub type AzMenuCallbackTT = azul_impl::window::MenuCallback;
+pub type AzMenuCallbackTT = azul_core::window::MenuCallback;
 pub use AzMenuCallbackTT as AzMenuCallback;
 
 /// Icon of a menu entry
-pub type AzMenuItemIconTT = azul_impl::window::MenuItemIcon;
+pub type AzMenuItemIconTT = azul_core::window::MenuItemIcon;
 pub use AzMenuItemIconTT as AzMenuItemIcon;
 
 /// Describes the state of a menu item
-pub type AzMenuItemStateTT = azul_impl::window::MenuItemState;
+pub type AzMenuItemStateTT = azul_core::window::MenuItemState;
 pub use AzMenuItemStateTT as AzMenuItemState;
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
@@ -2795,7 +2795,7 @@ pub use AzColorPickerDialogTT as AzColorPickerDialog;
 #[no_mangle] pub extern "C" fn AzColorPickerDialog_open(title: AzString, default_color: AzOptionColorU) -> AzOptionColorU { azul_impl::dialogs::color_picker_dialog(title.as_str(), default_color.into_option().map(|s| s.into())).into() }
 
 /// Connection to the system clipboard, on some systems this connection can be cached
-pub type AzSystemClipboardTT = azul_impl::window::Clipboard;
+pub type AzSystemClipboardTT = azul_impl::app::Clipboard;
 pub use AzSystemClipboardTT as AzSystemClipboard;
 /// Creates a new connection to the system clipboard manager
 #[no_mangle] pub extern "C" fn AzSystemClipboard_new() -> AzOptionSystemClipboard { AzSystemClipboard::new().into() }
@@ -2994,7 +2994,7 @@ pub use AzAccessibilityStateVecTT as AzAccessibilityStateVec;
 #[no_mangle] pub extern "C" fn AzAccessibilityStateVec_delete(object: &mut AzAccessibilityStateVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<MenuItem>`
-pub type AzMenuItemVecTT = azul_impl::window::MenuItemVec;
+pub type AzMenuItemVecTT = azul_core::window::MenuItemVec;
 pub use AzMenuItemVecTT as AzMenuItemVec;
 /// Destructor: Takes ownership of the `MenuItemVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMenuItemVec_delete(object: &mut AzMenuItemVec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -3050,13 +3050,13 @@ pub use AzInlineTextHitVecTT as AzInlineTextHitVec;
 #[no_mangle] pub extern "C" fn AzInlineTextHitVec_delete(object: &mut AzInlineTextHitVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<Monitor>`
-pub type AzMonitorVecTT = azul_impl::window::MonitorVec;
+pub type AzMonitorVecTT = azul_core::window::MonitorVec;
 pub use AzMonitorVecTT as AzMonitorVec;
 /// Destructor: Takes ownership of the `MonitorVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMonitorVec_delete(object: &mut AzMonitorVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<VideoMode>`
-pub type AzVideoModeVecTT = azul_impl::window::VideoModeVec;
+pub type AzVideoModeVecTT = azul_core::window::VideoModeVec;
 pub use AzVideoModeVecTT as AzVideoModeVec;
 /// Destructor: Takes ownership of the `VideoModeVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzVideoModeVec_delete(object: &mut AzVideoModeVec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -3152,13 +3152,13 @@ pub use AzU32VecTT as AzU32Vec;
 #[no_mangle] pub extern "C" fn AzU32Vec_delete(object: &mut AzU32Vec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `XWindowType`
-pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
+pub type AzXWindowTypeVecTT = azul_core::window::XWindowTypeVec;
 pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
 /// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzXWindowTypeVec_delete(object: &mut AzXWindowTypeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `VirtualKeyCode`
-pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
+pub type AzVirtualKeyCodeVecTT = azul_core::window::VirtualKeyCodeVec;
 pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
 /// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzVirtualKeyCodeVec_delete(object: &mut AzVirtualKeyCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -3170,7 +3170,7 @@ pub use AzCascadeInfoVecTT as AzCascadeInfoVec;
 #[no_mangle] pub extern "C" fn AzCascadeInfoVec_delete(object: &mut AzCascadeInfoVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `ScanCode`
-pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
+pub type AzScanCodeVecTT = azul_core::window::ScanCodeVec;
 pub use AzScanCodeVecTT as AzScanCodeVec;
 /// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzScanCodeVec_delete(object: &mut AzScanCodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -3252,7 +3252,7 @@ pub use AzStringVecTT as AzStringVec;
 #[no_mangle] pub extern "C" fn AzStringVec_delete(object: &mut AzStringVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `StringPairVec`
-pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
+pub type AzStringPairVecTT = azul_core::window::StringPairVec;
 pub use AzStringPairVecTT as AzStringPairVec;
 /// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzStringPairVec_delete(object: &mut AzStringPairVec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -3316,7 +3316,7 @@ pub use AzAccessibilityStateVecDestructorTT as AzAccessibilityStateVecDestructor
 
 pub type AzAccessibilityStateVecDestructorType = extern "C" fn(&mut AzAccessibilityStateVec);
 /// Re-export of rust-allocated (stack based) `MenuItemVecDestructor` struct
-pub type AzMenuItemVecDestructorTT = azul_impl::window::MenuItemVecDestructor;
+pub type AzMenuItemVecDestructorTT = azul_core::window::MenuItemVecDestructor;
 pub use AzMenuItemVecDestructorTT as AzMenuItemVecDestructor;
 
 pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
@@ -3356,12 +3356,12 @@ pub use AzInlineTextHitVecDestructorTT as AzInlineTextHitVecDestructor;
 
 pub type AzInlineTextHitVecDestructorType = extern "C" fn(&mut AzInlineTextHitVec);
 /// Re-export of rust-allocated (stack based) `MonitorVecDestructor` struct
-pub type AzMonitorVecDestructorTT = azul_impl::window::MonitorVecDestructor;
+pub type AzMonitorVecDestructorTT = azul_core::window::MonitorVecDestructor;
 pub use AzMonitorVecDestructorTT as AzMonitorVecDestructor;
 
 pub type AzMonitorVecDestructorType = extern "C" fn(&mut AzMonitorVec);
 /// Re-export of rust-allocated (stack based) `VideoModeVecDestructor` struct
-pub type AzVideoModeVecDestructorTT = azul_impl::window::VideoModeVecDestructor;
+pub type AzVideoModeVecDestructorTT = azul_core::window::VideoModeVecDestructor;
 pub use AzVideoModeVecDestructorTT as AzVideoModeVecDestructor;
 
 pub type AzVideoModeVecDestructorType = extern "C" fn(&mut AzVideoModeVec);
@@ -3441,12 +3441,12 @@ pub use AzU32VecDestructorTT as AzU32VecDestructor;
 
 pub type AzU32VecDestructorType = extern "C" fn(&mut AzU32Vec);
 /// Re-export of rust-allocated (stack based) `XWindowTypeVecDestructor` struct
-pub type AzXWindowTypeVecDestructorTT = azul_impl::window::XWindowTypeVecDestructor;
+pub type AzXWindowTypeVecDestructorTT = azul_core::window::XWindowTypeVecDestructor;
 pub use AzXWindowTypeVecDestructorTT as AzXWindowTypeVecDestructor;
 
 pub type AzXWindowTypeVecDestructorType = extern "C" fn(&mut AzXWindowTypeVec);
 /// Re-export of rust-allocated (stack based) `VirtualKeyCodeVecDestructor` struct
-pub type AzVirtualKeyCodeVecDestructorTT = azul_impl::window::VirtualKeyCodeVecDestructor;
+pub type AzVirtualKeyCodeVecDestructorTT = azul_core::window::VirtualKeyCodeVecDestructor;
 pub use AzVirtualKeyCodeVecDestructorTT as AzVirtualKeyCodeVecDestructor;
 
 pub type AzVirtualKeyCodeVecDestructorType = extern "C" fn(&mut AzVirtualKeyCodeVec);
@@ -3456,7 +3456,7 @@ pub use AzCascadeInfoVecDestructorTT as AzCascadeInfoVecDestructor;
 
 pub type AzCascadeInfoVecDestructorType = extern "C" fn(&mut AzCascadeInfoVec);
 /// Re-export of rust-allocated (stack based) `ScanCodeVecDestructor` struct
-pub type AzScanCodeVecDestructorTT = azul_impl::window::ScanCodeVecDestructor;
+pub type AzScanCodeVecDestructorTT = azul_core::window::ScanCodeVecDestructor;
 pub use AzScanCodeVecDestructorTT as AzScanCodeVecDestructor;
 
 pub type AzScanCodeVecDestructorType = extern "C" fn(&mut AzScanCodeVec);
@@ -3521,7 +3521,7 @@ pub use AzStringVecDestructorTT as AzStringVecDestructor;
 
 pub type AzStringVecDestructorType = extern "C" fn(&mut AzStringVec);
 /// Re-export of rust-allocated (stack based) `StringPairVecDestructor` struct
-pub type AzStringPairVecDestructorTT = azul_impl::window::StringPairVecDestructor;
+pub type AzStringPairVecDestructorTT = azul_core::window::StringPairVecDestructor;
 pub use AzStringPairVecDestructorTT as AzStringPairVecDestructor;
 
 pub type AzStringPairVecDestructorType = extern "C" fn(&mut AzStringPairVec);
@@ -3598,15 +3598,15 @@ pub type AzOptionNumberInputOnValueChangeTT = crate::widgets::number_input::Opti
 pub use AzOptionNumberInputOnValueChangeTT as AzOptionNumberInputOnValueChange;
 
 /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
-pub type AzOptionMenuItemIconTT = azul_impl::window::OptionMenuItemIcon;
+pub type AzOptionMenuItemIconTT = azul_core::window::OptionMenuItemIcon;
 pub use AzOptionMenuItemIconTT as AzOptionMenuItemIcon;
 
 /// Re-export of rust-allocated (stack based) `OptionMenuCallback` struct
-pub type AzOptionMenuCallbackTT = azul_impl::window::OptionMenuCallback;
+pub type AzOptionMenuCallbackTT = azul_core::window::OptionMenuCallback;
 pub use AzOptionMenuCallbackTT as AzOptionMenuCallback;
 
 /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
-pub type AzOptionVirtualKeyCodeComboTT = azul_impl::window::OptionVirtualKeyCodeCombo;
+pub type AzOptionVirtualKeyCodeComboTT = azul_core::window::OptionVirtualKeyCodeCombo;
 pub use AzOptionVirtualKeyCodeComboTT as AzOptionVirtualKeyCodeCombo;
 
 /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
@@ -3646,7 +3646,7 @@ pub type AzOptionFontRefTT = azul_impl::css::OptionFontRef;
 pub use AzOptionFontRefTT as AzOptionFontRef;
 
 /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
-pub type AzOptionSystemClipboardTT = azul_impl::window::OptionClipboard;
+pub type AzOptionSystemClipboardTT = azul_impl::app::OptionClipboard;
 pub use AzOptionSystemClipboardTT as AzOptionSystemClipboard;
 
 /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
@@ -3654,15 +3654,15 @@ pub type AzOptionFileTypeListTT = azul_impl::dialogs::OptionFileTypeList;
 pub use AzOptionFileTypeListTT as AzOptionFileTypeList;
 
 /// Re-export of rust-allocated (stack based) `OptionWindowState` struct
-pub type AzOptionWindowStateTT = azul_impl::window::OptionWindowState;
+pub type AzOptionWindowStateTT = azul_core::window::OptionWindowState;
 pub use AzOptionWindowStateTT as AzOptionWindowState;
 
 /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
-pub type AzOptionMouseStateTT = azul_impl::window::OptionMouseState;
+pub type AzOptionMouseStateTT = azul_core::window::OptionMouseState;
 pub use AzOptionMouseStateTT as AzOptionMouseState;
 
 /// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
-pub type AzOptionKeyboardStateTT = azul_impl::window::OptionKeyboardState;
+pub type AzOptionKeyboardStateTT = azul_core::window::OptionKeyboardState;
 pub use AzOptionKeyboardStateTT as AzOptionKeyboardState;
 
 /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
@@ -3690,7 +3690,7 @@ pub type AzOptionAngleValueTT = azul_impl::css::OptionAngleValue;
 pub use AzOptionAngleValueTT as AzOptionAngleValue;
 
 /// Re-export of rust-allocated (stack based) `OptionRendererOptions` struct
-pub type AzOptionRendererOptionsTT = azul_impl::window::OptionRendererOptions;
+pub type AzOptionRendererOptionsTT = azul_core::window::OptionRendererOptions;
 pub use AzOptionRendererOptionsTT as AzOptionRendererOptions;
 
 /// Re-export of rust-allocated (stack based) `OptionCallback` struct
@@ -3722,7 +3722,7 @@ pub type AzOptionLayoutSizeTT = azul_impl::css::OptionLayoutSize;
 pub use AzOptionLayoutSizeTT as AzOptionLayoutSize;
 
 /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
-pub type AzOptionWindowThemeTT = azul_impl::window::OptionWindowTheme;
+pub type AzOptionWindowThemeTT = azul_core::window::OptionWindowTheme;
 pub use AzOptionWindowThemeTT as AzOptionWindowTheme;
 
 /// Re-export of rust-allocated (stack based) `OptionNodeId` struct
@@ -3746,27 +3746,27 @@ pub type AzOptionSvgDashPatternTT = azul_impl::svg::OptionSvgDashPattern;
 pub use AzOptionSvgDashPatternTT as AzOptionSvgDashPattern;
 
 /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
-pub type AzOptionWaylandThemeTT = azul_impl::window::OptionWaylandTheme;
+pub type AzOptionWaylandThemeTT = azul_core::window::OptionWaylandTheme;
 pub use AzOptionWaylandThemeTT as AzOptionWaylandTheme;
 
 /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
-pub type AzOptionTaskBarIconTT = azul_impl::window::OptionTaskBarIcon;
+pub type AzOptionTaskBarIconTT = azul_core::window::OptionTaskBarIcon;
 pub use AzOptionTaskBarIconTT as AzOptionTaskBarIcon;
 
 /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
-pub type AzOptionHwndHandleTT = azul_impl::window::OptionHwndHandle;
+pub type AzOptionHwndHandleTT = azul_core::window::OptionHwndHandle;
 pub use AzOptionHwndHandleTT as AzOptionHwndHandle;
 
 /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
-pub type AzOptionLogicalPositionTT = azul_impl::window::OptionLogicalPosition;
+pub type AzOptionLogicalPositionTT = azul_core::window::OptionLogicalPosition;
 pub use AzOptionLogicalPositionTT as AzOptionLogicalPosition;
 
 /// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
-pub type AzOptionPhysicalPositionI32TT = azul_impl::window::OptionPhysicalPositionI32;
+pub type AzOptionPhysicalPositionI32TT = azul_core::window::OptionPhysicalPositionI32;
 pub use AzOptionPhysicalPositionI32TT as AzOptionPhysicalPositionI32;
 
 /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
-pub type AzOptionWindowIconTT = azul_impl::window::OptionWindowIcon;
+pub type AzOptionWindowIconTT = azul_core::window::OptionWindowIcon;
 pub use AzOptionWindowIconTT as AzOptionWindowIcon;
 
 /// Re-export of rust-allocated (stack based) `OptionString` struct
@@ -3774,7 +3774,7 @@ pub type AzOptionStringTT = azul_impl::css::OptionAzString;
 pub use AzOptionStringTT as AzOptionString;
 
 /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
-pub type AzOptionX11VisualTT = azul_impl::window::OptionX11Visual;
+pub type AzOptionX11VisualTT = azul_core::window::OptionX11Visual;
 pub use AzOptionX11VisualTT as AzOptionX11Visual;
 
 /// Re-export of rust-allocated (stack based) `OptionI32` struct
@@ -3786,19 +3786,19 @@ pub type AzOptionF32TT = azul_impl::css::OptionF32;
 pub use AzOptionF32TT as AzOptionF32;
 
 /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
-pub type AzOptionMouseCursorTypeTT = azul_impl::window::OptionMouseCursorType;
+pub type AzOptionMouseCursorTypeTT = azul_core::window::OptionMouseCursorType;
 pub use AzOptionMouseCursorTypeTT as AzOptionMouseCursorType;
 
 /// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
-pub type AzOptionLogicalSizeTT = azul_impl::window::OptionLogicalSize;
+pub type AzOptionLogicalSizeTT = azul_core::window::OptionLogicalSize;
 pub use AzOptionLogicalSizeTT as AzOptionLogicalSize;
 
 /// Option<char> but the char is a u32, for C FFI stability reasons
-pub type AzOptionCharTT = azul_impl::window::OptionChar;
+pub type AzOptionCharTT = azul_core::window::OptionChar;
 pub use AzOptionCharTT as AzOptionChar;
 
 /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
-pub type AzOptionVirtualKeyCodeTT = azul_impl::window::OptionVirtualKeyCode;
+pub type AzOptionVirtualKeyCodeTT = azul_core::window::OptionVirtualKeyCode;
 pub use AzOptionVirtualKeyCodeTT as AzOptionVirtualKeyCode;
 
 /// Re-export of rust-allocated (stack based) `OptionDom` struct
@@ -10246,35 +10246,35 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::app::AzAppPtr>(), "AzApp"), (Layout::new::<AzApp>(), "AzApp"));
         assert_eq!((Layout::new::<azul_impl::resources::AppLogLevel>(), "AzAppLogLevel"), (Layout::new::<AzAppLogLevel>(), "AzAppLogLevel"));
         assert_eq!((Layout::new::<azul_impl::resources::LayoutSolverVersion>(), "AzLayoutSolver"), (Layout::new::<AzLayoutSolver>(), "AzLayoutSolver"));
-        assert_eq!((Layout::new::<azul_impl::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
-        assert_eq!((Layout::new::<azul_impl::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
-        assert_eq!((Layout::new::<azul_impl::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
+        assert_eq!((Layout::new::<azul_core::window::Vsync>(), "AzVsync"), (Layout::new::<AzVsync>(), "AzVsync"));
+        assert_eq!((Layout::new::<azul_core::window::Srgb>(), "AzSrgb"), (Layout::new::<AzSrgb>(), "AzSrgb"));
+        assert_eq!((Layout::new::<azul_core::window::HwAcceleration>(), "AzHwAcceleration"), (Layout::new::<AzHwAcceleration>(), "AzHwAcceleration"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutPoint>(), "AzLayoutPoint"), (Layout::new::<AzLayoutPoint>(), "AzLayoutPoint"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutSize>(), "AzLayoutSize"), (Layout::new::<AzLayoutSize>(), "AzLayoutSize"));
-        assert_eq!((Layout::new::<azul_impl::window::IOSHandle>(), "AzIOSHandle"), (Layout::new::<AzIOSHandle>(), "AzIOSHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::MacOSHandle>(), "AzMacOSHandle"), (Layout::new::<AzMacOSHandle>(), "AzMacOSHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::XlibHandle>(), "AzXlibHandle"), (Layout::new::<AzXlibHandle>(), "AzXlibHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::XcbHandle>(), "AzXcbHandle"), (Layout::new::<AzXcbHandle>(), "AzXcbHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::WaylandHandle>(), "AzWaylandHandle"), (Layout::new::<AzWaylandHandle>(), "AzWaylandHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowsHandle>(), "AzWindowsHandle"), (Layout::new::<AzWindowsHandle>(), "AzWindowsHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::WebHandle>(), "AzWebHandle"), (Layout::new::<AzWebHandle>(), "AzWebHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::AndroidHandle>(), "AzAndroidHandle"), (Layout::new::<AzAndroidHandle>(), "AzAndroidHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::XWindowType>(), "AzXWindowType"), (Layout::new::<AzXWindowType>(), "AzXWindowType"));
-        assert_eq!((Layout::new::<azul_impl::window::PhysicalPositionI32>(), "AzPhysicalPositionI32"), (Layout::new::<AzPhysicalPositionI32>(), "AzPhysicalPositionI32"));
-        assert_eq!((Layout::new::<azul_impl::window::PhysicalSizeU32>(), "AzPhysicalSizeU32"), (Layout::new::<AzPhysicalSizeU32>(), "AzPhysicalSizeU32"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalPosition>(), "AzLogicalPosition"), (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
-        assert_eq!((Layout::new::<azul_impl::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCode>(), "AzVirtualKeyCode"), (Layout::new::<AzVirtualKeyCode>(), "AzVirtualKeyCode"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
-        assert_eq!((Layout::new::<azul_impl::window::DebugState>(), "AzDebugState"), (Layout::new::<AzDebugState>(), "AzDebugState"));
-        assert_eq!((Layout::new::<azul_impl::window::MouseCursorType>(), "AzMouseCursorType"), (Layout::new::<AzMouseCursorType>(), "AzMouseCursorType"));
-        assert_eq!((Layout::new::<azul_impl::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
-        assert_eq!((Layout::new::<azul_impl::window::MacWindowOptions>(), "AzMacWindowOptions"), (Layout::new::<AzMacWindowOptions>(), "AzMacWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::WasmWindowOptions>(), "AzWasmWindowOptions"), (Layout::new::<AzWasmWindowOptions>(), "AzWasmWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
-        assert_eq!((Layout::new::<azul_impl::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
+        assert_eq!((Layout::new::<azul_core::window::IOSHandle>(), "AzIOSHandle"), (Layout::new::<AzIOSHandle>(), "AzIOSHandle"));
+        assert_eq!((Layout::new::<azul_core::window::MacOSHandle>(), "AzMacOSHandle"), (Layout::new::<AzMacOSHandle>(), "AzMacOSHandle"));
+        assert_eq!((Layout::new::<azul_core::window::XlibHandle>(), "AzXlibHandle"), (Layout::new::<AzXlibHandle>(), "AzXlibHandle"));
+        assert_eq!((Layout::new::<azul_core::window::XcbHandle>(), "AzXcbHandle"), (Layout::new::<AzXcbHandle>(), "AzXcbHandle"));
+        assert_eq!((Layout::new::<azul_core::window::WaylandHandle>(), "AzWaylandHandle"), (Layout::new::<AzWaylandHandle>(), "AzWaylandHandle"));
+        assert_eq!((Layout::new::<azul_core::window::WindowsHandle>(), "AzWindowsHandle"), (Layout::new::<AzWindowsHandle>(), "AzWindowsHandle"));
+        assert_eq!((Layout::new::<azul_core::window::WebHandle>(), "AzWebHandle"), (Layout::new::<AzWebHandle>(), "AzWebHandle"));
+        assert_eq!((Layout::new::<azul_core::window::AndroidHandle>(), "AzAndroidHandle"), (Layout::new::<AzAndroidHandle>(), "AzAndroidHandle"));
+        assert_eq!((Layout::new::<azul_core::window::XWindowType>(), "AzXWindowType"), (Layout::new::<AzXWindowType>(), "AzXWindowType"));
+        assert_eq!((Layout::new::<azul_core::window::PhysicalPositionI32>(), "AzPhysicalPositionI32"), (Layout::new::<AzPhysicalPositionI32>(), "AzPhysicalPositionI32"));
+        assert_eq!((Layout::new::<azul_core::window::PhysicalSizeU32>(), "AzPhysicalSizeU32"), (Layout::new::<AzPhysicalSizeU32>(), "AzPhysicalSizeU32"));
+        assert_eq!((Layout::new::<azul_core::window::LogicalPosition>(), "AzLogicalPosition"), (Layout::new::<AzLogicalPosition>(), "AzLogicalPosition"));
+        assert_eq!((Layout::new::<azul_core::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
+        assert_eq!((Layout::new::<azul_core::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
+        assert_eq!((Layout::new::<azul_core::window::VirtualKeyCode>(), "AzVirtualKeyCode"), (Layout::new::<AzVirtualKeyCode>(), "AzVirtualKeyCode"));
+        assert_eq!((Layout::new::<azul_core::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
+        assert_eq!((Layout::new::<azul_core::window::DebugState>(), "AzDebugState"), (Layout::new::<AzDebugState>(), "AzDebugState"));
+        assert_eq!((Layout::new::<azul_core::window::MouseCursorType>(), "AzMouseCursorType"), (Layout::new::<AzMouseCursorType>(), "AzMouseCursorType"));
+        assert_eq!((Layout::new::<azul_core::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
+        assert_eq!((Layout::new::<azul_core::window::MacWindowOptions>(), "AzMacWindowOptions"), (Layout::new::<AzMacWindowOptions>(), "AzMacWindowOptions"));
+        assert_eq!((Layout::new::<azul_core::window::WasmWindowOptions>(), "AzWasmWindowOptions"), (Layout::new::<AzWasmWindowOptions>(), "AzWasmWindowOptions"));
+        assert_eq!((Layout::new::<azul_core::window::FullScreenMode>(), "AzFullScreenMode"), (Layout::new::<AzFullScreenMode>(), "AzFullScreenMode"));
+        assert_eq!((Layout::new::<azul_core::window::WindowTheme>(), "AzWindowTheme"), (Layout::new::<AzWindowTheme>(), "AzWindowTheme"));
+        assert_eq!((Layout::new::<azul_core::window::TouchState>(), "AzTouchState"), (Layout::new::<AzTouchState>(), "AzTouchState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"), (Layout::new::<AzMarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInner>(), "AzLayoutCallbackInner"), (Layout::new::<AzLayoutCallbackInner>(), "AzLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
@@ -10299,7 +10299,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityRole>(), "AzAccessibilityRole"), (Layout::new::<AzAccessibilityRole>(), "AzAccessibilityRole"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityState>(), "AzAccessibilityState"), (Layout::new::<AzAccessibilityState>(), "AzAccessibilityState"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
+        assert_eq!((Layout::new::<azul_core::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
         assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeKey"), (Layout::new::<AzNodeTypeKey>(), "AzNodeTypeKey"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyType>(), "AzCssPropertyType"), (Layout::new::<AzCssPropertyType>(), "AzCssPropertyType"));
@@ -10389,7 +10389,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dialogs::OkCancel>(), "AzMsgBoxOkCancel"), (Layout::new::<AzMsgBoxOkCancel>(), "AzMsgBoxOkCancel"));
         assert_eq!((Layout::new::<azul_impl::dialogs::FileDialog>(), "AzFileDialog"), (Layout::new::<AzFileDialog>(), "AzFileDialog"));
         assert_eq!((Layout::new::<azul_impl::dialogs::ColorPickerDialog>(), "AzColorPickerDialog"), (Layout::new::<AzColorPickerDialog>(), "AzColorPickerDialog"));
-        assert_eq!((Layout::new::<azul_impl::window::Clipboard>(), "AzSystemClipboard"), (Layout::new::<AzSystemClipboard>(), "AzSystemClipboard"));
+        assert_eq!((Layout::new::<azul_impl::app::Clipboard>(), "AzSystemClipboard"), (Layout::new::<AzSystemClipboard>(), "AzSystemClipboard"));
         assert_eq!((Layout::new::<azul_impl::task::InstantPtrCloneCallback>(), "AzInstantPtrCloneFn"), (Layout::new::<AzInstantPtrCloneFn>(), "AzInstantPtrCloneFn"));
         assert_eq!((Layout::new::<azul_impl::task::InstantPtrDestructorCallback>(), "AzInstantPtrDestructorFn"), (Layout::new::<AzInstantPtrDestructorFn>(), "AzInstantPtrDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::SystemTick>(), "AzSystemTick"), (Layout::new::<AzSystemTick>(), "AzSystemTick"));
@@ -10413,7 +10413,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"), (Layout::new::<AzTesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
@@ -10421,8 +10421,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVecDestructor>(), "AzInlineWordVecDestructor"), (Layout::new::<AzInlineWordVecDestructor>(), "AzInlineWordVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVecDestructor>(), "AzInlineGlyphVecDestructor"), (Layout::new::<AzInlineGlyphVecDestructor>(), "AzInlineGlyphVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineTextHitVecDestructor>(), "AzInlineTextHitVecDestructor"), (Layout::new::<AzInlineTextHitVecDestructor>(), "AzInlineTextHitVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::MonitorVecDestructor>(), "AzMonitorVecDestructor"), (Layout::new::<AzMonitorVecDestructor>(), "AzMonitorVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::VideoModeVecDestructor>(), "AzVideoModeVecDestructor"), (Layout::new::<AzVideoModeVecDestructor>(), "AzVideoModeVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::MonitorVecDestructor>(), "AzMonitorVecDestructor"), (Layout::new::<AzMonitorVecDestructor>(), "AzMonitorVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::VideoModeVecDestructor>(), "AzVideoModeVecDestructor"), (Layout::new::<AzVideoModeVecDestructor>(), "AzVideoModeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::DomVecDestructor>(), "AzDomVecDestructor"), (Layout::new::<AzDomVecDestructor>(), "AzDomVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"), (Layout::new::<AzIdOrClassVecDestructor>(), "AzIdOrClassVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"), (Layout::new::<AzNodeDataInlineCssPropertyVecDestructor>(), "AzNodeDataInlineCssPropertyVecDestructor"));
@@ -10438,10 +10438,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"), (Layout::new::<AzSvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"), (Layout::new::<AzCascadeInfoVecDestructor>(), "AzCascadeInfoVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVecDestructor>(), "AzScanCodeVecDestructor"), (Layout::new::<AzScanCodeVecDestructor>(), "AzScanCodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::ScanCodeVecDestructor>(), "AzScanCodeVecDestructor"), (Layout::new::<AzScanCodeVecDestructor>(), "AzScanCodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"), (Layout::new::<AzCssDeclarationVecDestructor>(), "AzCssDeclarationVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"), (Layout::new::<AzCssPathSelectorVecDestructor>(), "AzCssPathSelectorVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::StylesheetVecDestructor>(), "AzStylesheetVecDestructor"), (Layout::new::<AzStylesheetVecDestructor>(), "AzStylesheetVecDestructor"));
@@ -10454,7 +10454,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::GLuintVecDestructor>(), "AzGLuintVecDestructor"), (Layout::new::<AzGLuintVecDestructor>(), "AzGLuintVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::gl::GLintVecDestructor>(), "AzGLintVecDestructor"), (Layout::new::<AzGLintVecDestructor>(), "AzGLintVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::StringVecDestructor>(), "AzStringVecDestructor"), (Layout::new::<AzStringVecDestructor>(), "AzStringVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::window::StringPairVecDestructor>(), "AzStringPairVecDestructor"), (Layout::new::<AzStringPairVecDestructor>(), "AzStringPairVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::StringPairVecDestructor>(), "AzStringPairVecDestructor"), (Layout::new::<AzStringPairVecDestructor>(), "AzStringPairVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::NormalizedLinearColorStopVecDestructor>(), "AzNormalizedLinearColorStopVecDestructor"), (Layout::new::<AzNormalizedLinearColorStopVecDestructor>(), "AzNormalizedLinearColorStopVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::NormalizedRadialColorStopVecDestructor>(), "AzNormalizedRadialColorStopVecDestructor"), (Layout::new::<AzNormalizedRadialColorStopVecDestructor>(), "AzNormalizedRadialColorStopVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), "AzNodeIdVecDestructor"), (Layout::new::<AzNodeIdVecDestructor>(), "AzNodeIdVecDestructor"));
@@ -10466,23 +10466,23 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::OptionI16>(), "AzOptionI16"), (Layout::new::<AzOptionI16>(), "AzOptionI16"));
         assert_eq!((Layout::new::<azul_impl::css::OptionU16>(), "AzOptionU16"), (Layout::new::<AzOptionU16>(), "AzOptionU16"));
         assert_eq!((Layout::new::<azul_impl::css::OptionU32>(), "AzOptionU32"), (Layout::new::<AzOptionU32>(), "AzOptionU32"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionHwndHandle>(), "AzOptionHwndHandle"), (Layout::new::<AzOptionHwndHandle>(), "AzOptionHwndHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionX11Visual>(), "AzOptionX11Visual"), (Layout::new::<AzOptionX11Visual>(), "AzOptionX11Visual"));
+        assert_eq!((Layout::new::<azul_core::window::OptionHwndHandle>(), "AzOptionHwndHandle"), (Layout::new::<AzOptionHwndHandle>(), "AzOptionHwndHandle"));
+        assert_eq!((Layout::new::<azul_core::window::OptionX11Visual>(), "AzOptionX11Visual"), (Layout::new::<AzOptionX11Visual>(), "AzOptionX11Visual"));
         assert_eq!((Layout::new::<azul_impl::css::OptionI32>(), "AzOptionI32"), (Layout::new::<AzOptionI32>(), "AzOptionI32"));
         assert_eq!((Layout::new::<azul_impl::css::OptionF32>(), "AzOptionF32"), (Layout::new::<AzOptionF32>(), "AzOptionF32"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
+        assert_eq!((Layout::new::<azul_core::window::OptionChar>(), "AzOptionChar"), (Layout::new::<AzOptionChar>(), "AzOptionChar"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionUsize>(), "AzOptionUsize"), (Layout::new::<AzOptionUsize>(), "AzOptionUsize"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextPos>(), "AzSvgParseErrorPosition"), (Layout::new::<AzSvgParseErrorPosition>(), "AzSvgParseErrorPosition"));
         assert_eq!((Layout::new::<azul_impl::task::ExternalSystemCallbacks>(), "AzSystemCallbacks"), (Layout::new::<AzSystemCallbacks>(), "AzSystemCallbacks"));
-        assert_eq!((Layout::new::<azul_impl::window::RendererOptions>(), "AzRendererOptions"), (Layout::new::<AzRendererOptions>(), "AzRendererOptions"));
+        assert_eq!((Layout::new::<azul_core::window::RendererOptions>(), "AzRendererOptions"), (Layout::new::<AzRendererOptions>(), "AzRendererOptions"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutRect>(), "AzLayoutRect"), (Layout::new::<AzLayoutRect>(), "AzLayoutRect"));
-        assert_eq!((Layout::new::<azul_impl::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
-        assert_eq!((Layout::new::<azul_impl::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
-        assert_eq!((Layout::new::<azul_impl::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
-        assert_eq!((Layout::new::<azul_impl::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
-        assert_eq!((Layout::new::<azul_impl::window::VideoMode>(), "AzVideoMode"), (Layout::new::<AzVideoMode>(), "AzVideoMode"));
+        assert_eq!((Layout::new::<azul_core::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
+        assert_eq!((Layout::new::<azul_core::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
+        assert_eq!((Layout::new::<azul_core::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
+        assert_eq!((Layout::new::<azul_core::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
+        assert_eq!((Layout::new::<azul_core::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
+        assert_eq!((Layout::new::<azul_core::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
+        assert_eq!((Layout::new::<azul_core::window::VideoMode>(), "AzVideoMode"), (Layout::new::<AzVideoMode>(), "AzVideoMode"));
         assert_eq!((Layout::new::<azul_impl::callbacks::DomNodeId>(), "AzDomNodeId"), (Layout::new::<AzDomNodeId>(), "AzDomNodeId"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::PositionInfo>(), "AzPositionInfo"), (Layout::new::<AzPositionInfo>(), "AzPositionInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::HidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"), (Layout::new::<AzHidpiAdjustedBounds>(), "AzHidpiAdjustedBounds"));
@@ -10493,8 +10493,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::RefAny>(), "AzRefAny"), (Layout::new::<AzRefAny>(), "AzRefAny"));
         assert_eq!((Layout::new::<azul_impl::dom::IFrameNode>(), "AzIFrameNode"), (Layout::new::<AzIFrameNode>(), "AzIFrameNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NotEventFilter>(), "AzNotEventFilter"), (Layout::new::<AzNotEventFilter>(), "AzNotEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuCallback>(), "AzMenuCallback"), (Layout::new::<AzMenuCallback>(), "AzMenuCallback"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItemIcon>(), "AzMenuItemIcon"), (Layout::new::<AzMenuItemIcon>(), "AzMenuItemIcon"));
+        assert_eq!((Layout::new::<azul_core::window::MenuCallback>(), "AzMenuCallback"), (Layout::new::<AzMenuCallback>(), "AzMenuCallback"));
+        assert_eq!((Layout::new::<azul_core::window::MenuItemIcon>(), "AzMenuItemIcon"), (Layout::new::<AzMenuItemIcon>(), "AzMenuItemIcon"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildSelector>(), "AzCssNthChildSelector"), (Layout::new::<AzCssNthChildSelector>(), "AzCssNthChildSelector"));
         assert_eq!((Layout::new::<azul_impl::css::PixelValue>(), "AzPixelValue"), (Layout::new::<AzPixelValue>(), "AzPixelValue"));
         assert_eq!((Layout::new::<azul_impl::css::PixelValueNoPercent>(), "AzPixelValueNoPercent"), (Layout::new::<AzPixelValueNoPercent>(), "AzPixelValueNoPercent"));
@@ -10646,21 +10646,21 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVec>(), "AzAccessibilityStateVec"), (Layout::new::<AzAccessibilityStateVec>(), "AzAccessibilityStateVec"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItemVec>(), "AzMenuItemVec"), (Layout::new::<AzMenuItemVec>(), "AzMenuItemVec"));
+        assert_eq!((Layout::new::<azul_core::window::MenuItemVec>(), "AzMenuItemVec"), (Layout::new::<AzMenuItemVec>(), "AzMenuItemVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVec>(), "AzXmlNodeVec"), (Layout::new::<AzXmlNodeVec>(), "AzXmlNodeVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineGlyphVec>(), "AzInlineGlyphVec"), (Layout::new::<AzInlineGlyphVec>(), "AzInlineGlyphVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineTextHitVec>(), "AzInlineTextHitVec"), (Layout::new::<AzInlineTextHitVec>(), "AzInlineTextHitVec"));
-        assert_eq!((Layout::new::<azul_impl::window::VideoModeVec>(), "AzVideoModeVec"), (Layout::new::<AzVideoModeVec>(), "AzVideoModeVec"));
+        assert_eq!((Layout::new::<azul_core::window::VideoModeVec>(), "AzVideoModeVec"), (Layout::new::<AzVideoModeVec>(), "AzVideoModeVec"));
         assert_eq!((Layout::new::<azul_impl::dom::DomVec>(), "AzDomVec"), (Layout::new::<AzDomVec>(), "AzDomVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"), (Layout::new::<AzStyleBackgroundPositionVec>(), "AzStyleBackgroundPositionVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVec>(), "AzSvgVertexVec"), (Layout::new::<AzSvgVertexVec>(), "AzSvgVertexVec"));
         assert_eq!((Layout::new::<azul_impl::css::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
-        assert_eq!((Layout::new::<azul_impl::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
+        assert_eq!((Layout::new::<azul_core::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
+        assert_eq!((Layout::new::<azul_core::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfoVec>(), "AzCascadeInfoVec"), (Layout::new::<AzCascadeInfoVec>(), "AzCascadeInfoVec"));
-        assert_eq!((Layout::new::<azul_impl::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
+        assert_eq!((Layout::new::<azul_core::window::ScanCodeVec>(), "AzScanCodeVec"), (Layout::new::<AzScanCodeVec>(), "AzScanCodeVec"));
         assert_eq!((Layout::new::<azul_impl::css::U16Vec>(), "AzU16Vec"), (Layout::new::<AzU16Vec>(), "AzU16Vec"));
         assert_eq!((Layout::new::<azul_impl::css::F32Vec>(), "AzF32Vec"), (Layout::new::<AzF32Vec>(), "AzF32Vec"));
         assert_eq!((Layout::new::<azul_impl::css::U8Vec>(), "AzU8Vec"), (Layout::new::<AzU8Vec>(), "AzU8Vec"));
@@ -10679,34 +10679,34 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnFocusLost>(), "AzOptionTextInputOnFocusLost"), (Layout::new::<AzOptionTextInputOnFocusLost>(), "AzOptionTextInputOnFocusLost"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputSelection>(), "AzOptionTextInputSelection"), (Layout::new::<AzOptionTextInputSelection>(), "AzOptionTextInputSelection"));
         assert_eq!((Layout::new::<crate::widgets::number_input::OptionNumberInputOnValueChange>(), "AzOptionNumberInputOnValueChange"), (Layout::new::<AzOptionNumberInputOnValueChange>(), "AzOptionNumberInputOnValueChange"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionMenuItemIcon>(), "AzOptionMenuItemIcon"), (Layout::new::<AzOptionMenuItemIcon>(), "AzOptionMenuItemIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionMenuCallback>(), "AzOptionMenuCallback"), (Layout::new::<AzOptionMenuCallback>(), "AzOptionMenuCallback"));
+        assert_eq!((Layout::new::<azul_core::window::OptionMenuItemIcon>(), "AzOptionMenuItemIcon"), (Layout::new::<AzOptionMenuItemIcon>(), "AzOptionMenuItemIcon"));
+        assert_eq!((Layout::new::<azul_core::window::OptionMenuCallback>(), "AzOptionMenuCallback"), (Layout::new::<AzOptionMenuCallback>(), "AzOptionMenuCallback"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::OptionPositionInfo>(), "AzOptionPositionInfo"), (Layout::new::<AzOptionPositionInfo>(), "AzOptionPositionInfo"));
         assert_eq!((Layout::new::<azul_impl::task::OptionTimerId>(), "AzOptionTimerId"), (Layout::new::<AzOptionTimerId>(), "AzOptionTimerId"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadId>(), "AzOptionThreadId"), (Layout::new::<AzOptionThreadId>(), "AzOptionThreadId"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionImageRef>(), "AzOptionImageRef"), (Layout::new::<AzOptionImageRef>(), "AzOptionImageRef"));
         assert_eq!((Layout::new::<azul_impl::css::OptionFontRef>(), "AzOptionFontRef"), (Layout::new::<AzOptionFontRef>(), "AzOptionFontRef"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionClipboard>(), "AzOptionSystemClipboard"), (Layout::new::<AzOptionSystemClipboard>(), "AzOptionSystemClipboard"));
+        assert_eq!((Layout::new::<azul_impl::app::OptionClipboard>(), "AzOptionSystemClipboard"), (Layout::new::<AzOptionSystemClipboard>(), "AzOptionSystemClipboard"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionGlContextPtr>(), "AzOptionGl"), (Layout::new::<AzOptionGl>(), "AzOptionGl"));
         assert_eq!((Layout::new::<azul_impl::css::OptionPercentageValue>(), "AzOptionPercentageValue"), (Layout::new::<AzOptionPercentageValue>(), "AzOptionPercentageValue"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAngleValue>(), "AzOptionAngleValue"), (Layout::new::<AzOptionAngleValue>(), "AzOptionAngleValue"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionRendererOptions>(), "AzOptionRendererOptions"), (Layout::new::<AzOptionRendererOptions>(), "AzOptionRendererOptions"));
+        assert_eq!((Layout::new::<azul_core::window::OptionRendererOptions>(), "AzOptionRendererOptions"), (Layout::new::<AzOptionRendererOptions>(), "AzOptionRendererOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionCallback>(), "AzOptionCallback"), (Layout::new::<AzOptionCallback>(), "AzOptionCallback"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadSendMsg>(), "AzOptionThreadSendMsg"), (Layout::new::<AzOptionThreadSendMsg>(), "AzOptionThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutRect>(), "AzOptionLayoutRect"), (Layout::new::<AzOptionLayoutRect>(), "AzOptionLayoutRect"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionRefAny>(), "AzOptionRefAny"), (Layout::new::<AzOptionRefAny>(), "AzOptionRefAny"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutPoint>(), "AzOptionLayoutPoint"), (Layout::new::<AzOptionLayoutPoint>(), "AzOptionLayoutPoint"));
         assert_eq!((Layout::new::<azul_impl::css::OptionLayoutSize>(), "AzOptionLayoutSize"), (Layout::new::<AzOptionLayoutSize>(), "AzOptionLayoutSize"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
+        assert_eq!((Layout::new::<azul_core::window::OptionWindowTheme>(), "AzOptionWindowTheme"), (Layout::new::<AzOptionWindowTheme>(), "AzOptionWindowTheme"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionNodeId>(), "AzOptionNodeId"), (Layout::new::<AzOptionNodeId>(), "AzOptionNodeId"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionDomNodeId>(), "AzOptionDomNodeId"), (Layout::new::<AzOptionDomNodeId>(), "AzOptionDomNodeId"));
         assert_eq!((Layout::new::<azul_impl::css::OptionColorU>(), "AzOptionColorU"), (Layout::new::<AzOptionColorU>(), "AzOptionColorU"));
         assert_eq!((Layout::new::<azul_impl::svg::OptionSvgDashPattern>(), "AzOptionSvgDashPattern"), (Layout::new::<AzOptionSvgDashPattern>(), "AzOptionSvgDashPattern"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionLogicalPosition>(), "AzOptionLogicalPosition"), (Layout::new::<AzOptionLogicalPosition>(), "AzOptionLogicalPosition"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"), (Layout::new::<AzOptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionMouseCursorType>(), "AzOptionMouseCursorType"), (Layout::new::<AzOptionMouseCursorType>(), "AzOptionMouseCursorType"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionLogicalSize>(), "AzOptionLogicalSize"), (Layout::new::<AzOptionLogicalSize>(), "AzOptionLogicalSize"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
+        assert_eq!((Layout::new::<azul_core::window::OptionLogicalPosition>(), "AzOptionLogicalPosition"), (Layout::new::<AzOptionLogicalPosition>(), "AzOptionLogicalPosition"));
+        assert_eq!((Layout::new::<azul_core::window::OptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"), (Layout::new::<AzOptionPhysicalPositionI32>(), "AzOptionPhysicalPositionI32"));
+        assert_eq!((Layout::new::<azul_core::window::OptionMouseCursorType>(), "AzOptionMouseCursorType"), (Layout::new::<AzOptionMouseCursorType>(), "AzOptionMouseCursorType"));
+        assert_eq!((Layout::new::<azul_core::window::OptionLogicalSize>(), "AzOptionLogicalSize"), (Layout::new::<AzOptionLogicalSize>(), "AzOptionLogicalSize"));
+        assert_eq!((Layout::new::<azul_core::window::OptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"), (Layout::new::<AzOptionVirtualKeyCode>(), "AzOptionVirtualKeyCode"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionImageMask>(), "AzOptionImageMask"), (Layout::new::<AzOptionImageMask>(), "AzOptionImageMask"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionTabIndex>(), "AzOptionTabIndex"), (Layout::new::<AzOptionTabIndex>(), "AzOptionTabIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::OptionTagId>(), "AzOptionTagId"), (Layout::new::<AzOptionTagId>(), "AzOptionTagId"));
@@ -10720,21 +10720,21 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::InvalidQuoteError>(), "AzInvalidQuoteError"), (Layout::new::<AzInvalidQuoteError>(), "AzInvalidQuoteError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidSpaceError>(), "AzInvalidSpaceError"), (Layout::new::<AzInvalidSpaceError>(), "AzInvalidSpaceError"));
         assert_eq!((Layout::new::<azul_impl::resources::AppConfig>(), "AzAppConfig"), (Layout::new::<AzAppConfig>(), "AzAppConfig"));
-        assert_eq!((Layout::new::<azul_impl::window::SmallWindowIconBytes>(), "AzSmallWindowIconBytes"), (Layout::new::<AzSmallWindowIconBytes>(), "AzSmallWindowIconBytes"));
-        assert_eq!((Layout::new::<azul_impl::window::LargeWindowIconBytes>(), "AzLargeWindowIconBytes"), (Layout::new::<AzLargeWindowIconBytes>(), "AzLargeWindowIconBytes"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowIcon>(), "AzWindowIcon"), (Layout::new::<AzWindowIcon>(), "AzWindowIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
-        assert_eq!((Layout::new::<azul_impl::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
-        assert_eq!((Layout::new::<azul_impl::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
+        assert_eq!((Layout::new::<azul_core::window::SmallWindowIconBytes>(), "AzSmallWindowIconBytes"), (Layout::new::<AzSmallWindowIconBytes>(), "AzSmallWindowIconBytes"));
+        assert_eq!((Layout::new::<azul_core::window::LargeWindowIconBytes>(), "AzLargeWindowIconBytes"), (Layout::new::<AzLargeWindowIconBytes>(), "AzLargeWindowIconBytes"));
+        assert_eq!((Layout::new::<azul_core::window::WindowIcon>(), "AzWindowIcon"), (Layout::new::<AzWindowIcon>(), "AzWindowIcon"));
+        assert_eq!((Layout::new::<azul_core::window::TaskBarIcon>(), "AzTaskBarIcon"), (Layout::new::<AzTaskBarIcon>(), "AzTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_core::window::WindowSize>(), "AzWindowSize"), (Layout::new::<AzWindowSize>(), "AzWindowSize"));
+        assert_eq!((Layout::new::<azul_core::window::KeyboardState>(), "AzKeyboardState"), (Layout::new::<AzKeyboardState>(), "AzKeyboardState"));
+        assert_eq!((Layout::new::<azul_core::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallback>(), "AzMarshaledLayoutCallback"), (Layout::new::<AzMarshaledLayoutCallback>(), "AzMarshaledLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineTextContents>(), "AzInlineTextContents"), (Layout::new::<AzInlineTextContents>(), "AzInlineTextContents"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationEasing"), (Layout::new::<AzAnimationEasing>(), "AzAnimationEasing"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"), (Layout::new::<AzRenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInfo>(), "AzLayoutCallbackInfo"), (Layout::new::<AzLayoutCallbackInfo>(), "AzLayoutCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::EventFilter>(), "AzEventFilter"), (Layout::new::<AzEventFilter>(), "AzEventFilter"));
-        assert_eq!((Layout::new::<azul_impl::window::Menu>(), "AzMenu"), (Layout::new::<AzMenu>(), "AzMenu"));
-        assert_eq!((Layout::new::<azul_impl::window::VirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"), (Layout::new::<AzVirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"));
+        assert_eq!((Layout::new::<azul_core::window::Menu>(), "AzMenu"), (Layout::new::<AzMenu>(), "AzMenu"));
+        assert_eq!((Layout::new::<azul_core::window::VirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"), (Layout::new::<AzVirtualKeyCodeCombo>(), "AzVirtualKeyCodeCombo"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
         assert_eq!((Layout::new::<azul_impl::css::InterpolateResolver>(), "AzInterpolateContext"), (Layout::new::<AzInterpolateContext>(), "AzInterpolateContext"));
@@ -10768,13 +10768,13 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"), (Layout::new::<AzTagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"), (Layout::new::<AzOptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionMouseState>(), "AzOptionMouseState"), (Layout::new::<AzOptionMouseState>(), "AzOptionMouseState"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionKeyboardState>(), "AzOptionKeyboardState"), (Layout::new::<AzOptionKeyboardState>(), "AzOptionKeyboardState"));
+        assert_eq!((Layout::new::<azul_core::window::OptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"), (Layout::new::<AzOptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"));
+        assert_eq!((Layout::new::<azul_core::window::OptionMouseState>(), "AzOptionMouseState"), (Layout::new::<AzOptionMouseState>(), "AzOptionMouseState"));
+        assert_eq!((Layout::new::<azul_core::window::OptionKeyboardState>(), "AzOptionKeyboardState"), (Layout::new::<AzOptionKeyboardState>(), "AzOptionKeyboardState"));
         assert_eq!((Layout::new::<azul_impl::css::OptionStringVec>(), "AzOptionStringVec"), (Layout::new::<AzOptionStringVec>(), "AzOptionStringVec"));
         assert_eq!((Layout::new::<azul_impl::task::OptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"), (Layout::new::<AzOptionThreadReceiveMsg>(), "AzOptionThreadReceiveMsg"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
+        assert_eq!((Layout::new::<azul_core::window::OptionTaskBarIcon>(), "AzOptionTaskBarIcon"), (Layout::new::<AzOptionTaskBarIcon>(), "AzOptionTaskBarIcon"));
+        assert_eq!((Layout::new::<azul_core::window::OptionWindowIcon>(), "AzOptionWindowIcon"), (Layout::new::<AzOptionWindowIcon>(), "AzOptionWindowIcon"));
         assert_eq!((Layout::new::<azul_impl::css::OptionAzString>(), "AzOptionString"), (Layout::new::<AzOptionString>(), "AzOptionString"));
         assert_eq!((Layout::new::<azul_impl::gl::OptionTexture>(), "AzOptionTexture"), (Layout::new::<AzOptionTexture>(), "AzOptionTexture"));
         assert_eq!((Layout::new::<azul_impl::task::OptionInstant>(), "AzOptionInstant"), (Layout::new::<AzOptionInstant>(), "AzOptionInstant"));
@@ -10784,17 +10784,17 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::UnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"), (Layout::new::<AzUnknownEntityReferenceError>(), "AzUnknownEntityReferenceError"));
         assert_eq!((Layout::new::<azul_impl::xml::DuplicatedAttributeError>(), "AzDuplicatedAttributeError"), (Layout::new::<AzDuplicatedAttributeError>(), "AzDuplicatedAttributeError"));
         assert_eq!((Layout::new::<azul_impl::xml::InvalidStringError>(), "AzInvalidStringError"), (Layout::new::<AzInvalidStringError>(), "AzInvalidStringError"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
-        assert_eq!((Layout::new::<azul_impl::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
-        assert_eq!((Layout::new::<azul_impl::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
+        assert_eq!((Layout::new::<azul_core::window::WindowsWindowOptions>(), "AzWindowsWindowOptions"), (Layout::new::<AzWindowsWindowOptions>(), "AzWindowsWindowOptions"));
+        assert_eq!((Layout::new::<azul_core::window::WaylandTheme>(), "AzWaylandTheme"), (Layout::new::<AzWaylandTheme>(), "AzWaylandTheme"));
+        assert_eq!((Layout::new::<azul_core::window::AzStringPair>(), "AzStringPair"), (Layout::new::<AzStringPair>(), "AzStringPair"));
+        assert_eq!((Layout::new::<azul_core::window::Monitor>(), "AzMonitor"), (Layout::new::<AzMonitor>(), "AzMonitor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallback>(), "AzLayoutCallback"), (Layout::new::<AzLayoutCallback>(), "AzLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineWord>(), "AzInlineWord"), (Layout::new::<AzInlineWord>(), "AzInlineWord"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackData>(), "AzCallbackData"), (Layout::new::<AzCallbackData>(), "AzCallbackData"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeType>(), "AzNodeType"), (Layout::new::<AzNodeType>(), "AzNodeType"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityInfo>(), "AzAccessibilityInfo"), (Layout::new::<AzAccessibilityInfo>(), "AzAccessibilityInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClass>(), "AzIdOrClass"), (Layout::new::<AzIdOrClass>(), "AzIdOrClass"));
-        assert_eq!((Layout::new::<azul_impl::window::StringMenuItem>(), "AzStringMenuItem"), (Layout::new::<AzStringMenuItem>(), "AzStringMenuItem"));
+        assert_eq!((Layout::new::<azul_core::window::StringMenuItem>(), "AzStringMenuItem"), (Layout::new::<AzStringMenuItem>(), "AzStringMenuItem"));
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelector>(), "AzCssPathSelector"), (Layout::new::<AzCssPathSelector>(), "AzCssPathSelector"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContent>(), "AzStyleBackgroundContent"), (Layout::new::<AzStyleBackgroundContent>(), "AzStyleBackgroundContent"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarInfo>(), "AzScrollbarInfo"), (Layout::new::<AzScrollbarInfo>(), "AzScrollbarInfo"));
@@ -10820,7 +10820,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVec>(), "AzStyleFontFamilyVec"), (Layout::new::<AzStyleFontFamilyVec>(), "AzStyleFontFamilyVec"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVec>(), "AzFmtArgVec"), (Layout::new::<AzFmtArgVec>(), "AzFmtArgVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineWordVec>(), "AzInlineWordVec"), (Layout::new::<AzInlineWordVec>(), "AzInlineWordVec"));
-        assert_eq!((Layout::new::<azul_impl::window::MonitorVec>(), "AzMonitorVec"), (Layout::new::<AzMonitorVec>(), "AzMonitorVec"));
+        assert_eq!((Layout::new::<azul_core::window::MonitorVec>(), "AzMonitorVec"), (Layout::new::<AzMonitorVec>(), "AzMonitorVec"));
         assert_eq!((Layout::new::<azul_impl::dom::IdOrClassVec>(), "AzIdOrClassVec"), (Layout::new::<AzIdOrClassVec>(), "AzIdOrClassVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"), (Layout::new::<AzStyleBackgroundContentVec>(), "AzStyleBackgroundContentVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathVec>(), "AzSvgPathVec"), (Layout::new::<AzSvgPathVec>(), "AzSvgPathVec"));
@@ -10828,16 +10828,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPathSelectorVec>(), "AzCssPathSelectorVec"), (Layout::new::<AzCssPathSelectorVec>(), "AzCssPathSelectorVec"));
         assert_eq!((Layout::new::<azul_impl::dom::CallbackDataVec>(), "AzCallbackDataVec"), (Layout::new::<AzCallbackDataVec>(), "AzCallbackDataVec"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessageVec>(), "AzDebugMessageVec"), (Layout::new::<AzDebugMessageVec>(), "AzDebugMessageVec"));
-        assert_eq!((Layout::new::<azul_impl::window::StringPairVec>(), "AzStringPairVec"), (Layout::new::<AzStringPairVec>(), "AzStringPairVec"));
+        assert_eq!((Layout::new::<azul_core::window::StringPairVec>(), "AzStringPairVec"), (Layout::new::<AzStringPairVec>(), "AzStringPairVec"));
         assert_eq!((Layout::new::<azul_impl::dialogs::OptionFileTypeList>(), "AzOptionFileTypeList"), (Layout::new::<AzOptionFileTypeList>(), "AzOptionFileTypeList"));
         assert_eq!((Layout::new::<azul_impl::file::OptionFile>(), "AzOptionFile"), (Layout::new::<AzOptionFile>(), "AzOptionFile"));
         assert_eq!((Layout::new::<azul_impl::resources::OptionRawImage>(), "AzOptionRawImage"), (Layout::new::<AzOptionRawImage>(), "AzOptionRawImage"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));
+        assert_eq!((Layout::new::<azul_core::window::OptionWaylandTheme>(), "AzOptionWaylandTheme"), (Layout::new::<AzOptionWaylandTheme>(), "AzOptionWaylandTheme"));
         assert_eq!((Layout::new::<azul_impl::resources::decode::ResultRawImageDecodeImageError>(), "AzResultRawImageDecodeImageError"), (Layout::new::<AzResultRawImageDecodeImageError>(), "AzResultRawImageDecodeImageError"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlStreamError>(), "AzXmlStreamError"), (Layout::new::<AzXmlStreamError>(), "AzXmlStreamError"));
-        assert_eq!((Layout::new::<azul_impl::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
+        assert_eq!((Layout::new::<azul_core::window::LinuxWindowOptions>(), "AzLinuxWindowOptions"), (Layout::new::<AzLinuxWindowOptions>(), "AzLinuxWindowOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLine>(), "AzInlineLine"), (Layout::new::<AzInlineLine>(), "AzInlineLine"));
-        assert_eq!((Layout::new::<azul_impl::window::MenuItem>(), "AzMenuItem"), (Layout::new::<AzMenuItem>(), "AzMenuItem"));
+        assert_eq!((Layout::new::<azul_core::window::MenuItem>(), "AzMenuItem"), (Layout::new::<AzMenuItem>(), "AzMenuItem"));
         assert_eq!((Layout::new::<azul_impl::css::CssPath>(), "AzCssPath"), (Layout::new::<AzCssPath>(), "AzCssPath"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"), (Layout::new::<AzStyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"));
@@ -10854,8 +10854,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
         assert_eq!((Layout::new::<azul_impl::css::OptionCssProperty>(), "AzOptionCssProperty"), (Layout::new::<AzOptionCssProperty>(), "AzOptionCssProperty"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextError>(), "AzXmlTextError"), (Layout::new::<AzXmlTextError>(), "AzXmlTextError"));
-        assert_eq!((Layout::new::<azul_impl::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowState>(), "AzWindowState"), (Layout::new::<AzWindowState>(), "AzWindowState"));
+        assert_eq!((Layout::new::<azul_core::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));
+        assert_eq!((Layout::new::<azul_core::window::WindowState>(), "AzWindowState"), (Layout::new::<AzWindowState>(), "AzWindowState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::CallbackInfo>(), "AzCallbackInfo"), (Layout::new::<AzCallbackInfo>(), "AzCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineText>(), "AzInlineText"), (Layout::new::<AzInlineText>(), "AzInlineText"));
         assert_eq!((Layout::new::<azul_impl::callbacks::FocusTargetPath>(), "AzFocusTargetPath"), (Layout::new::<AzFocusTargetPath>(), "AzFocusTargetPath"));
@@ -10866,10 +10866,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgNode>(), "AzSvgNode"), (Layout::new::<AzSvgNode>(), "AzSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyledNode>(), "AzSvgStyledNode"), (Layout::new::<AzSvgStyledNode>(), "AzSvgStyledNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
-        assert_eq!((Layout::new::<azul_impl::window::OptionWindowState>(), "AzOptionWindowState"), (Layout::new::<AzOptionWindowState>(), "AzOptionWindowState"));
+        assert_eq!((Layout::new::<azul_core::window::OptionWindowState>(), "AzOptionWindowState"), (Layout::new::<AzOptionWindowState>(), "AzOptionWindowState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::OptionInlineText>(), "AzOptionInlineText"), (Layout::new::<AzOptionInlineText>(), "AzOptionInlineText"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlParseError>(), "AzXmlParseError"), (Layout::new::<AzXmlParseError>(), "AzXmlParseError"));
-        assert_eq!((Layout::new::<azul_impl::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));
+        assert_eq!((Layout::new::<azul_core::window::WindowCreateOptions>(), "AzWindowCreateOptions"), (Layout::new::<AzWindowCreateOptions>(), "AzWindowCreateOptions"));
         assert_eq!((Layout::new::<azul_impl::callbacks::FocusTarget>(), "AzFocusTarget"), (Layout::new::<AzFocusTarget>(), "AzFocusTarget"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeData>(), "AzNodeData"), (Layout::new::<AzNodeData>(), "AzNodeData"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclaration>(), "AzCssDeclaration"), (Layout::new::<AzCssDeclaration>(), "AzCssDeclaration"));

@@ -120,7 +120,7 @@
             "doc": "Window creation / startup configuration",
             "classes": {
                 "WindowCreateOptions": {
-                    "external": "azul_impl::window::WindowCreateOptions",
+                    "external": "azul_core::window::WindowCreateOptions",
                     "doc": "Options on how to initially create the window",
                     "struct_fields": [
                         {"state": {"type": "WindowState", "doc": "Initial state of the window on the first frame"}},
@@ -141,7 +141,7 @@
                 },
                 "RendererOptions": {
                     "doc": "Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.",
-                    "external": "azul_impl::window::RendererOptions",
+                    "external": "azul_core::window::RendererOptions",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"vsync": {"type": "Vsync", "doc": "Force the renderer to enable VSync. Set this only if your application can't run without VSync."}},
@@ -151,7 +151,7 @@
                 },
                 "Vsync": {
                     "doc": "Whether the renderer has VSync enabled",
-                    "external": "azul_impl::window::Vsync",
+                    "external": "azul_core::window::Vsync",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Enabled": {}},
@@ -160,7 +160,7 @@
                 },
                 "Srgb": {
                     "doc": "Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly",
-                    "external": "azul_impl::window::Srgb",
+                    "external": "azul_core::window::Srgb",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Enabled": {}},
@@ -169,7 +169,7 @@
                 },
                 "HwAcceleration": {
                     "doc": "Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly",
-                    "external": "azul_impl::window::HwAcceleration",
+                    "external": "azul_core::window::HwAcceleration",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Enabled": {}},
@@ -205,7 +205,7 @@
                 },
                 "RawWindowHandle": {
                     "doc": "Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions",
-                    "external": "azul_impl::window::RawWindowHandle",
+                    "external": "azul_core::window::RawWindowHandle",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"IOS": {"type": "IOSHandle"}},
@@ -220,7 +220,7 @@
                     ]
                 },
                 "IOSHandle": {
-                    "external": "azul_impl::window::IOSHandle",
+                    "external": "azul_core::window::IOSHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"ui_window": {"type": "*mut c_void"}},
@@ -229,7 +229,7 @@
                     ]
                 },
                 "MacOSHandle": {
-                    "external": "azul_impl::window::MacOSHandle",
+                    "external": "azul_core::window::MacOSHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"ns_window": {"type": "*mut c_void"}},
@@ -237,7 +237,7 @@
                     ]
                 },
                 "XlibHandle": {
-                    "external": "azul_impl::window::XlibHandle",
+                    "external": "azul_core::window::XlibHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"window": {"type": "u64", "doc": "An Xlib Window"}},
@@ -245,7 +245,7 @@
                     ]
                 },
                 "XcbHandle": {
-                    "external": "azul_impl::window::XcbHandle",
+                    "external": "azul_core::window::XcbHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"window": {"type": "u32", "doc": "An X11 `xcb_window_t`"}},
@@ -253,7 +253,7 @@
                     ]
                 },
                 "WaylandHandle": {
-                    "external": "azul_impl::window::WaylandHandle",
+                    "external": "azul_core::window::WaylandHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"surface": {"type": "*mut c_void", "doc": "A pointer to a `wl_surface`"}},
@@ -261,7 +261,7 @@
                     ]
                 },
                 "WindowsHandle": {
-                    "external": "azul_impl::window::WindowsHandle",
+                    "external": "azul_core::window::WindowsHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"hwnd": {"type": "*mut c_void", "doc": "Pointer to a `HWND` handle"}},
@@ -269,14 +269,14 @@
                     ]
                 },
                 "WebHandle": {
-                    "external": "azul_impl::window::WebHandle",
+                    "external": "azul_core::window::WebHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"id": {"type": "u32", "doc": "An ID value inserted into the data attributes of the canvas element. Set to 0 if invalid."}}
                     ]
                 },
                 "AndroidHandle": {
-                    "external": "azul_impl::window::AndroidHandle",
+                    "external": "azul_core::window::AndroidHandle",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"a_native_window": {"type": "*mut c_void", "doc": "A pointer to an `ANativeWindow`"}}
@@ -284,7 +284,7 @@
                 },
                 "XWindowType": {
                     "doc": "X11 window hint: Type of window",
-                    "external": "azul_impl::window::XWindowType",
+                    "external": "azul_core::window::XWindowType",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Desktop": {"doc": "A desktop feature. This can include a single window containing desktop icons with the same dimensions as the screen, allowing the desktop environment to have full control of the desktop, without the need for proxying root window clicks"}},
@@ -305,7 +305,7 @@
                 },
                 "PhysicalPositionI32": {
                     "doc": "Same as `LayoutPoint`, but uses `i32` instead of `isize`",
-                    "external": "azul_impl::window::PhysicalPositionI32",
+                    "external": "azul_core::window::PhysicalPositionI32",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"x": {"type": "i32"}},
@@ -314,7 +314,7 @@
                 },
                 "PhysicalSizeU32": {
                     "doc": "Same as `LayoutPoint`, but uses `u32` instead of `isize`",
-                    "external": "azul_impl::window::PhysicalSizeU32",
+                    "external": "azul_core::window::PhysicalSizeU32",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"width": {"type": "u32"}},
@@ -323,7 +323,7 @@
                 },
                 "LogicalRect": {
                     "doc": "Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
-                    "external": "azul_impl::window::LogicalRect",
+                    "external": "azul_core::window::LogicalRect",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"origin": {"type": "LogicalPosition"}},
@@ -332,7 +332,7 @@
                 },
                 "LogicalPosition": {
                     "doc": "Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
-                    "external": "azul_impl::window::LogicalPosition",
+                    "external": "azul_core::window::LogicalPosition",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
@@ -341,7 +341,7 @@
                 },
                 "LogicalSize": {
                     "doc": "A size in \"logical\" (non-HiDPI-adjusted) pixels in floating-point units",
-                    "external": "azul_impl::window::LogicalSize",
+                    "external": "azul_core::window::LogicalSize",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"width": {"type": "f32"}},
@@ -350,7 +350,7 @@
                 },
                 "IconKey": {
                     "doc": "Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.",
-                    "external": "azul_impl::window::IconKey",
+                    "external": "azul_core::window::IconKey",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"id": {"type": "usize", "doc": "Can be any number, just has to be unique to the application. You need to generate a new `IconKey` if the window icon of your application has changed."}}
@@ -358,7 +358,7 @@
                 },
                 "SmallWindowIconBytes": {
                     "doc": "Small (16x16x4) window icon, usually shown in the window titlebar",
-                    "external": "azul_impl::window::SmallWindowIconBytes",
+                    "external": "azul_core::window::SmallWindowIconBytes",
                     "struct_fields": [
                         {"key": {"type": "IconKey", "doc": "Key / hash of the window icon, so that azul can detect whether the icon has changed and notify the OS about the change."}},
                         {"rgba_bytes": {"type": "U8Vec", "doc": "Decoded bytes of the window icon, [32x32x4] bytes in length, rgba format"}}
@@ -366,7 +366,7 @@
                 },
                 "LargeWindowIconBytes": {
                     "doc": "Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)",
-                    "external": "azul_impl::window::LargeWindowIconBytes",
+                    "external": "azul_core::window::LargeWindowIconBytes",
                     "struct_fields": [
                         {"key": {"type": "IconKey", "doc": "Key / hash of the taskbar icon, so that azul can detect whether the icon has changed and notify the OS about the change."}},
                         {"rgba_bytes": {"type": "U8Vec", "doc": "Decoded bytes of the window icon, [32x32x4] bytes in length, rgba format"}}
@@ -374,7 +374,7 @@
                 },
                 "WindowIcon": {
                     "doc": "Window \"favicon\", usually shown in the top left of the window on Windows",
-                    "external": "azul_impl::window::WindowIcon",
+                    "external": "azul_core::window::WindowIcon",
                     "enum_fields": [
                         {"Small": {"type": "SmallWindowIconBytes", "doc": "Low-resolution version of the favicon"}},
                         {"Large": {"type": "LargeWindowIconBytes", "doc": "High-resolution version of the favicon"}}
@@ -382,7 +382,7 @@
                 },
                 "TaskBarIcon": {
                     "doc": "Application taskbar icon, 256x256x4 bytes in size",
-                    "external": "azul_impl::window::TaskBarIcon",
+                    "external": "azul_core::window::TaskBarIcon",
                     "struct_fields": [
                         {"key": {"type": "IconKey", "doc": "Unique icon key so that azul can determine whether the application icon has changed and notify the OS about the change"}},
                         {"rgba_bytes": {"type": "U8Vec", "doc": "Decoded bytes of the taskbar icon, 256x256x4 bytes in size, rgba format"}}
@@ -390,7 +390,7 @@
                 },
                 "VirtualKeyCode": {
                     "doc": "Symbolic name for a keyboard key, does **not** take the keyboard locale into account",
-                    "external": "azul_impl::window::VirtualKeyCode",
+                    "external": "azul_core::window::VirtualKeyCode",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Key1": {}},
@@ -560,7 +560,7 @@
                 },
                 "AcceleratorKey": {
                     "doc": "Symbolic accelerator key (ctrl, alt, shift)",
-                    "external": "azul_impl::window::AcceleratorKey",
+                    "external": "azul_core::window::AcceleratorKey",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Ctrl": {}},
@@ -571,7 +571,7 @@
                 },
                 "WindowSize": {
                     "doc": "Minimum / maximum / current size of the window in logical dimensions",
-                    "external": "azul_impl::window::WindowSize",
+                    "external": "azul_core::window::WindowSize",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"dimensions": {"type": "LogicalSize", "doc": "Current dimensions in logical units"}},
@@ -583,7 +583,7 @@
                 },
                 "WindowFlags": {
                     "doc": "Boolean flags relating to the current window state",
-                    "external": "azul_impl::window::WindowFlags",
+                    "external": "azul_core::window::WindowFlags",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"is_maximized": {"type": "bool", "doc": "Is the window currently maximized"}},
@@ -603,7 +603,7 @@
                 },
                 "DebugState": {
                     "doc": "Debugging information, will be rendered as an overlay on top of the UI",
-                    "external": "azul_impl::window::DebugState",
+                    "external": "azul_core::window::DebugState",
                     "struct_fields": [
                         {"profiler_dbg": {"type": "bool", "doc": "Display the frame profiler on screen"}},
                         {"render_target_dbg": {"type": "bool", "doc": "Display intermediate render targets on screen"}},
@@ -636,7 +636,7 @@
                 },
                 "KeyboardState": {
                     "doc": "Current keyboard state, stores what keys / characters have been pressed",
-                    "external": "azul_impl::window::KeyboardState",
+                    "external": "azul_core::window::KeyboardState",
                     "struct_fields": [
                         {"shift_down": {"type": "bool", "doc": "Tracks if the `Shift` key is currently pressed - (READONLY)"}},
                         {"ctrl_down": {"type": "bool", "doc": "Tracks if the `Ctrl` key is currently pressed - (READONLY)"}},
@@ -650,7 +650,7 @@
                 },
                 "MouseCursorType": {
                     "doc": "Current icon of the mouse cursor",
-                    "external": "azul_impl::window::MouseCursorType",
+                    "external": "azul_core::window::MouseCursorType",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Default": {}},
@@ -692,7 +692,7 @@
                 },
                 "CursorPosition": {
                     "doc": "Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).",
-                    "external": "azul_impl::window::CursorPosition",
+                    "external": "azul_core::window::CursorPosition",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"OutOfWindow": {"doc": "The cursor is out of bound of the window. For security reasons, tracking the cursor is not permitted by the library"}},
@@ -702,7 +702,7 @@
                 },
                 "MouseState": {
                     "doc": "Current mouse / cursor state",
-                    "external": "azul_impl::window::MouseState",
+                    "external": "azul_core::window::MouseState",
                     "struct_fields": [
                         {"mouse_cursor_type": {"type": "OptionMouseCursorType", "doc": "Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)"}},
                         {"cursor_position": {"type": "CursorPosition", "doc": "Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)"}},
@@ -716,7 +716,7 @@
                 },
                 "PlatformSpecificOptions": {
                     "doc": "Platform-specific window configuration, i.e. WM options that are not cross-platform",
-                    "external": "azul_impl::window::PlatformSpecificOptions",
+                    "external": "azul_core::window::PlatformSpecificOptions",
                     "struct_fields": [
                         {"windows_options": {"type": "WindowsWindowOptions", "doc": "Windows-specific WM options"}},
                         {"linux_options": {"type": "LinuxWindowOptions", "doc": "Linux-specific WM options"}},
@@ -726,7 +726,7 @@
                 },
                 "WindowsWindowOptions": {
                     "doc": "Window configuration specific to Win32",
-                    "external": "azul_impl::window::WindowsWindowOptions",
+                    "external": "azul_core::window::WindowsWindowOptions",
                     "struct_fields": [
                         {"allow_drag_drop": {"type": "bool", "doc": "STARTUP ONLY: Whether the window should allow drag + drop operations (default: true)"}},
                         {"no_redirection_bitmap": {"type": "bool", "doc": "STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`"}},
@@ -737,7 +737,7 @@
                 },
                 "WaylandTheme": {
                     "doc": "CSD theme of the window title / button controls",
-                    "external": "azul_impl::window::WaylandTheme",
+                    "external": "azul_core::window::WaylandTheme",
                     "struct_fields": [
                         {"title_bar_active_background_color": {"type": "[u8;4]"}},
                         {"title_bar_active_separator_color": {"type": "[u8;4]"}},
@@ -787,7 +787,7 @@
                 },
                 "RendererType": {
                     "doc": "Renderer type of the current windows OpenGL context",
-                    "external": "azul_impl::window::RendererType",
+                    "external": "azul_core::window::RendererType",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Hardware": {"doc": "Hardware rendering active (OpenGL 3.1 / OpenGL ES 3.0)"}},
@@ -796,14 +796,14 @@
                 },
                 "StringPair": {
                     "doc": "Key-value pair, used for setting WM hints values specific to GNOME",
-                    "external": "azul_impl::window::AzStringPair",
+                    "external": "azul_core::window::AzStringPair",
                     "struct_fields": [
                         {"key": {"type": "String"}},
                         {"value": {"type": "String"}}
                     ]
                 },
                 "LinuxWindowOptions": {
-                    "external": "azul_impl::window::LinuxWindowOptions",
+                    "external": "azul_core::window::LinuxWindowOptions",
                     "struct_fields": [
                         {"x11_visual": {"type": "OptionX11Visual", "doc": "Which X11 visual to use for the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
                         {"x11_screen": {"type": "OptionI32", "doc": "Which screen to use when showing the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
@@ -820,21 +820,21 @@
                     ]
                 },
                 "MacWindowOptions": {
-                    "external": "azul_impl::window::MacWindowOptions",
+                    "external": "azul_core::window::MacWindowOptions",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"_reserved": {"type": "u8", "doc": "Reserved empty field"}}
                     ]
                 },
                 "WasmWindowOptions": {
-                    "external": "azul_impl::window::WasmWindowOptions",
+                    "external": "azul_core::window::WasmWindowOptions",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"_reserved": {"type": "u8", "doc": "Reserved empty field"}}
                     ]
                 },
                 "FullScreenMode": {
-                    "external": "azul_impl::window::FullScreenMode",
+                    "external": "azul_core::window::FullScreenMode",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"SlowFullScreen": {"doc": "- macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode}\r\n- other: Does the same as `FastFullScreen`."}},
@@ -845,7 +845,7 @@
                 },
                 "WindowTheme": {
                     "doc": "Window theme, set by the operating system or `WindowCreateOptions.theme` on startup",
-                    "external": "azul_impl::window::WindowTheme",
+                    "external": "azul_core::window::WindowTheme",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DarkMode": {"doc": "Dark mode theme"}},
@@ -854,7 +854,7 @@
                 },
                 "WindowPosition": {
                     "doc": "Position of the top left corner of the window relative to the top left of the monitor",
-                    "external": "azul_impl::window::WindowPosition",
+                    "external": "azul_core::window::WindowPosition",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Uninitialized": {"doc": "Window position has not been initialized yet (default, only set on startup)"}},
@@ -863,7 +863,7 @@
                 },
                 "ImePosition": {
                     "doc": "Position of the virtual keyboard necessary to insert CJK characters",
-                    "external": "azul_impl::window::ImePosition",
+                    "external": "azul_core::window::ImePosition",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Uninitialized": {}},
@@ -872,7 +872,7 @@
                 },
                 "TouchState": {
                     "doc": "Current state of touch devices / touch inputs",
-                    "external": "azul_impl::window::TouchState",
+                    "external": "azul_core::window::TouchState",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"unused": {"type": "u8"}}
@@ -880,7 +880,7 @@
                 },
                 "Monitor": {
                     "doc": "Information about a single (or many) monitors, useful for dock widgets",
-                    "external": "azul_impl::window::Monitor",
+                    "external": "azul_core::window::Monitor",
                     "struct_fields": [
                         {"id": {"type": "usize", "doc": "Internal ID for the monitor, only useful at startup to specify which screen the window should be created on (unimplemented)"}},
                         {"name": {"type": "OptionString", "doc": "Name of the Monitor"}},
@@ -893,7 +893,7 @@
                 },
                 "VideoMode": {
                     "doc": "Describes a rendering configuration for a monitor",
-                    "external": "azul_impl::window::VideoMode",
+                    "external": "azul_core::window::VideoMode",
                     "struct_fields": [
                         {"size": {"type": "LayoutSize", "doc": "Screen resolution in pixels"}},
                         {"bit_depth": {"type": "u16", "doc": "Returns the bit depth of this video mode, as in how many bits you have available per color. This is generally 24 bits or 32 bits on modern systems, depending on whether the alpha channel is counted or not.\r\nWayland: always returns 32.\r\niOS: always returns 32."}},
@@ -901,7 +901,7 @@
                     ]
                 },
                 "WindowState": {
-                    "external": "azul_impl::window::WindowState",
+                    "external": "azul_core::window::WindowState",
                     "struct_fields": [
                         {"title": {"type": "String", "doc": "Current title of the window"}},
                         {"theme": {"type": "WindowTheme", "doc": "Current theme of the window (dark or light mode). Will emit a `ThemeChanged` event if it is changed in a callback."}},
@@ -2957,14 +2957,14 @@
             "classes": {
                 "Menu": {
                     "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
-                    "external": "azul_impl::window::Menu",
+                    "external": "azul_core::window::Menu",
                     "struct_fields": [
                         {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}}
                     ]
                 },
                 "MenuItem": {
                     "doc": "Item entry in a menu or menu bar",
-                    "external": "azul_impl::window::MenuItem",
+                    "external": "azul_core::window::MenuItem",
                     "enum_fields": [
                         {"Label": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
                         {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
@@ -2983,7 +2983,7 @@
                 },
                 "StringMenuItem": {
                     "doc": "Regular labeled menu item",
-                    "external": "azul_impl::window::StringMenuItem",
+                    "external": "azul_core::window::StringMenuItem",
                     "struct_fields": [
                         {"label": {"type": "String", "doc": "Label of the menu entry"}},
                         {"accelerator": {"type": "OptionVirtualKeyCodeCombo", "doc": "Optional accelerator combination, (ex. \"CTRL + X\" = [VirtualKeyCode::Ctrl, VirtualKeyCode::X]) for keyboard shortcut"}},
@@ -3023,14 +3023,14 @@
                 },
                 "VirtualKeyCodeCombo": {
                     "doc": "Combination of virtual key codes that have to be pressed together",
-                    "external": "azul_impl::window::VirtualKeyCodeCombo",
+                    "external": "azul_core::window::VirtualKeyCodeCombo",
                     "struct_fields": [
                         {"keys": {"type": "VirtualKeyCodeVec"}}
                     ]
                 },
                 "MenuCallback": {
                     "doc": "Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated",
-                    "external": "azul_impl::window::MenuCallback",
+                    "external": "azul_core::window::MenuCallback",
                     "struct_fields": [
                         {"callback": {"type": "Callback", "doc": "Callback to be called when the menu item is clicked"}},
                         {"data": {"type": "RefAny", "doc": "Data of the callback to be called on"}}
@@ -3038,7 +3038,7 @@
                 },
                 "MenuItemIcon": {
                     "doc": "Icon of a menu entry",
-                    "external": "azul_impl::window::MenuItemIcon",
+                    "external": "azul_core::window::MenuItemIcon",
                     "enum_fields": [
                         {"Checkbox": {"type": "bool", "doc": "Menu item shows a checkbox (either checked or not)"}},
                         {"Image": {"type": "ImageRef", "doc": "Menu item shows a custom image, usually in 16x16 format"}}
@@ -3046,7 +3046,7 @@
                 },
                 "MenuItemState": {
                     "doc": "Describes the state of a menu item",
-                    "external": "azul_impl::window::MenuItemState",
+                    "external": "azul_core::window::MenuItemState",
                     "enum_fields": [
                         {"Normal": {"doc": "Normal menu item (default)"}},
                         {"Greyed": {"doc": "Menu item is greyed out and clicking it does nothing"}},
@@ -10582,7 +10582,7 @@
             "classes": {
                 "SystemClipboard": {
                     "doc": "Connection to the system clipboard, on some systems this connection can be cached",
-                    "external": "azul_impl::window::Clipboard",
+                    "external": "azul_impl::app::Clipboard",
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}}
@@ -11106,7 +11106,7 @@
                 "MenuItemVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<MenuItem>`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::MenuItemVec",
+                    "external": "azul_core::window::MenuItemVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const MenuItem" } },
                         { "len": { "type": "usize" } },
@@ -11215,7 +11215,7 @@
                 "MonitorVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<Monitor>`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::MonitorVec",
+                    "external": "azul_core::window::MonitorVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const Monitor" } },
                         { "len": { "type": "usize" } },
@@ -11226,7 +11226,7 @@
                 "VideoModeVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<VideoMode>`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::VideoModeVec",
+                    "external": "azul_core::window::VideoModeVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const VideoMode" } },
                         { "len": { "type": "usize" } },
@@ -11402,7 +11402,7 @@
                 "XWindowTypeVec": {
                     "doc": "Wrapper over a Rust-allocated `XWindowType`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::XWindowTypeVec",
+                    "external": "azul_core::window::XWindowTypeVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const XWindowType" } },
                         { "len": { "type": "usize" } },
@@ -11413,7 +11413,7 @@
                 "VirtualKeyCodeVec": {
                     "doc": "Wrapper over a Rust-allocated `VirtualKeyCode`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::VirtualKeyCodeVec",
+                    "external": "azul_core::window::VirtualKeyCodeVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const VirtualKeyCode" } },
                         { "len": { "type": "usize" } },
@@ -11435,7 +11435,7 @@
                 "ScanCodeVec": {
                     "doc": "Wrapper over a Rust-allocated `ScanCode`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::ScanCodeVec",
+                    "external": "azul_core::window::ScanCodeVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const u32" } },
                         { "len": { "type": "usize" } },
@@ -11599,7 +11599,7 @@
                 "StringPairVec": {
                     "doc": "Wrapper over a Rust-allocated `StringPairVec`",
                     "custom_destructor": true,
-                    "external": "azul_impl::window::StringPairVec",
+                    "external": "azul_core::window::StringPairVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const StringPair" } },
                         { "len": { "type": "usize" } },
@@ -11728,7 +11728,7 @@
                     }
                 },
                 "MenuItemVecDestructor": {
-                    "external": "azul_impl::window::MenuItemVecDestructor",
+                    "external": "azul_core::window::MenuItemVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -11856,7 +11856,7 @@
                     }
                 },
                 "MonitorVecDestructor": {
-                    "external": "azul_impl::window::MonitorVecDestructor",
+                    "external": "azul_core::window::MonitorVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -11872,7 +11872,7 @@
                     }
                 },
                 "VideoModeVecDestructor": {
-                    "external": "azul_impl::window::VideoModeVecDestructor",
+                    "external": "azul_core::window::VideoModeVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -12128,7 +12128,7 @@
                     }
                 },
                 "XWindowTypeVecDestructor": {
-                    "external": "azul_impl::window::XWindowTypeVecDestructor",
+                    "external": "azul_core::window::XWindowTypeVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -12144,7 +12144,7 @@
                     }
                 },
                 "VirtualKeyCodeVecDestructor": {
-                    "external": "azul_impl::window::VirtualKeyCodeVecDestructor",
+                    "external": "azul_core::window::VirtualKeyCodeVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -12176,7 +12176,7 @@
                     }
                 },
                 "ScanCodeVecDestructor": {
-                    "external": "azul_impl::window::ScanCodeVecDestructor",
+                    "external": "azul_core::window::ScanCodeVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -12384,7 +12384,7 @@
                     }
                 },
                 "StringPairVecDestructor": {
-                    "external": "azul_impl::window::StringPairVecDestructor",
+                    "external": "azul_core::window::StringPairVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
@@ -12589,21 +12589,21 @@
                     ]
                 },
                 "OptionMenuItemIcon": {
-                    "external": "azul_impl::window::OptionMenuItemIcon",
+                    "external": "azul_core::window::OptionMenuItemIcon",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "MenuItemIcon" }}
                     ]
                 },
                 "OptionMenuCallback": {
-                    "external": "azul_impl::window::OptionMenuCallback",
+                    "external": "azul_core::window::OptionMenuCallback",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "MenuCallback" }}
                     ]
                 },
                 "OptionVirtualKeyCodeCombo": {
-                    "external": "azul_impl::window::OptionVirtualKeyCodeCombo",
+                    "external": "azul_core::window::OptionVirtualKeyCodeCombo",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "VirtualKeyCodeCombo" }}
@@ -12673,7 +12673,7 @@
                     ]
                 },
                 "OptionSystemClipboard": {
-                    "external": "azul_impl::window::OptionClipboard",
+                    "external": "azul_impl::app::OptionClipboard",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "SystemClipboard" }}
@@ -12687,21 +12687,21 @@
                     ]
                 },
                 "OptionWindowState": {
-                    "external": "azul_impl::window::OptionWindowState",
+                    "external": "azul_core::window::OptionWindowState",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "WindowState" }}
                     ]
                 },
                 "OptionMouseState": {
-                    "external": "azul_impl::window::OptionMouseState",
+                    "external": "azul_core::window::OptionMouseState",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "MouseState" }}
                     ]
                 },
                 "OptionKeyboardState": {
-                    "external": "azul_impl::window::OptionKeyboardState",
+                    "external": "azul_core::window::OptionKeyboardState",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "KeyboardState" }}
@@ -12752,7 +12752,7 @@
                     ]
                 },
                 "OptionRendererOptions": {
-                    "external": "azul_impl::window::OptionRendererOptions",
+                    "external": "azul_core::window::OptionRendererOptions",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12813,7 +12813,7 @@
                     ]
                 },
                 "OptionWindowTheme": {
-                    "external": "azul_impl::window::OptionWindowTheme",
+                    "external": "azul_core::window::OptionWindowTheme",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12860,21 +12860,21 @@
                     ]
                 },
                 "OptionWaylandTheme": {
-                    "external": "azul_impl::window::OptionWaylandTheme",
+                    "external": "azul_core::window::OptionWaylandTheme",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "WaylandTheme" }}
                     ]
                 },
                 "OptionTaskBarIcon": {
-                    "external": "azul_impl::window::OptionTaskBarIcon",
+                    "external": "azul_core::window::OptionTaskBarIcon",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "TaskBarIcon" }}
                     ]
                 },
                 "OptionHwndHandle": {
-                    "external": "azul_impl::window::OptionHwndHandle",
+                    "external": "azul_core::window::OptionHwndHandle",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12882,7 +12882,7 @@
                     ]
                 },
                 "OptionLogicalPosition": {
-                    "external": "azul_impl::window::OptionLogicalPosition",
+                    "external": "azul_core::window::OptionLogicalPosition",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12890,7 +12890,7 @@
                     ]
                 },
                 "OptionPhysicalPositionI32": {
-                    "external": "azul_impl::window::OptionPhysicalPositionI32",
+                    "external": "azul_core::window::OptionPhysicalPositionI32",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12898,7 +12898,7 @@
                     ]
                 },
                 "OptionWindowIcon": {
-                    "external": "azul_impl::window::OptionWindowIcon",
+                    "external": "azul_core::window::OptionWindowIcon",
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "WindowIcon" }}
@@ -12912,7 +12912,7 @@
                     ]
                 },
                 "OptionX11Visual": {
-                    "external": "azul_impl::window::OptionX11Visual",
+                    "external": "azul_core::window::OptionX11Visual",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12936,7 +12936,7 @@
                     ]
                 },
                 "OptionMouseCursorType": {
-                    "external": "azul_impl::window::OptionMouseCursorType",
+                    "external": "azul_core::window::OptionMouseCursorType",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12944,7 +12944,7 @@
                     ]
                 },
                 "OptionLogicalSize": {
-                    "external": "azul_impl::window::OptionLogicalSize",
+                    "external": "azul_core::window::OptionLogicalSize",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},
@@ -12952,7 +12952,7 @@
                     ]
                 },
                 "OptionChar": {
-                    "external": "azul_impl::window::OptionChar",
+                    "external": "azul_core::window::OptionChar",
                     "doc": "Option<char> but the char is a u32, for C FFI stability reasons",
                     "derive": ["Copy"],
                     "enum_fields": [
@@ -12961,7 +12961,7 @@
                     ]
                 },
                 "OptionVirtualKeyCode": {
-                    "external": "azul_impl::window::OptionVirtualKeyCode",
+                    "external": "azul_core::window::OptionVirtualKeyCode",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {}},

@@ -116,6 +116,7 @@ use azul_css::{
 use webrender::Renderer;
 use alloc::sync::Arc;
 
+#[cfg(not(target_os = "windows"))]
 pub(crate) mod winit_translate {
 
     use azul_core::{
