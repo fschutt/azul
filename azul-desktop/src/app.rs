@@ -4,6 +4,7 @@ use azul_core::{
     task::{Timer, TimerId},
     callbacks::{RefAny, Update},
     app_resources::{AppConfig, ImageRef, ImageCache},
+    display_list::RenderCallbacks,
 };
 use rust_fontconfig::FcFontCache;
 use alloc::sync::Arc;
@@ -11,6 +12,13 @@ use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use std::fmt;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
+
+pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
+    insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
+    layout_fn: azul_layout::do_the_layout,
+    load_font_fn: azulc_lib::font_loading::font_source_get_bytes,
+    parse_font_fn: azul_text_layout::parse_font_fn,
+};
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -169,7 +177,7 @@ impl App {
     pub fn run(mut self, root_window: WindowCreateOptions) {
 
         #[cfg(target_os = "windows")] {
-            crate::shell::win32::run(self, root_window)
+            crate::shell::win32::run(self, root_window);
         }
         #[cfg(not(target_os = "windows"))] {
             crate::shell::other::run(self, root_window)

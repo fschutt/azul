@@ -308,13 +308,6 @@ pub struct Window {
 
 impl Window {
 
-    const CALLBACKS: RenderCallbacks = RenderCallbacks {
-        insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
-        layout_fn: azul_layout::do_the_layout,
-        load_font_fn: azulc_lib::font_loading::font_source_get_bytes,
-        parse_font_fn: azul_text_layout::parse_font_fn,
-    };
-
     /*
     // copied from server/webrender/wrench
     fn upload_software_to_native(&self) {

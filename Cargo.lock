@@ -178,6 +178,7 @@ dependencies = [
  "coarsetime",
  "core-foundation 0.9.1",
  "fern",
+ "gl-context-loader",
  "gleam",
  "log",
  "raw-window-handle",
@@ -1101,6 +1102,15 @@ checksum = "5a668f699973d0f573d15749b7002a9ac9e1f9c6b220e7b165601334c173d8de"
 dependencies = [
  "color_quant",
  "weezl",
+]
+
+[[package]]
+name = "gl-context-loader"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "395ecffb7f948890af769454a5fd0bcc6e00bc93147679228c2c86eff5795f85"
+dependencies = [
+ "gleam",
 ]
 
 [[package]]

@@ -15,22 +15,19 @@ extern crate core;
 #[macro_use]
 extern crate alloc;
 
-extern crate strfmt;
-#[macro_use]
-extern crate azul_css;
-extern crate rust_fontconfig;
-#[macro_use(impl_from)]
-extern crate azul_core;
-extern crate azul_text_layout;
-extern crate azulc_lib;
-extern crate raw_window_handle;
 #[cfg(not(target_os = "windows"))]
 extern crate glutin;
-extern crate webrender;
-extern crate tinyfiledialogs;
-extern crate clipboard2;
 #[cfg(not(target_os = "windows"))]
 extern crate gleam;
+#[cfg(target_os = "windows")]
+extern crate winapi;
+#[cfg(target_os = "windows")]
+extern crate gl_context_loader;
+
+#[macro_use]
+extern crate azul_css;
+#[macro_use(impl_from)]
+extern crate azul_core;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
 #[cfg(feature = "logging")]
@@ -42,6 +39,15 @@ extern crate fern;
 extern crate backtrace;
 #[cfg(target_os = "macos")]
 extern crate core_foundation;
+
+extern crate rust_fontconfig;
+extern crate strfmt;
+extern crate azul_text_layout;
+extern crate azulc_lib;
+extern crate raw_window_handle;
+extern crate webrender;
+extern crate tinyfiledialogs;
+extern crate clipboard2;
 
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
