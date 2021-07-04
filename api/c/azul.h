@@ -376,18 +376,21 @@ typedef enum AzLayoutSolver AzLayoutSolver;
 enum AzVsync {
    AzVsync_Enabled,
    AzVsync_Disabled,
+   AzVsync_DontCare,
 };
 typedef enum AzVsync AzVsync;
 
 enum AzSrgb {
    AzSrgb_Enabled,
    AzSrgb_Disabled,
+   AzSrgb_DontCare,
 };
 typedef enum AzSrgb AzSrgb;
 
 enum AzHwAcceleration {
    AzHwAcceleration_Enabled,
    AzHwAcceleration_Disabled,
+   AzHwAcceleration_DontCare,
 };
 typedef enum AzHwAcceleration AzHwAcceleration;
 
@@ -664,22 +667,13 @@ enum AzVirtualKeyCode {
 };
 typedef enum AzVirtualKeyCode AzVirtualKeyCode;
 
-struct AzWindowFlags {
-    bool  is_maximized;
-    bool  is_minimized;
-    bool  is_about_to_close;
-    bool  is_fullscreen;
-    bool  has_decorations;
-    bool  is_visible;
-    bool  is_always_on_top;
-    bool  is_resizable;
-    bool  has_focus;
-    bool  has_extended_window_frame;
-    bool  has_blur_behind_window;
-    bool  smooth_scroll_enabled;
-    bool  autotab_enabled;
+enum AzWindowFrame {
+   AzWindowFrame_Normal,
+   AzWindowFrame_Minimized,
+   AzWindowFrame_Maximized,
+   AzWindowFrame_Fullscreen,
 };
-typedef struct AzWindowFlags AzWindowFlags;
+typedef enum AzWindowFrame AzWindowFrame;
 
 struct AzDebugState {
     bool  profiler_dbg;
@@ -3450,6 +3444,21 @@ typedef union AzAcceleratorKey AzAcceleratorKey;
 #define AzAcceleratorKey_Alt { .Alt = { .tag = AzAcceleratorKeyTag_Alt } }
 #define AzAcceleratorKey_Shift { .Shift = { .tag = AzAcceleratorKeyTag_Shift } }
 #define AzAcceleratorKey_Key(v) { .Key = { .tag = AzAcceleratorKeyTag_Key, .payload = v } }
+
+struct AzWindowFlags {
+    AzWindowFrame frame;
+    bool  is_about_to_close;
+    bool  has_decorations;
+    bool  is_visible;
+    bool  is_always_on_top;
+    bool  is_resizable;
+    bool  has_focus;
+    bool  has_extended_window_frame;
+    bool  has_blur_behind_window;
+    bool  smooth_scroll_enabled;
+    bool  autotab_enabled;
+};
+typedef struct AzWindowFlags AzWindowFlags;
 
 enum AzCursorPositionTag {
    AzCursorPositionTag_OutOfWindow,
@@ -7400,6 +7409,7 @@ struct AzWindowSize {
     AzLogicalSize dimensions;
     float hidpi_factor;
     float system_hidpi_factor;
+    uint32_t dpi;
     AzOptionLogicalSize min_dimensions;
     AzOptionLogicalSize max_dimensions;
 };
@@ -10029,6 +10039,7 @@ typedef union AzXmlParseError AzXmlParseError;
 
 struct AzWindowCreateOptions {
     AzWindowState state;
+    bool  size_to_content;
     AzOptionRendererOptions renderer_type;
     AzOptionWindowTheme theme;
     AzOptionCallback create_callback;

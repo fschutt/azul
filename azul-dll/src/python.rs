@@ -743,6 +743,7 @@ pub enum AzLayoutSolver {
 pub enum AzVsync {
     Enabled,
     Disabled,
+    DontCare,
 }
 
 /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
@@ -750,6 +751,7 @@ pub enum AzVsync {
 pub enum AzSrgb {
     Enabled,
     Disabled,
+    DontCare,
 }
 
 /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
@@ -757,6 +759,7 @@ pub enum AzSrgb {
 pub enum AzHwAcceleration {
     Enabled,
     Disabled,
+    DontCare,
 }
 
 /// Offset in physical pixels (integer units)
@@ -1080,36 +1083,13 @@ pub enum AzVirtualKeyCode {
     Cut,
 }
 
-/// Boolean flags relating to the current window state
+/// State of the window frame (minimized, maximized, fullscreen or normal window)
 #[repr(C)]
-#[pyclass(name = "WindowFlags")]
-pub struct AzWindowFlags {
-    #[pyo3(get, set)]
-    pub is_maximized: bool,
-    #[pyo3(get, set)]
-    pub is_minimized: bool,
-    #[pyo3(get, set)]
-    pub is_about_to_close: bool,
-    #[pyo3(get, set)]
-    pub is_fullscreen: bool,
-    #[pyo3(get, set)]
-    pub has_decorations: bool,
-    #[pyo3(get, set)]
-    pub is_visible: bool,
-    #[pyo3(get, set)]
-    pub is_always_on_top: bool,
-    #[pyo3(get, set)]
-    pub is_resizable: bool,
-    #[pyo3(get, set)]
-    pub has_focus: bool,
-    #[pyo3(get, set)]
-    pub has_extended_window_frame: bool,
-    #[pyo3(get, set)]
-    pub has_blur_behind_window: bool,
-    #[pyo3(get, set)]
-    pub smooth_scroll_enabled: bool,
-    #[pyo3(get, set)]
-    pub autotab_enabled: bool,
+pub enum AzWindowFrame {
+    Normal,
+    Minimized,
+    Maximized,
+    Fullscreen,
 }
 
 /// Debugging information, will be rendered as an overlay on top of the UI
@@ -3481,6 +3461,34 @@ pub enum AzAcceleratorKey {
     Alt,
     Shift,
     Key(AzVirtualKeyCode),
+}
+
+/// Boolean flags relating to the current window state
+#[repr(C)]
+#[pyclass(name = "WindowFlags")]
+pub struct AzWindowFlags {
+    #[pyo3(get, set)]
+    pub frame: AzWindowFrameEnumWrapper,
+    #[pyo3(get, set)]
+    pub is_about_to_close: bool,
+    #[pyo3(get, set)]
+    pub has_decorations: bool,
+    #[pyo3(get, set)]
+    pub is_visible: bool,
+    #[pyo3(get, set)]
+    pub is_always_on_top: bool,
+    #[pyo3(get, set)]
+    pub is_resizable: bool,
+    #[pyo3(get, set)]
+    pub has_focus: bool,
+    #[pyo3(get, set)]
+    pub has_extended_window_frame: bool,
+    #[pyo3(get, set)]
+    pub has_blur_behind_window: bool,
+    #[pyo3(get, set)]
+    pub smooth_scroll_enabled: bool,
+    #[pyo3(get, set)]
+    pub autotab_enabled: bool,
 }
 
 /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
@@ -5995,6 +6003,8 @@ pub struct AzWindowSize {
     #[pyo3(get, set)]
     pub system_hidpi_factor: f32,
     #[pyo3(get, set)]
+    pub dpi: u32,
+    #[pyo3(get, set)]
     pub min_dimensions: AzOptionLogicalSizeEnumWrapper,
     #[pyo3(get, set)]
     pub max_dimensions: AzOptionLogicalSizeEnumWrapper,
@@ -7889,6 +7899,8 @@ pub struct AzWindowCreateOptions {
     #[pyo3(get, set)]
     pub state: AzWindowState,
     #[pyo3(get, set)]
+    pub size_to_content: bool,
+    #[pyo3(get, set)]
     pub renderer_type: AzOptionRendererOptionsEnumWrapper,
     #[pyo3(get, set)]
     pub theme: AzOptionWindowThemeEnumWrapper,
@@ -8249,6 +8261,13 @@ pub struct AzXWindowTypeEnumWrapper {
 #[pyclass(name = "VirtualKeyCode")]
 pub struct AzVirtualKeyCodeEnumWrapper {
     pub inner: AzVirtualKeyCode,
+}
+
+/// `AzWindowFrameEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "WindowFrame")]
+pub struct AzWindowFrameEnumWrapper {
+    pub inner: AzWindowFrame,
 }
 
 /// `AzMouseCursorTypeEnumWrapper` struct
@@ -10474,7 +10493,7 @@ impl Clone for AzLogicalPosition { fn clone(&self) -> Self { let r: &azul_core::
 impl Clone for AzLogicalSize { fn clone(&self) -> Self { let r: &azul_core::window::LogicalSize = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIconKey { fn clone(&self) -> Self { let r: &azul_core::window::IconKey = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVirtualKeyCodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzWindowFlags { fn clone(&self) -> Self { let r: &azul_core::window::WindowFlags = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowFrameEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::WindowFrame = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDebugState { fn clone(&self) -> Self { let r: &azul_core::window::DebugState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMouseCursorTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MouseCursorType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRendererTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::RendererType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10687,6 +10706,7 @@ impl Clone for AzLayoutRect { fn clone(&self) -> Self { let r: &azul_impl::css::
 impl Clone for AzRawWindowHandleEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::RawWindowHandle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLogicalRect { fn clone(&self) -> Self { let r: &azul_core::window::LogicalRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAcceleratorKeyEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::AcceleratorKey = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzWindowFlags { fn clone(&self) -> Self { let r: &azul_core::window::WindowFlags = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCursorPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::CursorPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzWindowPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::WindowPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzImePositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::ImePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11360,6 +11380,8 @@ impl AzVsyncEnumWrapper {
     fn Enabled() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper { inner: AzVsync::Enabled } }
     #[classattr]
     fn Disabled() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper { inner: AzVsync::Disabled } }
+    #[classattr]
+    fn DontCare() -> AzVsyncEnumWrapper { AzVsyncEnumWrapper { inner: AzVsync::DontCare } }
 }
 
 #[pyproto]
@@ -11378,6 +11400,8 @@ impl AzSrgbEnumWrapper {
     fn Enabled() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper { inner: AzSrgb::Enabled } }
     #[classattr]
     fn Disabled() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper { inner: AzSrgb::Disabled } }
+    #[classattr]
+    fn DontCare() -> AzSrgbEnumWrapper { AzSrgbEnumWrapper { inner: AzSrgb::DontCare } }
 }
 
 #[pyproto]
@@ -11396,6 +11420,8 @@ impl AzHwAccelerationEnumWrapper {
     fn Enabled() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper { inner: AzHwAcceleration::Enabled } }
     #[classattr]
     fn Disabled() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper { inner: AzHwAcceleration::Disabled } }
+    #[classattr]
+    fn DontCare() -> AzHwAccelerationEnumWrapper { AzHwAccelerationEnumWrapper { inner: AzHwAcceleration::DontCare } }
 }
 
 #[pyproto]
@@ -12247,11 +12273,12 @@ impl PyObjectProtocol for AzAcceleratorKeyEnumWrapper {
 #[pymethods]
 impl AzWindowSize {
     #[new]
-    fn __new__(dimensions: AzLogicalSize, hidpi_factor: f32, system_hidpi_factor: f32, min_dimensions: AzOptionLogicalSizeEnumWrapper, max_dimensions: AzOptionLogicalSizeEnumWrapper) -> Self {
+    fn __new__(dimensions: AzLogicalSize, hidpi_factor: f32, system_hidpi_factor: f32, dpi: u32, min_dimensions: AzOptionLogicalSizeEnumWrapper, max_dimensions: AzOptionLogicalSizeEnumWrapper) -> Self {
         Self {
             dimensions,
             hidpi_factor,
             system_hidpi_factor,
+            dpi,
             min_dimensions,
             max_dimensions,
         }
@@ -12272,12 +12299,10 @@ impl PyObjectProtocol for AzWindowSize {
 #[pymethods]
 impl AzWindowFlags {
     #[new]
-    fn __new__(is_maximized: bool, is_minimized: bool, is_about_to_close: bool, is_fullscreen: bool, has_decorations: bool, is_visible: bool, is_always_on_top: bool, is_resizable: bool, has_focus: bool, has_extended_window_frame: bool, has_blur_behind_window: bool, smooth_scroll_enabled: bool, autotab_enabled: bool) -> Self {
+    fn __new__(frame: AzWindowFrameEnumWrapper, is_about_to_close: bool, has_decorations: bool, is_visible: bool, is_always_on_top: bool, is_resizable: bool, has_focus: bool, has_extended_window_frame: bool, has_blur_behind_window: bool, smooth_scroll_enabled: bool, autotab_enabled: bool) -> Self {
         Self {
-            is_maximized,
-            is_minimized,
+            frame,
             is_about_to_close,
-            is_fullscreen,
             has_decorations,
             is_visible,
             is_always_on_top,
@@ -12299,6 +12324,28 @@ impl PyObjectProtocol for AzWindowFlags {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::WindowFlags = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzWindowFrameEnumWrapper {
+    #[classattr]
+    fn Normal() -> AzWindowFrameEnumWrapper { AzWindowFrameEnumWrapper { inner: AzWindowFrame::Normal } }
+    #[classattr]
+    fn Minimized() -> AzWindowFrameEnumWrapper { AzWindowFrameEnumWrapper { inner: AzWindowFrame::Minimized } }
+    #[classattr]
+    fn Maximized() -> AzWindowFrameEnumWrapper { AzWindowFrameEnumWrapper { inner: AzWindowFrame::Maximized } }
+    #[classattr]
+    fn Fullscreen() -> AzWindowFrameEnumWrapper { AzWindowFrameEnumWrapper { inner: AzWindowFrame::Fullscreen } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzWindowFrameEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_core::window::WindowFrame = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_core::window::WindowFrame = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -29532,6 +29579,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzAcceleratorKeyEnumWrapper>()?;
     m.add_class::<AzWindowSize>()?;
     m.add_class::<AzWindowFlags>()?;
+    m.add_class::<AzWindowFrameEnumWrapper>()?;
     m.add_class::<AzDebugState>()?;
     m.add_class::<AzKeyboardState>()?;
     m.add_class::<AzMouseCursorTypeEnumWrapper>()?;

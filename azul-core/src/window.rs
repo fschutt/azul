@@ -87,18 +87,18 @@ impl RendererOptions {
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
-pub enum Vsync { Enabled, Disabled }
-impl Vsync { pub const fn is_enabled(&self) -> bool { match self { Vsync::Enabled => true, Vsync::Disabled => false } }}
+pub enum Vsync { Enabled, Disabled, DontCare }
+impl Vsync { pub const fn is_enabled(&self) -> bool { match self { Vsync::Enabled => true, _ => false } }}
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
-pub enum Srgb { Enabled, Disabled }
-impl Srgb { pub const fn is_enabled(&self) -> bool { match self { Srgb::Enabled => true, Srgb::Disabled => false } }}
+pub enum Srgb { Enabled, Disabled, DontCare }
+impl Srgb { pub const fn is_enabled(&self) -> bool { match self { Srgb::Enabled => true, _ => false } }}
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
-pub enum HwAcceleration { Enabled, Disabled }
-impl HwAcceleration { pub const fn is_enabled(&self) -> bool { match self { HwAcceleration::Enabled => true, HwAcceleration::Disabled => false } }}
+pub enum HwAcceleration { Enabled, Disabled, DontCare }
+impl HwAcceleration { pub const fn is_enabled(&self) -> bool { match self { HwAcceleration::Enabled => true, _ => false } }}
 
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1333,14 +1333,10 @@ impl CallCallbacksResult {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct WindowFlags {
-    /// Is the window currently maximized
-    pub is_maximized: bool,
-    /// Is the window currently minimized
-    pub is_minimized: bool,
+    /// Is the window currently maximized, minimized or fullscreen
+    pub frame: WindowFrame,
     /// Is the window about to close on the next frame?
     pub is_about_to_close: bool,
-    /// Is the window currently fullscreened?
-    pub is_fullscreen: bool,
     /// Does the window have decorations (close, minimize, maximize, title bar)?
     pub has_decorations: bool,
     /// Is the window currently visible?
@@ -1362,12 +1358,19 @@ pub struct WindowFlags {
     pub autotab_enabled: bool,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
+pub enum WindowFrame {
+    Normal,
+    Minimized,
+    Maximized,
+    Fullscreen,
+}
+
 impl Default for WindowFlags {
     fn default() -> Self {
         Self {
-            is_maximized: false,
-            is_minimized: false,
-            is_fullscreen: false,
+            frame: WindowFrame::Normal,
             is_about_to_close: false,
             has_decorations: true,
             is_visible: true,
@@ -1704,6 +1707,8 @@ pub struct WindowSize {
     pub hidpi_factor: f32,
     /// (Internal only, unused): winit HiDPI factor
     pub system_hidpi_factor: f32,
+    /// Actual DPI value (default: 96)
+    pub dpi: u32,
     /// Minimum dimensions of the window
     pub min_dimensions: OptionLogicalSize,
     /// Maximum dimensions of the window
@@ -1745,6 +1750,7 @@ impl Default for WindowSize {
             dimensions: LogicalSize::new(640.0, 480.0),
             hidpi_factor: 1.0,
             system_hidpi_factor: 1.0,
+            dpi: 96,
             min_dimensions: None.into(),
             max_dimensions: None.into(),
         }
@@ -1760,7 +1766,12 @@ impl Default for WindowState {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct WindowCreateOptions {
+    // Initial window state
     pub state: WindowState,
+    /// If set, the first UI redraw will be called with a size of (0, 0) and the
+    /// window size depends on the size of the overflowing UI. This is good for
+    /// windows that do not want to take up unnecessary extra space
+    pub size_to_content: bool,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer: OptionRendererOptions,
     /// Override the default window theme (set to `None` to use the OS-provided theme)
@@ -1776,6 +1787,7 @@ impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
+            size_to_content: false,
             renderer: OptionRendererOptions::None,
             theme: OptionWindowTheme::None,
             create_callback: OptionCallback::None,

@@ -7,6 +7,7 @@ use core::{
     ptr, mem,
     ffi::c_void,
     cell::{RefCell, BorrowError, BorrowMutError},
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 use alloc::{
     collections::BTreeMap,
@@ -15,13 +16,17 @@ use alloc::{
 };
 use azul_core::{
     callbacks::RefAny,
-    window::{WindowInternal, MonitorVec, WindowCreateOptions, WindowState},
+    window::{
+        Menu, MenuItem, MenuCallback, WindowInternal, MonitorVec,
+        WindowCreateOptions, WindowState, LogicalSize,
+    },
     task::{TimerId, Timer, ThreadId, Thread},
-    app_resources::{AppConfig, ImageCache},
+    app_resources::{AppConfig, ResourceUpdate, ImageCache},
+    gl::OptionGlContextPtr,
 };
 use winapi::{
     shared::{
-        windef::{HWND, RECT, HGLRC},
+        windef::{HWND, RECT, HGLRC, HDC, HMENU},
         ntdef::HRESULT,
         minwindef::{LPARAM, WPARAM, LRESULT, BOOL, HINSTANCE, TRUE, UINT},
     },
@@ -56,19 +61,35 @@ use webrender::{
 
 const CLASS_NAME: &str = "AzulApplicationClass";
 
+// TODO: Cache compiled shaders between renderers
+const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
+
+trait RectTrait {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+}
+
+impl RectTrait for RECT {
+    fn width(&self) -> u32 { (self.right - self.left).max(0) as u32 }
+    fn height(&self) -> u32 { (self.bottom - self.top).max(0) as u32 }
+}
 pub fn get_monitors(app: &App) -> MonitorVec {
     MonitorVec::from_const_slice(&[]) // TODO
 }
 
 /// Main function that starts when app.run() is invoked
 pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsStartupError> {
-    use winapi::um::{
-        wingdi::wglMakeCurrent,
-        libloaderapi::GetModuleHandleW,
-        winuser::{
-            RegisterClassW, GetDC, ReleaseDC,
-            GetMessageW, DispatchMessageW, TranslateMessage,
-            MSG, WNDCLASSW, CS_HREDRAW, CS_VREDRAW, CS_OWNDC
+    use winapi::{
+        shared::windef::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE,
+        um::{
+            wingdi::wglMakeCurrent,
+            libloaderapi::GetModuleHandleW,
+            winuser::{
+                RegisterClassW, GetDC, ReleaseDC,
+                GetMessageW, DispatchMessageW, TranslateMessage,
+                SetProcessDpiAwarenessContext,
+                MSG, WNDCLASSW, CS_HREDRAW, CS_VREDRAW, CS_OWNDC
+            }
         }
     };
 
@@ -76,6 +97,9 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
     if hinstance.is_null() {
         return Err(WindowsStartupError::NoAppInstance(get_last_error()));
     }
+
+    // Tell windows that this process is DPI-aware
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE); }
 
     // Register the application class (shared between windows)
     let mut class_name = encode_wide(CLASS_NAME);
@@ -102,7 +126,6 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
         windows: BTreeMap::new(),
         threads: BTreeMap::new(),
         timers: BTreeMap::new(),
-        gl,
         dwm,
     }));
     let application_data = SharedApplicationData { inner: app_data_inner.clone() };
@@ -115,27 +138,6 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
 
     if let Ok(w) = Window::create(hinstance, root_window, application_data.clone()) {
         app_data_inner.try_borrow_mut()?.windows.insert(w.get_id(), w);
-    }
-
-    // get "some" gl context and make it current to load the OpenGL functions
-    let root_context = match app_data_inner.try_borrow()?.windows.values().find(|w| w.gl_context.is_some()) {
-        Some(w) => Some((w.hwnd, w.gl_context.unwrap())), // safe, can't panic
-        None => None, // no OpenGL context on windows: don't initialize GL context
-    };
-
-    // before showing the window, try to make the OpenGL context of the root
-    // window current, then load all OpenGL function pointers
-    //
-    // The addresses of the functions do not change while the app is running,
-    // so they can be shared across all windows
-    if let Some((hwnd, hrc)) = root_context {
-        let hdc = unsafe { GetDC(hwnd) };
-        if !hdc.is_null()  {
-            unsafe { wglMakeCurrent(hdc, hrc) };
-            if let Ok(r) = app_data_inner.try_borrow().map(|a| a.gl) { r.load(); }
-            unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
-            unsafe { ReleaseDC(hwnd, hdc); }
-        }
     }
 
     for window in app_data_inner.try_borrow_mut()?.windows.values_mut() {
@@ -209,8 +211,17 @@ fn get_last_error() -> u32 {
    (unsafe { GetLastError() }) as u32
 }
 
+fn load_dll(name: &'static str) -> Option<HINSTANCE> {
+    use winapi::um::libloaderapi::LoadLibraryW;
+    let mut dll_name = encode_wide(name);
+    let dll = unsafe { LoadLibraryW(dll_name.as_mut_ptr()) };
+    if dll.is_null() { None } else { Some(dll) }
+}
+
 pub enum WindowsWindowCreateError {
     FailedToCreateHWND(u32),
+    Renderer(WrRendererError),
+    BorrowMut(BorrowMutError),
 }
 
 pub enum WindowsOpenGlError {
@@ -244,6 +255,18 @@ impl From<WindowsOpenGlError> for WindowsStartupError {
     fn from(e: WindowsOpenGlError) -> Self { WindowsStartupError::Gl(e) }
 }
 
+struct Notifier { }
+
+impl WrRenderNotifier for Notifier {
+    fn clone(&self) -> Box<dyn WrRenderNotifier> { Box::new(Notifier { }) }
+    fn wake_up(&self, composite_needed: bool) { }
+    fn new_frame_ready(&self,
+        _: WrDocumentId,
+        _scrolled: bool,
+        composite_needed: bool,
+        _render_time: Option<u64>) { }
+}
+
 #[derive(Clone)]
 struct SharedApplicationData {
     inner: Rc<RefCell<ApplicationData>>,
@@ -259,7 +282,6 @@ struct ApplicationData {
     windows: BTreeMap<usize, Window>,
     threads: BTreeMap<ThreadId, Thread>,
     timers: BTreeMap<TimerId, Timer>,
-    gl: GlFunctions,
     dwm: Option<DwmFunctions>,
 }
 
@@ -335,19 +357,13 @@ impl GlFunctions {
 
         use winapi::um::libloaderapi::LoadLibraryW;
 
-        let mut dll_name = encode_wide("opengl32.dll");
-        let opengl32_dll = unsafe { LoadLibraryW(dll_name.as_mut_ptr()) };
-        let _opengl32_dll_handle = if opengl32_dll.is_null() {
-            None
-        } else {
-            Some(opengl32_dll)
-        };
+        let opengl32_dll = load_dll("opengl32.dll");
 
         // zero-initialize all function pointers
         let context: GenericGlContext = unsafe { mem::zeroed() };
 
         Self {
-            _opengl32_dll_handle,
+            _opengl32_dll_handle: opengl32_dll,
             functions: Rc::new(context)
         }
     }
@@ -1166,6 +1182,59 @@ impl Drop for GlFunctions {
     }
 }
 
+#[derive(Default)]
+struct ExtraWglFunctions {
+    wglCreateContextAttribsARB: Option<extern "system" fn(HDC, HGLRC, *const [i32]) -> HGLRC>,
+    wglSwapIntervalEXT: Option<extern "system" fn(i32) -> i32>,
+    wglChoosePixelFormatARB: Option<extern "system" fn(HDC, *const [i32], *const f32, u32, *mut i32, *mut u32) -> BOOL>,
+}
+
+impl ExtraWglFunctions {
+    // Assumes that at least one (dummy) OpenGL is current
+    pub fn load() -> Self {
+
+        use winapi::um::wingdi::wglGetProcAddress;
+
+        let mut extra = ExtraWglFunctions {
+            .. Default::default()
+        };
+
+        let mut func_name_1 = encode_ascii("wglChoosePixelFormatARB");
+        let mut func_name_2 = encode_ascii("wglChoosePixelFormatEXT");
+
+        let wgl1_result = unsafe { wglGetProcAddress(func_name_1.as_mut_ptr()) };
+        let wgl2_result = unsafe { wglGetProcAddress(func_name_2.as_mut_ptr()) };
+
+        let wglarb_ChoosePixelFormatARB = if wgl1_result != ptr::null_mut() {
+            Some(unsafe { mem::transmute(wgl1_result) })
+        } else if wgl2_result != ptr::null_mut() {
+            Some(unsafe { mem::transmute(wgl2_result) })
+        } else {
+            None
+        };
+
+        extra.wglChoosePixelFormatARB = wglarb_ChoosePixelFormatARB;
+
+        let mut func_name = encode_ascii("wglCreateContextAttribsARB");
+        let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
+        extra.wglCreateContextAttribsARB = if proc_address == ptr::null_mut() {
+            None
+        } else {
+            Some(unsafe { mem::transmute(proc_address) })
+        };
+
+        let mut func_name = encode_ascii("wglSwapIntervalEXT");
+        let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
+        extra.wglSwapIntervalEXT = if proc_address == ptr::null_mut() {
+            None
+        } else {
+            Some(unsafe { mem::transmute(proc_address) })
+        };
+
+        extra
+    }
+}
+
 struct Window {
     /// HWND handle of the plaform window
     hwnd: HWND,
@@ -1175,12 +1244,18 @@ struct Window {
     internal: WindowInternal,
     /// OpenGL context handle - None if running in software mode
     gl_context: Option<HGLRC>,
+    /// OpenGL functions for faster rendering
+    gl_functions: GlFunctions,
+    /// OpenGL context pointer with compiled SVG and FXAA shaders
+    gl_context_ptr: OptionGlContextPtr,
     /// Main render API that can be used to register and un-register fonts and images
     render_api: WrRenderApi,
     /// WebRender renderer implementation (software or hardware)
     renderer: Option<WrRenderer>,
     /// Hit-tester, lazily initialized and updated every time the display list changes layout
     hit_tester: Arc<dyn WrApiHitTester>,
+    /// ID -> Callback map for the window menu (default: empty map)
+    menu_callbacks: BTreeMap<u16, MenuCallback>,
 }
 
 impl Window {
@@ -1190,14 +1265,49 @@ impl Window {
     }
 
     // Creates a new HWND according to the options
-    fn create(hinstance: HINSTANCE, options: WindowCreateOptions, data: SharedApplicationData) -> Result<Self, WindowsWindowCreateError> {
+    fn create(
+        hinstance: HINSTANCE,
+        mut options: WindowCreateOptions,
+        data: SharedApplicationData
+    ) -> Result<Self, WindowsWindowCreateError> {
 
-        use winapi::um::winuser::{
-            CreateWindowExW, WS_EX_APPWINDOW, WS_OVERLAPPEDWINDOW,
-            WS_POPUP, CW_USEDEFAULT
+        use winapi::{
+            shared::windef::POINT,
+            um::{
+                wingdi::{wglMakeCurrent, wglDeleteContext},
+                winuser::{
+                    CreateWindowExW, GetDpiForWindow, GetDC, ReleaseDC,
+                    GetWindowRect, SetMenu, GetClientRect, GetCursorPos,
+                    ScreenToClient, DestroyWindow,
+                    WS_EX_APPWINDOW, WS_EX_ACCEPTFILES,
+                    WS_OVERLAPPED, WS_CAPTION, WS_SYSMENU, WS_THICKFRAME,
+                    WS_MINIMIZEBOX, WS_MAXIMIZEBOX, WS_TABSTOP,
+                    WS_POPUP, CW_USEDEFAULT
+                }
+            }
         };
+        use azul_core::{
+            gl::GlContextPtr,
+            callbacks::PipelineId,
+            window::{
+                CursorPosition, WindowInternalInit,
+                HwAcceleration, PhysicalSize, RendererType,
+                LogicalPosition,
+            }
+        };
+        use crate::{
+            compositor::Compositor,
+            wr_translate::{
+                translate_document_id_wr,
+                wr_translate_debug_flags,
+                translate_id_namespace_wr,
+                wr_translate_document_id,
+            }
+        };
+        use webrender::ProgramCache as WrProgramCache;
+        use webrender::api::ColorF as WrColorF;
 
-        let window_data = Box::new(data);
+        let window_data = Box::new(data.clone());
         let parent_window = match options.state.platform_specific_options.windows_options.parent_window.as_ref() {
             Some(hwnd) => (*hwnd) as HWND,
             None => ptr::null_mut(),
@@ -1205,19 +1315,21 @@ impl Window {
 
         let mut class_name = encode_wide(CLASS_NAME);
         let mut window_title = encode_wide(options.state.title.as_str());
+        let physical_size = options.state.size.get_physical_size();
 
         // Create the window
         let hwnd = unsafe { CreateWindowExW(
-            WS_EX_APPWINDOW,
+            WS_EX_APPWINDOW | WS_EX_ACCEPTFILES,
             class_name.as_mut_ptr(),
             window_title.as_mut_ptr(),
-            WS_OVERLAPPEDWINDOW | WS_POPUP,
 
-            // Size and position
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_TABSTOP | WS_POPUP,
+
+            // Size and position: set later, after DPI factor has been queried
+            CW_USEDEFAULT, // x
+            CW_USEDEFAULT, // y
+            CW_USEDEFAULT, // width
+            CW_USEDEFAULT, // height
 
             parent_window,
             ptr::null_mut(),            // Menu
@@ -1229,23 +1341,140 @@ impl Window {
             return Err(WindowsWindowCreateError::FailedToCreateHWND(get_last_error()));
         }
 
-        // Try to initialize the OpenGL context for this window
-        let gl_context =
+        // Get / store DPI
+        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        let dpi_factor = dpi as f32 / 96.0;
+        options.state.size.dpi = dpi;
+        options.state.size.hidpi_factor = dpi_factor;
+        options.state.size.system_hidpi_factor = dpi_factor;
+
+        // Window created, now try initializing OpenGL context
+        let renderer_types = match options.renderer.into_option() {
+            Some(s) => match s.hw_accel {
+                HwAcceleration::Enabled => vec![RendererType::Hardware],
+                HwAcceleration::Disabled => vec![RendererType::Software],
+            },
+            None => vec![
+                RendererType::Hardware,
+                RendererType::Software,
+            ]
+        };
+
+        let mut opengl_context: Option<HGLRC> = None;
+        let mut rt = RendererType::Software;
+        let mut extra = ExtraWglFunctions::default();
+        let mut gl = GlFunctions::initialize();
+        let mut gl_context_ptr: OptionGlContextPtr = None.into();
+
+        for r in renderer_types {
+            rt = r;
+            match r {
+                RendererType::Software => { },
+                RendererType::Hardware => {
+                    if let Ok((o, extra_funcs)) = create_gl_context(hwnd) {
+                        opengl_context = Some(o);
+                        extra = extra_funcs;
+                        break;
+                    }
+                }
+            }
+        }
+
+        gl_context_ptr = opengl_context.map(|hrc| unsafe {
+            let hdc = GetDC(hwnd);
+            unsafe { wglMakeCurrent(hdc, hrc) };
+            gl.load();
+            // compiles SVG and FXAA shader programs...
+            let ptr = GlContextPtr::new(rt, gl.functions.clone());
+            unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+            ReleaseDC(hwnd, hdc);
+            ptr
+        }).into();
+
+        // WindowInternal::new() may dispatch OpenGL calls,
+        // need to make context current before invoking
+        let hdc = unsafe { GetDC(hwnd) };
+        if let Some(hrc) = opengl_context.as_mut() {
+            unsafe { wglMakeCurrent(hdc, *hrc) };
+        }
 
         // Invoke callback to initialize UI for the first time
         let mut initial_resource_updates = Vec::new();
-        // gl_context_ptr
 
-        /*
-        let internal = fc_cache.apply_closure(|fc_cache| {
+        let (mut renderer, sender) = match WrRenderer::new(
+            gl.functions.clone(),
+            Box::new(Notifier { }),
+            WrRendererOptions {
+                resource_override_path: None,
+                precache_flags: WrShaderPrecacheFlags::EMPTY,
+                device_pixel_ratio: dpi_factor,
+                enable_subpixel_aa: true,
+                enable_aa: true,
+                cached_programs: Some(WrProgramCache::new(None)),
+                clear_color: Some(WrColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }), // transparent
+                enable_multithreading: true,
+                debug_flags: wr_translate_debug_flags(&options.state.debug_state),
+                .. WrRendererOptions::default()
+            },
+            WR_SHADER_CACHE
+        ) {
+            Ok(o) => o,
+            Err(e) => unsafe {
+                if let Some(hrc) = opengl_context.as_mut() {
+                    unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+                    unsafe { wglDeleteContext(*hrc) };
+                }
+                ReleaseDC(hwnd, hdc);
+                DestroyWindow(hwnd);
+                return Err(WindowsWindowCreateError::Renderer(e));
+            },
+        };
+
+        renderer.set_external_image_handler(Box::new(Compositor::default()));
+
+        let mut render_api = sender.create_api();
+
+        // Query the current size of the window
+        let mut rect: RECT = unsafe { mem::zeroed() };
+        let current_window_size = unsafe { GetWindowRect(hwnd, &mut rect) }; // not DPI adjusted: physical pixels
+        let physical_size = PhysicalSize {
+            width: rect.width(),
+            height: rect.height(),
+        };
+        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
+        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+
+        let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
+        let pipeline_id = PipelineId::new();
+        let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+
+        // hit tester will be empty on startup
+        let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id)).resolve();
+        let hit_tester_ref = &*hit_tester;
+
+        // lock the SharedApplicationData in order to
+        // invoke the UI callback for the first time
+        let appdata_lock = match data.inner.try_borrow_mut() {
+            Ok(o) => o,
+            Err(e) => unsafe {
+                if let Some(hrc) = opengl_context.as_mut() {
+                    unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+                    unsafe { wglDeleteContext(*hrc) };
+                }
+                ReleaseDC(hwnd, hdc);
+                DestroyWindow(hwnd);
+                return Err(WindowsWindowCreateError::BorrowMut(e));
+            }
+        };
+        let internal = appdata_lock.fc_cache.apply_closure(|fc_cache| {
             WindowInternal::new(
                 WindowInternalInit {
                     window_create_options: options,
                     document_id,
-                    id_namespace
+                    id_namespace,
                 },
-                data,
-                image_cache,
+                &mut appdata_lock.data,
+                &appdata_lock.image_cache,
                 &gl_context_ptr,
                 &mut initial_resource_updates,
                 &crate::app::CALLBACKS,
@@ -1263,28 +1492,519 @@ impl Window {
                 }
             )
         });
-        */
 
+        if let Some(hrc) = opengl_context.as_ref() {
+            unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+        }
+        unsafe { ReleaseDC(hwnd, hdc); }
+
+        // Since the menu bar affects the window size, set it first,
+        // before querying the window size again
+        let mut menu_callbacks = BTreeMap::new();
+        if let Some(menu_bar) = internal.get_menu_bar() {
+            let WindowsMenuBar { _native_ptr, callbacks } = WindowsMenuBar::new(menu_bar);
+            unsafe { SetMenu(hwnd, _native_ptr); }
+            menu_callbacks = callbacks;
+        }
+
+        // Now get the size of the [0] UI in order to
+        // create the window with the proper size
+        if options.size_to_content {
+            let content_size = internal.get_content_size();
+
+            // SetWindowPos(hWnd, HWND_TOP, 0, 0, Rect.right - Rect.left, Rect.bottom - Rect.top, SWP_NOZORDER | SWP_NOMOVE | SWP_SHOWWINDOW);
+            // setInnerSize(content_size);
+        }
+
+        // not DPI adjusted: physical pixels
+        let mut rect: RECT = unsafe { mem::zeroed() };
+        let current_window_size = unsafe { GetClientRect(hwnd, &mut rect) };
+        let physical_size = PhysicalSize {
+            width: rect.width(),
+            height: rect.height(),
+        };
+        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
+
+        // Adjust webrender for the new framebuffer size
+        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let mut txn = WrTransaction::new();
+        txn.set_document_view(
+            WrDeviceIntRect::new(WrDeviceIntPoint::zero(), framebuffer_size),
+            dpi_factor,
+        );
+        render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+
+        // re-layout the window content for the first frame
+        // (since the width / height might have changed)
+        internal.relayout(options.state.size.dimensions);
+
+        // Build the display list
+        let display_list_size = rebuild_display_list(
+            &mut internal,
+            &mut render_api,
+            &appdata_lock.image_cache,
+            initial_resource_updates,
+        );
+
+        // Unlock the SharedApplicationData
+        mem::drop(appdata_lock);
+
+        // Get / store mouse cursor position, now that the window position is final
+        let mut cursor_pos: POINT = POINT { x: 0, y: 0 };
+        unsafe { GetCursorPos(&mut cursor_pos); }
+        unsafe { ScreenToClient(hwnd, &mut cursor_pos) };
+        let mut cursor_pos_logical = LogicalPosition {
+            x: cursor_pos.x as f32 / dpi_factor,
+            y: cursor_pos.y as f32 / dpi_factor,
+        };
+        options.state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
+            CursorPosition::OutOfWindow
+        } else {
+            CursorPosition::InWindow(cursor_pos_logical)
+        };
+
+        // Update the hit-tester to account for the new hit-testing functionality
+        let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id)).resolve();
+
+        // Done! Window is now created properly, display list has been built by
+        // WebRender (window is ready to render), menu bar is visible and hit-tester
+        // now contains the newest UI tree.
+
+        // NOTE: The window is NOT stored yet
         Ok(Window {
             hwnd,
             state: options.state,
             internal,
-            gl_context: None, // initialized later
+            gl_context: opengl_context,
+            gl_functions: gl,
+            gl_context_ptr,
             render_api,
             renderer: Some(renderer),
             hit_tester,
+            menu_callbacks,
         })
     }
 
+    // Calls ShowWindow to show the window on the screen
     fn show(&mut self) {
-        use winapi::um::winuser::{ShowWindow, SW_SHOWNORMAL, SW_MAXIMIZE};
 
-        unsafe { ShowWindow(self.hwnd, SW_SHOWNORMAL | SW_MAXIMIZE); }
+        use winapi::um::winuser::{
+            ShowWindow, SW_HIDE,
+            SW_SHOWDEFAULT, SW_MINIMIZE,
+            SW_NORMAL, SW_MAXIMIZE,
+        };
+
+        let mut sw_options = SW_HIDE; // 0 = default
+        if self.state.flags.is_visible {
+            sw_options |= SW_SHOWDEFAULT;
+        }
+
+        match self.state.flags.frame {
+            Normal => sw_options |= SW_NORMAL,
+            Minimized => sw_options |= SW_MINIMIZE,
+            Maximized => sw_options |= SW_MAXIMIZE,
+            Fullscreen => sw_options |= SW_MAXIMIZE,
+        }
+
+        unsafe { ShowWindow(self.hwnd, sw_options); }
+    }
+}
+
+/// Returns the size fo the built display list
+#[cfg(not(test))]
+pub fn rebuild_display_list(
+    internal: &mut WindowInternal,
+    render_api: &mut WrRenderApi,
+    image_cache: &ImageCache,
+    resources: Vec<ResourceUpdate>,
+) -> LogicalSize {
+
+    use crate::wr_translate::{
+        wr_translate_pipeline_id,
+        wr_translate_document_id,
+        wr_translate_display_list,
+        wr_translate_epoch,
+        wr_translate_resource_update,
+    };
+    use azul_core::styled_dom::DomId;
+    use azul_core::ui_solver::LayoutResult;
+    use azul_core::callbacks::PipelineId;
+
+    let mut txn = WrTransaction::new();
+
+    // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
+    let root_id = DomId { inner: 0 };
+    let cached_display_list = LayoutResult::get_cached_display_list(
+         &internal.document_id,
+         root_id,
+         internal.epoch,
+         &internal.layout_results,
+         &internal.current_window_state,
+         &internal.gl_texture_cache,
+         &internal.renderer_resources,
+         image_cache,
+    );
+
+    let display_list_size = cached_display_list.root_size;
+
+    let root_pipeline_id = PipelineId(0, internal.document_id.id);
+    let display_list = wr_translate_display_list(
+        internal.document_id,
+        &mut render_api,
+        cached_display_list,
+        root_pipeline_id,
+        internal.current_window_state.size.hidpi_factor
+    );
+
+    let logical_size = WrLayoutSize::new(
+        internal.current_window_state.size.dimensions.width,
+        internal.current_window_state.size.dimensions.height
+    );
+
+    txn.update_resources(resources.into_iter().map(wr_translate_resource_update).collect());
+    txn.set_display_list(
+        wr_translate_epoch(internal.epoch),
+        None,
+        logical_size.clone(),
+        (wr_translate_pipeline_id(root_pipeline_id), display_list),
+        true,
+    );
+
+    render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+
+    display_list_size
+}
+
+// function can fail: creates an OpenGL context on the HWND, stores the context on the window-associated data
+fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOpenGlError> {
+
+    use winapi::um::{
+        wingdi::{
+            ChoosePixelFormat, SetPixelFormat, DescribePixelFormat,
+            wglCreateContext, wglDeleteContext, wglMakeCurrent,
+            PFD_DRAW_TO_WINDOW, PFD_SUPPORT_OPENGL, PFD_DOUBLEBUFFER,
+            PFD_TYPE_RGBA, PFD_MAIN_PLANE,
+            PIXELFORMATDESCRIPTOR
+        },
+        winuser::{GetDC, ReleaseDC},
+    };
+
+    use self::WindowsOpenGlError::*;
+
+    // -- window created, now create OpenGL context
+
+    let opengl32_dll = load_dll("opengl32.dll")
+    .ok_or(OpenGL32DllNotFound(get_last_error()))?;
+
+    // Get DC
+    let hDC = unsafe { GetDC(hwnd) };
+    if hDC.is_null()  {
+        // unsafe { DestroyWindow(hwnd) };
+        return Err(FailedToGetDC(get_last_error()));
+    }
+
+    // now this is a kludge; we need to pass something in the PIXELFORMATDESCRIPTOR
+    // to SetPixelFormat; it will be ignored, mostly. OTOH we want to send something
+    // sane, we're nice people after all - it doesn't hurt if this fails.
+    let mut pfd = PIXELFORMATDESCRIPTOR {
+        nSize: mem::size_of::<PIXELFORMATDESCRIPTOR> as u16,
+        nVersion: 1,
+        dwFlags: {
+            PFD_DRAW_TO_WINDOW |   // support window
+            PFD_SUPPORT_OPENGL |   // support OpenGL
+            PFD_DOUBLEBUFFER       // double buffered
+        },
+        iPixelType: PFD_TYPE_RGBA as u8,
+        cColorBits: 24,
+        cRedBits: 0,
+        cRedShift: 0,
+        cGreenBits: 0,
+        cGreenShift: 0,
+        cBlueBits: 0,
+        cBlueShift: 0,
+        cAlphaBits: 0,
+        cAlphaShift: 0,
+        cAccumBits: 0,
+        cAccumRedBits: 0,
+        cAccumGreenBits: 0,
+        cAccumBlueBits: 0,
+        cAccumAlphaBits: 0,
+        cDepthBits: 32, // 32-bit z-buffer
+        cStencilBits: 0, // no stencil buffer
+        cAuxBuffers: 0, // no auxiliary buffer
+        iLayerType: PFD_MAIN_PLANE as u8, // main layer
+        bReserved: 0,
+        dwLayerMask: 0,
+        dwVisibleMask: 0,
+        dwDamageMask: 0,
+    };
+
+    let default_pixel_format = unsafe { ChoosePixelFormat(hDC, &pfd) };
+    unsafe {
+        DescribePixelFormat(hDC, default_pixel_format, mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32, &mut pfd);
+        if !SetPixelFormat(hDC, default_pixel_format, &pfd) == TRUE {
+            // can't even set the default fallback pixel format: no OpenGL possible
+            ReleaseDC(hwnd, hDC);
+            // DestroyWindow(hwnd);
+            return Err(NoMatchingPixelFormat(get_last_error()));
+        }
+    }
+
+    // wglGetProcAddress will fail if there is no context being current,
+    // create a dummy context and activate it
+    let dummy_context = unsafe {
+        let dc = wglCreateContext(hDC);
+        wglMakeCurrent(hDC, dc);
+        dc
+    };
+
+    let extra_functions = ExtraWglFunctions::load();
+
+    fn get_transparent_pixel_format_index(hDC: HDC, extra_functions: &ExtraWglFunctions) -> Option<i32> {
+
+        use winapi::um::{
+            winuser::ReleaseDC,
+            wingdi::{
+                wglMakeCurrent, wglDeleteContext,
+                DescribePixelFormat, SetPixelFormat
+            }
+        };
+
+        // https://www.khronos.org/registry/OpenGL/api/GL/wglext.h
+        const WGL_DRAW_TO_WINDOW_ARB: i32 = 0x2001;
+        const WGL_DOUBLE_BUFFER_ARB: i32 = 0x2011;
+        const WGL_SUPPORT_OPENGL_ARB: i32 = 0x2010;
+        const WGL_PIXEL_TYPE_ARB: i32 = 0x2013;
+        const WGL_TYPE_RGBA_ARB: i32 = 0x202B;
+        const WGL_TRANSPARENT_ARB: i32 = 0x200A;
+        const WGL_COLOR_BITS_ARB: i32 = 0x2014;
+        const WGL_RED_BITS_ARB: i32 = 0x2015;
+        const WGL_GREEN_BITS_ARB: i32 = 0x2017;
+        const WGL_BLUE_BITS_ARB: i32 = 0x2019;
+        const WGL_ALPHA_BITS_ARB: i32 = 0x201B;
+        const WGL_DEPTH_BITS_ARB: i32 = 0x2022;
+        const WGL_STENCIL_BITS_ARB: i32 = 0x2023;
+
+        let attribs = [
+            WGL_DRAW_TO_WINDOW_ARB, TRUE,
+            WGL_DOUBLE_BUFFER_ARB, TRUE,
+            WGL_SUPPORT_OPENGL_ARB, TRUE,
+            WGL_PIXEL_TYPE_ARB, WGL_TYPE_RGBA_ARB,
+            WGL_TRANSPARENT_ARB, TRUE,
+            WGL_COLOR_BITS_ARB, 32,
+            WGL_RED_BITS_ARB, 8,
+            WGL_GREEN_BITS_ARB, 8,
+            WGL_BLUE_BITS_ARB, 8,
+            WGL_ALPHA_BITS_ARB, 8,
+            WGL_DEPTH_BITS_ARB, 24,
+            WGL_STENCIL_BITS_ARB, 8,
+            0, 0
+        ];
+
+        let mut pixel_format = 0;
+        let mut num_pixel_formats = 0;
+
+        let wglarb_ChoosePixelFormatARB = extra_functions.wglChoosePixelFormatARB?;
+
+        let choose_pixel_format_result = unsafe { (wglarb_ChoosePixelFormatARB)(
+            hDC, &attribs[..], ptr::null(), 1, &mut pixel_format, &mut num_pixel_formats
+        ) };
+
+        if choose_pixel_format_result != TRUE {
+            return None; // wglarb_ChoosePixelFormatARB failed
+        }
+
+        // pixel format is now the index of the PIXELFORMATDESCRIPTOR
+        // that can handle a transparent OpenGL context
+        if num_pixel_formats == 0 { None } else { Some(pixel_format) }
+    }
+
+    let mut b_transparent_succeeded = false;
+    let transparent_opengl_pixelformat_index = match get_transparent_pixel_format_index(hDC, &extra_functions) {
+        Some(i) => { b_transparent_succeeded = true; i },
+        None => default_pixel_format,
+    };
+
+    // destroy the dummy context
+    unsafe {
+        wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+        wglDeleteContext(dummy_context);
+    }
+
+    // set the new pixel format. if transparency is not available, this will fallback to the default PFD
+    unsafe {
+        DescribePixelFormat(hDC, transparent_opengl_pixelformat_index, mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32, &mut pfd);
+        if SetPixelFormat(hDC, transparent_opengl_pixelformat_index, &pfd) != TRUE {
+            ReleaseDC(hwnd, hDC);
+            return Err(NoMatchingPixelFormat(get_last_error()));
+        }
+    }
+
+    // https://www.khronos.org/registry/OpenGL/extensions/ARB/WGL_ARB_create_context.txt
+    const WGL_CONTEXT_MAJOR_VERSION_ARB: i32 = 0x2091;
+    const WGL_CONTEXT_MINOR_VERSION_ARB: i32 = 0x2092;
+
+    // Create OpenGL 3.1 context
+    let context_attribs = [
+        WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+        WGL_CONTEXT_MINOR_VERSION_ARB, 1,
+        0, 0
+    ];
+
+    let CreateContextAttribsARB = if b_transparent_succeeded {
+        extra_functions.wglCreateContextAttribsARB
+    } else {
+        None
+    };
+
+    let wglSwapIntervalEXT = extra_functions.wglSwapIntervalEXT;
+
+    let hRC = match extra_functions.wglCreateContextAttribsARB {
+        Some(func) => unsafe { (func)(hDC, ptr::null_mut(), &context_attribs[..]) },
+        None => unsafe { wglCreateContext(hDC) },
+    };
+
+    if hRC.is_null() {
+        unsafe { ReleaseDC(hwnd, hDC); }
+        return Err(OpenGLNotAvailable(get_last_error()));
+    }
+
+    // return final context
+    unsafe { ReleaseDC(hwnd, hDC); }
+    return Ok((hRC, extra_functions));
+}
+
+// Initializes the OS window
+fn initialize_os_window(hwnd: HWND, initial_state: &WindowState, internal_state: &WindowState) {
+
+    /*
+
+        window.set_title(new_state.title.as_str());
+        window.set_maximized(new_state.flags.is_maximized);
+
+        if new_state.flags.is_fullscreen {
+            window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+        } else {
+            window.set_fullscreen(None);
+        }
+
+        window.set_decorations(new_state.flags.has_decorations);
+        window.set_inner_size(translate_logical_size(new_state.size.dimensions));
+        window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(translate_logical_size));
+        window.set_min_inner_size(new_state.size.max_dimensions.into_option().map(translate_logical_size));
+
+        if let WindowPosition::Initialized(new_position) = new_state.position {
+            let new_position: PhysicalPosition<i32> = new_position.into();
+            window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
+        }
+
+        if let ImePosition::Initialized(new_ime_position) = new_state.ime_position {
+            window.set_ime_position(translate_logical_position(new_ime_position));
+        }
+
+        window.set_always_on_top(new_state.flags.is_always_on_top);
+        window.set_resizable(new_state.flags.is_resizable);
+    */
+}
+
+struct WindowsMenuBar {
+    _native_ptr: HMENU,
+    /// Map from Command -> callback to call
+    callbacks: BTreeMap<u16, MenuCallback>,
+}
+
+static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1); // 0 = no command
+
+impl WindowsMenuBar {
+
+    fn new(new: &Menu) -> Self {
+
+        use winapi::um::winuser::CreateMenu;
+
+        let mut root = unsafe { CreateMenu() };
+        let mut command_map = BTreeMap::new();
+
+        Self::recursive_construct_menu(&mut root, new.items.as_ref(), &mut command_map);
+
+        Self {
+            _native_ptr: root,
+            callbacks: command_map,
+        }
+    }
+
+    fn get_new_command_id() -> usize {
+        WINDOWS_UNIQUE_COMMAND_ID_GENERATOR.fetch_add(1, AtomicOrdering::SeqCst)
+    }
+
+    fn recursive_construct_menu(menu: &mut HMENU, items: &[MenuItem], command_map: &mut BTreeMap<u16, MenuCallback>) {
+
+        fn convert_widestring(input: &str) -> Vec<u16> {
+            let mut v: Vec<u16> = input.chars().filter_map(|s| {
+                use std::convert::TryInto;
+                (s as u32).try_into().ok()
+            }).collect();
+            v.push(0);
+            v
+        }
+
+        use winapi::um::winuser::{MF_STRING, MF_SEPARATOR, MF_POPUP, MF_MENUBREAK};
+        use winapi::shared::basetsd::UINT_PTR;
+        use winapi::um::winuser::{CreateMenu, AppendMenuW};
+
+        for item in items.as_ref() {
+            match item {
+                MenuItem::String(mi) => {
+                    if mi.children.as_ref().is_empty() {
+                        // no children
+                        let command = match mi.callback.as_ref() {
+                            None => {
+                                0
+                            },
+                            Some(c) => {
+                                let new_command_id = Self::get_new_command_id().min(core::u16::MAX as usize) as u16;
+                                command_map.insert(new_command_id, c.clone());
+                                new_command_id as usize
+                            }
+                        };
+                        unsafe { AppendMenuW(*menu, MF_STRING, command, convert_widestring(mi.label.as_str()).as_ptr()) };
+                    } else {
+                        let mut root = unsafe { CreateMenu() };
+                        Self::recursive_construct_menu(&mut root, mi.children.as_ref(), command_map);
+                        unsafe { AppendMenuW(*menu, MF_POPUP, root as UINT_PTR, convert_widestring(mi.label.as_str()).as_ptr()) };
+                    }
+                },
+                MenuItem::Separator => {
+                    unsafe { AppendMenuW(*menu, MF_SEPARATOR, 0, core::ptr::null_mut()); }
+                }
+                MenuItem::BreakLine => {
+                    unsafe { AppendMenuW(*menu, MF_MENUBREAK, 0, core::ptr::null_mut()); }
+                }
+            }
+        }
     }
 }
 
 unsafe extern "system" fn WindowProc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     use winapi::um::winuser::DefWindowProcW;
+
+    /*
+        WM_CREATE => {
+            window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
+            window.force_synchronize_hit_tester_initial(image_cache);
+        },
+        WM_DPICHANGED => {
+
+        },
+        WM_PAINT => {
+            window.render_async(txn, true);
+        },
+        WM_DPICHANGED => {
+
+        },
+        WM_COMMAND => {
+
+        },
+    */
 
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }

@@ -124,6 +124,7 @@
                     "doc": "Options on how to initially create the window",
                     "struct_fields": [
                         {"state": {"type": "WindowState", "doc": "Initial state of the window on the first frame"}},
+                        {"size_to_content": {"type": "bool", "doc": "If set, the first UI redraw will be called with a size of (0, 0) and the window size depends on the size of the overflowing UI. This is good for windows that do not want to take up unnecessary extra space"}},
                         {"renderer_type": {"type": "OptionRendererOptions", "doc": "If not `None`, azul will try to create a window with the specific renderer type and **crash** if the renderer is not available for whatever reason"}},
                         {"theme": {"type": "OptionWindowTheme", "doc": "Initially the `theme` on the `WindowState` is set to the OS theme - use this field to override the operating systems `Dark` or `Light` mode"}},
                         {"create_callback": {"type": "OptionCallback", "doc": "Callback to run **once** when the window is initially created"}},
@@ -155,7 +156,8 @@
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Enabled": {}},
-                        {"Disabled": {}}
+                        {"Disabled": {}},
+                        {"DontCare": {}}
                     ]
                 },
                 "Srgb": {
@@ -164,7 +166,8 @@
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Enabled": {}},
-                        {"Disabled": {}}
+                        {"Disabled": {}},
+                        {"DontCare": {}}
                     ]
                 },
                 "HwAcceleration": {
@@ -173,7 +176,8 @@
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"Enabled": {}},
-                        {"Disabled": {}}
+                        {"Disabled": {}},
+                        {"DontCare": {}}
                     ]
                 },
                 "LayoutPoint": {
@@ -577,6 +581,7 @@
                         {"dimensions": {"type": "LogicalSize", "doc": "Current dimensions in logical units"}},
                         {"hidpi_factor": {"type": "f32", "doc": "HiDPI factor that can be overridden by the application"}},
                         {"system_hidpi_factor": {"type": "f32", "doc": "HiDPI factor of the system - note that some systems report the scaling factor wrong (esp. Linux HiDPI). Usually the same as `hidpi_factor`."}},
+                        {"dpi": {"type": "u32", "doc": "Actual DPI factor (default: 96)"}},
                         {"min_dimensions": {"type": "OptionLogicalSize", "doc": "Maximum size of the window in logical units"}},
                         {"max_dimensions": {"type": "OptionLogicalSize", "doc": "Minimum size of the window in logical units"}}
                     ]
@@ -586,10 +591,8 @@
                     "external": "azul_core::window::WindowFlags",
                     "derive": ["Copy"],
                     "struct_fields": [
-                        {"is_maximized": {"type": "bool", "doc": "Is the window currently maximized"}},
-                        {"is_minimized": {"type": "bool", "doc": "Is the window currently minimized"}},
+                        {"frame": {"type": "WindowFrame", "doc": "Is the window currently minimized, maximized, fullscreened or normal"}},
                         {"is_about_to_close": {"type": "bool", "doc": "Is the window about to close on the next frame? Setting this to true will close the window."}},
-                        {"is_fullscreen": {"type": "bool", "doc": "Is the window currently fullscreened?"}},
                         {"has_decorations": {"type": "bool", "doc": "Does the window have decorations (close, minimize, maximize, title bar)?"}},
                         {"is_visible": {"type": "bool", "doc": "Is the window currently visible?"}},
                         {"is_always_on_top": {"type": "bool", "doc": "Is the window always on top?"}},
@@ -599,6 +602,17 @@
                         {"has_blur_behind_window": {"type": "bool", "doc": "Whether the window has a background blur"}},
                         {"smooth_scroll_enabled": {"type": "bool", "doc": "Is smooth scrolling enabled for this window?"}},
                         {"autotab_enabled": {"type": "bool", "doc": "Is automatic TAB support enabled for this window?"}}
+                    ]
+                },
+                "WindowFrame": {
+                    "doc": "State of the window frame (minimized, maximized, fullscreen or normal window)",
+                    "external": "azul_core::window::WindowFrame",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"Normal": {}},
+                        {"Minimized": {}},
+                        {"Maximized": {}},
+                        {"Fullscreen": {}}
                     ]
                 },
                 "DebugState": {

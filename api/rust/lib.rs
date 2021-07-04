@@ -668,6 +668,7 @@ mod dll {
     pub enum AzVsync {
         Enabled,
         Disabled,
+        DontCare,
     }
 
     /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
@@ -679,6 +680,7 @@ mod dll {
     pub enum AzSrgb {
         Enabled,
         Disabled,
+        DontCare,
     }
 
     /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
@@ -690,6 +692,7 @@ mod dll {
     pub enum AzHwAcceleration {
         Enabled,
         Disabled,
+        DontCare,
     }
 
     /// Offset in physical pixels (integer units)
@@ -1050,26 +1053,17 @@ mod dll {
         Cut,
     }
 
-    /// Boolean flags relating to the current window state
+    /// State of the window frame (minimized, maximized, fullscreen or normal window)
     #[repr(C)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-    pub struct AzWindowFlags {
-        pub is_maximized: bool,
-        pub is_minimized: bool,
-        pub is_about_to_close: bool,
-        pub is_fullscreen: bool,
-        pub has_decorations: bool,
-        pub is_visible: bool,
-        pub is_always_on_top: bool,
-        pub is_resizable: bool,
-        pub has_focus: bool,
-        pub has_extended_window_frame: bool,
-        pub has_blur_behind_window: bool,
-        pub smooth_scroll_enabled: bool,
-        pub autotab_enabled: bool,
+    pub enum AzWindowFrame {
+        Normal,
+        Minimized,
+        Maximized,
+        Fullscreen,
     }
 
     /// Debugging information, will be rendered as an overlay on top of the UI
@@ -3840,6 +3834,26 @@ mod dll {
         Alt,
         Shift,
         Key(AzVirtualKeyCode),
+    }
+
+    /// Boolean flags relating to the current window state
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub struct AzWindowFlags {
+        pub frame: AzWindowFrame,
+        pub is_about_to_close: bool,
+        pub has_decorations: bool,
+        pub is_visible: bool,
+        pub is_always_on_top: bool,
+        pub is_resizable: bool,
+        pub has_focus: bool,
+        pub has_extended_window_frame: bool,
+        pub has_blur_behind_window: bool,
+        pub smooth_scroll_enabled: bool,
+        pub autotab_enabled: bool,
     }
 
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
@@ -6696,6 +6710,7 @@ mod dll {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
         pub system_hidpi_factor: f32,
+        pub dpi: u32,
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
@@ -8529,6 +8544,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
+        pub size_to_content: bool,
         pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
@@ -9686,6 +9702,9 @@ pub mod window {
     /// Boolean flags relating to the current window state
     
 #[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;
+    /// State of the window frame (minimized, maximized, fullscreen or normal window)
+    
+#[doc(inline)] pub use crate::dll::AzWindowFrame as WindowFrame;
     /// Debugging information, will be rendered as an overlay on top of the UI
     
 #[doc(inline)] pub use crate::dll::AzDebugState as DebugState;

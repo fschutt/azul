@@ -186,6 +186,10 @@ pub use AzWindowSizeTT as AzWindowSize;
 pub type AzWindowFlagsTT = azul_core::window::WindowFlags;
 pub use AzWindowFlagsTT as AzWindowFlags;
 
+/// State of the window frame (minimized, maximized, fullscreen or normal window)
+pub type AzWindowFrameTT = azul_core::window::WindowFrame;
+pub use AzWindowFrameTT as AzWindowFrame;
+
 /// Debugging information, will be rendered as an overlay on top of the UI
 pub type AzDebugStateTT = azul_core::window::DebugState;
 pub use AzDebugStateTT as AzDebugState;
@@ -4029,6 +4033,7 @@ mod test_sizes {
     pub enum AzVsync {
         Enabled,
         Disabled,
+        DontCare,
     }
 
     /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
@@ -4036,6 +4041,7 @@ mod test_sizes {
     pub enum AzSrgb {
         Enabled,
         Disabled,
+        DontCare,
     }
 
     /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
@@ -4043,6 +4049,7 @@ mod test_sizes {
     pub enum AzHwAcceleration {
         Enabled,
         Disabled,
+        DontCare,
     }
 
     /// Offset in physical pixels (integer units)
@@ -4335,22 +4342,13 @@ mod test_sizes {
         Cut,
     }
 
-    /// Boolean flags relating to the current window state
+    /// State of the window frame (minimized, maximized, fullscreen or normal window)
     #[repr(C)]
-    pub struct AzWindowFlags {
-        pub is_maximized: bool,
-        pub is_minimized: bool,
-        pub is_about_to_close: bool,
-        pub is_fullscreen: bool,
-        pub has_decorations: bool,
-        pub is_visible: bool,
-        pub is_always_on_top: bool,
-        pub is_resizable: bool,
-        pub has_focus: bool,
-        pub has_extended_window_frame: bool,
-        pub has_blur_behind_window: bool,
-        pub smooth_scroll_enabled: bool,
-        pub autotab_enabled: bool,
+    pub enum AzWindowFrame {
+        Normal,
+        Minimized,
+        Maximized,
+        Fullscreen,
     }
 
     /// Debugging information, will be rendered as an overlay on top of the UI
@@ -6511,6 +6509,22 @@ mod test_sizes {
         Key(AzVirtualKeyCode),
     }
 
+    /// Boolean flags relating to the current window state
+    #[repr(C)]
+    pub struct AzWindowFlags {
+        pub frame: AzWindowFrame,
+        pub is_about_to_close: bool,
+        pub has_decorations: bool,
+        pub is_visible: bool,
+        pub is_always_on_top: bool,
+        pub is_resizable: bool,
+        pub has_focus: bool,
+        pub has_extended_window_frame: bool,
+        pub has_blur_behind_window: bool,
+        pub smooth_scroll_enabled: bool,
+        pub autotab_enabled: bool,
+    }
+
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
     #[repr(C, u8)]
     pub enum AzCursorPosition {
@@ -8545,6 +8559,7 @@ mod test_sizes {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
         pub system_hidpi_factor: f32,
+        pub dpi: u32,
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
@@ -10003,6 +10018,7 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
+        pub size_to_content: bool,
         pub renderer_type: AzOptionRendererOptions,
         pub theme: AzOptionWindowTheme,
         pub create_callback: AzOptionCallback,
@@ -10266,7 +10282,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_core::window::LogicalSize>(), "AzLogicalSize"), (Layout::new::<AzLogicalSize>(), "AzLogicalSize"));
         assert_eq!((Layout::new::<azul_core::window::IconKey>(), "AzIconKey"), (Layout::new::<AzIconKey>(), "AzIconKey"));
         assert_eq!((Layout::new::<azul_core::window::VirtualKeyCode>(), "AzVirtualKeyCode"), (Layout::new::<AzVirtualKeyCode>(), "AzVirtualKeyCode"));
-        assert_eq!((Layout::new::<azul_core::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
+        assert_eq!((Layout::new::<azul_core::window::WindowFrame>(), "AzWindowFrame"), (Layout::new::<AzWindowFrame>(), "AzWindowFrame"));
         assert_eq!((Layout::new::<azul_core::window::DebugState>(), "AzDebugState"), (Layout::new::<AzDebugState>(), "AzDebugState"));
         assert_eq!((Layout::new::<azul_core::window::MouseCursorType>(), "AzMouseCursorType"), (Layout::new::<AzMouseCursorType>(), "AzMouseCursorType"));
         assert_eq!((Layout::new::<azul_core::window::RendererType>(), "AzRendererType"), (Layout::new::<AzRendererType>(), "AzRendererType"));
@@ -10479,6 +10495,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_core::window::RawWindowHandle>(), "AzRawWindowHandle"), (Layout::new::<AzRawWindowHandle>(), "AzRawWindowHandle"));
         assert_eq!((Layout::new::<azul_core::window::LogicalRect>(), "AzLogicalRect"), (Layout::new::<AzLogicalRect>(), "AzLogicalRect"));
         assert_eq!((Layout::new::<azul_core::window::AcceleratorKey>(), "AzAcceleratorKey"), (Layout::new::<AzAcceleratorKey>(), "AzAcceleratorKey"));
+        assert_eq!((Layout::new::<azul_core::window::WindowFlags>(), "AzWindowFlags"), (Layout::new::<AzWindowFlags>(), "AzWindowFlags"));
         assert_eq!((Layout::new::<azul_core::window::CursorPosition>(), "AzCursorPosition"), (Layout::new::<AzCursorPosition>(), "AzCursorPosition"));
         assert_eq!((Layout::new::<azul_core::window::WindowPosition>(), "AzWindowPosition"), (Layout::new::<AzWindowPosition>(), "AzWindowPosition"));
         assert_eq!((Layout::new::<azul_core::window::ImePosition>(), "AzImePosition"), (Layout::new::<AzImePosition>(), "AzImePosition"));
