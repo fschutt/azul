@@ -271,6 +271,12 @@ pub struct NodeDataContainer<T> {
     pub internal: Vec<T>,
 }
 
+impl<T> From<Vec<T>> for NodeDataContainer<T> {
+    fn from(v: Vec<T>) -> NodeDataContainer<T> {
+        NodeDataContainer { internal: v }
+    }
+}
+
 #[derive(Debug, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub struct NodeDataContainerRef<'a, T> {
     pub internal: &'a [T],

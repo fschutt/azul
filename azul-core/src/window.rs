@@ -1855,6 +1855,7 @@ impl core::fmt::Display for LogicalRect {
 
 impl LogicalRect {
 
+    pub const fn zero() -> Self { Self::new(LogicalPosition::zero(), LogicalSize::zero()) }
     pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
         Self { origin, size }
     }
@@ -1910,6 +1911,19 @@ impl LogicalRect {
             Some(LogicalPosition::new(dx_left_edge, dy_top_edge))
         } else {
             None
+        }
+    }
+
+    pub fn to_layout_rect(&self) -> LayoutRect {
+        LayoutRect {
+            origin: LayoutPoint::new(
+                libm::roundf(self.origin.x) as isize,
+                libm::roundf(self.origin.y) as isize,
+            ),
+            size: LayoutSize::new(
+                libm::roundf(self.size.width) as isize,
+                libm::roundf(self.size.height) as isize,
+            )
         }
     }
 }

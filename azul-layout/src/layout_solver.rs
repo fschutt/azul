@@ -1560,7 +1560,22 @@ pub fn do_the_layout(
                     }
                 };
 
-                let mut iframe_dom = iframe_return.dom;
+                let IFrameCallbackReturn {
+                    dom,
+                    scroll_size,
+                    scroll_offset,
+                    virtual_scroll_size,
+                    virtual_scroll_offset,
+                } = iframe_return;
+
+                let mut iframe_dom = dom;
+                let (scroll_node_id, scroll_dom_id) = match parent_dom_id {
+                    Some(s) => (iframe_node_id, s),
+                    None => (NodeId::ZERO, DomId { inner: 0 }),
+                };
+
+                // layout_result.scrollable_nodes.get();
+                // parent_dom_id
 
                 // TODO: use other fields of iframe_return here!
 
@@ -1596,6 +1611,21 @@ pub fn do_the_layout(
 
             layout_result.iframe_mapping = iframe_mapping;
             resolved_doms.push(layout_result);
+
+            // scroll_node_id, scroll_dom_id
+            resolved_doms.get_mut(scroll_dom_id).and_then(|lr| {
+                let mut osn = lr.scrollable_nodes.overflowing_nodes
+                .get(scroll_node_id)
+                .or_insert_with(OverflowingScrollNode::default());
+                osn.child_rect = LogicalRect {
+                    origin: scroll_offset,
+                    size: scroll_size,
+                };
+                osn.virtual_child_rect = LogicalRect {
+                    origin: virtual_scroll_offset,
+                    size: virtual_scroll_size,
+                };
+            });
         }
 
         if new_doms.is_empty() {

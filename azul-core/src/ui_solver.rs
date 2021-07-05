@@ -16,7 +16,7 @@ use azul_css::{
     LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin, StyleBoxShadow,
 };
 use crate::{
-    display_list::{CachedDisplayList, GlTextureCache},
+    display_list::{CachedDisplayList, GlTextureCache, RenderCallbacks},
     styled_dom::{StyledDom, AzNodeId, DomId},
     app_resources::{
         Words, ShapedWords, TransformKey, OpacityKey,
@@ -24,10 +24,17 @@ use crate::{
         RendererResources, ImageCache,
     },
     id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
-    dom::{DomNodeHash, ScrollTagId},
-    callbacks::{PipelineId, DocumentId, HitTestItem, ScrollHitTestItem},
+    dom::{DomNodeHash, ScrollTagId, TagId},
+    callbacks::{
+        PipelineId, DocumentId,
+        HitTestItem, ScrollHitTestItem,
+        IFrameCallbackReturn, HidpiAdjustedBounds,
+        IFrameCallbackInfo,
+    },
     window::{ScrollStates, FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
+    window_state::RelayoutFn,
 };
+use rust_fontconfig::FcFontCache;
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 static USE_AVX: AtomicBool = AtomicBool::new(false);
@@ -183,9 +190,24 @@ pub struct ScrolledNodes {
 pub struct OverflowingScrollNode {
     pub parent_rect: LogicalRect,
     pub child_rect: LogicalRect,
+    pub virtual_child_rect: LogicalRect,
     pub parent_external_scroll_id: ExternalScrollId,
     pub parent_dom_hash: DomNodeHash,
     pub scroll_tag_id: ScrollTagId,
+}
+
+impl Default for OverflowingScrollNode {
+    fn default() -> Self {
+        use crate::dom::TagId;
+        Self {
+            parent_rect: LogicalRect::zero(),
+            child_rect: LogicalRect::zero(),
+            virtual_child_rect: LogicalRect::zero(),
+            parent_external_scroll_id: ExternalScrollId(0, PipelineId::DUMMY),
+            parent_dom_hash: DomNodeHash(0),
+            scroll_tag_id: ScrollTagId(TagId(0)),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -535,8 +557,16 @@ pub struct LayoutResult {
     pub gpu_value_cache: GpuValueCache,
 }
 
+pub struct QuickResizeResult {
+    pub gpu_event_changes: GpuEventChanges,
+    pub resized_nodes: BTreeMap<DomId, Vec<NodeId>>,
+}
+
 impl LayoutResult {
-    pub fn get_bounds(&self) -> LayoutRect { LayoutRect::new(self.root_position, self.root_size) }
+
+    pub fn get_bounds(&self) -> LayoutRect {
+        LayoutRect::new(self.root_position, self.root_size)
+    }
 
     #[cfg(feature = "multithreading")]
     pub fn get_cached_display_list(
@@ -613,6 +643,189 @@ impl LayoutResult {
 
         dl
     }
+
+    // Does a "quick" re-layout of the given DomId, calls iframe callbacks that have been resized
+    // and updates their DOM IDs.
+    //
+    // Assumes that an OpenGL context is active
+    #[must_use]
+    pub fn do_quick_resize(
+        document_id: &DocumentId,
+        dom_id: DomId,
+        dom_bounds: LogicalRect,
+        image_cache: &ImageCache,
+        layout_results: &mut [LayoutResult],
+        gl_texture_cache: &mut GlTextureCache,
+        renderer_resources: &mut RendererResources,
+        callbacks: &RenderCallbacks,
+        relayout_fn: RelayoutFn,
+        fc_cache: &FcFontCache,
+        window_state: &FullWindowState,
+    ) -> QuickResizeResult {
+
+        let mut dom_ids_to_resize = vec![(dom_id, dom_bounds)];
+        let mut gpu_event_changes = GpuEventChanges::default();
+        let mut rsn = BTreeMap::new();
+
+        loop {
+            let mut new_dom_ids_to_resize = Vec::new();
+
+            for (dom_id, new_size) in dom_ids_to_resize.iter() {
+
+                let layout_size = new_size.to_layout_rect();
+
+                // Call the relayout function on the DOM to get the resized DOM
+                let mut resized_nodes = (relayout_fn)(
+                    *dom_id,
+                    layout_size,
+                    &mut layout_results[dom_id.inner],
+                    image_cache,
+                    renderer_resources,
+                    document_id,
+                    None, // no new nodes to relayout
+                    None, // no text changes
+                );
+
+                rsn.insert(*dom_id, resized_nodes.resized_nodes.clone());
+
+                gpu_event_changes.merge(&mut resized_nodes.gpu_key_changes);
+
+                for node_id in resized_nodes.resized_nodes.into_iter() {
+
+                    let iframe_dom_id = match layout_results[dom_id.inner].iframe_mapping.get(&node_id) {
+                        Some(dom_id) => *dom_id,
+                        None => continue,
+                    };
+
+                    let iframe_rect_relative_to_parent = LayoutRect {
+                        origin: layout_results[iframe_dom_id.inner].root_position,
+                        size: layout_results[iframe_dom_id.inner].root_size,
+                    };
+
+                    let iframe_needs_to_be_invoked = !layout_size.contains_rect(&iframe_rect_relative_to_parent);
+
+                    if !iframe_needs_to_be_invoked {
+                        continue; // old iframe size still covers the new extent
+                    }
+
+                    let iframe_return: IFrameCallbackReturn = {
+
+                        let layout_result = &mut layout_results[dom_id.inner];
+                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                        let mut node = &mut node_data_mut[node_id];
+                        let iframe_node = match node.get_iframe_node() {
+                            Some(iframe_node) => iframe_node,
+                            None => continue, // not an iframe
+                        };
+
+                        // invoke the iframe with the new size and replace the dom with the DOM ID
+                        let hidpi_bounds = HidpiAdjustedBounds::from_bounds(layout_size.size, window_state.size.hidpi_factor);
+                        let window_theme = window_state.theme;
+                        let scroll_node = layout_result.scrollable_nodes.overflowing_nodes
+                            .get(&AzNodeId::from_crate_internal(Some(node_id)))
+                            .cloned()
+                            .unwrap_or_default();
+
+                        let iframe_callback_info = IFrameCallbackInfo::new(
+                            fc_cache,
+                            image_cache,
+                            window_theme,
+                            hidpi_bounds,
+
+                            // see /examples/assets/images/scrollbounds.png for documentation!
+                            /* scroll_size  */ scroll_node.child_rect.size,
+                            /* scroll_offset */ scroll_node.child_rect.origin - scroll_node.parent_rect.origin,
+                            /* virtual_scroll_size  */scroll_node.virtual_child_rect.size,
+                            /* virtual_scroll_offset */ scroll_node.virtual_child_rect.origin - scroll_node.parent_rect.origin,
+                        );
+                        (iframe_node.callback.cb)(&mut iframe_node.data, iframe_callback_info)
+                    };
+
+                    // TODO: what to do if the new iframe has less or more sub-iframes
+                    // than the current one? edge-case, solve later.
+
+                    layout_results[iframe_dom_id.inner].styled_dom = iframe_return.dom;
+
+                    let new_iframe_rect = LogicalRect {
+                        // TODO: correct? or layout_results[dom_id.0].positioned_rects[node_id]?
+                        origin: LogicalPosition::zero(),
+                        size: layout_results[dom_id.inner].rects.as_ref()[node_id].size,
+                    };
+
+                    // Store the new scroll position
+                    // (trust the iframe to return these values correctly)
+                    let osn = layout_results[dom_id.inner].scrollable_nodes.overflowing_nodes
+                        .entry(AzNodeId::from_crate_internal(Some(node_id)))
+                        .or_insert_with(|| OverflowingScrollNode::default());
+
+                    osn.child_rect = LogicalRect {
+                        origin: iframe_return.scroll_offset,
+                        size: iframe_return.scroll_size,
+                    };
+                    osn.virtual_child_rect = LogicalRect {
+                        origin: iframe_return.virtual_scroll_offset,
+                        size: iframe_return.virtual_scroll_size,
+                    };
+
+                    new_dom_ids_to_resize.push((iframe_dom_id, new_iframe_rect));
+                }
+            }
+
+            if new_dom_ids_to_resize.is_empty() {
+                break;
+            } else {
+                dom_ids_to_resize = new_dom_ids_to_resize; // recurse
+            }
+        }
+
+        // iframes have been invoked, now re-render OpenGL textures
+        for (dom_id, node_ids) in rsn.iter() {
+            for node_id in node_ids.iter() {
+                /*
+                    let opengl_node = match layout_results[dom_id.0].get_opengl_node() {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    GlTextureCache::new(
+                        layout_results: &mut [LayoutResult],
+                        gl_context: &OptionGlContextPtr,
+                        id_namespace: IdNamespace,
+                        document_id: &DocumentId,
+                        epoch: Epoch,
+                        hidpi_factor: f32,
+                        image_cache: &ImageCache,
+                        system_fonts: &FcFontCache,
+                        callbacks: &RenderCallbacks,
+                        all_resource_updates: &mut Vec<ResourceUpdate>,
+                        renderer_resources: &mut RendererResources,
+                    ) -> Self {
+                */
+
+                // TODO: invoke OpenGL node again, handle update of image
+            }
+        }
+
+        QuickResizeResult {
+            gpu_event_changes,
+            resized_nodes: rsn,
+        }
+    }
+
+    // Calls the IFrame callbacks again if they are currently
+    // scrolled out of bounds
+    pub fn scroll_iframes(
+        document_id: &DocumentId,
+        dom_id: DomId,
+        epoch: Epoch,
+        layout_results: &[LayoutResult],
+        full_window_state: &FullWindowState,
+        gl_texture_cache: &GlTextureCache,
+        renderer_resources: &RendererResources,
+        image_cache: &ImageCache,
+    ) {
+        // TODO
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
@@ -650,6 +863,10 @@ impl GpuEventChanges {
     pub fn is_empty(&self) -> bool {
         self.transform_key_changes.is_empty() &&
         self.opacity_key_changes.is_empty()
+    }
+    pub fn merge(&mut self, other: &mut Self) {
+        self.transform_key_changes.extend(other.transform_key_changes.drain(..));
+        self.opacity_key_changes.extend(other.opacity_key_changes.drain(..));
     }
 }
 

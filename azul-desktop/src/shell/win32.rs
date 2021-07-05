@@ -1466,6 +1466,7 @@ impl Window {
                 return Err(WindowsWindowCreateError::BorrowMut(e));
             }
         };
+
         let internal = appdata_lock.fc_cache.apply_closure(|fc_cache| {
             WindowInternal::new(
                 WindowInternalInit {
@@ -1512,8 +1513,11 @@ impl Window {
         if options.size_to_content {
             let content_size = internal.get_content_size();
 
+            // SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
             // SetWindowPos(hWnd, HWND_TOP, 0, 0, Rect.right - Rect.left, Rect.bottom - Rect.top, SWP_NOZORDER | SWP_NOMOVE | SWP_SHOWWINDOW);
             // setInnerSize(content_size);
+
+            options.state.size.dimensions =
         }
 
         // not DPI adjusted: physical pixels

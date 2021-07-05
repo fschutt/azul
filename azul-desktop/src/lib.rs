@@ -19,6 +19,8 @@ extern crate alloc;
 extern crate glutin;
 #[cfg(not(target_os = "windows"))]
 extern crate gleam;
+#[cfg(not(target_os = "windows"))]
+extern crate coarsetime;
 #[cfg(target_os = "windows")]
 extern crate winapi;
 #[cfg(target_os = "windows")]
