@@ -81,14 +81,13 @@ pub fn get_monitors(app: &App) -> MonitorVec {
 /// Main function that starts when app.run() is invoked
 pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsStartupError> {
     use winapi::{
-        shared::windef::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE,
         um::{
             wingdi::wglMakeCurrent,
             libloaderapi::GetModuleHandleW,
             winuser::{
                 RegisterClassW, GetDC, ReleaseDC,
                 GetMessageW, DispatchMessageW, TranslateMessage,
-                SetProcessDpiAwarenessContext,
+                SetProcessDPIAware,
                 MSG, WNDCLASSW, CS_HREDRAW, CS_VREDRAW, CS_OWNDC
             }
         }
@@ -100,7 +99,9 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
     }
 
     // Tell windows that this process is DPI-aware
-    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE); }
+    unsafe { SetProcessDPIAware(); } // Vista
+    // SetProcessDpiAwareness(); Win8.1
+    // unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE); } // Win10
 
     // Register the application class (shared between windows)
     let mut class_name = encode_wide(CLASS_NAME);
@@ -1278,9 +1279,12 @@ impl Window {
         use winapi::{
             shared::windef::POINT,
             um::{
-                wingdi::{wglMakeCurrent, wglDeleteContext},
+                wingdi::{
+                    wglMakeCurrent, wglDeleteContext,
+                    GetDeviceCaps, LOGPIXELSX, LOGPIXELSY,
+                },
                 winuser::{
-                    CreateWindowExW, GetDpiForWindow, GetDC, ReleaseDC,
+                    CreateWindowExW, GetDC, ReleaseDC,
                     GetWindowRect, SetMenu, GetClientRect, GetCursorPos,
                     ScreenToClient, DestroyWindow,
                     WS_EX_APPWINDOW, WS_EX_ACCEPTFILES,
@@ -1345,7 +1349,13 @@ impl Window {
         }
 
         // Get / store DPI
-        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        // NOTE: GetDpiForWindow would be easier, but it's Win10 only
+        let dpi = unsafe {
+            let dc = GetDC(hwnd);
+            let dpi_x = GetDeviceCaps(dc, LOGPIXELSX);
+            let dpi_y = GetDeviceCaps(dc, LOGPIXELSY);
+            dpi_x.max(dpi_y).max(0) as u32
+        };
         let dpi_factor = dpi as f32 / 96.0;
         options.state.size.dpi = dpi;
         options.state.size.hidpi_factor = dpi_factor;
