@@ -360,12 +360,11 @@ impl GlFunctions {
     // Initializes the DLL, but does not load the functions yet
     fn initialize() -> Self {
 
-        use winapi::um::libloaderapi::LoadLibraryW;
+        // zero-initialize all function pointers
+        let context: GenericGlContext = unsafe { mem::zeroed() };
 
         let opengl32_dll = load_dll("opengl32.dll");
 
-        // zero-initialize all function pointers
-        let context: GenericGlContext = unsafe { mem::zeroed() };
 
         Self {
             _opengl32_dll_handle: opengl32_dll,
@@ -1175,6 +1174,7 @@ impl GlFunctions {
             glWindowPos3s: get_func("glWindowPos3s", self._opengl32_dll_handle),
             glWindowPos3sv: get_func("glWindowPos3sv", self._opengl32_dll_handle),
         });
+
     }
 }
 
@@ -1344,6 +1344,7 @@ impl Window {
             Box::leak(window_data) as *mut SharedApplicationData as *mut c_void,
         ) };
 
+
         if hwnd.is_null() {
             return Err(WindowsWindowCreateError::FailedToCreateHWND(get_last_error()));
         }
@@ -1361,6 +1362,7 @@ impl Window {
         options.state.size.hidpi_factor = dpi_factor;
         options.state.size.system_hidpi_factor = dpi_factor;
 
+
         // Window created, now try initializing OpenGL context
         let renderer_types = match options.renderer.into_option() {
             Some(s) => match s.hw_accel {
@@ -1374,6 +1376,7 @@ impl Window {
             ]
         };
 
+
         let mut opengl_context: Option<HGLRC> = None;
         let mut rt = RendererType::Software;
         let mut extra = ExtraWglFunctions::default();
@@ -1385,14 +1388,20 @@ impl Window {
             match r {
                 RendererType::Software => { },
                 RendererType::Hardware => {
-                    if let Ok((o, extra_funcs)) = create_gl_context(hwnd) {
-                        opengl_context = Some(o);
-                        extra = extra_funcs;
-                        break;
+                    let gl_context_result = create_gl_context(hwnd);
+                    match gl_context_result {
+                        Ok((o, extra_funcs)) => {
+                            opengl_context = Some(o);
+                            extra = extra_funcs;
+                            break;
+                        },
+                        Err(e) => {
+                        }
                     }
                 }
             }
         }
+
 
         gl_context_ptr = opengl_context.map(|hrc| unsafe {
             let hdc = GetDC(hwnd);
@@ -1862,6 +1871,7 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
             return None; // wglarb_ChoosePixelFormatARB failed
         }
 
+
         // pixel format is now the index of the PIXELFORMATDESCRIPTOR
         // that can handle a transparent OpenGL context
         if num_pixel_formats == 0 { None } else { Some(pixel_format) }
@@ -1872,6 +1882,7 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
         Some(i) => { b_transparent_succeeded = true; i },
         None => default_pixel_format,
     };
+
 
     // destroy the dummy context
     unsafe {
@@ -1905,11 +1916,16 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
         None
     };
 
-    let wglSwapIntervalEXT = extra_functions.wglSwapIntervalEXT;
+    // TODO: set vsync
+    // let wglSwapIntervalEXT = extra_functions.wglSwapIntervalEXT;
 
-    let hRC = match extra_functions.wglCreateContextAttribsARB {
-        Some(func) => unsafe { (func)(hDC, ptr::null_mut(), &context_attribs[..]) },
-        None => unsafe { wglCreateContext(hDC) },
+    let hRC = match CreateContextAttribsARB {
+        Some(func) => unsafe {
+            (func)(hDC, ptr::null_mut(), &context_attribs[..])
+        },
+        None => unsafe {
+            wglCreateContext(hDC)
+        },
     };
 
     if hRC.is_null() {
