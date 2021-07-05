@@ -15,6 +15,8 @@ extern crate core;
 #[macro_use]
 extern crate alloc;
 
+extern crate libm;
+
 #[cfg(not(target_os = "windows"))]
 extern crate glutin;
 #[cfg(not(target_os = "windows"))]

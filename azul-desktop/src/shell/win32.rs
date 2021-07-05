@@ -1,4 +1,5 @@
 #![cfg(target_os = "windows")]
+#![allow(non_snake_case)]
 
 //! Win32 implementation of the window shell containing all functions
 //! related to running the application
@@ -165,9 +166,9 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
             }
         }
 
-        for hwnd in hwnds {
+        for hwnd in hwnds.iter() {
             unsafe {
-                results.push(GetMessageW(&mut msg, hwnd, 0, 0));
+                results.push(GetMessageW(&mut msg, *hwnd, 0, 0));
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
@@ -218,12 +219,14 @@ fn load_dll(name: &'static str) -> Option<HINSTANCE> {
     if dll.is_null() { None } else { Some(dll) }
 }
 
+#[derive(Debug)]
 pub enum WindowsWindowCreateError {
     FailedToCreateHWND(u32),
     Renderer(WrRendererError),
     BorrowMut(BorrowMutError),
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum WindowsOpenGlError {
     OpenGL32DllNotFound(u32),
     FailedToGetDC(u32),
@@ -233,6 +236,7 @@ pub enum WindowsOpenGlError {
     FailedToStoreContext(u32),
 }
 
+#[derive(Debug)]
 pub enum WindowsStartupError {
     NoAppInstance(u32),
     WindowCreationFailed,
@@ -299,31 +303,31 @@ impl DwmFunctions {
         use winapi::um::libloaderapi::{LoadLibraryW, GetProcAddress};
 
         let mut dll_name = encode_wide("dwmapi.dll");
-        let hDwmAPI_DLL = LoadLibraryW(dll_name.as_mut_ptr());
+        let hDwmAPI_DLL = unsafe { LoadLibraryW(dll_name.as_mut_ptr()) };
         if hDwmAPI_DLL.is_null() {
             return None; // dwmapi.dll not found
         }
 
         let mut func_name = encode_ascii("DwmEnableBlurBehindWindow");
-        let DwmEnableBlurBehindWindow = GetProcAddress(hDwmAPI_DLL, func_name.as_mut_ptr());
+        let DwmEnableBlurBehindWindow = unsafe { GetProcAddress(hDwmAPI_DLL, func_name.as_mut_ptr()) };
         let DwmEnableBlurBehindWindow = if DwmEnableBlurBehindWindow != ptr::null_mut() {
-            Some(mem::transmute(DwmEnableBlurBehindWindow))
+            Some(unsafe { mem::transmute(DwmEnableBlurBehindWindow) })
         } else {
             None
         };
 
         let mut func_name = encode_ascii("DwmExtendFrameIntoClientArea");
-        let DwmExtendFrameIntoClientArea = GetProcAddress(hDwmAPI_DLL, func_name.as_mut_ptr());
+        let DwmExtendFrameIntoClientArea = unsafe { GetProcAddress(hDwmAPI_DLL, func_name.as_mut_ptr()) };
         let DwmExtendFrameIntoClientArea = if DwmExtendFrameIntoClientArea != ptr::null_mut() {
-            Some(mem::transmute(DwmExtendFrameIntoClientArea))
+            Some(unsafe { mem::transmute(DwmExtendFrameIntoClientArea) })
         } else {
             None
         };
 
         let mut func_name = encode_ascii("DwmDefWindowProc");
-        let DwmDefWindowProc = GetProcAddress(hDwmAPI_DLL, func_name.as_mut_ptr());
+        let DwmDefWindowProc = unsafe { GetProcAddress(hDwmAPI_DLL, func_name.as_mut_ptr()) };
         let DwmDefWindowProc = if DwmDefWindowProc != ptr::null_mut() {
-            Some(mem::transmute(DwmDefWindowProc))
+            Some(unsafe { mem::transmute(DwmDefWindowProc) })
         } else {
             None
         };
@@ -1315,7 +1319,6 @@ impl Window {
 
         let mut class_name = encode_wide(CLASS_NAME);
         let mut window_title = encode_wide(options.state.title.as_str());
-        let physical_size = options.state.size.get_physical_size();
 
         // Create the window
         let hwnd = unsafe { CreateWindowExW(
@@ -1351,6 +1354,7 @@ impl Window {
         // Window created, now try initializing OpenGL context
         let renderer_types = match options.renderer.into_option() {
             Some(s) => match s.hw_accel {
+                HwAcceleration::DontCare => vec![RendererType::Hardware, RendererType::Software],
                 HwAcceleration::Enabled => vec![RendererType::Hardware],
                 HwAcceleration::Disabled => vec![RendererType::Software],
             },
@@ -1435,15 +1439,20 @@ impl Window {
         let mut render_api = sender.create_api();
 
         // Query the current size of the window
-        let mut rect: RECT = unsafe { mem::zeroed() };
-        let current_window_size = unsafe { GetWindowRect(hwnd, &mut rect) }; // not DPI adjusted: physical pixels
-        let physical_size = PhysicalSize {
-            width: rect.width(),
-            height: rect.height(),
+        let physical_size = if options.size_to_content {
+            PhysicalSize { width: 0, height: 0 }
+        } else {
+            let mut rect: RECT = unsafe { mem::zeroed() };
+            let current_window_size = unsafe { GetClientRect(hwnd, &mut rect) }; // not DPI adjusted: physical pixels
+            PhysicalSize {
+                width: rect.width(),
+                height: rect.height(),
+            }
         };
-        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
-        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
 
+        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
+
+        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
         let pipeline_id = PipelineId::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
@@ -1454,7 +1463,7 @@ impl Window {
 
         // lock the SharedApplicationData in order to
         // invoke the UI callback for the first time
-        let appdata_lock = match data.inner.try_borrow_mut() {
+        let mut appdata_lock = match data.inner.try_borrow_mut() {
             Ok(o) => o,
             Err(e) => unsafe {
                 if let Some(hrc) = opengl_context.as_mut() {
@@ -1467,32 +1476,40 @@ impl Window {
             }
         };
 
-        let internal = appdata_lock.fc_cache.apply_closure(|fc_cache| {
-            WindowInternal::new(
-                WindowInternalInit {
-                    window_create_options: options,
-                    document_id,
-                    id_namespace,
-                },
-                &mut appdata_lock.data,
-                &appdata_lock.image_cache,
-                &gl_context_ptr,
-                &mut initial_resource_updates,
-                &crate::app::CALLBACKS,
-                fc_cache,
-                azul_layout::do_the_relayout,
-                |window_state, scroll_states, layout_results| {
-                    crate::wr_translate::fullhittest_new_webrender(
-                         hit_tester_ref,
-                         document_id,
-                         window_state.focused_node,
-                         layout_results,
-                         &window_state.mouse_state.cursor_position,
-                         window_state.size.hidpi_factor,
-                    )
-                }
-            )
-        });
+        let mut internal = {
+
+            let mut appdata_lock = &mut *appdata_lock;
+            let fc_cache = &mut appdata_lock.fc_cache;
+            let image_cache = &appdata_lock.image_cache;
+            let data = &mut appdata_lock.data;
+
+            fc_cache.apply_closure(|fc_cache| {
+                WindowInternal::new(
+                    WindowInternalInit {
+                        window_create_options: options.clone(),
+                        document_id,
+                        id_namespace,
+                    },
+                    data,
+                    image_cache,
+                    &gl_context_ptr,
+                    &mut initial_resource_updates,
+                    &crate::app::CALLBACKS,
+                    fc_cache,
+                    azul_layout::do_the_relayout,
+                    |window_state, scroll_states, layout_results| {
+                        crate::wr_translate::fullhittest_new_webrender(
+                             hit_tester_ref,
+                             document_id,
+                             window_state.focused_node,
+                             layout_results,
+                             &window_state.mouse_state.cursor_position,
+                             window_state.size.hidpi_factor,
+                        )
+                    }
+                )
+            })
+        };
 
         if let Some(hrc) = opengl_context.as_ref() {
             unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
@@ -1508,42 +1525,63 @@ impl Window {
             menu_callbacks = callbacks;
         }
 
-        // Now get the size of the [0] UI in order to
-        // create the window with the proper size
+        // If size_to_content is set, query the content size and adjust!
         if options.size_to_content {
+            use winapi::um::winuser::{
+                SetWindowPos, SWP_FRAMECHANGED,
+                SWP_NOMOVE, SWP_NOZORDER, HWND_TOP
+            };
             let content_size = internal.get_content_size();
-
-            // SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
-            // SetWindowPos(hWnd, HWND_TOP, 0, 0, Rect.right - Rect.left, Rect.bottom - Rect.top, SWP_NOZORDER | SWP_NOMOVE | SWP_SHOWWINDOW);
-            // setInnerSize(content_size);
-
-            options.state.size.dimensions =
+            unsafe {
+                SetWindowPos(
+                    hwnd, HWND_TOP, 0, 0,
+                    libm::roundf(content_size.width) as i32,
+                    libm::roundf(content_size.height) as i32,
+                    SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED
+                );
+            }
         }
 
-        // not DPI adjusted: physical pixels
+        // Query the client area from Win32 (not DPI adjusted) and adjust framebuffer
         let mut rect: RECT = unsafe { mem::zeroed() };
         let current_window_size = unsafe { GetClientRect(hwnd, &mut rect) };
         let physical_size = PhysicalSize {
             width: rect.width(),
             height: rect.height(),
         };
-        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
-
-        // Adjust webrender for the new framebuffer size
-        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let mut txn = WrTransaction::new();
         txn.set_document_view(
-            WrDeviceIntRect::new(WrDeviceIntPoint::zero(), framebuffer_size),
+            WrDeviceIntRect::new(
+                WrDeviceIntPoint::zero(),
+                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
+            ),
             dpi_factor,
         );
         render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         // re-layout the window content for the first frame
         // (since the width / height might have changed)
-        internal.relayout(options.state.size.dimensions);
+        {
+            let mut appdata_lock = &mut *appdata_lock;
+            let fc_cache = &mut appdata_lock.fc_cache;
+            let image_cache = &appdata_lock.image_cache;
 
-        // Build the display list
-        let display_list_size = rebuild_display_list(
+            fc_cache.apply_closure(|fc_cache| {
+                use azul_core::window::FullWindowState;
+                let full_window_state: FullWindowState = options.state.clone().into();
+                internal.do_quick_resize(
+                    &image_cache,
+                    &crate::app::CALLBACKS,
+                    azul_layout::do_the_relayout,
+                    fc_cache,
+                    &full_window_state
+                );
+            });
+        }
+
+        // Build the display list and send it to webrender for the first time
+        rebuild_display_list(
             &mut internal,
             &mut render_api,
             &appdata_lock.image_cache,
@@ -1597,6 +1635,7 @@ impl Window {
             SW_SHOWDEFAULT, SW_MINIMIZE,
             SW_NORMAL, SW_MAXIMIZE,
         };
+        use azul_core::window::WindowFrame;
 
         let mut sw_options = SW_HIDE; // 0 = default
         if self.state.flags.is_visible {
@@ -1604,10 +1643,10 @@ impl Window {
         }
 
         match self.state.flags.frame {
-            Normal => sw_options |= SW_NORMAL,
-            Minimized => sw_options |= SW_MINIMIZE,
-            Maximized => sw_options |= SW_MAXIMIZE,
-            Fullscreen => sw_options |= SW_MAXIMIZE,
+            WindowFrame::Normal => sw_options |= SW_NORMAL,
+            WindowFrame::Minimized => sw_options |= SW_MINIMIZE,
+            WindowFrame::Maximized => sw_options |= SW_MAXIMIZE,
+            WindowFrame::Fullscreen => sw_options |= SW_MAXIMIZE,
         }
 
         unsafe { ShowWindow(self.hwnd, sw_options); }
@@ -1621,8 +1660,7 @@ pub fn rebuild_display_list(
     render_api: &mut WrRenderApi,
     image_cache: &ImageCache,
     resources: Vec<ResourceUpdate>,
-) -> LogicalSize {
-
+) {
     use crate::wr_translate::{
         wr_translate_pipeline_id,
         wr_translate_document_id,
@@ -1649,12 +1687,10 @@ pub fn rebuild_display_list(
          image_cache,
     );
 
-    let display_list_size = cached_display_list.root_size;
-
     let root_pipeline_id = PipelineId(0, internal.document_id.id);
     let display_list = wr_translate_display_list(
         internal.document_id,
-        &mut render_api,
+        render_api,
         cached_display_list,
         root_pipeline_id,
         internal.current_window_state.size.hidpi_factor
@@ -1675,8 +1711,6 @@ pub fn rebuild_display_list(
     );
 
     render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
-
-    display_list_size
 }
 
 // function can fail: creates an OpenGL context on the HWND, stores the context on the window-associated data

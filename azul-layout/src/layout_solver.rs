@@ -1457,6 +1457,13 @@ impl LayoutMarginOffsets {
     }
 }
 
+struct NewIframeScrollState {
+    dom_id: DomId,
+    node_id: NodeId,
+    child_rect: LogicalRect,
+    virtual_child_rect: LogicalRect,
+}
+
 // Adds the image and font resources to the app_resources but does NOT add them to the RenderAPI
 pub fn do_the_layout(
     styled_dom: StyledDom,
@@ -1471,7 +1478,11 @@ pub fn do_the_layout(
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
-    use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn};
+    use azul_core::{
+        ui_solver::OverflowingScrollNode,
+        styled_dom::AzNodeId,
+        callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn}
+    };
 
     let window_theme = full_window_state.theme;
     let mut current_dom_id = 0;
@@ -1484,6 +1495,7 @@ pub fn do_the_layout(
         ),
     ];
     let mut resolved_doms = Vec::new();
+    let mut new_scroll_states = Vec::new();
 
     loop {
 
@@ -1604,34 +1616,46 @@ pub fn do_the_layout(
                 }
 
                 // TODO: use the iframe static position here?
-                let bounds = LogicalRect::new(LogicalPosition::zero(), hidpi_bounds.get_logical_size());
+                let bounds = LogicalRect::new(
+                    LogicalPosition::zero(),
+                    hidpi_bounds.get_logical_size()
+                );
+
                 // push the styled iframe dom into the next iframes and repeat (recurse)
                 new_doms.push((Some(dom_id), iframe_dom_id, iframe_dom, bounds));
+                new_scroll_states.push(NewIframeScrollState {
+                    dom_id: scroll_dom_id,
+                    node_id: scroll_node_id,
+                    child_rect: LogicalRect {
+                        origin: scroll_offset,
+                        size: scroll_size,
+                    },
+                    virtual_child_rect: LogicalRect {
+                        origin: virtual_scroll_offset,
+                        size: virtual_scroll_size,
+                    },
+                });
             }
 
             layout_result.iframe_mapping = iframe_mapping;
             resolved_doms.push(layout_result);
-
-            // scroll_node_id, scroll_dom_id
-            resolved_doms.get_mut(scroll_dom_id).and_then(|lr| {
-                let mut osn = lr.scrollable_nodes.overflowing_nodes
-                .get(scroll_node_id)
-                .or_insert_with(OverflowingScrollNode::default());
-                osn.child_rect = LogicalRect {
-                    origin: scroll_offset,
-                    size: scroll_size,
-                };
-                osn.virtual_child_rect = LogicalRect {
-                    origin: virtual_scroll_offset,
-                    size: virtual_scroll_size,
-                };
-            });
         }
 
         if new_doms.is_empty() {
             break;
         } else {
             doms = new_doms;
+        }
+    }
+
+    for nss in new_scroll_states {
+        if let Some(lr) = resolved_doms.get_mut(nss.dom_id.inner) {
+            let mut osn = lr.scrollable_nodes.overflowing_nodes
+            .entry(AzNodeId::from_crate_internal(Some(nss.node_id)))
+            .or_insert_with(|| OverflowingScrollNode::default());
+
+            osn.child_rect = nss.child_rect;
+            osn.virtual_child_rect = nss.virtual_child_rect;
         }
     }
 
@@ -2438,15 +2462,17 @@ fn get_nodes_that_need_scroll_clip(
             Some(s) => ScrollTagId(s.into_crate_internal()),
             None => ScrollTagId(TagId::unique()),
         };
+        let child_rect = LogicalRect::new(
+            LogicalPosition::new(children_sum_rect.origin.x as f32, children_sum_rect.origin.y as f32),
+            LogicalSize::new(children_sum_rect.size.width as f32, children_sum_rect.size.height as f32),
+        );
         overflowing_nodes.insert(AzNodeId::from_crate_internal(Some(parent_id)), OverflowingScrollNode {
             parent_rect: LogicalRect::new(
                 LogicalPosition::new(parent_rect.origin.x as f32, parent_rect.origin.y as f32),
                 LogicalSize::new(parent_rect.size.width as f32, parent_rect.size.height as f32),
             ),
-            child_rect: LogicalRect::new(
-                LogicalPosition::new(children_sum_rect.origin.x as f32, children_sum_rect.origin.y as f32),
-                LogicalSize::new(children_sum_rect.size.width as f32, children_sum_rect.size.height as f32),
-            ),
+            child_rect: child_rect,
+            virtual_child_rect: child_rect,
             parent_external_scroll_id,
             parent_dom_hash,
             scroll_tag_id,

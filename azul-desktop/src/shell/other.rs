@@ -1318,6 +1318,10 @@ fn process_window_event(
     }
 }
 
+fn translate_duration(input: coarsetime::Duration) -> std::time::Duration {
+    std::time::Duration::new(input.as_secs(), input.subsec_nanos())
+}
+
 fn create_window(
     data: &mut RefAny,
     window_create_options: WindowCreateOptions,

@@ -177,7 +177,11 @@ impl App {
     pub fn run(mut self, root_window: WindowCreateOptions) {
 
         #[cfg(target_os = "windows")] {
-            crate::shell::win32::run(self, root_window);
+            if let Err(e) = crate::shell::win32::run(self, root_window) {
+                #[cfg(feature = "logging")] {
+                    error!("{:?}", e);
+                }
+            }
         }
         #[cfg(not(target_os = "windows"))] {
             crate::shell::other::run(self, root_window)
@@ -252,10 +256,6 @@ impl Clipboard {
 
 impl Drop for Clipboard {
     fn drop(&mut self) { }
-}
-
-fn translate_duration(input: coarsetime::Duration) -> std::time::Duration {
-    std::time::Duration::new(input.as_secs(), input.subsec_nanos())
 }
 
 pub mod extra {

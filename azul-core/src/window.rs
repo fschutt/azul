@@ -20,7 +20,10 @@ use crate::{
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
     callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, Update},
-    ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
+    ui_solver::{
+        QuickResizeResult, OverflowingScrollNode,
+        HitTest, LayoutResult, ExternalScrollId
+    },
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
     task::{TimerId, ThreadId, Timer, Thread},
@@ -892,6 +895,43 @@ impl WindowInternal {
                 Some((DomId { inner: dom_id }, scroll_positions))
             }
         }).collect()
+    }
+
+    /// Returns the overflowing size of the root body node. If WindowCreateOptions.size_to_content
+    /// is set, the window size should be adjusted to this size before the window is shown.
+    pub fn get_content_size(&self) -> LogicalSize {
+        let layout_result = match self.layout_results.get(0) {
+            Some(s) => s,
+            None => return LogicalSize::zero(),
+        };
+        let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
+        let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+        LogicalSize::new(root_width, root_height)
+    }
+
+    /// Does a full re-layout (without calling layout()) again:
+    /// called in simple resize() scenarios
+    pub fn do_quick_resize(
+        &mut self,
+        image_cache: &ImageCache,
+        callbacks: &RenderCallbacks,
+        relayout_fn: RelayoutFn,
+        fc_cache: &FcFontCache,
+        window_state: &FullWindowState,
+    ) -> QuickResizeResult {
+        LayoutResult::do_quick_resize(
+            &self.document_id,
+            DomId::ROOT_ID,
+            LogicalRect::new(LogicalPosition::zero(), window_state.size.dimensions),
+            image_cache,
+            &mut self.layout_results,
+            &mut self.gl_texture_cache,
+            &mut self.renderer_resources,
+            callbacks,
+            relayout_fn,
+            fc_cache,
+            window_state,
+        )
     }
 
     // Compares the previous and current window size and returns
