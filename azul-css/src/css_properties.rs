@@ -1261,7 +1261,6 @@ impl CssProperty {
         }
     }
 
-
     pub const fn const_none(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, None) }
     pub const fn const_auto(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Auto) }
     pub const fn const_initial(prop_type: CssPropertyType) -> Self { css_property_from_type!(prop_type, Initial) }

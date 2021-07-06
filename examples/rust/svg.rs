@@ -72,12 +72,12 @@ impl Layout for MyAppData {
     fn layout(&self, _info: LayoutInfo) -> Dom<MyAppData> {
         Dom::gl_texture(draw_svg, self.svg.clone())
         .with_callback(On::Scroll, scroll_map_contents).with_id("svg-container")
-            .with_child(render_control_btn("+", "btn-zoom-in",    |info: CbInfo| { info.state.svg.borrow_mut().zoom *= 2.0; Redraw }))
-            .with_child(render_control_btn("-", "btn-zoom-out",   |info: CbInfo| { info.state.svg.borrow_mut().zoom /= 2.0; Redraw }))
-            .with_child(render_control_btn("^", "btn-move-up",    |info: CbInfo| { info.state.svg.borrow_mut().pan_vert += 100.0; Redraw }))
-            .with_child(render_control_btn(">", "btn-move-right", |info: CbInfo| { info.state.svg.borrow_mut().pan_horz += 100.0; Redraw }))
-            .with_child(render_control_btn("<", "btn-move-left",  |info: CbInfo| { info.state.svg.borrow_mut().pan_horz -= 100.0; Redraw }))
-            .with_child(render_control_btn("v", "btn-move-down",  |info: CbInfo| { info.state.svg.borrow_mut().pan_vert -= 100.0; Redraw }))
+            .with_child(render_control_btn("+", "btn-zoom-in",    |info: CbInfo| { info.state.svg.borrow_mut().zoom *= 2.0; RefreshDom }))
+            .with_child(render_control_btn("-", "btn-zoom-out",   |info: CbInfo| { info.state.svg.borrow_mut().zoom /= 2.0; RefreshDom }))
+            .with_child(render_control_btn("^", "btn-move-up",    |info: CbInfo| { info.state.svg.borrow_mut().pan_vert += 100.0; RefreshDom }))
+            .with_child(render_control_btn(">", "btn-move-right", |info: CbInfo| { info.state.svg.borrow_mut().pan_horz += 100.0; RefreshDom }))
+            .with_child(render_control_btn("<", "btn-move-left",  |info: CbInfo| { info.state.svg.borrow_mut().pan_horz -= 100.0; RefreshDom }))
+            .with_child(render_control_btn("v", "btn-move-down",  |info: CbInfo| { info.state.svg.borrow_mut().pan_vert -= 100.0; RefreshDom }))
     }
 }
 
@@ -124,7 +124,7 @@ fn scroll_map_contents(info: CbInfo) -> UpdateScreen {
         svg.pan_vert += scroll_y;
     }
 
-    Redraw
+    RefreshDom
 }
 
 fn main() {

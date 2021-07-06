@@ -13,7 +13,6 @@ extern "C" fn layout(data: RefAny, _: LayoutInfo) -> Dom {
         Button::with_label("Hello").dom().with_id("the_button".into())      //        |
     )                                                                       //        |
 }                                                                           //        |
-                                                                            //        |
 extern "C" fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn { //        |
                                                                             //        |
     // to get access to the OpenGlAppState:                                 //        |

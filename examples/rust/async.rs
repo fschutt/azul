@@ -94,7 +94,7 @@ extern "C" fn start_background_thread(datamodel: &mut RefAny, event: CallbackInf
     let data_mut = datamodel.downcast_mut::<MyDataModel>()?;
     let database_to_connect_to = match data_mut.connection_status {
         NotConnected { database } => database.clone(),
-        _ => return UpdateScreen::DontRedraw, // error
+        _ => return Update::DoNothing, // error
     };
     let init_data = RefAny::new(BackgroundThreadInit { database_to_connect_to });
     let thread_id = event.start_thread(init_data, datamodel.clone(), background_thread);
@@ -107,7 +107,7 @@ extern "C" fn start_background_thread(datamodel: &mut RefAny, event: CallbackInf
     };
 
     // Update the UI
-    UpdateScreen::Redraw
+    Update::RefreshDom
 }
 
 // Callback that runs when the "cancel" button is clicked while the background thread is running
@@ -115,11 +115,11 @@ extern "C" fn stop_background_thread(data: &mut RefAny, event: CallbackInfo) -> 
     let data_mut = datamodel.downcast_mut::<MyDataModel>()?;
     let thread_id = match data_mut.connection_status {
         InProgress { background_thread_id, .. } => background_thread_id.clone(),
-        _ => return UpdateScreen::DontRedraw, // error
+        _ => return Update::DoNothing, // error
     };
     event.stop_thread(thread_id);
     *data_mut.connection_status = ConnectionStatus::default();
-    UpdateScreen::Redraw
+    Update::RefreshDom
 }
 
 // Callback that runs when the "reset" button is clicked (resets the data)
@@ -127,10 +127,10 @@ extern "C" fn reset(data: &mut RefAny, event: CallbackInfo) -> UpdateScreen {
     let data_mut = datamodel.downcast_mut::<MyDataModel>()?;
     match data_mut.connection_status {
         DataLoaded { .. } => { },
-        _ => return UpdateScreen::DontRedraw, // error
+        _ => return Update::DoNothing, // error
     };
     *data_mut.connection_status = ConnectionStatus::default();
-    UpdateScreen::Redraw
+    Update::RefreshDom
 }
 
 // Data model of data that is sent from the main to the background thread
@@ -158,22 +158,22 @@ extern "C" fn writeback_callback(app_data: &mut RefAny, incoming_data: RefAny) -
             match &mut data_mut.connection_status {
                 InProgress { stage, .. } => {
                     *stage = new;
-                    UpdateScreen::Redraw
+                    Update::RefreshDom
                 },
-                _ => UpdateScreen::DoNothing,
+                _ => Update::DoNothing,
             }
         },
         ErrorOccurred { error } => {
             data_mut.connection_status = Error { error };
-            UpdateScreen::Redraw
+            Update::RefreshDom
         },
         NewDataLoaded { data } => {
             match &mut data_mut.connection_status {
                 InProgress { data_in_progress, .. } => {
                     data_in_progress.append(data);
-                    UpdateScreen::Redraw
+                    Update::RefreshDom
                 },
-                _ => UpdateScreen::DoNothing,
+                _ => Update::DoNothing,
             }
         }
     }

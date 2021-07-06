@@ -177,7 +177,7 @@ pub mod ui {
             (4, 1) => Event::Dot,
             (4, 2) => Event::EqualSign,
 
-            _ => return DontRedraw, // invalid item
+            _ => return DoNothing, // invalid item
         };
 
         println!("Got event via mouse input: {:?}", event);
@@ -203,7 +203,7 @@ pub mod ui {
             '/' => Event::Divide,
             '%' => Event::Percent,
             '.' | ',' => Event::Dot,
-            _ => return DontRedraw,
+            _ => return DoNothing,
         };
 
         println!("Got event via keyboard input: {:?}", event);
@@ -215,7 +215,7 @@ pub mod ui {
         let event = match current_key {
             VirtualKeyCode::Return => Event::EqualSign,
             VirtualKeyCode::Back => Event::Clear,
-            _ => return DontRedraw,
+            _ => return DoNothing,
         };
         process_event(info.state, event)
     }
@@ -322,18 +322,18 @@ pub mod logic {
             match event {
                 Event::Clear => {
                     *calculator = Calculator::default();
-                    Redraw
+                    RefreshDom
                 }
                 Event::InvertSign => {
                     if !calculator.division_by_zero {
                         calculator.current_operand_stack.negative_number = !calculator.current_operand_stack.negative_number;
                     }
-                    Redraw
+                    RefreshDom
                 }
                 Event::Percent => {
 
                     if calculator.division_by_zero {
-                        return DontRedraw;
+                        return DoNothing;
                     }
 
                     if let Some(operation) = &calculator.last_event.clone() {
@@ -349,12 +349,12 @@ pub mod logic {
                         }
                     }
 
-                    Redraw
+                    RefreshDom
                 }
                 Event::EqualSign => {
 
                     if calculator.division_by_zero {
-                        return DontRedraw;
+                        return DoNothing;
                     }
 
                     if let Some(Event::EqualSign) = calculator.last_event {
@@ -376,12 +376,12 @@ pub mod logic {
                     calculator.current_operator = None;
                     calculator.last_event = Some(Event::EqualSign);
 
-                    Redraw
+                    RefreshDom
                 }
                 Event::Dot => {
 
                     if calculator.division_by_zero {
-                        return DontRedraw;
+                        return DoNothing;
                     }
 
                     if calculator.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
@@ -391,19 +391,19 @@ pub mod logic {
                         calculator.current_operand_stack.stack.push(Number::Dot);
                     }
 
-                    Redraw
+                    RefreshDom
                 }
                 Event::Number(v) => {
                     if let Some(Event::EqualSign) = calculator.last_event {
                         *calculator = Calculator::default();
                     }
                     calculator.current_operand_stack.stack.push(Number::Value(v));
-                    Redraw
+                    RefreshDom
                 }
                 operation => {
 
                     if calculator.division_by_zero {
-                        return DontRedraw;
+                        return DoNothing;
                     }
 
                     if let Some(Event::EqualSign) = calculator.last_event {
@@ -437,7 +437,7 @@ pub mod logic {
                     });
                     calculator.last_event = Some(operation);
 
-                    Redraw
+                    RefreshDom
                 }
             }
         }
