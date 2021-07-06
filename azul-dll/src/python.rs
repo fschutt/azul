@@ -21067,6 +21067,2879 @@ impl PyObjectProtocol for AzGlVoidPtrMut {
 
 #[pymethods]
 impl AzGl {
+    #[classattr]
+    const ACCUM: u32 = 0x0100;
+    #[classattr]
+    const ACCUM_ALPHA_BITS: u32 = 0x0D5B;
+    #[classattr]
+    const ACCUM_BLUE_BITS: u32 = 0x0D5A;
+    #[classattr]
+    const ACCUM_BUFFER_BIT: u32 = 0x00000200;
+    #[classattr]
+    const ACCUM_CLEAR_VALUE: u32 = 0x0B80;
+    #[classattr]
+    const ACCUM_GREEN_BITS: u32 = 0x0D59;
+    #[classattr]
+    const ACCUM_RED_BITS: u32 = 0x0D58;
+    #[classattr]
+    const ACTIVE_ATTRIBUTES: u32 = 0x8B89;
+    #[classattr]
+    const ACTIVE_ATTRIBUTE_MAX_LENGTH: u32 = 0x8B8A;
+    #[classattr]
+    const ACTIVE_TEXTURE: u32 = 0x84E0;
+    #[classattr]
+    const ACTIVE_UNIFORMS: u32 = 0x8B86;
+    #[classattr]
+    const ACTIVE_UNIFORM_BLOCKS: u32 = 0x8A36;
+    #[classattr]
+    const ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH: u32 = 0x8A35;
+    #[classattr]
+    const ACTIVE_UNIFORM_MAX_LENGTH: u32 = 0x8B87;
+    #[classattr]
+    const ADD: u32 = 0x0104;
+    #[classattr]
+    const ADD_SIGNED: u32 = 0x8574;
+    #[classattr]
+    const ALIASED_LINE_WIDTH_RANGE: u32 = 0x846E;
+    #[classattr]
+    const ALIASED_POINT_SIZE_RANGE: u32 = 0x846D;
+    #[classattr]
+    const ALL_ATTRIB_BITS: u32 = 0xFFFFFFFF;
+    #[classattr]
+    const ALPHA: u32 = 0x1906;
+    #[classattr]
+    const ALPHA12: u32 = 0x803D;
+    #[classattr]
+    const ALPHA16: u32 = 0x803E;
+    #[classattr]
+    const ALPHA16F_EXT: u32 = 0x881C;
+    #[classattr]
+    const ALPHA32F_EXT: u32 = 0x8816;
+    #[classattr]
+    const ALPHA4: u32 = 0x803B;
+    #[classattr]
+    const ALPHA8: u32 = 0x803C;
+    #[classattr]
+    const ALPHA8_EXT: u32 = 0x803C;
+    #[classattr]
+    const ALPHA_BIAS: u32 = 0x0D1D;
+    #[classattr]
+    const ALPHA_BITS: u32 = 0x0D55;
+    #[classattr]
+    const ALPHA_INTEGER: u32 = 0x8D97;
+    #[classattr]
+    const ALPHA_SCALE: u32 = 0x0D1C;
+    #[classattr]
+    const ALPHA_TEST: u32 = 0x0BC0;
+    #[classattr]
+    const ALPHA_TEST_FUNC: u32 = 0x0BC1;
+    #[classattr]
+    const ALPHA_TEST_REF: u32 = 0x0BC2;
+    #[classattr]
+    const ALREADY_SIGNALED: u32 = 0x911A;
+    #[classattr]
+    const ALWAYS: u32 = 0x0207;
+    #[classattr]
+    const AMBIENT: u32 = 0x1200;
+    #[classattr]
+    const AMBIENT_AND_DIFFUSE: u32 = 0x1602;
+    #[classattr]
+    const AND: u32 = 0x1501;
+    #[classattr]
+    const AND_INVERTED: u32 = 0x1504;
+    #[classattr]
+    const AND_REVERSE: u32 = 0x1502;
+    #[classattr]
+    const ANY_SAMPLES_PASSED: u32 = 0x8C2F;
+    #[classattr]
+    const ANY_SAMPLES_PASSED_CONSERVATIVE: u32 = 0x8D6A;
+    #[classattr]
+    const ARRAY_BUFFER: u32 = 0x8892;
+    #[classattr]
+    const ARRAY_BUFFER_BINDING: u32 = 0x8894;
+    #[classattr]
+    const ATTACHED_SHADERS: u32 = 0x8B85;
+    #[classattr]
+    const ATTRIB_STACK_DEPTH: u32 = 0x0BB0;
+    #[classattr]
+    const AUTO_NORMAL: u32 = 0x0D80;
+    #[classattr]
+    const AUX0: u32 = 0x0409;
+    #[classattr]
+    const AUX1: u32 = 0x040A;
+    #[classattr]
+    const AUX2: u32 = 0x040B;
+    #[classattr]
+    const AUX3: u32 = 0x040C;
+    #[classattr]
+    const AUX_BUFFERS: u32 = 0x0C00;
+    #[classattr]
+    const BACK: u32 = 0x0405;
+    #[classattr]
+    const BACK_LEFT: u32 = 0x0402;
+    #[classattr]
+    const BACK_RIGHT: u32 = 0x0403;
+    #[classattr]
+    const BGR: u32 = 0x80E0;
+    #[classattr]
+    const BGRA: u32 = 0x80E1;
+    #[classattr]
+    const BGRA8_EXT: u32 = 0x93A1;
+    #[classattr]
+    const BGRA_EXT: u32 = 0x80E1;
+    #[classattr]
+    const BGRA_INTEGER: u32 = 0x8D9B;
+    #[classattr]
+    const BGR_INTEGER: u32 = 0x8D9A;
+    #[classattr]
+    const BITMAP: u32 = 0x1A00;
+    #[classattr]
+    const BITMAP_TOKEN: u32 = 0x0704;
+    #[classattr]
+    const BLEND: u32 = 0x0BE2;
+    #[classattr]
+    const BLEND_ADVANCED_COHERENT_KHR: u32 = 0x9285;
+    #[classattr]
+    const BLEND_COLOR: u32 = 0x8005;
+    #[classattr]
+    const BLEND_DST: u32 = 0x0BE0;
+    #[classattr]
+    const BLEND_DST_ALPHA: u32 = 0x80CA;
+    #[classattr]
+    const BLEND_DST_RGB: u32 = 0x80C8;
+    #[classattr]
+    const BLEND_EQUATION: u32 = 0x8009;
+    #[classattr]
+    const BLEND_EQUATION_ALPHA: u32 = 0x883D;
+    #[classattr]
+    const BLEND_EQUATION_RGB: u32 = 0x8009;
+    #[classattr]
+    const BLEND_SRC: u32 = 0x0BE1;
+    #[classattr]
+    const BLEND_SRC_ALPHA: u32 = 0x80CB;
+    #[classattr]
+    const BLEND_SRC_RGB: u32 = 0x80C9;
+    #[classattr]
+    const BLUE: u32 = 0x1905;
+    #[classattr]
+    const BLUE_BIAS: u32 = 0x0D1B;
+    #[classattr]
+    const BLUE_BITS: u32 = 0x0D54;
+    #[classattr]
+    const BLUE_INTEGER: u32 = 0x8D96;
+    #[classattr]
+    const BLUE_SCALE: u32 = 0x0D1A;
+    #[classattr]
+    const BOOL: u32 = 0x8B56;
+    #[classattr]
+    const BOOL_VEC2: u32 = 0x8B57;
+    #[classattr]
+    const BOOL_VEC3: u32 = 0x8B58;
+    #[classattr]
+    const BOOL_VEC4: u32 = 0x8B59;
+    #[classattr]
+    const BUFFER: u32 = 0x82E0;
+    #[classattr]
+    const BUFFER_ACCESS: u32 = 0x88BB;
+    #[classattr]
+    const BUFFER_ACCESS_FLAGS: u32 = 0x911F;
+    #[classattr]
+    const BUFFER_KHR: u32 = 0x82E0;
+    #[classattr]
+    const BUFFER_MAPPED: u32 = 0x88BC;
+    #[classattr]
+    const BUFFER_MAP_LENGTH: u32 = 0x9120;
+    #[classattr]
+    const BUFFER_MAP_OFFSET: u32 = 0x9121;
+    #[classattr]
+    const BUFFER_MAP_POINTER: u32 = 0x88BD;
+    #[classattr]
+    const BUFFER_SIZE: u32 = 0x8764;
+    #[classattr]
+    const BUFFER_USAGE: u32 = 0x8765;
+    #[classattr]
+    const BYTE: u32 = 0x1400;
+    #[classattr]
+    const C3F_V3F: u32 = 0x2A24;
+    #[classattr]
+    const C4F_N3F_V3F: u32 = 0x2A26;
+    #[classattr]
+    const C4UB_V2F: u32 = 0x2A22;
+    #[classattr]
+    const C4UB_V3F: u32 = 0x2A23;
+    #[classattr]
+    const CCW: u32 = 0x0901;
+    #[classattr]
+    const CLAMP: u32 = 0x2900;
+    #[classattr]
+    const CLAMP_FRAGMENT_COLOR: u32 = 0x891B;
+    #[classattr]
+    const CLAMP_READ_COLOR: u32 = 0x891C;
+    #[classattr]
+    const CLAMP_TO_BORDER: u32 = 0x812D;
+    #[classattr]
+    const CLAMP_TO_EDGE: u32 = 0x812F;
+    #[classattr]
+    const CLAMP_VERTEX_COLOR: u32 = 0x891A;
+    #[classattr]
+    const CLEAR: u32 = 0x1500;
+    #[classattr]
+    const CLIENT_ACTIVE_TEXTURE: u32 = 0x84E1;
+    #[classattr]
+    const CLIENT_ALL_ATTRIB_BITS: u32 = 0xFFFFFFFF;
+    #[classattr]
+    const CLIENT_ATTRIB_STACK_DEPTH: u32 = 0x0BB1;
+    #[classattr]
+    const CLIENT_PIXEL_STORE_BIT: u32 = 0x00000001;
+    #[classattr]
+    const CLIENT_VERTEX_ARRAY_BIT: u32 = 0x00000002;
+    #[classattr]
+    const CLIP_DISTANCE0: u32 = 0x3000;
+    #[classattr]
+    const CLIP_DISTANCE1: u32 = 0x3001;
+    #[classattr]
+    const CLIP_DISTANCE2: u32 = 0x3002;
+    #[classattr]
+    const CLIP_DISTANCE3: u32 = 0x3003;
+    #[classattr]
+    const CLIP_DISTANCE4: u32 = 0x3004;
+    #[classattr]
+    const CLIP_DISTANCE5: u32 = 0x3005;
+    #[classattr]
+    const CLIP_DISTANCE6: u32 = 0x3006;
+    #[classattr]
+    const CLIP_DISTANCE7: u32 = 0x3007;
+    #[classattr]
+    const CLIP_PLANE0: u32 = 0x3000;
+    #[classattr]
+    const CLIP_PLANE1: u32 = 0x3001;
+    #[classattr]
+    const CLIP_PLANE2: u32 = 0x3002;
+    #[classattr]
+    const CLIP_PLANE3: u32 = 0x3003;
+    #[classattr]
+    const CLIP_PLANE4: u32 = 0x3004;
+    #[classattr]
+    const CLIP_PLANE5: u32 = 0x3005;
+    #[classattr]
+    const COEFF: u32 = 0x0A00;
+    #[classattr]
+    const COLOR: u32 = 0x1800;
+    #[classattr]
+    const COLORBURN_KHR: u32 = 0x929A;
+    #[classattr]
+    const COLORDODGE_KHR: u32 = 0x9299;
+    #[classattr]
+    const COLOR_ARRAY: u32 = 0x8076;
+    #[classattr]
+    const COLOR_ARRAY_BUFFER_BINDING: u32 = 0x8898;
+    #[classattr]
+    const COLOR_ARRAY_POINTER: u32 = 0x8090;
+    #[classattr]
+    const COLOR_ARRAY_SIZE: u32 = 0x8081;
+    #[classattr]
+    const COLOR_ARRAY_STRIDE: u32 = 0x8083;
+    #[classattr]
+    const COLOR_ARRAY_TYPE: u32 = 0x8082;
+    #[classattr]
+    const COLOR_ATTACHMENT0: u32 = 0x8CE0;
+    #[classattr]
+    const COLOR_ATTACHMENT1: u32 = 0x8CE1;
+    #[classattr]
+    const COLOR_ATTACHMENT10: u32 = 0x8CEA;
+    #[classattr]
+    const COLOR_ATTACHMENT11: u32 = 0x8CEB;
+    #[classattr]
+    const COLOR_ATTACHMENT12: u32 = 0x8CEC;
+    #[classattr]
+    const COLOR_ATTACHMENT13: u32 = 0x8CED;
+    #[classattr]
+    const COLOR_ATTACHMENT14: u32 = 0x8CEE;
+    #[classattr]
+    const COLOR_ATTACHMENT15: u32 = 0x8CEF;
+    #[classattr]
+    const COLOR_ATTACHMENT16: u32 = 0x8CF0;
+    #[classattr]
+    const COLOR_ATTACHMENT17: u32 = 0x8CF1;
+    #[classattr]
+    const COLOR_ATTACHMENT18: u32 = 0x8CF2;
+    #[classattr]
+    const COLOR_ATTACHMENT19: u32 = 0x8CF3;
+    #[classattr]
+    const COLOR_ATTACHMENT2: u32 = 0x8CE2;
+    #[classattr]
+    const COLOR_ATTACHMENT20: u32 = 0x8CF4;
+    #[classattr]
+    const COLOR_ATTACHMENT21: u32 = 0x8CF5;
+    #[classattr]
+    const COLOR_ATTACHMENT22: u32 = 0x8CF6;
+    #[classattr]
+    const COLOR_ATTACHMENT23: u32 = 0x8CF7;
+    #[classattr]
+    const COLOR_ATTACHMENT24: u32 = 0x8CF8;
+    #[classattr]
+    const COLOR_ATTACHMENT25: u32 = 0x8CF9;
+    #[classattr]
+    const COLOR_ATTACHMENT26: u32 = 0x8CFA;
+    #[classattr]
+    const COLOR_ATTACHMENT27: u32 = 0x8CFB;
+    #[classattr]
+    const COLOR_ATTACHMENT28: u32 = 0x8CFC;
+    #[classattr]
+    const COLOR_ATTACHMENT29: u32 = 0x8CFD;
+    #[classattr]
+    const COLOR_ATTACHMENT3: u32 = 0x8CE3;
+    #[classattr]
+    const COLOR_ATTACHMENT30: u32 = 0x8CFE;
+    #[classattr]
+    const COLOR_ATTACHMENT31: u32 = 0x8CFF;
+    #[classattr]
+    const COLOR_ATTACHMENT4: u32 = 0x8CE4;
+    #[classattr]
+    const COLOR_ATTACHMENT5: u32 = 0x8CE5;
+    #[classattr]
+    const COLOR_ATTACHMENT6: u32 = 0x8CE6;
+    #[classattr]
+    const COLOR_ATTACHMENT7: u32 = 0x8CE7;
+    #[classattr]
+    const COLOR_ATTACHMENT8: u32 = 0x8CE8;
+    #[classattr]
+    const COLOR_ATTACHMENT9: u32 = 0x8CE9;
+    #[classattr]
+    const COLOR_BUFFER_BIT: u32 = 0x00004000;
+    #[classattr]
+    const COLOR_CLEAR_VALUE: u32 = 0x0C22;
+    #[classattr]
+    const COLOR_INDEX: u32 = 0x1900;
+    #[classattr]
+    const COLOR_INDEXES: u32 = 0x1603;
+    #[classattr]
+    const COLOR_LOGIC_OP: u32 = 0x0BF2;
+    #[classattr]
+    const COLOR_MATERIAL: u32 = 0x0B57;
+    #[classattr]
+    const COLOR_MATERIAL_FACE: u32 = 0x0B55;
+    #[classattr]
+    const COLOR_MATERIAL_PARAMETER: u32 = 0x0B56;
+    #[classattr]
+    const COLOR_SUM: u32 = 0x8458;
+    #[classattr]
+    const COLOR_WRITEMASK: u32 = 0x0C23;
+    #[classattr]
+    const COMBINE: u32 = 0x8570;
+    #[classattr]
+    const COMBINE_ALPHA: u32 = 0x8572;
+    #[classattr]
+    const COMBINE_RGB: u32 = 0x8571;
+    #[classattr]
+    const COMPARE_REF_TO_TEXTURE: u32 = 0x884E;
+    #[classattr]
+    const COMPARE_R_TO_TEXTURE: u32 = 0x884E;
+    #[classattr]
+    const COMPILE: u32 = 0x1300;
+    #[classattr]
+    const COMPILE_AND_EXECUTE: u32 = 0x1301;
+    #[classattr]
+    const COMPILE_STATUS: u32 = 0x8B81;
+    #[classattr]
+    const COMPRESSED_ALPHA: u32 = 0x84E9;
+    #[classattr]
+    const COMPRESSED_INTENSITY: u32 = 0x84EC;
+    #[classattr]
+    const COMPRESSED_LUMINANCE: u32 = 0x84EA;
+    #[classattr]
+    const COMPRESSED_LUMINANCE_ALPHA: u32 = 0x84EB;
+    #[classattr]
+    const COMPRESSED_R11_EAC: u32 = 0x9270;
+    #[classattr]
+    const COMPRESSED_RED: u32 = 0x8225;
+    #[classattr]
+    const COMPRESSED_RED_RGTC1: u32 = 0x8DBB;
+    #[classattr]
+    const COMPRESSED_RG: u32 = 0x8226;
+    #[classattr]
+    const COMPRESSED_RG11_EAC: u32 = 0x9272;
+    #[classattr]
+    const COMPRESSED_RGB: u32 = 0x84ED;
+    #[classattr]
+    const COMPRESSED_RGB8_ETC2: u32 = 0x9274;
+    #[classattr]
+    const COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2: u32 = 0x9276;
+    #[classattr]
+    const COMPRESSED_RGBA: u32 = 0x84EE;
+    #[classattr]
+    const COMPRESSED_RGBA8_ETC2_EAC: u32 = 0x9278;
+    #[classattr]
+    const COMPRESSED_RG_RGTC2: u32 = 0x8DBD;
+    #[classattr]
+    const COMPRESSED_SIGNED_R11_EAC: u32 = 0x9271;
+    #[classattr]
+    const COMPRESSED_SIGNED_RED_RGTC1: u32 = 0x8DBC;
+    #[classattr]
+    const COMPRESSED_SIGNED_RG11_EAC: u32 = 0x9273;
+    #[classattr]
+    const COMPRESSED_SIGNED_RG_RGTC2: u32 = 0x8DBE;
+    #[classattr]
+    const COMPRESSED_SLUMINANCE: u32 = 0x8C4A;
+    #[classattr]
+    const COMPRESSED_SLUMINANCE_ALPHA: u32 = 0x8C4B;
+    #[classattr]
+    const COMPRESSED_SRGB: u32 = 0x8C48;
+    #[classattr]
+    const COMPRESSED_SRGB8_ALPHA8_ETC2_EAC: u32 = 0x9279;
+    #[classattr]
+    const COMPRESSED_SRGB8_ETC2: u32 = 0x9275;
+    #[classattr]
+    const COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2: u32 = 0x9277;
+    #[classattr]
+    const COMPRESSED_SRGB_ALPHA: u32 = 0x8C49;
+    #[classattr]
+    const COMPRESSED_TEXTURE_FORMATS: u32 = 0x86A3;
+    #[classattr]
+    const CONDITION_SATISFIED: u32 = 0x911C;
+    #[classattr]
+    const CONSTANT: u32 = 0x8576;
+    #[classattr]
+    const CONSTANT_ALPHA: u32 = 0x8003;
+    #[classattr]
+    const CONSTANT_ATTENUATION: u32 = 0x1207;
+    #[classattr]
+    const CONSTANT_COLOR: u32 = 0x8001;
+    #[classattr]
+    const CONTEXT_COMPATIBILITY_PROFILE_BIT: u32 = 0x00000002;
+    #[classattr]
+    const CONTEXT_CORE_PROFILE_BIT: u32 = 0x00000001;
+    #[classattr]
+    const CONTEXT_FLAGS: u32 = 0x821E;
+    #[classattr]
+    const CONTEXT_FLAG_DEBUG_BIT: u32 = 0x00000002;
+    #[classattr]
+    const CONTEXT_FLAG_DEBUG_BIT_KHR: u32 = 0x00000002;
+    #[classattr]
+    const CONTEXT_FLAG_FORWARD_COMPATIBLE_BIT: u32 = 0x00000001;
+    #[classattr]
+    const CONTEXT_PROFILE_MASK: u32 = 0x9126;
+    #[classattr]
+    const COORD_REPLACE: u32 = 0x8862;
+    #[classattr]
+    const COPY: u32 = 0x1503;
+    #[classattr]
+    const COPY_INVERTED: u32 = 0x150C;
+    #[classattr]
+    const COPY_PIXEL_TOKEN: u32 = 0x0706;
+    #[classattr]
+    const COPY_READ_BUFFER: u32 = 0x8F36;
+    #[classattr]
+    const COPY_READ_BUFFER_BINDING: u32 = 0x8F36;
+    #[classattr]
+    const COPY_WRITE_BUFFER: u32 = 0x8F37;
+    #[classattr]
+    const COPY_WRITE_BUFFER_BINDING: u32 = 0x8F37;
+    #[classattr]
+    const CULL_FACE: u32 = 0x0B44;
+    #[classattr]
+    const CULL_FACE_MODE: u32 = 0x0B45;
+    #[classattr]
+    const CURRENT_BIT: u32 = 0x00000001;
+    #[classattr]
+    const CURRENT_COLOR: u32 = 0x0B00;
+    #[classattr]
+    const CURRENT_FOG_COORD: u32 = 0x8453;
+    #[classattr]
+    const CURRENT_FOG_COORDINATE: u32 = 0x8453;
+    #[classattr]
+    const CURRENT_INDEX: u32 = 0x0B01;
+    #[classattr]
+    const CURRENT_NORMAL: u32 = 0x0B02;
+    #[classattr]
+    const CURRENT_PROGRAM: u32 = 0x8B8D;
+    #[classattr]
+    const CURRENT_QUERY: u32 = 0x8865;
+    #[classattr]
+    const CURRENT_QUERY_EXT: u32 = 0x8865;
+    #[classattr]
+    const CURRENT_RASTER_COLOR: u32 = 0x0B04;
+    #[classattr]
+    const CURRENT_RASTER_DISTANCE: u32 = 0x0B09;
+    #[classattr]
+    const CURRENT_RASTER_INDEX: u32 = 0x0B05;
+    #[classattr]
+    const CURRENT_RASTER_POSITION: u32 = 0x0B07;
+    #[classattr]
+    const CURRENT_RASTER_POSITION_VALID: u32 = 0x0B08;
+    #[classattr]
+    const CURRENT_RASTER_SECONDARY_COLOR: u32 = 0x845F;
+    #[classattr]
+    const CURRENT_RASTER_TEXTURE_COORDS: u32 = 0x0B06;
+    #[classattr]
+    const CURRENT_SECONDARY_COLOR: u32 = 0x8459;
+    #[classattr]
+    const CURRENT_TEXTURE_COORDS: u32 = 0x0B03;
+    #[classattr]
+    const CURRENT_VERTEX_ATTRIB: u32 = 0x8626;
+    #[classattr]
+    const CW: u32 = 0x0900;
+    #[classattr]
+    const DARKEN_KHR: u32 = 0x9297;
+    #[classattr]
+    const DEBUG_CALLBACK_FUNCTION: u32 = 0x8244;
+    #[classattr]
+    const DEBUG_CALLBACK_FUNCTION_KHR: u32 = 0x8244;
+    #[classattr]
+    const DEBUG_CALLBACK_USER_PARAM: u32 = 0x8245;
+    #[classattr]
+    const DEBUG_CALLBACK_USER_PARAM_KHR: u32 = 0x8245;
+    #[classattr]
+    const DEBUG_GROUP_STACK_DEPTH: u32 = 0x826D;
+    #[classattr]
+    const DEBUG_GROUP_STACK_DEPTH_KHR: u32 = 0x826D;
+    #[classattr]
+    const DEBUG_LOGGED_MESSAGES: u32 = 0x9145;
+    #[classattr]
+    const DEBUG_LOGGED_MESSAGES_KHR: u32 = 0x9145;
+    #[classattr]
+    const DEBUG_NEXT_LOGGED_MESSAGE_LENGTH: u32 = 0x8243;
+    #[classattr]
+    const DEBUG_NEXT_LOGGED_MESSAGE_LENGTH_KHR: u32 = 0x8243;
+    #[classattr]
+    const DEBUG_OUTPUT: u32 = 0x92E0;
+    #[classattr]
+    const DEBUG_OUTPUT_KHR: u32 = 0x92E0;
+    #[classattr]
+    const DEBUG_OUTPUT_SYNCHRONOUS: u32 = 0x8242;
+    #[classattr]
+    const DEBUG_OUTPUT_SYNCHRONOUS_KHR: u32 = 0x8242;
+    #[classattr]
+    const DEBUG_SEVERITY_HIGH: u32 = 0x9146;
+    #[classattr]
+    const DEBUG_SEVERITY_HIGH_KHR: u32 = 0x9146;
+    #[classattr]
+    const DEBUG_SEVERITY_LOW: u32 = 0x9148;
+    #[classattr]
+    const DEBUG_SEVERITY_LOW_KHR: u32 = 0x9148;
+    #[classattr]
+    const DEBUG_SEVERITY_MEDIUM: u32 = 0x9147;
+    #[classattr]
+    const DEBUG_SEVERITY_MEDIUM_KHR: u32 = 0x9147;
+    #[classattr]
+    const DEBUG_SEVERITY_NOTIFICATION: u32 = 0x826B;
+    #[classattr]
+    const DEBUG_SEVERITY_NOTIFICATION_KHR: u32 = 0x826B;
+    #[classattr]
+    const DEBUG_SOURCE_API: u32 = 0x8246;
+    #[classattr]
+    const DEBUG_SOURCE_API_KHR: u32 = 0x8246;
+    #[classattr]
+    const DEBUG_SOURCE_APPLICATION: u32 = 0x824A;
+    #[classattr]
+    const DEBUG_SOURCE_APPLICATION_KHR: u32 = 0x824A;
+    #[classattr]
+    const DEBUG_SOURCE_OTHER: u32 = 0x824B;
+    #[classattr]
+    const DEBUG_SOURCE_OTHER_KHR: u32 = 0x824B;
+    #[classattr]
+    const DEBUG_SOURCE_SHADER_COMPILER: u32 = 0x8248;
+    #[classattr]
+    const DEBUG_SOURCE_SHADER_COMPILER_KHR: u32 = 0x8248;
+    #[classattr]
+    const DEBUG_SOURCE_THIRD_PARTY: u32 = 0x8249;
+    #[classattr]
+    const DEBUG_SOURCE_THIRD_PARTY_KHR: u32 = 0x8249;
+    #[classattr]
+    const DEBUG_SOURCE_WINDOW_SYSTEM: u32 = 0x8247;
+    #[classattr]
+    const DEBUG_SOURCE_WINDOW_SYSTEM_KHR: u32 = 0x8247;
+    #[classattr]
+    const DEBUG_TYPE_DEPRECATED_BEHAVIOR: u32 = 0x824D;
+    #[classattr]
+    const DEBUG_TYPE_DEPRECATED_BEHAVIOR_KHR: u32 = 0x824D;
+    #[classattr]
+    const DEBUG_TYPE_ERROR: u32 = 0x824C;
+    #[classattr]
+    const DEBUG_TYPE_ERROR_KHR: u32 = 0x824C;
+    #[classattr]
+    const DEBUG_TYPE_MARKER: u32 = 0x8268;
+    #[classattr]
+    const DEBUG_TYPE_MARKER_KHR: u32 = 0x8268;
+    #[classattr]
+    const DEBUG_TYPE_OTHER: u32 = 0x8251;
+    #[classattr]
+    const DEBUG_TYPE_OTHER_KHR: u32 = 0x8251;
+    #[classattr]
+    const DEBUG_TYPE_PERFORMANCE: u32 = 0x8250;
+    #[classattr]
+    const DEBUG_TYPE_PERFORMANCE_KHR: u32 = 0x8250;
+    #[classattr]
+    const DEBUG_TYPE_POP_GROUP: u32 = 0x826A;
+    #[classattr]
+    const DEBUG_TYPE_POP_GROUP_KHR: u32 = 0x826A;
+    #[classattr]
+    const DEBUG_TYPE_PORTABILITY: u32 = 0x824F;
+    #[classattr]
+    const DEBUG_TYPE_PORTABILITY_KHR: u32 = 0x824F;
+    #[classattr]
+    const DEBUG_TYPE_PUSH_GROUP: u32 = 0x8269;
+    #[classattr]
+    const DEBUG_TYPE_PUSH_GROUP_KHR: u32 = 0x8269;
+    #[classattr]
+    const DEBUG_TYPE_UNDEFINED_BEHAVIOR: u32 = 0x824E;
+    #[classattr]
+    const DEBUG_TYPE_UNDEFINED_BEHAVIOR_KHR: u32 = 0x824E;
+    #[classattr]
+    const DECAL: u32 = 0x2101;
+    #[classattr]
+    const DECR: u32 = 0x1E03;
+    #[classattr]
+    const DECR_WRAP: u32 = 0x8508;
+    #[classattr]
+    const DELETE_STATUS: u32 = 0x8B80;
+    #[classattr]
+    const DEPTH: u32 = 0x1801;
+    #[classattr]
+    const DEPTH24_STENCIL8: u32 = 0x88F0;
+    #[classattr]
+    const DEPTH32F_STENCIL8: u32 = 0x8CAD;
+    #[classattr]
+    const DEPTH_ATTACHMENT: u32 = 0x8D00;
+    #[classattr]
+    const DEPTH_BIAS: u32 = 0x0D1F;
+    #[classattr]
+    const DEPTH_BITS: u32 = 0x0D56;
+    #[classattr]
+    const DEPTH_BUFFER_BIT: u32 = 0x00000100;
+    #[classattr]
+    const DEPTH_CLAMP: u32 = 0x864F;
+    #[classattr]
+    const DEPTH_CLEAR_VALUE: u32 = 0x0B73;
+    #[classattr]
+    const DEPTH_COMPONENT: u32 = 0x1902;
+    #[classattr]
+    const DEPTH_COMPONENT16: u32 = 0x81A5;
+    #[classattr]
+    const DEPTH_COMPONENT24: u32 = 0x81A6;
+    #[classattr]
+    const DEPTH_COMPONENT32: u32 = 0x81A7;
+    #[classattr]
+    const DEPTH_COMPONENT32F: u32 = 0x8CAC;
+    #[classattr]
+    const DEPTH_FUNC: u32 = 0x0B74;
+    #[classattr]
+    const DEPTH_RANGE: u32 = 0x0B70;
+    #[classattr]
+    const DEPTH_SCALE: u32 = 0x0D1E;
+    #[classattr]
+    const DEPTH_STENCIL: u32 = 0x84F9;
+    #[classattr]
+    const DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
+    #[classattr]
+    const DEPTH_TEST: u32 = 0x0B71;
+    #[classattr]
+    const DEPTH_TEXTURE_MODE: u32 = 0x884B;
+    #[classattr]
+    const DEPTH_WRITEMASK: u32 = 0x0B72;
+    #[classattr]
+    const DIFFERENCE_KHR: u32 = 0x929E;
+    #[classattr]
+    const DIFFUSE: u32 = 0x1201;
+    #[classattr]
+    const DISPLAY_LIST: u32 = 0x82E7;
+    #[classattr]
+    const DITHER: u32 = 0x0BD0;
+    #[classattr]
+    const DOMAIN: u32 = 0x0A02;
+    #[classattr]
+    const DONT_CARE: u32 = 0x1100;
+    #[classattr]
+    const DOT3_RGB: u32 = 0x86AE;
+    #[classattr]
+    const DOT3_RGBA: u32 = 0x86AF;
+    #[classattr]
+    const DOUBLE: u32 = 0x140A;
+    #[classattr]
+    const DOUBLEBUFFER: u32 = 0x0C32;
+    #[classattr]
+    const DRAW_BUFFER: u32 = 0x0C01;
+    #[classattr]
+    const DRAW_BUFFER0: u32 = 0x8825;
+    #[classattr]
+    const DRAW_BUFFER1: u32 = 0x8826;
+    #[classattr]
+    const DRAW_BUFFER10: u32 = 0x882F;
+    #[classattr]
+    const DRAW_BUFFER11: u32 = 0x8830;
+    #[classattr]
+    const DRAW_BUFFER12: u32 = 0x8831;
+    #[classattr]
+    const DRAW_BUFFER13: u32 = 0x8832;
+    #[classattr]
+    const DRAW_BUFFER14: u32 = 0x8833;
+    #[classattr]
+    const DRAW_BUFFER15: u32 = 0x8834;
+    #[classattr]
+    const DRAW_BUFFER2: u32 = 0x8827;
+    #[classattr]
+    const DRAW_BUFFER3: u32 = 0x8828;
+    #[classattr]
+    const DRAW_BUFFER4: u32 = 0x8829;
+    #[classattr]
+    const DRAW_BUFFER5: u32 = 0x882A;
+    #[classattr]
+    const DRAW_BUFFER6: u32 = 0x882B;
+    #[classattr]
+    const DRAW_BUFFER7: u32 = 0x882C;
+    #[classattr]
+    const DRAW_BUFFER8: u32 = 0x882D;
+    #[classattr]
+    const DRAW_BUFFER9: u32 = 0x882E;
+    #[classattr]
+    const DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+    #[classattr]
+    const DRAW_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+    #[classattr]
+    const DRAW_PIXELS_APPLE: u32 = 0x8A0A;
+    #[classattr]
+    const DRAW_PIXEL_TOKEN: u32 = 0x0705;
+    #[classattr]
+    const DST_ALPHA: u32 = 0x0304;
+    #[classattr]
+    const DST_COLOR: u32 = 0x0306;
+    #[classattr]
+    const DYNAMIC_COPY: u32 = 0x88EA;
+    #[classattr]
+    const DYNAMIC_DRAW: u32 = 0x88E8;
+    #[classattr]
+    const DYNAMIC_READ: u32 = 0x88E9;
+    #[classattr]
+    const EDGE_FLAG: u32 = 0x0B43;
+    #[classattr]
+    const EDGE_FLAG_ARRAY: u32 = 0x8079;
+    #[classattr]
+    const EDGE_FLAG_ARRAY_BUFFER_BINDING: u32 = 0x889B;
+    #[classattr]
+    const EDGE_FLAG_ARRAY_POINTER: u32 = 0x8093;
+    #[classattr]
+    const EDGE_FLAG_ARRAY_STRIDE: u32 = 0x808C;
+    #[classattr]
+    const ELEMENT_ARRAY_BUFFER: u32 = 0x8893;
+    #[classattr]
+    const ELEMENT_ARRAY_BUFFER_BINDING: u32 = 0x8895;
+    #[classattr]
+    const EMISSION: u32 = 0x1600;
+    #[classattr]
+    const ENABLE_BIT: u32 = 0x00002000;
+    #[classattr]
+    const EQUAL: u32 = 0x0202;
+    #[classattr]
+    const EQUIV: u32 = 0x1509;
+    #[classattr]
+    const EVAL_BIT: u32 = 0x00010000;
+    #[classattr]
+    const EXCLUSION_KHR: u32 = 0x92A0;
+    #[classattr]
+    const EXP: u32 = 0x0800;
+    #[classattr]
+    const EXP2: u32 = 0x0801;
+    #[classattr]
+    const EXTENSIONS: u32 = 0x1F03;
+    #[classattr]
+    const EYE_LINEAR: u32 = 0x2400;
+    #[classattr]
+    const EYE_PLANE: u32 = 0x2502;
+    #[classattr]
+    const FALSE: u8 = 0;
+    #[classattr]
+    const FASTEST: u32 = 0x1101;
+    #[classattr]
+    const FEEDBACK: u32 = 0x1C01;
+    #[classattr]
+    const FEEDBACK_BUFFER_POINTER: u32 = 0x0DF0;
+    #[classattr]
+    const FEEDBACK_BUFFER_SIZE: u32 = 0x0DF1;
+    #[classattr]
+    const FEEDBACK_BUFFER_TYPE: u32 = 0x0DF2;
+    #[classattr]
+    const FENCE_APPLE: u32 = 0x8A0B;
+    #[classattr]
+    const FILL: u32 = 0x1B02;
+    #[classattr]
+    const FIRST_VERTEX_CONVENTION: u32 = 0x8E4D;
+    #[classattr]
+    const FIXED: u32 = 0x140C;
+    #[classattr]
+    const FIXED_ONLY: u32 = 0x891D;
+    #[classattr]
+    const FLAT: u32 = 0x1D00;
+    #[classattr]
+    const FLOAT: u32 = 0x1406;
+    #[classattr]
+    const FLOAT_32_UNSIGNED_INT_24_8_REV: u32 = 0x8DAD;
+    #[classattr]
+    const FLOAT_MAT2: u32 = 0x8B5A;
+    #[classattr]
+    const FLOAT_MAT2x3: u32 = 0x8B65;
+    #[classattr]
+    const FLOAT_MAT2x4: u32 = 0x8B66;
+    #[classattr]
+    const FLOAT_MAT3: u32 = 0x8B5B;
+    #[classattr]
+    const FLOAT_MAT3x2: u32 = 0x8B67;
+    #[classattr]
+    const FLOAT_MAT3x4: u32 = 0x8B68;
+    #[classattr]
+    const FLOAT_MAT4: u32 = 0x8B5C;
+    #[classattr]
+    const FLOAT_MAT4x2: u32 = 0x8B69;
+    #[classattr]
+    const FLOAT_MAT4x3: u32 = 0x8B6A;
+    #[classattr]
+    const FLOAT_VEC2: u32 = 0x8B50;
+    #[classattr]
+    const FLOAT_VEC3: u32 = 0x8B51;
+    #[classattr]
+    const FLOAT_VEC4: u32 = 0x8B52;
+    #[classattr]
+    const FOG: u32 = 0x0B60;
+    #[classattr]
+    const FOG_BIT: u32 = 0x00000080;
+    #[classattr]
+    const FOG_COLOR: u32 = 0x0B66;
+    #[classattr]
+    const FOG_COORD: u32 = 0x8451;
+    #[classattr]
+    const FOG_COORDINATE: u32 = 0x8451;
+    #[classattr]
+    const FOG_COORDINATE_ARRAY: u32 = 0x8457;
+    #[classattr]
+    const FOG_COORDINATE_ARRAY_BUFFER_BINDING: u32 = 0x889D;
+    #[classattr]
+    const FOG_COORDINATE_ARRAY_POINTER: u32 = 0x8456;
+    #[classattr]
+    const FOG_COORDINATE_ARRAY_STRIDE: u32 = 0x8455;
+    #[classattr]
+    const FOG_COORDINATE_ARRAY_TYPE: u32 = 0x8454;
+    #[classattr]
+    const FOG_COORDINATE_SOURCE: u32 = 0x8450;
+    #[classattr]
+    const FOG_COORD_ARRAY: u32 = 0x8457;
+    #[classattr]
+    const FOG_COORD_ARRAY_BUFFER_BINDING: u32 = 0x889D;
+    #[classattr]
+    const FOG_COORD_ARRAY_POINTER: u32 = 0x8456;
+    #[classattr]
+    const FOG_COORD_ARRAY_STRIDE: u32 = 0x8455;
+    #[classattr]
+    const FOG_COORD_ARRAY_TYPE: u32 = 0x8454;
+    #[classattr]
+    const FOG_COORD_SRC: u32 = 0x8450;
+    #[classattr]
+    const FOG_DENSITY: u32 = 0x0B62;
+    #[classattr]
+    const FOG_END: u32 = 0x0B64;
+    #[classattr]
+    const FOG_HINT: u32 = 0x0C54;
+    #[classattr]
+    const FOG_INDEX: u32 = 0x0B61;
+    #[classattr]
+    const FOG_MODE: u32 = 0x0B65;
+    #[classattr]
+    const FOG_START: u32 = 0x0B63;
+    #[classattr]
+    const FRAGMENT_DEPTH: u32 = 0x8452;
+    #[classattr]
+    const FRAGMENT_SHADER: u32 = 0x8B30;
+    #[classattr]
+    const FRAGMENT_SHADER_DERIVATIVE_HINT: u32 = 0x8B8B;
+    #[classattr]
+    const FRAMEBUFFER: u32 = 0x8D40;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE: u32 = 0x8215;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_ANGLE: u32 = 0x93A3;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_BLUE_SIZE: u32 = 0x8214;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING: u32 = 0x8210;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE: u32 = 0x8211;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE: u32 = 0x8216;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_GREEN_SIZE: u32 = 0x8213;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_LAYERED: u32 = 0x8DA7;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_OBJECT_NAME: u32 = 0x8CD1;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE: u32 = 0x8CD0;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_RED_SIZE: u32 = 0x8212;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE: u32 = 0x8217;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_TEXTURE_CUBE_MAP_FACE: u32 = 0x8CD3;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER: u32 = 0x8CD4;
+    #[classattr]
+    const FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL: u32 = 0x8CD2;
+    #[classattr]
+    const FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+    #[classattr]
+    const FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
+    #[classattr]
+    const FRAMEBUFFER_DEFAULT: u32 = 0x8218;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_ATTACHMENT: u32 = 0x8CD6;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_DIMENSIONS: u32 = 0x8CD9;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER: u32 = 0x8CDB;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS: u32 = 0x8DA8;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT: u32 = 0x8CD7;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_MULTISAMPLE: u32 = 0x8D56;
+    #[classattr]
+    const FRAMEBUFFER_INCOMPLETE_READ_BUFFER: u32 = 0x8CDC;
+    #[classattr]
+    const FRAMEBUFFER_SRGB: u32 = 0x8DB9;
+    #[classattr]
+    const FRAMEBUFFER_UNDEFINED: u32 = 0x8219;
+    #[classattr]
+    const FRAMEBUFFER_UNSUPPORTED: u32 = 0x8CDD;
+    #[classattr]
+    const FRONT: u32 = 0x0404;
+    #[classattr]
+    const FRONT_AND_BACK: u32 = 0x0408;
+    #[classattr]
+    const FRONT_FACE: u32 = 0x0B46;
+    #[classattr]
+    const FRONT_LEFT: u32 = 0x0400;
+    #[classattr]
+    const FRONT_RIGHT: u32 = 0x0401;
+    #[classattr]
+    const FUNC_ADD: u32 = 0x8006;
+    #[classattr]
+    const FUNC_REVERSE_SUBTRACT: u32 = 0x800B;
+    #[classattr]
+    const FUNC_SUBTRACT: u32 = 0x800A;
+    #[classattr]
+    const GENERATE_MIPMAP: u32 = 0x8191;
+    #[classattr]
+    const GENERATE_MIPMAP_HINT: u32 = 0x8192;
+    #[classattr]
+    const GEOMETRY_INPUT_TYPE: u32 = 0x8917;
+    #[classattr]
+    const GEOMETRY_OUTPUT_TYPE: u32 = 0x8918;
+    #[classattr]
+    const GEOMETRY_SHADER: u32 = 0x8DD9;
+    #[classattr]
+    const GEOMETRY_VERTICES_OUT: u32 = 0x8916;
+    #[classattr]
+    const GEQUAL: u32 = 0x0206;
+    #[classattr]
+    const GPU_DISJOINT_EXT: u32 = 0x8FBB;
+    #[classattr]
+    const GREATER: u32 = 0x0204;
+    #[classattr]
+    const GREEN: u32 = 0x1904;
+    #[classattr]
+    const GREEN_BIAS: u32 = 0x0D19;
+    #[classattr]
+    const GREEN_BITS: u32 = 0x0D53;
+    #[classattr]
+    const GREEN_INTEGER: u32 = 0x8D95;
+    #[classattr]
+    const GREEN_SCALE: u32 = 0x0D18;
+    #[classattr]
+    const HALF_FLOAT: u32 = 0x140B;
+    #[classattr]
+    const HALF_FLOAT_OES: u32 = 0x8D61;
+    #[classattr]
+    const HARDLIGHT_KHR: u32 = 0x929B;
+    #[classattr]
+    const HIGH_FLOAT: u32 = 0x8DF2;
+    #[classattr]
+    const HIGH_INT: u32 = 0x8DF5;
+    #[classattr]
+    const HINT_BIT: u32 = 0x00008000;
+    #[classattr]
+    const HSL_COLOR_KHR: u32 = 0x92AF;
+    #[classattr]
+    const HSL_HUE_KHR: u32 = 0x92AD;
+    #[classattr]
+    const HSL_LUMINOSITY_KHR: u32 = 0x92B0;
+    #[classattr]
+    const HSL_SATURATION_KHR: u32 = 0x92AE;
+    #[classattr]
+    const IMPLEMENTATION_COLOR_READ_FORMAT: u32 = 0x8B9B;
+    #[classattr]
+    const IMPLEMENTATION_COLOR_READ_TYPE: u32 = 0x8B9A;
+    #[classattr]
+    const INCR: u32 = 0x1E02;
+    #[classattr]
+    const INCR_WRAP: u32 = 0x8507;
+    #[classattr]
+    const INDEX: u32 = 0x8222;
+    #[classattr]
+    const INDEX_ARRAY: u32 = 0x8077;
+    #[classattr]
+    const INDEX_ARRAY_BUFFER_BINDING: u32 = 0x8899;
+    #[classattr]
+    const INDEX_ARRAY_POINTER: u32 = 0x8091;
+    #[classattr]
+    const INDEX_ARRAY_STRIDE: u32 = 0x8086;
+    #[classattr]
+    const INDEX_ARRAY_TYPE: u32 = 0x8085;
+    #[classattr]
+    const INDEX_BITS: u32 = 0x0D51;
+    #[classattr]
+    const INDEX_CLEAR_VALUE: u32 = 0x0C20;
+    #[classattr]
+    const INDEX_LOGIC_OP: u32 = 0x0BF1;
+    #[classattr]
+    const INDEX_MODE: u32 = 0x0C30;
+    #[classattr]
+    const INDEX_OFFSET: u32 = 0x0D13;
+    #[classattr]
+    const INDEX_SHIFT: u32 = 0x0D12;
+    #[classattr]
+    const INDEX_WRITEMASK: u32 = 0x0C21;
+    #[classattr]
+    const INFO_LOG_LENGTH: u32 = 0x8B84;
+    #[classattr]
+    const INT: u32 = 0x1404;
+    #[classattr]
+    const INTENSITY: u32 = 0x8049;
+    #[classattr]
+    const INTENSITY12: u32 = 0x804C;
+    #[classattr]
+    const INTENSITY16: u32 = 0x804D;
+    #[classattr]
+    const INTENSITY4: u32 = 0x804A;
+    #[classattr]
+    const INTENSITY8: u32 = 0x804B;
+    #[classattr]
+    const INTERLEAVED_ATTRIBS: u32 = 0x8C8C;
+    #[classattr]
+    const INTERPOLATE: u32 = 0x8575;
+    #[classattr]
+    const INT_2_10_10_10_REV: u32 = 0x8D9F;
+    #[classattr]
+    const INT_SAMPLER_1D: u32 = 0x8DC9;
+    #[classattr]
+    const INT_SAMPLER_1D_ARRAY: u32 = 0x8DCE;
+    #[classattr]
+    const INT_SAMPLER_2D: u32 = 0x8DCA;
+    #[classattr]
+    const INT_SAMPLER_2D_ARRAY: u32 = 0x8DCF;
+    #[classattr]
+    const INT_SAMPLER_2D_MULTISAMPLE: u32 = 0x9109;
+    #[classattr]
+    const INT_SAMPLER_2D_MULTISAMPLE_ARRAY: u32 = 0x910C;
+    #[classattr]
+    const INT_SAMPLER_2D_RECT: u32 = 0x8DCD;
+    #[classattr]
+    const INT_SAMPLER_3D: u32 = 0x8DCB;
+    #[classattr]
+    const INT_SAMPLER_BUFFER: u32 = 0x8DD0;
+    #[classattr]
+    const INT_SAMPLER_CUBE: u32 = 0x8DCC;
+    #[classattr]
+    const INT_VEC2: u32 = 0x8B53;
+    #[classattr]
+    const INT_VEC3: u32 = 0x8B54;
+    #[classattr]
+    const INT_VEC4: u32 = 0x8B55;
+    #[classattr]
+    const INVALID_ENUM: u32 = 0x0500;
+    #[classattr]
+    const INVALID_FRAMEBUFFER_OPERATION: u32 = 0x0506;
+    #[classattr]
+    const INVALID_INDEX: u32 = 0xFFFFFFFF;
+    #[classattr]
+    const INVALID_OPERATION: u32 = 0x0502;
+    #[classattr]
+    const INVALID_VALUE: u32 = 0x0501;
+    #[classattr]
+    const INVERT: u32 = 0x150A;
+    #[classattr]
+    const KEEP: u32 = 0x1E00;
+    #[classattr]
+    const LAST_VERTEX_CONVENTION: u32 = 0x8E4E;
+    #[classattr]
+    const LEFT: u32 = 0x0406;
+    #[classattr]
+    const LEQUAL: u32 = 0x0203;
+    #[classattr]
+    const LESS: u32 = 0x0201;
+    #[classattr]
+    const LIGHT0: u32 = 0x4000;
+    #[classattr]
+    const LIGHT1: u32 = 0x4001;
+    #[classattr]
+    const LIGHT2: u32 = 0x4002;
+    #[classattr]
+    const LIGHT3: u32 = 0x4003;
+    #[classattr]
+    const LIGHT4: u32 = 0x4004;
+    #[classattr]
+    const LIGHT5: u32 = 0x4005;
+    #[classattr]
+    const LIGHT6: u32 = 0x4006;
+    #[classattr]
+    const LIGHT7: u32 = 0x4007;
+    #[classattr]
+    const LIGHTEN_KHR: u32 = 0x9298;
+    #[classattr]
+    const LIGHTING: u32 = 0x0B50;
+    #[classattr]
+    const LIGHTING_BIT: u32 = 0x00000040;
+    #[classattr]
+    const LIGHT_MODEL_AMBIENT: u32 = 0x0B53;
+    #[classattr]
+    const LIGHT_MODEL_COLOR_CONTROL: u32 = 0x81F8;
+    #[classattr]
+    const LIGHT_MODEL_LOCAL_VIEWER: u32 = 0x0B51;
+    #[classattr]
+    const LIGHT_MODEL_TWO_SIDE: u32 = 0x0B52;
+    #[classattr]
+    const LINE: u32 = 0x1B01;
+    #[classattr]
+    const LINEAR: u32 = 0x2601;
+    #[classattr]
+    const LINEAR_ATTENUATION: u32 = 0x1208;
+    #[classattr]
+    const LINEAR_MIPMAP_LINEAR: u32 = 0x2703;
+    #[classattr]
+    const LINEAR_MIPMAP_NEAREST: u32 = 0x2701;
+    #[classattr]
+    const LINES: u32 = 0x0001;
+    #[classattr]
+    const LINES_ADJACENCY: u32 = 0x000A;
+    #[classattr]
+    const LINE_BIT: u32 = 0x00000004;
+    #[classattr]
+    const LINE_LOOP: u32 = 0x0002;
+    #[classattr]
+    const LINE_RESET_TOKEN: u32 = 0x0707;
+    #[classattr]
+    const LINE_SMOOTH: u32 = 0x0B20;
+    #[classattr]
+    const LINE_SMOOTH_HINT: u32 = 0x0C52;
+    #[classattr]
+    const LINE_STIPPLE: u32 = 0x0B24;
+    #[classattr]
+    const LINE_STIPPLE_PATTERN: u32 = 0x0B25;
+    #[classattr]
+    const LINE_STIPPLE_REPEAT: u32 = 0x0B26;
+    #[classattr]
+    const LINE_STRIP: u32 = 0x0003;
+    #[classattr]
+    const LINE_STRIP_ADJACENCY: u32 = 0x000B;
+    #[classattr]
+    const LINE_TOKEN: u32 = 0x0702;
+    #[classattr]
+    const LINE_WIDTH: u32 = 0x0B21;
+    #[classattr]
+    const LINE_WIDTH_GRANULARITY: u32 = 0x0B23;
+    #[classattr]
+    const LINE_WIDTH_RANGE: u32 = 0x0B22;
+    #[classattr]
+    const LINK_STATUS: u32 = 0x8B82;
+    #[classattr]
+    const LIST_BASE: u32 = 0x0B32;
+    #[classattr]
+    const LIST_BIT: u32 = 0x00020000;
+    #[classattr]
+    const LIST_INDEX: u32 = 0x0B33;
+    #[classattr]
+    const LIST_MODE: u32 = 0x0B30;
+    #[classattr]
+    const LOAD: u32 = 0x0101;
+    #[classattr]
+    const LOGIC_OP: u32 = 0x0BF1;
+    #[classattr]
+    const LOGIC_OP_MODE: u32 = 0x0BF0;
+    #[classattr]
+    const LOWER_LEFT: u32 = 0x8CA1;
+    #[classattr]
+    const LOW_FLOAT: u32 = 0x8DF0;
+    #[classattr]
+    const LOW_INT: u32 = 0x8DF3;
+    #[classattr]
+    const LUMINANCE: u32 = 0x1909;
+    #[classattr]
+    const LUMINANCE12: u32 = 0x8041;
+    #[classattr]
+    const LUMINANCE12_ALPHA12: u32 = 0x8047;
+    #[classattr]
+    const LUMINANCE12_ALPHA4: u32 = 0x8046;
+    #[classattr]
+    const LUMINANCE16: u32 = 0x8042;
+    #[classattr]
+    const LUMINANCE16F_EXT: u32 = 0x881E;
+    #[classattr]
+    const LUMINANCE16_ALPHA16: u32 = 0x8048;
+    #[classattr]
+    const LUMINANCE32F_EXT: u32 = 0x8818;
+    #[classattr]
+    const LUMINANCE4: u32 = 0x803F;
+    #[classattr]
+    const LUMINANCE4_ALPHA4: u32 = 0x8043;
+    #[classattr]
+    const LUMINANCE6_ALPHA2: u32 = 0x8044;
+    #[classattr]
+    const LUMINANCE8: u32 = 0x8040;
+    #[classattr]
+    const LUMINANCE8_ALPHA8: u32 = 0x8045;
+    #[classattr]
+    const LUMINANCE8_ALPHA8_EXT: u32 = 0x8045;
+    #[classattr]
+    const LUMINANCE8_EXT: u32 = 0x8040;
+    #[classattr]
+    const LUMINANCE_ALPHA: u32 = 0x190A;
+    #[classattr]
+    const LUMINANCE_ALPHA16F_EXT: u32 = 0x881F;
+    #[classattr]
+    const LUMINANCE_ALPHA32F_EXT: u32 = 0x8819;
+    #[classattr]
+    const MAJOR_VERSION: u32 = 0x821B;
+    #[classattr]
+    const MAP1_COLOR_4: u32 = 0x0D90;
+    #[classattr]
+    const MAP1_GRID_DOMAIN: u32 = 0x0DD0;
+    #[classattr]
+    const MAP1_GRID_SEGMENTS: u32 = 0x0DD1;
+    #[classattr]
+    const MAP1_INDEX: u32 = 0x0D91;
+    #[classattr]
+    const MAP1_NORMAL: u32 = 0x0D92;
+    #[classattr]
+    const MAP1_TEXTURE_COORD_1: u32 = 0x0D93;
+    #[classattr]
+    const MAP1_TEXTURE_COORD_2: u32 = 0x0D94;
+    #[classattr]
+    const MAP1_TEXTURE_COORD_3: u32 = 0x0D95;
+    #[classattr]
+    const MAP1_TEXTURE_COORD_4: u32 = 0x0D96;
+    #[classattr]
+    const MAP1_VERTEX_3: u32 = 0x0D97;
+    #[classattr]
+    const MAP1_VERTEX_4: u32 = 0x0D98;
+    #[classattr]
+    const MAP2_COLOR_4: u32 = 0x0DB0;
+    #[classattr]
+    const MAP2_GRID_DOMAIN: u32 = 0x0DD2;
+    #[classattr]
+    const MAP2_GRID_SEGMENTS: u32 = 0x0DD3;
+    #[classattr]
+    const MAP2_INDEX: u32 = 0x0DB1;
+    #[classattr]
+    const MAP2_NORMAL: u32 = 0x0DB2;
+    #[classattr]
+    const MAP2_TEXTURE_COORD_1: u32 = 0x0DB3;
+    #[classattr]
+    const MAP2_TEXTURE_COORD_2: u32 = 0x0DB4;
+    #[classattr]
+    const MAP2_TEXTURE_COORD_3: u32 = 0x0DB5;
+    #[classattr]
+    const MAP2_TEXTURE_COORD_4: u32 = 0x0DB6;
+    #[classattr]
+    const MAP2_VERTEX_3: u32 = 0x0DB7;
+    #[classattr]
+    const MAP2_VERTEX_4: u32 = 0x0DB8;
+    #[classattr]
+    const MAP_COLOR: u32 = 0x0D10;
+    #[classattr]
+    const MAP_FLUSH_EXPLICIT_BIT: u32 = 0x0010;
+    #[classattr]
+    const MAP_INVALIDATE_BUFFER_BIT: u32 = 0x0008;
+    #[classattr]
+    const MAP_INVALIDATE_RANGE_BIT: u32 = 0x0004;
+    #[classattr]
+    const MAP_READ_BIT: u32 = 0x0001;
+    #[classattr]
+    const MAP_STENCIL: u32 = 0x0D11;
+    #[classattr]
+    const MAP_UNSYNCHRONIZED_BIT: u32 = 0x0020;
+    #[classattr]
+    const MAP_WRITE_BIT: u32 = 0x0002;
+    #[classattr]
+    const MATRIX_MODE: u32 = 0x0BA0;
+    #[classattr]
+    const MAX: u32 = 0x8008;
+    #[classattr]
+    const MAX_3D_TEXTURE_SIZE: u32 = 0x8073;
+    #[classattr]
+    const MAX_ARRAY_TEXTURE_LAYERS: u32 = 0x88FF;
+    #[classattr]
+    const MAX_ATTRIB_STACK_DEPTH: u32 = 0x0D35;
+    #[classattr]
+    const MAX_CLIENT_ATTRIB_STACK_DEPTH: u32 = 0x0D3B;
+    #[classattr]
+    const MAX_CLIP_DISTANCES: u32 = 0x0D32;
+    #[classattr]
+    const MAX_CLIP_PLANES: u32 = 0x0D32;
+    #[classattr]
+    const MAX_COLOR_ATTACHMENTS: u32 = 0x8CDF;
+    #[classattr]
+    const MAX_COLOR_TEXTURE_SAMPLES: u32 = 0x910E;
+    #[classattr]
+    const MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS: u32 = 0x8A33;
+    #[classattr]
+    const MAX_COMBINED_GEOMETRY_UNIFORM_COMPONENTS: u32 = 0x8A32;
+    #[classattr]
+    const MAX_COMBINED_TEXTURE_IMAGE_UNITS: u32 = 0x8B4D;
+    #[classattr]
+    const MAX_COMBINED_UNIFORM_BLOCKS: u32 = 0x8A2E;
+    #[classattr]
+    const MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS: u32 = 0x8A31;
+    #[classattr]
+    const MAX_CUBE_MAP_TEXTURE_SIZE: u32 = 0x851C;
+    #[classattr]
+    const MAX_DEBUG_GROUP_STACK_DEPTH: u32 = 0x826C;
+    #[classattr]
+    const MAX_DEBUG_GROUP_STACK_DEPTH_KHR: u32 = 0x826C;
+    #[classattr]
+    const MAX_DEBUG_LOGGED_MESSAGES: u32 = 0x9144;
+    #[classattr]
+    const MAX_DEBUG_LOGGED_MESSAGES_KHR: u32 = 0x9144;
+    #[classattr]
+    const MAX_DEBUG_MESSAGE_LENGTH: u32 = 0x9143;
+    #[classattr]
+    const MAX_DEBUG_MESSAGE_LENGTH_KHR: u32 = 0x9143;
+    #[classattr]
+    const MAX_DEPTH_TEXTURE_SAMPLES: u32 = 0x910F;
+    #[classattr]
+    const MAX_DRAW_BUFFERS: u32 = 0x8824;
+    #[classattr]
+    const MAX_DUAL_SOURCE_DRAW_BUFFERS: u32 = 0x88FC;
+    #[classattr]
+    const MAX_ELEMENTS_INDICES: u32 = 0x80E9;
+    #[classattr]
+    const MAX_ELEMENTS_VERTICES: u32 = 0x80E8;
+    #[classattr]
+    const MAX_ELEMENT_INDEX: u32 = 0x8D6B;
+    #[classattr]
+    const MAX_EVAL_ORDER: u32 = 0x0D30;
+    #[classattr]
+    const MAX_FRAGMENT_INPUT_COMPONENTS: u32 = 0x9125;
+    #[classattr]
+    const MAX_FRAGMENT_UNIFORM_BLOCKS: u32 = 0x8A2D;
+    #[classattr]
+    const MAX_FRAGMENT_UNIFORM_COMPONENTS: u32 = 0x8B49;
+    #[classattr]
+    const MAX_FRAGMENT_UNIFORM_VECTORS: u32 = 0x8DFD;
+    #[classattr]
+    const MAX_GEOMETRY_INPUT_COMPONENTS: u32 = 0x9123;
+    #[classattr]
+    const MAX_GEOMETRY_OUTPUT_COMPONENTS: u32 = 0x9124;
+    #[classattr]
+    const MAX_GEOMETRY_OUTPUT_VERTICES: u32 = 0x8DE0;
+    #[classattr]
+    const MAX_GEOMETRY_TEXTURE_IMAGE_UNITS: u32 = 0x8C29;
+    #[classattr]
+    const MAX_GEOMETRY_TOTAL_OUTPUT_COMPONENTS: u32 = 0x8DE1;
+    #[classattr]
+    const MAX_GEOMETRY_UNIFORM_BLOCKS: u32 = 0x8A2C;
+    #[classattr]
+    const MAX_GEOMETRY_UNIFORM_COMPONENTS: u32 = 0x8DDF;
+    #[classattr]
+    const MAX_INTEGER_SAMPLES: u32 = 0x9110;
+    #[classattr]
+    const MAX_LABEL_LENGTH: u32 = 0x82E8;
+    #[classattr]
+    const MAX_LABEL_LENGTH_KHR: u32 = 0x82E8;
+    #[classattr]
+    const MAX_LIGHTS: u32 = 0x0D31;
+    #[classattr]
+    const MAX_LIST_NESTING: u32 = 0x0B31;
+    #[classattr]
+    const MAX_MODELVIEW_STACK_DEPTH: u32 = 0x0D36;
+    #[classattr]
+    const MAX_NAME_STACK_DEPTH: u32 = 0x0D37;
+    #[classattr]
+    const MAX_PIXEL_MAP_TABLE: u32 = 0x0D34;
+    #[classattr]
+    const MAX_PROGRAM_TEXEL_OFFSET: u32 = 0x8905;
+    #[classattr]
+    const MAX_PROJECTION_STACK_DEPTH: u32 = 0x0D38;
+    #[classattr]
+    const MAX_RECTANGLE_TEXTURE_SIZE: u32 = 0x84F8;
+    #[classattr]
+    const MAX_RECTANGLE_TEXTURE_SIZE_ARB: u32 = 0x84F8;
+    #[classattr]
+    const MAX_RENDERBUFFER_SIZE: u32 = 0x84E8;
+    #[classattr]
+    const MAX_SAMPLES: u32 = 0x8D57;
+    #[classattr]
+    const MAX_SAMPLE_MASK_WORDS: u32 = 0x8E59;
+    #[classattr]
+    const MAX_SERVER_WAIT_TIMEOUT: u32 = 0x9111;
+    #[classattr]
+    const MAX_SHADER_PIXEL_LOCAL_STORAGE_FAST_SIZE_EXT: u32 = 0x8F63;
+    #[classattr]
+    const MAX_SHADER_PIXEL_LOCAL_STORAGE_SIZE_EXT: u32 = 0x8F67;
+    #[classattr]
+    const MAX_TEXTURE_BUFFER_SIZE: u32 = 0x8C2B;
+    #[classattr]
+    const MAX_TEXTURE_COORDS: u32 = 0x8871;
+    #[classattr]
+    const MAX_TEXTURE_IMAGE_UNITS: u32 = 0x8872;
+    #[classattr]
+    const MAX_TEXTURE_LOD_BIAS: u32 = 0x84FD;
+    #[classattr]
+    const MAX_TEXTURE_MAX_ANISOTROPY_EXT: u32 = 0x84FF;
+    #[classattr]
+    const MAX_TEXTURE_SIZE: u32 = 0x0D33;
+    #[classattr]
+    const MAX_TEXTURE_STACK_DEPTH: u32 = 0x0D39;
+    #[classattr]
+    const MAX_TEXTURE_UNITS: u32 = 0x84E2;
+    #[classattr]
+    const MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS: u32 = 0x8C8A;
+    #[classattr]
+    const MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS: u32 = 0x8C8B;
+    #[classattr]
+    const MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS: u32 = 0x8C80;
+    #[classattr]
+    const MAX_UNIFORM_BLOCK_SIZE: u32 = 0x8A30;
+    #[classattr]
+    const MAX_UNIFORM_BUFFER_BINDINGS: u32 = 0x8A2F;
+    #[classattr]
+    const MAX_VARYING_COMPONENTS: u32 = 0x8B4B;
+    #[classattr]
+    const MAX_VARYING_FLOATS: u32 = 0x8B4B;
+    #[classattr]
+    const MAX_VARYING_VECTORS: u32 = 0x8DFC;
+    #[classattr]
+    const MAX_VERTEX_ATTRIBS: u32 = 0x8869;
+    #[classattr]
+    const MAX_VERTEX_OUTPUT_COMPONENTS: u32 = 0x9122;
+    #[classattr]
+    const MAX_VERTEX_TEXTURE_IMAGE_UNITS: u32 = 0x8B4C;
+    #[classattr]
+    const MAX_VERTEX_UNIFORM_BLOCKS: u32 = 0x8A2B;
+    #[classattr]
+    const MAX_VERTEX_UNIFORM_COMPONENTS: u32 = 0x8B4A;
+    #[classattr]
+    const MAX_VERTEX_UNIFORM_VECTORS: u32 = 0x8DFB;
+    #[classattr]
+    const MAX_VIEWPORT_DIMS: u32 = 0x0D3A;
+    #[classattr]
+    const MEDIUM_FLOAT: u32 = 0x8DF1;
+    #[classattr]
+    const MEDIUM_INT: u32 = 0x8DF4;
+    #[classattr]
+    const MIN: u32 = 0x8007;
+    #[classattr]
+    const MINOR_VERSION: u32 = 0x821C;
+    #[classattr]
+    const MIN_PROGRAM_TEXEL_OFFSET: u32 = 0x8904;
+    #[classattr]
+    const MIRRORED_REPEAT: u32 = 0x8370;
+    #[classattr]
+    const MODELVIEW: u32 = 0x1700;
+    #[classattr]
+    const MODELVIEW_MATRIX: u32 = 0x0BA6;
+    #[classattr]
+    const MODELVIEW_STACK_DEPTH: u32 = 0x0BA3;
+    #[classattr]
+    const MODULATE: u32 = 0x2100;
+    #[classattr]
+    const MULT: u32 = 0x0103;
+    #[classattr]
+    const MULTIPLY_KHR: u32 = 0x9294;
+    #[classattr]
+    const MULTISAMPLE: u32 = 0x809D;
+    #[classattr]
+    const MULTISAMPLE_BIT: u32 = 0x20000000;
+    #[classattr]
+    const N3F_V3F: u32 = 0x2A25;
+    #[classattr]
+    const NAME_STACK_DEPTH: u32 = 0x0D70;
+    #[classattr]
+    const NAND: u32 = 0x150E;
+    #[classattr]
+    const NEAREST: u32 = 0x2600;
+    #[classattr]
+    const NEAREST_MIPMAP_LINEAR: u32 = 0x2702;
+    #[classattr]
+    const NEAREST_MIPMAP_NEAREST: u32 = 0x2700;
+    #[classattr]
+    const NEVER: u32 = 0x0200;
+    #[classattr]
+    const NICEST: u32 = 0x1102;
+    #[classattr]
+    const NONE: u32 = 0;
+    #[classattr]
+    const NOOP: u32 = 0x1505;
+    #[classattr]
+    const NOR: u32 = 0x1508;
+    #[classattr]
+    const NORMALIZE: u32 = 0x0BA1;
+    #[classattr]
+    const NORMAL_ARRAY: u32 = 0x8075;
+    #[classattr]
+    const NORMAL_ARRAY_BUFFER_BINDING: u32 = 0x8897;
+    #[classattr]
+    const NORMAL_ARRAY_POINTER: u32 = 0x808F;
+    #[classattr]
+    const NORMAL_ARRAY_STRIDE: u32 = 0x807F;
+    #[classattr]
+    const NORMAL_ARRAY_TYPE: u32 = 0x807E;
+    #[classattr]
+    const NORMAL_MAP: u32 = 0x8511;
+    #[classattr]
+    const NOTEQUAL: u32 = 0x0205;
+    #[classattr]
+    const NO_ERROR: u32 = 0;
+    #[classattr]
+    const NUM_COMPRESSED_TEXTURE_FORMATS: u32 = 0x86A2;
+    #[classattr]
+    const NUM_EXTENSIONS: u32 = 0x821D;
+    #[classattr]
+    const NUM_PROGRAM_BINARY_FORMATS: u32 = 0x87FE;
+    #[classattr]
+    const NUM_SAMPLE_COUNTS: u32 = 0x9380;
+    #[classattr]
+    const NUM_SHADER_BINARY_FORMATS: u32 = 0x8DF9;
+    #[classattr]
+    const OBJECT_LINEAR: u32 = 0x2401;
+    #[classattr]
+    const OBJECT_PLANE: u32 = 0x2501;
+    #[classattr]
+    const OBJECT_TYPE: u32 = 0x9112;
+    #[classattr]
+    const ONE: u32 = 1;
+    #[classattr]
+    const ONE_MINUS_CONSTANT_ALPHA: u32 = 0x8004;
+    #[classattr]
+    const ONE_MINUS_CONSTANT_COLOR: u32 = 0x8002;
+    #[classattr]
+    const ONE_MINUS_DST_ALPHA: u32 = 0x0305;
+    #[classattr]
+    const ONE_MINUS_DST_COLOR: u32 = 0x0307;
+    #[classattr]
+    const ONE_MINUS_SRC1_ALPHA: u32 = 0x88FB;
+    #[classattr]
+    const ONE_MINUS_SRC1_COLOR: u32 = 0x88FA;
+    #[classattr]
+    const ONE_MINUS_SRC_ALPHA: u32 = 0x0303;
+    #[classattr]
+    const ONE_MINUS_SRC_COLOR: u32 = 0x0301;
+    #[classattr]
+    const OPERAND0_ALPHA: u32 = 0x8598;
+    #[classattr]
+    const OPERAND0_RGB: u32 = 0x8590;
+    #[classattr]
+    const OPERAND1_ALPHA: u32 = 0x8599;
+    #[classattr]
+    const OPERAND1_RGB: u32 = 0x8591;
+    #[classattr]
+    const OPERAND2_ALPHA: u32 = 0x859A;
+    #[classattr]
+    const OPERAND2_RGB: u32 = 0x8592;
+    #[classattr]
+    const OR: u32 = 0x1507;
+    #[classattr]
+    const ORDER: u32 = 0x0A01;
+    #[classattr]
+    const OR_INVERTED: u32 = 0x150D;
+    #[classattr]
+    const OR_REVERSE: u32 = 0x150B;
+    #[classattr]
+    const OUT_OF_MEMORY: u32 = 0x0505;
+    #[classattr]
+    const OVERLAY_KHR: u32 = 0x9296;
+    #[classattr]
+    const PACK_ALIGNMENT: u32 = 0x0D05;
+    #[classattr]
+    const PACK_IMAGE_HEIGHT: u32 = 0x806C;
+    #[classattr]
+    const PACK_LSB_FIRST: u32 = 0x0D01;
+    #[classattr]
+    const PACK_ROW_LENGTH: u32 = 0x0D02;
+    #[classattr]
+    const PACK_SKIP_IMAGES: u32 = 0x806B;
+    #[classattr]
+    const PACK_SKIP_PIXELS: u32 = 0x0D04;
+    #[classattr]
+    const PACK_SKIP_ROWS: u32 = 0x0D03;
+    #[classattr]
+    const PACK_SWAP_BYTES: u32 = 0x0D00;
+    #[classattr]
+    const PASS_THROUGH_TOKEN: u32 = 0x0700;
+    #[classattr]
+    const PERSPECTIVE_CORRECTION_HINT: u32 = 0x0C50;
+    #[classattr]
+    const PIXEL_MAP_A_TO_A: u32 = 0x0C79;
+    #[classattr]
+    const PIXEL_MAP_A_TO_A_SIZE: u32 = 0x0CB9;
+    #[classattr]
+    const PIXEL_MAP_B_TO_B: u32 = 0x0C78;
+    #[classattr]
+    const PIXEL_MAP_B_TO_B_SIZE: u32 = 0x0CB8;
+    #[classattr]
+    const PIXEL_MAP_G_TO_G: u32 = 0x0C77;
+    #[classattr]
+    const PIXEL_MAP_G_TO_G_SIZE: u32 = 0x0CB7;
+    #[classattr]
+    const PIXEL_MAP_I_TO_A: u32 = 0x0C75;
+    #[classattr]
+    const PIXEL_MAP_I_TO_A_SIZE: u32 = 0x0CB5;
+    #[classattr]
+    const PIXEL_MAP_I_TO_B: u32 = 0x0C74;
+    #[classattr]
+    const PIXEL_MAP_I_TO_B_SIZE: u32 = 0x0CB4;
+    #[classattr]
+    const PIXEL_MAP_I_TO_G: u32 = 0x0C73;
+    #[classattr]
+    const PIXEL_MAP_I_TO_G_SIZE: u32 = 0x0CB3;
+    #[classattr]
+    const PIXEL_MAP_I_TO_I: u32 = 0x0C70;
+    #[classattr]
+    const PIXEL_MAP_I_TO_I_SIZE: u32 = 0x0CB0;
+    #[classattr]
+    const PIXEL_MAP_I_TO_R: u32 = 0x0C72;
+    #[classattr]
+    const PIXEL_MAP_I_TO_R_SIZE: u32 = 0x0CB2;
+    #[classattr]
+    const PIXEL_MAP_R_TO_R: u32 = 0x0C76;
+    #[classattr]
+    const PIXEL_MAP_R_TO_R_SIZE: u32 = 0x0CB6;
+    #[classattr]
+    const PIXEL_MAP_S_TO_S: u32 = 0x0C71;
+    #[classattr]
+    const PIXEL_MAP_S_TO_S_SIZE: u32 = 0x0CB1;
+    #[classattr]
+    const PIXEL_MODE_BIT: u32 = 0x00000020;
+    #[classattr]
+    const PIXEL_PACK_BUFFER: u32 = 0x88EB;
+    #[classattr]
+    const PIXEL_PACK_BUFFER_BINDING: u32 = 0x88ED;
+    #[classattr]
+    const PIXEL_UNPACK_BUFFER: u32 = 0x88EC;
+    #[classattr]
+    const PIXEL_UNPACK_BUFFER_BINDING: u32 = 0x88EF;
+    #[classattr]
+    const POINT: u32 = 0x1B00;
+    #[classattr]
+    const POINTS: u32 = 0x0000;
+    #[classattr]
+    const POINT_BIT: u32 = 0x00000002;
+    #[classattr]
+    const POINT_DISTANCE_ATTENUATION: u32 = 0x8129;
+    #[classattr]
+    const POINT_FADE_THRESHOLD_SIZE: u32 = 0x8128;
+    #[classattr]
+    const POINT_SIZE: u32 = 0x0B11;
+    #[classattr]
+    const POINT_SIZE_GRANULARITY: u32 = 0x0B13;
+    #[classattr]
+    const POINT_SIZE_MAX: u32 = 0x8127;
+    #[classattr]
+    const POINT_SIZE_MIN: u32 = 0x8126;
+    #[classattr]
+    const POINT_SIZE_RANGE: u32 = 0x0B12;
+    #[classattr]
+    const POINT_SMOOTH: u32 = 0x0B10;
+    #[classattr]
+    const POINT_SMOOTH_HINT: u32 = 0x0C51;
+    #[classattr]
+    const POINT_SPRITE: u32 = 0x8861;
+    #[classattr]
+    const POINT_SPRITE_COORD_ORIGIN: u32 = 0x8CA0;
+    #[classattr]
+    const POINT_TOKEN: u32 = 0x0701;
+    #[classattr]
+    const POLYGON: u32 = 0x0009;
+    #[classattr]
+    const POLYGON_BIT: u32 = 0x00000008;
+    #[classattr]
+    const POLYGON_MODE: u32 = 0x0B40;
+    #[classattr]
+    const POLYGON_OFFSET_FACTOR: u32 = 0x8038;
+    #[classattr]
+    const POLYGON_OFFSET_FILL: u32 = 0x8037;
+    #[classattr]
+    const POLYGON_OFFSET_LINE: u32 = 0x2A02;
+    #[classattr]
+    const POLYGON_OFFSET_POINT: u32 = 0x2A01;
+    #[classattr]
+    const POLYGON_OFFSET_UNITS: u32 = 0x2A00;
+    #[classattr]
+    const POLYGON_SMOOTH: u32 = 0x0B41;
+    #[classattr]
+    const POLYGON_SMOOTH_HINT: u32 = 0x0C53;
+    #[classattr]
+    const POLYGON_STIPPLE: u32 = 0x0B42;
+    #[classattr]
+    const POLYGON_STIPPLE_BIT: u32 = 0x00000010;
+    #[classattr]
+    const POLYGON_TOKEN: u32 = 0x0703;
+    #[classattr]
+    const POSITION: u32 = 0x1203;
+    #[classattr]
+    const PREVIOUS: u32 = 0x8578;
+    #[classattr]
+    const PRIMARY_COLOR: u32 = 0x8577;
+    #[classattr]
+    const PRIMITIVES_GENERATED: u32 = 0x8C87;
+    #[classattr]
+    const PRIMITIVE_RESTART: u32 = 0x8F9D;
+    #[classattr]
+    const PRIMITIVE_RESTART_FIXED_INDEX: u32 = 0x8D69;
+    #[classattr]
+    const PRIMITIVE_RESTART_INDEX: u32 = 0x8F9E;
+    #[classattr]
+    const PROGRAM: u32 = 0x82E2;
+    #[classattr]
+    const PROGRAM_BINARY_FORMATS: u32 = 0x87FF;
+    #[classattr]
+    const PROGRAM_BINARY_LENGTH: u32 = 0x8741;
+    #[classattr]
+    const PROGRAM_BINARY_RETRIEVABLE_HINT: u32 = 0x8257;
+    #[classattr]
+    const PROGRAM_KHR: u32 = 0x82E2;
+    #[classattr]
+    const PROGRAM_PIPELINE: u32 = 0x82E4;
+    #[classattr]
+    const PROGRAM_PIPELINE_KHR: u32 = 0x82E4;
+    #[classattr]
+    const PROGRAM_POINT_SIZE: u32 = 0x8642;
+    #[classattr]
+    const PROJECTION: u32 = 0x1701;
+    #[classattr]
+    const PROJECTION_MATRIX: u32 = 0x0BA7;
+    #[classattr]
+    const PROJECTION_STACK_DEPTH: u32 = 0x0BA4;
+    #[classattr]
+    const PROVOKING_VERTEX: u32 = 0x8E4F;
+    #[classattr]
+    const PROXY_TEXTURE_1D: u32 = 0x8063;
+    #[classattr]
+    const PROXY_TEXTURE_1D_ARRAY: u32 = 0x8C19;
+    #[classattr]
+    const PROXY_TEXTURE_2D: u32 = 0x8064;
+    #[classattr]
+    const PROXY_TEXTURE_2D_ARRAY: u32 = 0x8C1B;
+    #[classattr]
+    const PROXY_TEXTURE_2D_MULTISAMPLE: u32 = 0x9101;
+    #[classattr]
+    const PROXY_TEXTURE_2D_MULTISAMPLE_ARRAY: u32 = 0x9103;
+    #[classattr]
+    const PROXY_TEXTURE_3D: u32 = 0x8070;
+    #[classattr]
+    const PROXY_TEXTURE_CUBE_MAP: u32 = 0x851B;
+    #[classattr]
+    const PROXY_TEXTURE_RECTANGLE: u32 = 0x84F7;
+    #[classattr]
+    const PROXY_TEXTURE_RECTANGLE_ARB: u32 = 0x84F7;
+    #[classattr]
+    const Q: u32 = 0x2003;
+    #[classattr]
+    const QUADRATIC_ATTENUATION: u32 = 0x1209;
+    #[classattr]
+    const QUADS: u32 = 0x0007;
+    #[classattr]
+    const QUADS_FOLLOW_PROVOKING_VERTEX_CONVENTION: u32 = 0x8E4C;
+    #[classattr]
+    const QUAD_STRIP: u32 = 0x0008;
+    #[classattr]
+    const QUERY: u32 = 0x82E3;
+    #[classattr]
+    const QUERY_BY_REGION_NO_WAIT: u32 = 0x8E16;
+    #[classattr]
+    const QUERY_BY_REGION_WAIT: u32 = 0x8E15;
+    #[classattr]
+    const QUERY_COUNTER_BITS: u32 = 0x8864;
+    #[classattr]
+    const QUERY_COUNTER_BITS_EXT: u32 = 0x8864;
+    #[classattr]
+    const QUERY_KHR: u32 = 0x82E3;
+    #[classattr]
+    const QUERY_NO_WAIT: u32 = 0x8E14;
+    #[classattr]
+    const QUERY_RESULT: u32 = 0x8866;
+    #[classattr]
+    const QUERY_RESULT_AVAILABLE: u32 = 0x8867;
+    #[classattr]
+    const QUERY_RESULT_AVAILABLE_EXT: u32 = 0x8867;
+    #[classattr]
+    const QUERY_RESULT_EXT: u32 = 0x8866;
+    #[classattr]
+    const QUERY_WAIT: u32 = 0x8E13;
+    #[classattr]
+    const R: u32 = 0x2002;
+    #[classattr]
+    const R11F_G11F_B10F: u32 = 0x8C3A;
+    #[classattr]
+    const R16: u32 = 0x822A;
+    #[classattr]
+    const R16F: u32 = 0x822D;
+    #[classattr]
+    const R16F_EXT: u32 = 0x822D;
+    #[classattr]
+    const R16I: u32 = 0x8233;
+    #[classattr]
+    const R16UI: u32 = 0x8234;
+    #[classattr]
+    const R16_SNORM: u32 = 0x8F98;
+    #[classattr]
+    const R32F: u32 = 0x822E;
+    #[classattr]
+    const R32F_EXT: u32 = 0x822E;
+    #[classattr]
+    const R32I: u32 = 0x8235;
+    #[classattr]
+    const R32UI: u32 = 0x8236;
+    #[classattr]
+    const R3_G3_B2: u32 = 0x2A10;
+    #[classattr]
+    const R8: u32 = 0x8229;
+    #[classattr]
+    const R8I: u32 = 0x8231;
+    #[classattr]
+    const R8UI: u32 = 0x8232;
+    #[classattr]
+    const R8_EXT: u32 = 0x8229;
+    #[classattr]
+    const R8_SNORM: u32 = 0x8F94;
+    #[classattr]
+    const RASTERIZER_DISCARD: u32 = 0x8C89;
+    #[classattr]
+    const READ_BUFFER: u32 = 0x0C02;
+    #[classattr]
+    const READ_FRAMEBUFFER: u32 = 0x8CA8;
+    #[classattr]
+    const READ_FRAMEBUFFER_BINDING: u32 = 0x8CAA;
+    #[classattr]
+    const READ_ONLY: u32 = 0x88B8;
+    #[classattr]
+    const READ_WRITE: u32 = 0x88BA;
+    #[classattr]
+    const RED: u32 = 0x1903;
+    #[classattr]
+    const RED_BIAS: u32 = 0x0D15;
+    #[classattr]
+    const RED_BITS: u32 = 0x0D52;
+    #[classattr]
+    const RED_INTEGER: u32 = 0x8D94;
+    #[classattr]
+    const RED_SCALE: u32 = 0x0D14;
+    #[classattr]
+    const REFLECTION_MAP: u32 = 0x8512;
+    #[classattr]
+    const RENDER: u32 = 0x1C00;
+    #[classattr]
+    const RENDERBUFFER: u32 = 0x8D41;
+    #[classattr]
+    const RENDERBUFFER_ALPHA_SIZE: u32 = 0x8D53;
+    #[classattr]
+    const RENDERBUFFER_BINDING: u32 = 0x8CA7;
+    #[classattr]
+    const RENDERBUFFER_BLUE_SIZE: u32 = 0x8D52;
+    #[classattr]
+    const RENDERBUFFER_DEPTH_SIZE: u32 = 0x8D54;
+    #[classattr]
+    const RENDERBUFFER_GREEN_SIZE: u32 = 0x8D51;
+    #[classattr]
+    const RENDERBUFFER_HEIGHT: u32 = 0x8D43;
+    #[classattr]
+    const RENDERBUFFER_INTERNAL_FORMAT: u32 = 0x8D44;
+    #[classattr]
+    const RENDERBUFFER_RED_SIZE: u32 = 0x8D50;
+    #[classattr]
+    const RENDERBUFFER_SAMPLES: u32 = 0x8CAB;
+    #[classattr]
+    const RENDERBUFFER_STENCIL_SIZE: u32 = 0x8D55;
+    #[classattr]
+    const RENDERBUFFER_WIDTH: u32 = 0x8D42;
+    #[classattr]
+    const RENDERER: u32 = 0x1F01;
+    #[classattr]
+    const RENDER_MODE: u32 = 0x0C40;
+    #[classattr]
+    const REPEAT: u32 = 0x2901;
+    #[classattr]
+    const REPLACE: u32 = 0x1E01;
+    #[classattr]
+    const REQUIRED_TEXTURE_IMAGE_UNITS_OES: u32 = 0x8D68;
+    #[classattr]
+    const RESCALE_NORMAL: u32 = 0x803A;
+    #[classattr]
+    const RETURN: u32 = 0x0102;
+    #[classattr]
+    const RG: u32 = 0x8227;
+    #[classattr]
+    const RG16: u32 = 0x822C;
+    #[classattr]
+    const RG16F: u32 = 0x822F;
+    #[classattr]
+    const RG16F_EXT: u32 = 0x822F;
+    #[classattr]
+    const RG16I: u32 = 0x8239;
+    #[classattr]
+    const RG16UI: u32 = 0x823A;
+    #[classattr]
+    const RG16_SNORM: u32 = 0x8F99;
+    #[classattr]
+    const RG32F: u32 = 0x8230;
+    #[classattr]
+    const RG32F_EXT: u32 = 0x8230;
+    #[classattr]
+    const RG32I: u32 = 0x823B;
+    #[classattr]
+    const RG32UI: u32 = 0x823C;
+    #[classattr]
+    const RG8: u32 = 0x822B;
+    #[classattr]
+    const RG8I: u32 = 0x8237;
+    #[classattr]
+    const RG8UI: u32 = 0x8238;
+    #[classattr]
+    const RG8_EXT: u32 = 0x822B;
+    #[classattr]
+    const RG8_SNORM: u32 = 0x8F95;
+    #[classattr]
+    const RGB: u32 = 0x1907;
+    #[classattr]
+    const RGB10: u32 = 0x8052;
+    #[classattr]
+    const RGB10_A2: u32 = 0x8059;
+    #[classattr]
+    const RGB10_A2UI: u32 = 0x906F;
+    #[classattr]
+    const RGB10_A2_EXT: u32 = 0x8059;
+    #[classattr]
+    const RGB10_EXT: u32 = 0x8052;
+    #[classattr]
+    const RGB12: u32 = 0x8053;
+    #[classattr]
+    const RGB16: u32 = 0x8054;
+    #[classattr]
+    const RGB16F: u32 = 0x881B;
+    #[classattr]
+    const RGB16F_EXT: u32 = 0x881B;
+    #[classattr]
+    const RGB16I: u32 = 0x8D89;
+    #[classattr]
+    const RGB16UI: u32 = 0x8D77;
+    #[classattr]
+    const RGB16_SNORM: u32 = 0x8F9A;
+    #[classattr]
+    const RGB32F: u32 = 0x8815;
+    #[classattr]
+    const RGB32F_EXT: u32 = 0x8815;
+    #[classattr]
+    const RGB32I: u32 = 0x8D83;
+    #[classattr]
+    const RGB32UI: u32 = 0x8D71;
+    #[classattr]
+    const RGB4: u32 = 0x804F;
+    #[classattr]
+    const RGB5: u32 = 0x8050;
+    #[classattr]
+    const RGB565: u32 = 0x8D62;
+    #[classattr]
+    const RGB5_A1: u32 = 0x8057;
+    #[classattr]
+    const RGB8: u32 = 0x8051;
+    #[classattr]
+    const RGB8I: u32 = 0x8D8F;
+    #[classattr]
+    const RGB8UI: u32 = 0x8D7D;
+    #[classattr]
+    const RGB8_SNORM: u32 = 0x8F96;
+    #[classattr]
+    const RGB9_E5: u32 = 0x8C3D;
+    #[classattr]
+    const RGBA: u32 = 0x1908;
+    #[classattr]
+    const RGBA12: u32 = 0x805A;
+    #[classattr]
+    const RGBA16: u32 = 0x805B;
+    #[classattr]
+    const RGBA16F: u32 = 0x881A;
+    #[classattr]
+    const RGBA16F_EXT: u32 = 0x881A;
+    #[classattr]
+    const RGBA16I: u32 = 0x8D88;
+    #[classattr]
+    const RGBA16UI: u32 = 0x8D76;
+    #[classattr]
+    const RGBA16_SNORM: u32 = 0x8F9B;
+    #[classattr]
+    const RGBA2: u32 = 0x8055;
+    #[classattr]
+    const RGBA32F: u32 = 0x8814;
+    #[classattr]
+    const RGBA32F_EXT: u32 = 0x8814;
+    #[classattr]
+    const RGBA32I: u32 = 0x8D82;
+    #[classattr]
+    const RGBA32UI: u32 = 0x8D70;
+    #[classattr]
+    const RGBA4: u32 = 0x8056;
+    #[classattr]
+    const RGBA8: u32 = 0x8058;
+    #[classattr]
+    const RGBA8I: u32 = 0x8D8E;
+    #[classattr]
+    const RGBA8UI: u32 = 0x8D7C;
+    #[classattr]
+    const RGBA8_SNORM: u32 = 0x8F97;
+    #[classattr]
+    const RGBA_INTEGER: u32 = 0x8D99;
+    #[classattr]
+    const RGBA_MODE: u32 = 0x0C31;
+    #[classattr]
+    const RGB_INTEGER: u32 = 0x8D98;
+    #[classattr]
+    const RGB_SCALE: u32 = 0x8573;
+    #[classattr]
+    const RG_INTEGER: u32 = 0x8228;
+    #[classattr]
+    const RIGHT: u32 = 0x0407;
+    #[classattr]
+    const S: u32 = 0x2000;
+    #[classattr]
+    const SAMPLER: u32 = 0x82E6;
+    #[classattr]
+    const SAMPLER_1D: u32 = 0x8B5D;
+    #[classattr]
+    const SAMPLER_1D_ARRAY: u32 = 0x8DC0;
+    #[classattr]
+    const SAMPLER_1D_ARRAY_SHADOW: u32 = 0x8DC3;
+    #[classattr]
+    const SAMPLER_1D_SHADOW: u32 = 0x8B61;
+    #[classattr]
+    const SAMPLER_2D: u32 = 0x8B5E;
+    #[classattr]
+    const SAMPLER_2D_ARRAY: u32 = 0x8DC1;
+    #[classattr]
+    const SAMPLER_2D_ARRAY_SHADOW: u32 = 0x8DC4;
+    #[classattr]
+    const SAMPLER_2D_MULTISAMPLE: u32 = 0x9108;
+    #[classattr]
+    const SAMPLER_2D_MULTISAMPLE_ARRAY: u32 = 0x910B;
+    #[classattr]
+    const SAMPLER_2D_RECT: u32 = 0x8B63;
+    #[classattr]
+    const SAMPLER_2D_RECT_SHADOW: u32 = 0x8B64;
+    #[classattr]
+    const SAMPLER_2D_SHADOW: u32 = 0x8B62;
+    #[classattr]
+    const SAMPLER_3D: u32 = 0x8B5F;
+    #[classattr]
+    const SAMPLER_BINDING: u32 = 0x8919;
+    #[classattr]
+    const SAMPLER_BUFFER: u32 = 0x8DC2;
+    #[classattr]
+    const SAMPLER_CUBE: u32 = 0x8B60;
+    #[classattr]
+    const SAMPLER_CUBE_SHADOW: u32 = 0x8DC5;
+    #[classattr]
+    const SAMPLER_EXTERNAL_OES: u32 = 0x8D66;
+    #[classattr]
+    const SAMPLER_KHR: u32 = 0x82E6;
+    #[classattr]
+    const SAMPLES: u32 = 0x80A9;
+    #[classattr]
+    const SAMPLES_PASSED: u32 = 0x8914;
+    #[classattr]
+    const SAMPLE_ALPHA_TO_COVERAGE: u32 = 0x809E;
+    #[classattr]
+    const SAMPLE_ALPHA_TO_ONE: u32 = 0x809F;
+    #[classattr]
+    const SAMPLE_BUFFERS: u32 = 0x80A8;
+    #[classattr]
+    const SAMPLE_COVERAGE: u32 = 0x80A0;
+    #[classattr]
+    const SAMPLE_COVERAGE_INVERT: u32 = 0x80AB;
+    #[classattr]
+    const SAMPLE_COVERAGE_VALUE: u32 = 0x80AA;
+    #[classattr]
+    const SAMPLE_MASK: u32 = 0x8E51;
+    #[classattr]
+    const SAMPLE_MASK_VALUE: u32 = 0x8E52;
+    #[classattr]
+    const SAMPLE_POSITION: u32 = 0x8E50;
+    #[classattr]
+    const SCISSOR_BIT: u32 = 0x00080000;
+    #[classattr]
+    const SCISSOR_BOX: u32 = 0x0C10;
+    #[classattr]
+    const SCISSOR_TEST: u32 = 0x0C11;
+    #[classattr]
+    const SCREEN_KHR: u32 = 0x9295;
+    #[classattr]
+    const SECONDARY_COLOR_ARRAY: u32 = 0x845E;
+    #[classattr]
+    const SECONDARY_COLOR_ARRAY_BUFFER_BINDING: u32 = 0x889C;
+    #[classattr]
+    const SECONDARY_COLOR_ARRAY_POINTER: u32 = 0x845D;
+    #[classattr]
+    const SECONDARY_COLOR_ARRAY_SIZE: u32 = 0x845A;
+    #[classattr]
+    const SECONDARY_COLOR_ARRAY_STRIDE: u32 = 0x845C;
+    #[classattr]
+    const SECONDARY_COLOR_ARRAY_TYPE: u32 = 0x845B;
+    #[classattr]
+    const SELECT: u32 = 0x1C02;
+    #[classattr]
+    const SELECTION_BUFFER_POINTER: u32 = 0x0DF3;
+    #[classattr]
+    const SELECTION_BUFFER_SIZE: u32 = 0x0DF4;
+    #[classattr]
+    const SEPARATE_ATTRIBS: u32 = 0x8C8D;
+    #[classattr]
+    const SEPARATE_SPECULAR_COLOR: u32 = 0x81FA;
+    #[classattr]
+    const SET: u32 = 0x150F;
+    #[classattr]
+    const SHADER: u32 = 0x82E1;
+    #[classattr]
+    const SHADER_BINARY_FORMATS: u32 = 0x8DF8;
+    #[classattr]
+    const SHADER_COMPILER: u32 = 0x8DFA;
+    #[classattr]
+    const SHADER_KHR: u32 = 0x82E1;
+    #[classattr]
+    const SHADER_PIXEL_LOCAL_STORAGE_EXT: u32 = 0x8F64;
+    #[classattr]
+    const SHADER_SOURCE_LENGTH: u32 = 0x8B88;
+    #[classattr]
+    const SHADER_TYPE: u32 = 0x8B4F;
+    #[classattr]
+    const SHADE_MODEL: u32 = 0x0B54;
+    #[classattr]
+    const SHADING_LANGUAGE_VERSION: u32 = 0x8B8C;
+    #[classattr]
+    const SHININESS: u32 = 0x1601;
+    #[classattr]
+    const SHORT: u32 = 0x1402;
+    #[classattr]
+    const SIGNALED: u32 = 0x9119;
+    #[classattr]
+    const SIGNED_NORMALIZED: u32 = 0x8F9C;
+    #[classattr]
+    const SINGLE_COLOR: u32 = 0x81F9;
+    #[classattr]
+    const SLUMINANCE: u32 = 0x8C46;
+    #[classattr]
+    const SLUMINANCE8: u32 = 0x8C47;
+    #[classattr]
+    const SLUMINANCE8_ALPHA8: u32 = 0x8C45;
+    #[classattr]
+    const SLUMINANCE_ALPHA: u32 = 0x8C44;
+    #[classattr]
+    const SMOOTH: u32 = 0x1D01;
+    #[classattr]
+    const SMOOTH_LINE_WIDTH_GRANULARITY: u32 = 0x0B23;
+    #[classattr]
+    const SMOOTH_LINE_WIDTH_RANGE: u32 = 0x0B22;
+    #[classattr]
+    const SMOOTH_POINT_SIZE_GRANULARITY: u32 = 0x0B13;
+    #[classattr]
+    const SMOOTH_POINT_SIZE_RANGE: u32 = 0x0B12;
+    #[classattr]
+    const SOFTLIGHT_KHR: u32 = 0x929C;
+    #[classattr]
+    const SOURCE0_ALPHA: u32 = 0x8588;
+    #[classattr]
+    const SOURCE0_RGB: u32 = 0x8580;
+    #[classattr]
+    const SOURCE1_ALPHA: u32 = 0x8589;
+    #[classattr]
+    const SOURCE1_RGB: u32 = 0x8581;
+    #[classattr]
+    const SOURCE2_ALPHA: u32 = 0x858A;
+    #[classattr]
+    const SOURCE2_RGB: u32 = 0x8582;
+    #[classattr]
+    const SPECULAR: u32 = 0x1202;
+    #[classattr]
+    const SPHERE_MAP: u32 = 0x2402;
+    #[classattr]
+    const SPOT_CUTOFF: u32 = 0x1206;
+    #[classattr]
+    const SPOT_DIRECTION: u32 = 0x1204;
+    #[classattr]
+    const SPOT_EXPONENT: u32 = 0x1205;
+    #[classattr]
+    const SRC0_ALPHA: u32 = 0x8588;
+    #[classattr]
+    const SRC0_RGB: u32 = 0x8580;
+    #[classattr]
+    const SRC1_ALPHA: u32 = 0x8589;
+    #[classattr]
+    const SRC1_COLOR: u32 = 0x88F9;
+    #[classattr]
+    const SRC1_RGB: u32 = 0x8581;
+    #[classattr]
+    const SRC2_ALPHA: u32 = 0x858A;
+    #[classattr]
+    const SRC2_RGB: u32 = 0x8582;
+    #[classattr]
+    const SRC_ALPHA: u32 = 0x0302;
+    #[classattr]
+    const SRC_ALPHA_SATURATE: u32 = 0x0308;
+    #[classattr]
+    const SRC_COLOR: u32 = 0x0300;
+    #[classattr]
+    const SRGB: u32 = 0x8C40;
+    #[classattr]
+    const SRGB8: u32 = 0x8C41;
+    #[classattr]
+    const SRGB8_ALPHA8: u32 = 0x8C43;
+    #[classattr]
+    const SRGB_ALPHA: u32 = 0x8C42;
+    #[classattr]
+    const STACK_OVERFLOW: u32 = 0x0503;
+    #[classattr]
+    const STACK_OVERFLOW_KHR: u32 = 0x0503;
+    #[classattr]
+    const STACK_UNDERFLOW: u32 = 0x0504;
+    #[classattr]
+    const STACK_UNDERFLOW_KHR: u32 = 0x0504;
+    #[classattr]
+    const STATIC_COPY: u32 = 0x88E6;
+    #[classattr]
+    const STATIC_DRAW: u32 = 0x88E4;
+    #[classattr]
+    const STATIC_READ: u32 = 0x88E5;
+    #[classattr]
+    const STENCIL: u32 = 0x1802;
+    #[classattr]
+    const STENCIL_ATTACHMENT: u32 = 0x8D20;
+    #[classattr]
+    const STENCIL_BACK_FAIL: u32 = 0x8801;
+    #[classattr]
+    const STENCIL_BACK_FUNC: u32 = 0x8800;
+    #[classattr]
+    const STENCIL_BACK_PASS_DEPTH_FAIL: u32 = 0x8802;
+    #[classattr]
+    const STENCIL_BACK_PASS_DEPTH_PASS: u32 = 0x8803;
+    #[classattr]
+    const STENCIL_BACK_REF: u32 = 0x8CA3;
+    #[classattr]
+    const STENCIL_BACK_VALUE_MASK: u32 = 0x8CA4;
+    #[classattr]
+    const STENCIL_BACK_WRITEMASK: u32 = 0x8CA5;
+    #[classattr]
+    const STENCIL_BITS: u32 = 0x0D57;
+    #[classattr]
+    const STENCIL_BUFFER_BIT: u32 = 0x00000400;
+    #[classattr]
+    const STENCIL_CLEAR_VALUE: u32 = 0x0B91;
+    #[classattr]
+    const STENCIL_FAIL: u32 = 0x0B94;
+    #[classattr]
+    const STENCIL_FUNC: u32 = 0x0B92;
+    #[classattr]
+    const STENCIL_INDEX: u32 = 0x1901;
+    #[classattr]
+    const STENCIL_INDEX1: u32 = 0x8D46;
+    #[classattr]
+    const STENCIL_INDEX16: u32 = 0x8D49;
+    #[classattr]
+    const STENCIL_INDEX4: u32 = 0x8D47;
+    #[classattr]
+    const STENCIL_INDEX8: u32 = 0x8D48;
+    #[classattr]
+    const STENCIL_PASS_DEPTH_FAIL: u32 = 0x0B95;
+    #[classattr]
+    const STENCIL_PASS_DEPTH_PASS: u32 = 0x0B96;
+    #[classattr]
+    const STENCIL_REF: u32 = 0x0B97;
+    #[classattr]
+    const STENCIL_TEST: u32 = 0x0B90;
+    #[classattr]
+    const STENCIL_VALUE_MASK: u32 = 0x0B93;
+    #[classattr]
+    const STENCIL_WRITEMASK: u32 = 0x0B98;
+    #[classattr]
+    const STEREO: u32 = 0x0C33;
+    #[classattr]
+    const STORAGE_CACHED_APPLE: u32 = 0x85BE;
+    #[classattr]
+    const STORAGE_PRIVATE_APPLE: u32 = 0x85BD;
+    #[classattr]
+    const STORAGE_SHARED_APPLE: u32 = 0x85BF;
+    #[classattr]
+    const STREAM_COPY: u32 = 0x88E2;
+    #[classattr]
+    const STREAM_DRAW: u32 = 0x88E0;
+    #[classattr]
+    const STREAM_READ: u32 = 0x88E1;
+    #[classattr]
+    const SUBPIXEL_BITS: u32 = 0x0D50;
+    #[classattr]
+    const SUBTRACT: u32 = 0x84E7;
+    #[classattr]
+    const SYNC_CONDITION: u32 = 0x9113;
+    #[classattr]
+    const SYNC_FENCE: u32 = 0x9116;
+    #[classattr]
+    const SYNC_FLAGS: u32 = 0x9115;
+    #[classattr]
+    const SYNC_FLUSH_COMMANDS_BIT: u32 = 0x00000001;
+    #[classattr]
+    const SYNC_GPU_COMMANDS_COMPLETE: u32 = 0x9117;
+    #[classattr]
+    const SYNC_STATUS: u32 = 0x9114;
+    #[classattr]
+    const T: u32 = 0x2001;
+    #[classattr]
+    const T2F_C3F_V3F: u32 = 0x2A2A;
+    #[classattr]
+    const T2F_C4F_N3F_V3F: u32 = 0x2A2C;
+    #[classattr]
+    const T2F_C4UB_V3F: u32 = 0x2A29;
+    #[classattr]
+    const T2F_N3F_V3F: u32 = 0x2A2B;
+    #[classattr]
+    const T2F_V3F: u32 = 0x2A27;
+    #[classattr]
+    const T4F_C4F_N3F_V4F: u32 = 0x2A2D;
+    #[classattr]
+    const T4F_V4F: u32 = 0x2A28;
+    #[classattr]
+    const TEXTURE: u32 = 0x1702;
+    #[classattr]
+    const TEXTURE0: u32 = 0x84C0;
+    #[classattr]
+    const TEXTURE1: u32 = 0x84C1;
+    #[classattr]
+    const TEXTURE10: u32 = 0x84CA;
+    #[classattr]
+    const TEXTURE11: u32 = 0x84CB;
+    #[classattr]
+    const TEXTURE12: u32 = 0x84CC;
+    #[classattr]
+    const TEXTURE13: u32 = 0x84CD;
+    #[classattr]
+    const TEXTURE14: u32 = 0x84CE;
+    #[classattr]
+    const TEXTURE15: u32 = 0x84CF;
+    #[classattr]
+    const TEXTURE16: u32 = 0x84D0;
+    #[classattr]
+    const TEXTURE17: u32 = 0x84D1;
+    #[classattr]
+    const TEXTURE18: u32 = 0x84D2;
+    #[classattr]
+    const TEXTURE19: u32 = 0x84D3;
+    #[classattr]
+    const TEXTURE2: u32 = 0x84C2;
+    #[classattr]
+    const TEXTURE20: u32 = 0x84D4;
+    #[classattr]
+    const TEXTURE21: u32 = 0x84D5;
+    #[classattr]
+    const TEXTURE22: u32 = 0x84D6;
+    #[classattr]
+    const TEXTURE23: u32 = 0x84D7;
+    #[classattr]
+    const TEXTURE24: u32 = 0x84D8;
+    #[classattr]
+    const TEXTURE25: u32 = 0x84D9;
+    #[classattr]
+    const TEXTURE26: u32 = 0x84DA;
+    #[classattr]
+    const TEXTURE27: u32 = 0x84DB;
+    #[classattr]
+    const TEXTURE28: u32 = 0x84DC;
+    #[classattr]
+    const TEXTURE29: u32 = 0x84DD;
+    #[classattr]
+    const TEXTURE3: u32 = 0x84C3;
+    #[classattr]
+    const TEXTURE30: u32 = 0x84DE;
+    #[classattr]
+    const TEXTURE31: u32 = 0x84DF;
+    #[classattr]
+    const TEXTURE4: u32 = 0x84C4;
+    #[classattr]
+    const TEXTURE5: u32 = 0x84C5;
+    #[classattr]
+    const TEXTURE6: u32 = 0x84C6;
+    #[classattr]
+    const TEXTURE7: u32 = 0x84C7;
+    #[classattr]
+    const TEXTURE8: u32 = 0x84C8;
+    #[classattr]
+    const TEXTURE9: u32 = 0x84C9;
+    #[classattr]
+    const TEXTURE_1D: u32 = 0x0DE0;
+    #[classattr]
+    const TEXTURE_1D_ARRAY: u32 = 0x8C18;
+    #[classattr]
+    const TEXTURE_2D: u32 = 0x0DE1;
+    #[classattr]
+    const TEXTURE_2D_ARRAY: u32 = 0x8C1A;
+    #[classattr]
+    const TEXTURE_2D_MULTISAMPLE: u32 = 0x9100;
+    #[classattr]
+    const TEXTURE_2D_MULTISAMPLE_ARRAY: u32 = 0x9102;
+    #[classattr]
+    const TEXTURE_3D: u32 = 0x806F;
+    #[classattr]
+    const TEXTURE_ALPHA_SIZE: u32 = 0x805F;
+    #[classattr]
+    const TEXTURE_ALPHA_TYPE: u32 = 0x8C13;
+    #[classattr]
+    const TEXTURE_BASE_LEVEL: u32 = 0x813C;
+    #[classattr]
+    const TEXTURE_BINDING_1D: u32 = 0x8068;
+    #[classattr]
+    const TEXTURE_BINDING_1D_ARRAY: u32 = 0x8C1C;
+    #[classattr]
+    const TEXTURE_BINDING_2D: u32 = 0x8069;
+    #[classattr]
+    const TEXTURE_BINDING_2D_ARRAY: u32 = 0x8C1D;
+    #[classattr]
+    const TEXTURE_BINDING_2D_MULTISAMPLE: u32 = 0x9104;
+    #[classattr]
+    const TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY: u32 = 0x9105;
+    #[classattr]
+    const TEXTURE_BINDING_3D: u32 = 0x806A;
+    #[classattr]
+    const TEXTURE_BINDING_BUFFER: u32 = 0x8C2C;
+    #[classattr]
+    const TEXTURE_BINDING_CUBE_MAP: u32 = 0x8514;
+    #[classattr]
+    const TEXTURE_BINDING_EXTERNAL_OES: u32 = 0x8D67;
+    #[classattr]
+    const TEXTURE_BINDING_RECTANGLE: u32 = 0x84F6;
+    #[classattr]
+    const TEXTURE_BINDING_RECTANGLE_ARB: u32 = 0x84F6;
+    #[classattr]
+    const TEXTURE_BIT: u32 = 0x00040000;
+    #[classattr]
+    const TEXTURE_BLUE_SIZE: u32 = 0x805E;
+    #[classattr]
+    const TEXTURE_BLUE_TYPE: u32 = 0x8C12;
+    #[classattr]
+    const TEXTURE_BORDER: u32 = 0x1005;
+    #[classattr]
+    const TEXTURE_BORDER_COLOR: u32 = 0x1004;
+    #[classattr]
+    const TEXTURE_BUFFER: u32 = 0x8C2A;
+    #[classattr]
+    const TEXTURE_BUFFER_DATA_STORE_BINDING: u32 = 0x8C2D;
+    #[classattr]
+    const TEXTURE_COMPARE_FUNC: u32 = 0x884D;
+    #[classattr]
+    const TEXTURE_COMPARE_MODE: u32 = 0x884C;
+    #[classattr]
+    const TEXTURE_COMPONENTS: u32 = 0x1003;
+    #[classattr]
+    const TEXTURE_COMPRESSED: u32 = 0x86A1;
+    #[classattr]
+    const TEXTURE_COMPRESSED_IMAGE_SIZE: u32 = 0x86A0;
+    #[classattr]
+    const TEXTURE_COMPRESSION_HINT: u32 = 0x84EF;
+    #[classattr]
+    const TEXTURE_COORD_ARRAY: u32 = 0x8078;
+    #[classattr]
+    const TEXTURE_COORD_ARRAY_BUFFER_BINDING: u32 = 0x889A;
+    #[classattr]
+    const TEXTURE_COORD_ARRAY_POINTER: u32 = 0x8092;
+    #[classattr]
+    const TEXTURE_COORD_ARRAY_SIZE: u32 = 0x8088;
+    #[classattr]
+    const TEXTURE_COORD_ARRAY_STRIDE: u32 = 0x808A;
+    #[classattr]
+    const TEXTURE_COORD_ARRAY_TYPE: u32 = 0x8089;
+    #[classattr]
+    const TEXTURE_CUBE_MAP: u32 = 0x8513;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_NEGATIVE_X: u32 = 0x8516;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_NEGATIVE_Y: u32 = 0x8518;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_NEGATIVE_Z: u32 = 0x851A;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_POSITIVE_X: u32 = 0x8515;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_POSITIVE_Y: u32 = 0x8517;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_POSITIVE_Z: u32 = 0x8519;
+    #[classattr]
+    const TEXTURE_CUBE_MAP_SEAMLESS: u32 = 0x884F;
+    #[classattr]
+    const TEXTURE_DEPTH: u32 = 0x8071;
+    #[classattr]
+    const TEXTURE_DEPTH_SIZE: u32 = 0x884A;
+    #[classattr]
+    const TEXTURE_DEPTH_TYPE: u32 = 0x8C16;
+    #[classattr]
+    const TEXTURE_ENV: u32 = 0x2300;
+    #[classattr]
+    const TEXTURE_ENV_COLOR: u32 = 0x2201;
+    #[classattr]
+    const TEXTURE_ENV_MODE: u32 = 0x2200;
+    #[classattr]
+    const TEXTURE_EXTERNAL_OES: u32 = 0x8D65;
+    #[classattr]
+    const TEXTURE_FILTER_CONTROL: u32 = 0x8500;
+    #[classattr]
+    const TEXTURE_FIXED_SAMPLE_LOCATIONS: u32 = 0x9107;
+    #[classattr]
+    const TEXTURE_GEN_MODE: u32 = 0x2500;
+    #[classattr]
+    const TEXTURE_GEN_Q: u32 = 0x0C63;
+    #[classattr]
+    const TEXTURE_GEN_R: u32 = 0x0C62;
+    #[classattr]
+    const TEXTURE_GEN_S: u32 = 0x0C60;
+    #[classattr]
+    const TEXTURE_GEN_T: u32 = 0x0C61;
+    #[classattr]
+    const TEXTURE_GREEN_SIZE: u32 = 0x805D;
+    #[classattr]
+    const TEXTURE_GREEN_TYPE: u32 = 0x8C11;
+    #[classattr]
+    const TEXTURE_HEIGHT: u32 = 0x1001;
+    #[classattr]
+    const TEXTURE_IMMUTABLE_FORMAT: u32 = 0x912F;
+    #[classattr]
+    const TEXTURE_IMMUTABLE_FORMAT_EXT: u32 = 0x912F;
+    #[classattr]
+    const TEXTURE_IMMUTABLE_LEVELS: u32 = 0x82DF;
+    #[classattr]
+    const TEXTURE_INTENSITY_SIZE: u32 = 0x8061;
+    #[classattr]
+    const TEXTURE_INTENSITY_TYPE: u32 = 0x8C15;
+    #[classattr]
+    const TEXTURE_INTERNAL_FORMAT: u32 = 0x1003;
+    #[classattr]
+    const TEXTURE_LOD_BIAS: u32 = 0x8501;
+    #[classattr]
+    const TEXTURE_LUMINANCE_SIZE: u32 = 0x8060;
+    #[classattr]
+    const TEXTURE_LUMINANCE_TYPE: u32 = 0x8C14;
+    #[classattr]
+    const TEXTURE_MAG_FILTER: u32 = 0x2800;
+    #[classattr]
+    const TEXTURE_MATRIX: u32 = 0x0BA8;
+    #[classattr]
+    const TEXTURE_MAX_ANISOTROPY_EXT: u32 = 0x84FE;
+    #[classattr]
+    const TEXTURE_MAX_LEVEL: u32 = 0x813D;
+    #[classattr]
+    const TEXTURE_MAX_LOD: u32 = 0x813B;
+    #[classattr]
+    const TEXTURE_MIN_FILTER: u32 = 0x2801;
+    #[classattr]
+    const TEXTURE_MIN_LOD: u32 = 0x813A;
+    #[classattr]
+    const TEXTURE_PRIORITY: u32 = 0x8066;
+    #[classattr]
+    const TEXTURE_RANGE_LENGTH_APPLE: u32 = 0x85B7;
+    #[classattr]
+    const TEXTURE_RANGE_POINTER_APPLE: u32 = 0x85B8;
+    #[classattr]
+    const TEXTURE_RECTANGLE: u32 = 0x84F5;
+    #[classattr]
+    const TEXTURE_RECTANGLE_ARB: u32 = 0x84F5;
+    #[classattr]
+    const TEXTURE_RED_SIZE: u32 = 0x805C;
+    #[classattr]
+    const TEXTURE_RED_TYPE: u32 = 0x8C10;
+    #[classattr]
+    const TEXTURE_RESIDENT: u32 = 0x8067;
+    #[classattr]
+    const TEXTURE_SAMPLES: u32 = 0x9106;
+    #[classattr]
+    const TEXTURE_SHARED_SIZE: u32 = 0x8C3F;
+    #[classattr]
+    const TEXTURE_STACK_DEPTH: u32 = 0x0BA5;
+    #[classattr]
+    const TEXTURE_STENCIL_SIZE: u32 = 0x88F1;
+    #[classattr]
+    const TEXTURE_STORAGE_HINT_APPLE: u32 = 0x85BC;
+    #[classattr]
+    const TEXTURE_SWIZZLE_A: u32 = 0x8E45;
+    #[classattr]
+    const TEXTURE_SWIZZLE_B: u32 = 0x8E44;
+    #[classattr]
+    const TEXTURE_SWIZZLE_G: u32 = 0x8E43;
+    #[classattr]
+    const TEXTURE_SWIZZLE_R: u32 = 0x8E42;
+    #[classattr]
+    const TEXTURE_SWIZZLE_RGBA: u32 = 0x8E46;
+    #[classattr]
+    const TEXTURE_USAGE_ANGLE: u32 = 0x93A2;
+    #[classattr]
+    const TEXTURE_WIDTH: u32 = 0x1000;
+    #[classattr]
+    const TEXTURE_WRAP_R: u32 = 0x8072;
+    #[classattr]
+    const TEXTURE_WRAP_S: u32 = 0x2802;
+    #[classattr]
+    const TEXTURE_WRAP_T: u32 = 0x2803;
+    #[classattr]
+    const TIMEOUT_EXPIRED: u32 = 0x911B;
+    #[classattr]
+    const TIMEOUT_IGNORED: i64 = 0xFFFFFFFFFFFFFFFF;
+    #[classattr]
+    const TIMESTAMP: u32 = 0x8E28;
+    #[classattr]
+    const TIMESTAMP_EXT: u32 = 0x8E28;
+    #[classattr]
+    const TIME_ELAPSED: u32 = 0x88BF;
+    #[classattr]
+    const TIME_ELAPSED_EXT: u32 = 0x88BF;
+    #[classattr]
+    const TRANSFORM_BIT: u32 = 0x00001000;
+    #[classattr]
+    const TRANSFORM_FEEDBACK: u32 = 0x8E22;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_ACTIVE: u32 = 0x8E24;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_BINDING: u32 = 0x8E25;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_BUFFER: u32 = 0x8C8E;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_BUFFER_BINDING: u32 = 0x8C8F;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_BUFFER_MODE: u32 = 0x8C7F;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_BUFFER_SIZE: u32 = 0x8C85;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_BUFFER_START: u32 = 0x8C84;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_PAUSED: u32 = 0x8E23;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN: u32 = 0x8C88;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_VARYINGS: u32 = 0x8C83;
+    #[classattr]
+    const TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH: u32 = 0x8C76;
+    #[classattr]
+    const TRANSPOSE_COLOR_MATRIX: u32 = 0x84E6;
+    #[classattr]
+    const TRANSPOSE_MODELVIEW_MATRIX: u32 = 0x84E3;
+    #[classattr]
+    const TRANSPOSE_PROJECTION_MATRIX: u32 = 0x84E4;
+    #[classattr]
+    const TRANSPOSE_TEXTURE_MATRIX: u32 = 0x84E5;
+    #[classattr]
+    const TRIANGLES: u32 = 0x0004;
+    #[classattr]
+    const TRIANGLES_ADJACENCY: u32 = 0x000C;
+    #[classattr]
+    const TRIANGLE_FAN: u32 = 0x0006;
+    #[classattr]
+    const TRIANGLE_STRIP: u32 = 0x0005;
+    #[classattr]
+    const TRIANGLE_STRIP_ADJACENCY: u32 = 0x000D;
+    #[classattr]
+    const TRUE: u8 = 1;
+    #[classattr]
+    const UNIFORM_ARRAY_STRIDE: u32 = 0x8A3C;
+    #[classattr]
+    const UNIFORM_BLOCK_ACTIVE_UNIFORMS: u32 = 0x8A42;
+    #[classattr]
+    const UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES: u32 = 0x8A43;
+    #[classattr]
+    const UNIFORM_BLOCK_BINDING: u32 = 0x8A3F;
+    #[classattr]
+    const UNIFORM_BLOCK_DATA_SIZE: u32 = 0x8A40;
+    #[classattr]
+    const UNIFORM_BLOCK_INDEX: u32 = 0x8A3A;
+    #[classattr]
+    const UNIFORM_BLOCK_NAME_LENGTH: u32 = 0x8A41;
+    #[classattr]
+    const UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER: u32 = 0x8A46;
+    #[classattr]
+    const UNIFORM_BLOCK_REFERENCED_BY_GEOMETRY_SHADER: u32 = 0x8A45;
+    #[classattr]
+    const UNIFORM_BLOCK_REFERENCED_BY_VERTEX_SHADER: u32 = 0x8A44;
+    #[classattr]
+    const UNIFORM_BUFFER: u32 = 0x8A11;
+    #[classattr]
+    const UNIFORM_BUFFER_BINDING: u32 = 0x8A28;
+    #[classattr]
+    const UNIFORM_BUFFER_OFFSET_ALIGNMENT: u32 = 0x8A34;
+    #[classattr]
+    const UNIFORM_BUFFER_SIZE: u32 = 0x8A2A;
+    #[classattr]
+    const UNIFORM_BUFFER_START: u32 = 0x8A29;
+    #[classattr]
+    const UNIFORM_IS_ROW_MAJOR: u32 = 0x8A3E;
+    #[classattr]
+    const UNIFORM_MATRIX_STRIDE: u32 = 0x8A3D;
+    #[classattr]
+    const UNIFORM_NAME_LENGTH: u32 = 0x8A39;
+    #[classattr]
+    const UNIFORM_OFFSET: u32 = 0x8A3B;
+    #[classattr]
+    const UNIFORM_SIZE: u32 = 0x8A38;
+    #[classattr]
+    const UNIFORM_TYPE: u32 = 0x8A37;
+    #[classattr]
+    const UNPACK_ALIGNMENT: u32 = 0x0CF5;
+    #[classattr]
+    const UNPACK_CLIENT_STORAGE_APPLE: u32 = 0x85B2;
+    #[classattr]
+    const UNPACK_IMAGE_HEIGHT: u32 = 0x806E;
+    #[classattr]
+    const UNPACK_LSB_FIRST: u32 = 0x0CF1;
+    #[classattr]
+    const UNPACK_ROW_LENGTH: u32 = 0x0CF2;
+    #[classattr]
+    const UNPACK_SKIP_IMAGES: u32 = 0x806D;
+    #[classattr]
+    const UNPACK_SKIP_PIXELS: u32 = 0x0CF4;
+    #[classattr]
+    const UNPACK_SKIP_ROWS: u32 = 0x0CF3;
+    #[classattr]
+    const UNPACK_SWAP_BYTES: u32 = 0x0CF0;
+    #[classattr]
+    const UNSIGNALED: u32 = 0x9118;
+    #[classattr]
+    const UNSIGNED_BYTE: u32 = 0x1401;
+    #[classattr]
+    const UNSIGNED_BYTE_2_3_3_REV: u32 = 0x8362;
+    #[classattr]
+    const UNSIGNED_BYTE_3_3_2: u32 = 0x8032;
+    #[classattr]
+    const UNSIGNED_INT: u32 = 0x1405;
+    #[classattr]
+    const UNSIGNED_INT_10F_11F_11F_REV: u32 = 0x8C3B;
+    #[classattr]
+    const UNSIGNED_INT_10_10_10_2: u32 = 0x8036;
+    #[classattr]
+    const UNSIGNED_INT_24_8: u32 = 0x84FA;
+    #[classattr]
+    const UNSIGNED_INT_2_10_10_10_REV: u32 = 0x8368;
+    #[classattr]
+    const UNSIGNED_INT_5_9_9_9_REV: u32 = 0x8C3E;
+    #[classattr]
+    const UNSIGNED_INT_8_8_8_8: u32 = 0x8035;
+    #[classattr]
+    const UNSIGNED_INT_8_8_8_8_REV: u32 = 0x8367;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_1D: u32 = 0x8DD1;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_1D_ARRAY: u32 = 0x8DD6;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_2D: u32 = 0x8DD2;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_2D_ARRAY: u32 = 0x8DD7;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE: u32 = 0x910A;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY: u32 = 0x910D;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_2D_RECT: u32 = 0x8DD5;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_3D: u32 = 0x8DD3;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_BUFFER: u32 = 0x8DD8;
+    #[classattr]
+    const UNSIGNED_INT_SAMPLER_CUBE: u32 = 0x8DD4;
+    #[classattr]
+    const UNSIGNED_INT_VEC2: u32 = 0x8DC6;
+    #[classattr]
+    const UNSIGNED_INT_VEC3: u32 = 0x8DC7;
+    #[classattr]
+    const UNSIGNED_INT_VEC4: u32 = 0x8DC8;
+    #[classattr]
+    const UNSIGNED_NORMALIZED: u32 = 0x8C17;
+    #[classattr]
+    const UNSIGNED_SHORT: u32 = 0x1403;
+    #[classattr]
+    const UNSIGNED_SHORT_1_5_5_5_REV: u32 = 0x8366;
+    #[classattr]
+    const UNSIGNED_SHORT_4_4_4_4: u32 = 0x8033;
+    #[classattr]
+    const UNSIGNED_SHORT_4_4_4_4_REV: u32 = 0x8365;
+    #[classattr]
+    const UNSIGNED_SHORT_5_5_5_1: u32 = 0x8034;
+    #[classattr]
+    const UNSIGNED_SHORT_5_6_5: u32 = 0x8363;
+    #[classattr]
+    const UNSIGNED_SHORT_5_6_5_REV: u32 = 0x8364;
+    #[classattr]
+    const UPPER_LEFT: u32 = 0x8CA2;
+    #[classattr]
+    const V2F: u32 = 0x2A20;
+    #[classattr]
+    const V3F: u32 = 0x2A21;
+    #[classattr]
+    const VALIDATE_STATUS: u32 = 0x8B83;
+    #[classattr]
+    const VENDOR: u32 = 0x1F00;
+    #[classattr]
+    const VERSION: u32 = 0x1F02;
+    #[classattr]
+    const VERTEX_ARRAY: u32 = 0x8074;
+    #[classattr]
+    const VERTEX_ARRAY_BINDING: u32 = 0x85B5;
+    #[classattr]
+    const VERTEX_ARRAY_BINDING_APPLE: u32 = 0x85B5;
+    #[classattr]
+    const VERTEX_ARRAY_BUFFER_BINDING: u32 = 0x8896;
+    #[classattr]
+    const VERTEX_ARRAY_KHR: u32 = 0x8074;
+    #[classattr]
+    const VERTEX_ARRAY_POINTER: u32 = 0x808E;
+    #[classattr]
+    const VERTEX_ARRAY_SIZE: u32 = 0x807A;
+    #[classattr]
+    const VERTEX_ARRAY_STRIDE: u32 = 0x807C;
+    #[classattr]
+    const VERTEX_ARRAY_TYPE: u32 = 0x807B;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_BUFFER_BINDING: u32 = 0x889F;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_DIVISOR: u32 = 0x88FE;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_ENABLED: u32 = 0x8622;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_INTEGER: u32 = 0x88FD;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_NORMALIZED: u32 = 0x886A;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_POINTER: u32 = 0x8645;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_SIZE: u32 = 0x8623;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_STRIDE: u32 = 0x8624;
+    #[classattr]
+    const VERTEX_ATTRIB_ARRAY_TYPE: u32 = 0x8625;
+    #[classattr]
+    const VERTEX_PROGRAM_POINT_SIZE: u32 = 0x8642;
+    #[classattr]
+    const VERTEX_PROGRAM_TWO_SIDE: u32 = 0x8643;
+    #[classattr]
+    const VERTEX_SHADER: u32 = 0x8B31;
+    #[classattr]
+    const VIEWPORT: u32 = 0x0BA2;
+    #[classattr]
+    const VIEWPORT_BIT: u32 = 0x00000800;
+    #[classattr]
+    const WAIT_FAILED: u32 = 0x911D;
+    #[classattr]
+    const WEIGHT_ARRAY_BUFFER_BINDING: u32 = 0x889E;
+    #[classattr]
+    const WRITE_ONLY: u32 = 0x88B9;
+    #[classattr]
+    const XOR: u32 = 0x1506;
+    #[classattr]
+    const ZERO: u32 = 0;
+    #[classattr]
+    const ZOOM_X: u32 = 0x0D16;
+    #[classattr]
+    const ZOOM_Y: u32 = 0x0D17;
+
     fn get_type(&self) -> AzGlTypeEnumWrapper {
         unsafe { mem::transmute(crate::AzGl_getType(
             mem::transmute(self),

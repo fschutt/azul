@@ -1345,11 +1345,21 @@ def generate_python_api(api_data, structs_map, functions_map):
         module = api_data[version][module_name]
         for class_name in module["classes"].keys():
             struct = module["classes"][class_name]
+
+            constants = ""
+            if "constants" in struct.keys():
+                for constant in struct["constants"]:
+                    constant_name = list(constant.keys())[0]
+                    constant_type = constant[constant_name]["type"]
+                    constant_value = constant[constant_name]["value"]
+                    constants += "    #[classattr]\r\n    const " + constant_name + ": " + constant_type + " = " + constant_value + ";\r\n"
+                constants += "\r\n"
+
             if "struct_fields" in struct.keys():
 
                 pyo3_code += "\r\n"
                 pyo3_code += "#[pymethods]\r\n"
-                pyo3_code += "impl " + prefix + class_name + " {\r\n"
+                pyo3_code += "impl " + prefix + class_name + " {\r\n" + constants
                 external = struct["external"]
 
                 if "constructors" in struct.keys():
@@ -1515,7 +1525,7 @@ def generate_python_api(api_data, structs_map, functions_map):
             elif "enum_fields" in struct.keys():
                 pyo3_code += "\r\n"
                 pyo3_code += "#[pymethods]\r\n"
-                pyo3_code += "impl " + prefix + class_name + "EnumWrapper {\r\n"
+                pyo3_code += "impl " + prefix + class_name + "EnumWrapper {\r\n" + constants
 
                 # generate a Enum::Blah(...) constructor function
                 for enum_name in struct["enum_fields"]:
@@ -1850,9 +1860,22 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
             code += "\r\n#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n"
 
-            should_emit_impl = not(class_is_const or class_is_callback_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
+            has_constructors = ("constructors" in c.keys() and len(c["constructors"]) > 0)
+            has_functions = ("functions" in c.keys() and len(c["functions"]) > 0)
+            has_constants = ("constants" in c.keys() and len(c["constants"]) > 0)
+
+            should_emit_impl = has_constructors or has_functions or has_constants and not(class_is_const or class_is_callback_typedef)
+
             if should_emit_impl:
                 code += "    impl " + class_name + " {\r\n"
+
+                if "constants" in c.keys():
+                    for constant in c["constants"]:
+                        constant_name = list(constant.keys())[0]
+                        constant_type = constant[constant_name]["type"]
+                        constant_value = constant[constant_name]["value"]
+                        code += "        pub const " + constant_name + ": " + constant_type + " = " + constant_value + ";\r\n"
+                    code += "\r\n"
 
                 if "constructors" in c.keys():
                     for fn_name in c["constructors"]:
@@ -2409,6 +2432,31 @@ def generate_c_functions(api_data):
 
     return code
 
+# Generates all constants
+def generate_c_constants(api_data):
+
+    version = list(api_data.keys())[-1]
+    myapi_data = api_data[version]
+
+    code = ""
+    code += "\r\n"
+    code += "\r\n/* CONSTANTS */\r\n\r\n"
+
+    for module_name in myapi_data.keys():
+        module = myapi_data[module_name]["classes"]
+        for class_name in module.keys():
+            c = module[class_name]
+
+            if "constants" in c.keys():
+                for constant in c["constants"]:
+                    constant_name = list(constant.keys())[0]
+                    constant_type = constant[constant_name]["type"]
+                    constant_value = constant[constant_name]["value"]
+                    code += "#define " + prefix + class_name + "_" + constant_name + " " + constant_value + "\r\n"
+                code += "\r\n"
+
+    return code
+
 def generate_c_api(api_data, structs_map):
     code = ""
 
@@ -2460,6 +2508,7 @@ def generate_c_api(api_data, structs_map):
 
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
     code += generate_c_functions(api_data)
+    code += generate_c_constants(api_data)
 
     code += "\r\n"
     code += read_file(root_folder + "/api/_patches/c/patch.h")
