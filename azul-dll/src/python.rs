@@ -23686,7 +23686,7 @@ impl AzGl {
     #[classattr]
     const TIMEOUT_EXPIRED: u32 = 0x911B;
     #[classattr]
-    const TIMEOUT_IGNORED: i64 = 0xFFFFFFFFFFFFFFFF;
+    const TIMEOUT_IGNORED: u64 = 0xFFFFFFFFFFFFFFFF;
     #[classattr]
     const TIMESTAMP: u32 = 0x8E28;
     #[classattr]

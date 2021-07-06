@@ -464,6 +464,6 @@ pub mod logic {
 
 fn main() {
     let mut app = App::new(Calculator::default(), AppConfig::new(LayoutSolver::Default)).unwrap();
-    app.add_fomt("KoHo-Light", FontRef::embedded(ui::FONT));
+    app.add_font("KoHo-Light", FontRef::embedded(ui::FONT));
     app.run(WindowCreateOptions::new(ui::layout));
 }

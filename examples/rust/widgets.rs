@@ -15,6 +15,6 @@ fn main() {
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut options = WindowCreateOptions::new(layout);
     options.hot_reload = true;
-    options.state.flags.is_maximized = true;
+    options.state.flags.frame = WindowFrame::Maximized;
     app.run(options);
 }

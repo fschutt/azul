@@ -30,7 +30,7 @@ libm                    = { version = "0.2.1", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi                  = { version = "0.3.9", default-features = false, features = ["libloaderapi", "errhandlingapi", "winuser", "uxtheme", "dwmapi", "wingdi"] }
-gl-context-loader       = {git = "https://github.com/fschutt/gl-context-loader" }
+gl-context-loader       = {git = "https://github.com/fschutt/gl-context-loader", rev = "409638365232c28e04c9d8d012a92edd6f794844", features = ["std", "debug"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 gleam                   = { version = "0.13.1", default-features = false }

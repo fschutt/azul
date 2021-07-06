@@ -13634,7 +13634,7 @@ pub mod gl {
         pub const TEXTURE_WRAP_S: u32 = 0x2802;
         pub const TEXTURE_WRAP_T: u32 = 0x2803;
         pub const TIMEOUT_EXPIRED: u32 = 0x911B;
-        pub const TIMEOUT_IGNORED: i64 = 0xFFFFFFFFFFFFFFFF;
+        pub const TIMEOUT_IGNORED: u64 = 0xFFFFFFFFFFFFFFFF;
         pub const TIMESTAMP: u32 = 0x8E28;
         pub const TIMESTAMP_EXT: u32 = 0x8E28;
         pub const TIME_ELAPSED: u32 = 0x88BF;

@@ -1108,7 +1108,7 @@ dependencies = [
 [[package]]
 name = "gl-context-loader"
 version = "0.1.0"
-source = "git+https://github.com/fschutt/gl-context-loader#a2e9bf28ab9e708430f6ff3143790203df241ff1"
+source = "git+https://github.com/fschutt/gl-context-loader?rev=409638365232c28e04c9d8d012a92edd6f794844#409638365232c28e04c9d8d012a92edd6f794844"
 dependencies = [
  "gleam",
 ]

@@ -9113,7 +9113,7 @@
                         {"TEXTURE_WRAP_S": {"type": "u32", "value": "0x2802"}},
                         {"TEXTURE_WRAP_T": {"type": "u32", "value": "0x2803"}},
                         {"TIMEOUT_EXPIRED": {"type": "u32", "value": "0x911B"}},
-                        {"TIMEOUT_IGNORED": {"type": "i64", "value": "0xFFFFFFFFFFFFFFFF"}},
+                        {"TIMEOUT_IGNORED": {"type": "u64", "value": "0xFFFFFFFFFFFFFFFF"}},
                         {"TIMESTAMP": {"type": "u32", "value": "0x8E28"}},
                         {"TIMESTAMP_EXT": {"type": "u32", "value": "0x8E28"}},
                         {"TIME_ELAPSED": {"type": "u32", "value": "0x88BF"}},
