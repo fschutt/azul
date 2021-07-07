@@ -1527,6 +1527,8 @@ def generate_python_api(api_data, structs_map, functions_map):
                 pyo3_code += "#[pymethods]\r\n"
                 pyo3_code += "impl " + prefix + class_name + "EnumWrapper {\r\n" + constants
 
+                enum_is_union = False
+
                 # generate a Enum::Blah(...) constructor function
                 for enum_name in struct["enum_fields"]:
                     enum_arg_type = ""
@@ -1535,6 +1537,7 @@ def generate_python_api(api_data, structs_map, functions_map):
                     variant_name = list(enum_name.keys())[0]
                     variant = enum_name[variant_name]
                     if "type" in variant.keys():
+                        enum_is_union = True
                         analyzed_type = analyze_type(variant["type"])
                         if (len(analyzed_type[0]) > 0):
                             continue
@@ -1567,6 +1570,44 @@ def generate_python_api(api_data, structs_map, functions_map):
                 if tuple((module_name, class_name)) in inject_impls:
                     pyo3_code += inject_impls[tuple((module_name, class_name))]
 
+                # Generate a "match" function that returns the enum tag as a string + the object as a tuple
+                if enum_is_union:
+                    pyo3_code += "\r\n"
+                    pyo3_code += "    fn r#match(&self) -> PyResult<Vec<PyObject>> {\r\n"
+                    pyo3_code += "        use crate::python::" + prefix + class_name + ";\r\n"
+                    pyo3_code += "        use pyo3::conversion::IntoPy;\r\n"
+                    pyo3_code += "        let gil = Python::acquire_gil();\r\n"
+                    pyo3_code += "        let py = gil.python();\r\n"
+                    pyo3_code += "        match &self.inner {\r\n"
+                    for enum_name in struct["enum_fields"]:
+                        variant_name = list(enum_name.keys())[0]
+                        variant = enum_name[variant_name]
+                        opt_variant_type_match = ""
+                        if "type" in variant.keys():
+                            opt_variant_type_match = "(v)"
+                        opt_variant_value = "()"
+                        if "type" in variant.keys():
+                            if (variant["type"] == "*const c_void") or (variant["type"] == "*mut c_void"):
+                                opt_variant_value = "()"
+                            else:
+                                analyzed_type = analyze_type(variant["type"])
+                                if not(is_primitive_arg(analyzed_type[1])):
+                                    e_class = quick_get_class(api_data[version], analyzed_type[1])
+                                    if "enum_fields" in e_class.keys():
+                                        opt_variant_value = "{ let m: &" + prefix + analyzed_type[1] + "EnumWrapper = unsafe { mem::transmute(v) }; m.clone() }"
+                                    elif class_is_typedef(e_class):
+                                        opt_variant_value = "()" # can't destructure function pointer
+                                    elif variant["type"] == "[PixelValue;2]":
+                                        opt_variant_value = "v.to_vec()"
+                                    else:
+                                        opt_variant_value = "v.clone()"
+                                else:
+                                        opt_variant_value = "v"
+
+                        pyo3_code += "            " + prefix + class_name + "::" + variant_name + opt_variant_type_match + " => Ok(vec![\"" + variant_name + "\".into_py(py), " + opt_variant_value + ".into_py(py)]),\r\n"
+                    pyo3_code += "        }\r\n"
+                    pyo3_code += "    }\r\n"
+
                 pyo3_code += "}\r\n"
 
                 external = struct["external"]
@@ -1579,6 +1620,20 @@ def generate_python_api(api_data, structs_map, functions_map):
                 pyo3_code += "    fn __repr__(&self) -> Result<String, PyErr> { \r\n"
                 pyo3_code += "        let m: &" + external + " = unsafe { mem::transmute(&self.inner) }; Ok(format!(\"{:#?}\", m))\r\n"
                 pyo3_code += "    }\r\n"
+
+                # simple C-like enum: implement comparison operators
+                if not(enum_is_union):
+                    pyo3_code += "    fn __richcmp__(&self, other: " + prefix + class_name + "EnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {\r\n"
+                    pyo3_code += "        match op {\r\n"
+                    pyo3_code += "            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }\r\n"
+                    pyo3_code += "            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }\r\n"
+                    pyo3_code += "            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }\r\n"
+                    pyo3_code += "            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }\r\n"
+                    pyo3_code += "            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }\r\n"
+                    pyo3_code += "            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }\r\n"
+                    pyo3_code += "        }\r\n"
+                    pyo3_code += "    }\r\n"
+
                 pyo3_code += "}\r\n"
 
     errlist_dict = {}

@@ -30,8 +30,8 @@ panic = "unwind"
 debug = false
 
 [profile.release]
-opt-level = 3
-lto = true
+opt-level = 'z'
+lto = false
 panic = "abort"
 codegen-units = 16
 debug = false

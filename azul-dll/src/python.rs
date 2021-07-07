@@ -335,10 +335,10 @@ extern "C" fn invoke_python_iframe(data: &mut azul_impl::callbacks::RefAny, info
 
     let default = azul_impl::callbacks::IFrameCallbackReturn {
          dom: azul_impl::styled_dom::StyledDom::default(),
-         scroll_size: azul_impl::window::LogicalSize::new(0.0, 0.0),
-         scroll_offset: azul_impl::window::LogicalPosition::new(0.0, 0.0),
-         virtual_scroll_size: azul_impl::window::LogicalSize::new(0.0, 0.0),
-         virtual_scroll_offset: azul_impl::window::LogicalPosition::new(0.0, 0.0),
+         scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
+         scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
+         virtual_scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
+         virtual_scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
     };
 
     let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
@@ -11292,6 +11292,16 @@ impl PyObjectProtocol for AzAppLogLevelEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::resources::AppLogLevel = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzAppLogLevelEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -11307,6 +11317,16 @@ impl PyObjectProtocol for AzLayoutSolverEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::resources::LayoutSolverVersion = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzLayoutSolverEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -11334,7 +11354,7 @@ impl AzWindowCreateOptions {
 
     #[new]
     pub fn __new__(py: Python, cb: PyObject) -> Result<Self, PyErr> {
-        let window = azul_impl::window::WindowCreateOptions {
+        let window = azul_core::window::WindowCreateOptions {
             state: unsafe { mem::transmute(AzWindowState::__new__(py, cb)?) },
             .. Default::default()
         };
@@ -11392,6 +11412,16 @@ impl PyObjectProtocol for AzVsyncEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::Vsync = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzVsyncEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -11412,6 +11442,16 @@ impl PyObjectProtocol for AzSrgbEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::Srgb = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzSrgbEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -11431,6 +11471,16 @@ impl PyObjectProtocol for AzHwAccelerationEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::HwAcceleration = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzHwAccelerationEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -11520,6 +11570,24 @@ impl AzRawWindowHandleEnumWrapper {
     fn Android(v: AzAndroidHandle) -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Android(v) } }
     #[classattr]
     fn Unsupported() -> AzRawWindowHandleEnumWrapper { AzRawWindowHandleEnumWrapper { inner: AzRawWindowHandle::Unsupported } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzRawWindowHandle;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzRawWindowHandle::IOS(v) => Ok(vec!["IOS".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::MacOS(v) => Ok(vec!["MacOS".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Xlib(v) => Ok(vec!["Xlib".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Xcb(v) => Ok(vec!["Xcb".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Wayland(v) => Ok(vec!["Wayland".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Windows(v) => Ok(vec!["Windows".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Web(v) => Ok(vec!["Web".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Android(v) => Ok(vec!["Android".into_py(py), v.clone().into_py(py)]),
+            AzRawWindowHandle::Unsupported => Ok(vec!["Unsupported".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -11690,6 +11758,16 @@ impl PyObjectProtocol for AzXWindowTypeEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::XWindowType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzXWindowTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -11874,6 +11952,17 @@ impl AzWindowIconEnumWrapper {
     fn Small(v: AzSmallWindowIconBytes) -> AzWindowIconEnumWrapper { AzWindowIconEnumWrapper { inner: AzWindowIcon::Small(v) } }
     #[staticmethod]
     fn Large(v: AzLargeWindowIconBytes) -> AzWindowIconEnumWrapper { AzWindowIconEnumWrapper { inner: AzWindowIcon::Large(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzWindowIcon;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzWindowIcon::Small(v) => Ok(vec!["Small".into_py(py), v.clone().into_py(py)]),
+            AzWindowIcon::Large(v) => Ok(vec!["Large".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -12246,6 +12335,16 @@ impl PyObjectProtocol for AzVirtualKeyCodeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::VirtualKeyCode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzVirtualKeyCodeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -12258,6 +12357,19 @@ impl AzAcceleratorKeyEnumWrapper {
     fn Shift() -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper { inner: AzAcceleratorKey::Shift } }
     #[staticmethod]
     fn Key(v: AzVirtualKeyCodeEnumWrapper) -> AzAcceleratorKeyEnumWrapper { AzAcceleratorKeyEnumWrapper { inner: AzAcceleratorKey::Key(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzAcceleratorKey;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzAcceleratorKey::Ctrl => Ok(vec!["Ctrl".into_py(py), ().into_py(py)]),
+            AzAcceleratorKey::Alt => Ok(vec!["Alt".into_py(py), ().into_py(py)]),
+            AzAcceleratorKey::Shift => Ok(vec!["Shift".into_py(py), ().into_py(py)]),
+            AzAcceleratorKey::Key(v) => Ok(vec!["Key".into_py(py), { let m: &AzVirtualKeyCodeEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -12346,6 +12458,16 @@ impl PyObjectProtocol for AzWindowFrameEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::WindowFrame = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzWindowFrameEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -12506,6 +12628,16 @@ impl PyObjectProtocol for AzMouseCursorTypeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::MouseCursorType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzMouseCursorTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -12516,6 +12648,18 @@ impl AzCursorPositionEnumWrapper {
     fn Uninitialized() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::Uninitialized } }
     #[staticmethod]
     fn InWindow(v: AzLogicalPosition) -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::InWindow(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCursorPosition;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCursorPosition::OutOfWindow => Ok(vec!["OutOfWindow".into_py(py), ().into_py(py)]),
+            AzCursorPosition::Uninitialized => Ok(vec!["Uninitialized".into_py(py), ().into_py(py)]),
+            AzCursorPosition::InWindow(v) => Ok(vec!["InWindow".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -12635,6 +12779,16 @@ impl PyObjectProtocol for AzRendererTypeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::RendererType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzRendererTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -12753,6 +12907,16 @@ impl PyObjectProtocol for AzFullScreenModeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::FullScreenMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzFullScreenModeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -12771,6 +12935,16 @@ impl PyObjectProtocol for AzWindowThemeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::WindowTheme = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzWindowThemeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -12779,6 +12953,17 @@ impl AzWindowPositionEnumWrapper {
     fn Uninitialized() -> AzWindowPositionEnumWrapper { AzWindowPositionEnumWrapper { inner: AzWindowPosition::Uninitialized } }
     #[staticmethod]
     fn Initialized(v: AzPhysicalPositionI32) -> AzWindowPositionEnumWrapper { AzWindowPositionEnumWrapper { inner: AzWindowPosition::Initialized(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzWindowPosition;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzWindowPosition::Uninitialized => Ok(vec!["Uninitialized".into_py(py), ().into_py(py)]),
+            AzWindowPosition::Initialized(v) => Ok(vec!["Initialized".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -12797,6 +12982,17 @@ impl AzImePositionEnumWrapper {
     fn Uninitialized() -> AzImePositionEnumWrapper { AzImePositionEnumWrapper { inner: AzImePosition::Uninitialized } }
     #[staticmethod]
     fn Initialized(v: AzLogicalPosition) -> AzImePositionEnumWrapper { AzImePositionEnumWrapper { inner: AzImePosition::Initialized(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzImePosition;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzImePosition::Uninitialized => Ok(vec!["Uninitialized".into_py(py), ().into_py(py)]),
+            AzImePosition::Initialized(v) => Ok(vec!["Initialized".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -12891,7 +13087,7 @@ impl AzWindowState {
     #[new]
     pub fn __new__(py: Python, cb: PyObject) -> Result<Self, PyErr> {
         let layout_callback = AzLayoutCallbackEnumWrapper::__new__(py, cb)?;
-        let window = azul_impl::window::WindowState {
+        let window = azul_core::window::WindowState {
             layout_callback: unsafe { mem::transmute(layout_callback) },
             .. Default::default()
         };
@@ -12936,7 +13132,18 @@ impl AzLayoutCallbackEnumWrapper {
                 cb: AzMarshaledLayoutCallbackInner { cb: invoke_py_marshaled_layout_callback },
             }),
         })
-    }}
+    }
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutCallback;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutCallback::Raw(v) => Ok(vec!["Raw".into_py(py), v.clone().into_py(py)]),
+            AzLayoutCallback::Marshaled(v) => Ok(vec!["Marshaled".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
 
 #[pyproto]
 impl PyObjectProtocol for AzLayoutCallbackEnumWrapper {
@@ -13408,6 +13615,16 @@ impl PyObjectProtocol for AzUpdateEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::callbacks::Update = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzUpdateEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -13484,6 +13701,19 @@ impl AzPositionInfoEnumWrapper {
     fn Absolute(v: AzPositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper { inner: AzPositionInfo::Absolute(v) } }
     #[staticmethod]
     fn Relative(v: AzPositionInfoInner) -> AzPositionInfoEnumWrapper { AzPositionInfoEnumWrapper { inner: AzPositionInfo::Relative(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzPositionInfo;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzPositionInfo::Static(v) => Ok(vec!["Static".into_py(py), v.clone().into_py(py)]),
+            AzPositionInfo::Fixed(v) => Ok(vec!["Fixed".into_py(py), v.clone().into_py(py)]),
+            AzPositionInfo::Absolute(v) => Ok(vec!["Absolute".into_py(py), v.clone().into_py(py)]),
+            AzPositionInfo::Relative(v) => Ok(vec!["Relative".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -13620,6 +13850,19 @@ impl AzInlineWordEnumWrapper {
     fn Space() -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper { inner: AzInlineWord::Space } }
     #[staticmethod]
     fn Word(v: AzInlineTextContents) -> AzInlineWordEnumWrapper { AzInlineWordEnumWrapper { inner: AzInlineWord::Word(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInlineWord;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInlineWord::Tab => Ok(vec!["Tab".into_py(py), ().into_py(py)]),
+            AzInlineWord::Return => Ok(vec!["Return".into_py(py), ().into_py(py)]),
+            AzInlineWord::Space => Ok(vec!["Space".into_py(py), ().into_py(py)]),
+            AzInlineWord::Word(v) => Ok(vec!["Word".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -13729,6 +13972,22 @@ impl AzFocusTargetEnumWrapper {
     fn Last() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::Last } }
     #[classattr]
     fn NoFocus() -> AzFocusTargetEnumWrapper { AzFocusTargetEnumWrapper { inner: AzFocusTarget::NoFocus } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzFocusTarget;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzFocusTarget::Id(v) => Ok(vec!["Id".into_py(py), v.clone().into_py(py)]),
+            AzFocusTarget::Path(v) => Ok(vec!["Path".into_py(py), v.clone().into_py(py)]),
+            AzFocusTarget::Previous => Ok(vec!["Previous".into_py(py), ().into_py(py)]),
+            AzFocusTarget::Next => Ok(vec!["Next".into_py(py), ().into_py(py)]),
+            AzFocusTarget::First => Ok(vec!["First".into_py(py), ().into_py(py)]),
+            AzFocusTarget::Last => Ok(vec!["Last".into_py(py), ().into_py(py)]),
+            AzFocusTarget::NoFocus => Ok(vec!["NoFocus".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -13808,6 +14067,16 @@ impl PyObjectProtocol for AzAnimationRepeatEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::callbacks::AnimationRepeat = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzAnimationRepeatEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -13816,6 +14085,17 @@ impl AzAnimationRepeatCountEnumWrapper {
     fn Times(v: usize) -> AzAnimationRepeatCountEnumWrapper { AzAnimationRepeatCountEnumWrapper { inner: AzAnimationRepeatCount::Times(v) } }
     #[classattr]
     fn Infinite() -> AzAnimationRepeatCountEnumWrapper { AzAnimationRepeatCountEnumWrapper { inner: AzAnimationRepeatCount::Infinite } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzAnimationRepeatCount;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzAnimationRepeatCount::Times(v) => Ok(vec!["Times".into_py(py), v.into_py(py)]),
+            AzAnimationRepeatCount::Infinite => Ok(vec!["Infinite".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -13842,6 +14122,21 @@ impl AzAnimationEasingEnumWrapper {
     fn EaseInOut() -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::EaseInOut } }
     #[staticmethod]
     fn CubicBezier(v: AzSvgCubicCurve) -> AzAnimationEasingEnumWrapper { AzAnimationEasingEnumWrapper { inner: AzAnimationEasing::CubicBezier(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzAnimationEasing;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzAnimationEasing::Ease => Ok(vec!["Ease".into_py(py), ().into_py(py)]),
+            AzAnimationEasing::Linear => Ok(vec!["Linear".into_py(py), ().into_py(py)]),
+            AzAnimationEasing::EaseIn => Ok(vec!["EaseIn".into_py(py), ().into_py(py)]),
+            AzAnimationEasing::EaseOut => Ok(vec!["EaseOut".into_py(py), ().into_py(py)]),
+            AzAnimationEasing::EaseInOut => Ok(vec!["EaseInOut".into_py(py), ().into_py(py)]),
+            AzAnimationEasing::CubicBezier(v) => Ok(vec!["CubicBezier".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -14843,6 +15138,21 @@ impl AzNodeTypeEnumWrapper {
     fn Image(v: AzImageRef) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::Image(v) } }
     #[staticmethod]
     fn IFrame(v: AzIFrameNode) -> AzNodeTypeEnumWrapper { AzNodeTypeEnumWrapper { inner: AzNodeType::IFrame(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeType;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeType::Body => Ok(vec!["Body".into_py(py), ().into_py(py)]),
+            AzNodeType::Div => Ok(vec!["Div".into_py(py), ().into_py(py)]),
+            AzNodeType::Br => Ok(vec!["Br".into_py(py), ().into_py(py)]),
+            AzNodeType::Text(v) => Ok(vec!["Text".into_py(py), v.clone().into_py(py)]),
+            AzNodeType::Image(v) => Ok(vec!["Image".into_py(py), v.clone().into_py(py)]),
+            AzNodeType::IFrame(v) => Ok(vec!["IFrame".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -14907,6 +15217,16 @@ impl PyObjectProtocol for AzOnEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::On = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzOnEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -14923,6 +15243,21 @@ impl AzEventFilterEnumWrapper {
     fn Component(v: AzComponentEventFilterEnumWrapper) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Component(unsafe { mem::transmute(v) }) } }
     #[staticmethod]
     fn Application(v: AzApplicationEventFilterEnumWrapper) -> AzEventFilterEnumWrapper { AzEventFilterEnumWrapper { inner: AzEventFilter::Application(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzEventFilter;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzEventFilter::Hover(v) => Ok(vec!["Hover".into_py(py), { let m: &AzHoverEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzEventFilter::Not(v) => Ok(vec!["Not".into_py(py), { let m: &AzNotEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzEventFilter::Focus(v) => Ok(vec!["Focus".into_py(py), { let m: &AzFocusEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzEventFilter::Window(v) => Ok(vec!["Window".into_py(py), { let m: &AzWindowEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzEventFilter::Component(v) => Ok(vec!["Component".into_py(py), { let m: &AzComponentEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzEventFilter::Application(v) => Ok(vec!["Application".into_py(py), { let m: &AzApplicationEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -14995,6 +15330,16 @@ impl PyObjectProtocol for AzHoverEventFilterEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::HoverEventFilter = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzHoverEventFilterEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15047,6 +15392,16 @@ impl PyObjectProtocol for AzFocusEventFilterEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::FocusEventFilter = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzFocusEventFilterEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15055,6 +15410,17 @@ impl AzNotEventFilterEnumWrapper {
     fn Hover(v: AzHoverEventFilterEnumWrapper) -> AzNotEventFilterEnumWrapper { AzNotEventFilterEnumWrapper { inner: AzNotEventFilter::Hover(unsafe { mem::transmute(v) }) } }
     #[staticmethod]
     fn Focus(v: AzFocusEventFilterEnumWrapper) -> AzNotEventFilterEnumWrapper { AzNotEventFilterEnumWrapper { inner: AzNotEventFilter::Focus(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNotEventFilter;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNotEventFilter::Hover(v) => Ok(vec!["Hover".into_py(py), { let m: &AzHoverEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzNotEventFilter::Focus(v) => Ok(vec!["Focus".into_py(py), { let m: &AzFocusEventFilterEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15139,6 +15505,16 @@ impl PyObjectProtocol for AzWindowEventFilterEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::WindowEventFilter = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzWindowEventFilterEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15163,6 +15539,16 @@ impl PyObjectProtocol for AzComponentEventFilterEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::ComponentEventFilter = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzComponentEventFilterEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15180,6 +15566,16 @@ impl PyObjectProtocol for AzApplicationEventFilterEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::ApplicationEventFilter = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzApplicationEventFilterEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -15349,6 +15745,16 @@ impl PyObjectProtocol for AzAccessibilityRoleEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::AccessibilityRole = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzAccessibilityRoleEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15395,6 +15801,16 @@ impl PyObjectProtocol for AzAccessibilityStateEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::AccessibilityState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzAccessibilityStateEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15405,6 +15821,18 @@ impl AzTabIndexEnumWrapper {
     fn OverrideInParent(v: u32) -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper { inner: AzTabIndex::OverrideInParent(v) } }
     #[classattr]
     fn NoKeyboardFocus() -> AzTabIndexEnumWrapper { AzTabIndexEnumWrapper { inner: AzTabIndex::NoKeyboardFocus } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzTabIndex;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzTabIndex::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzTabIndex::OverrideInParent(v) => Ok(vec!["OverrideInParent".into_py(py), v.into_py(py)]),
+            AzTabIndex::NoKeyboardFocus => Ok(vec!["NoKeyboardFocus".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15423,6 +15851,17 @@ impl AzIdOrClassEnumWrapper {
     fn Id(v: AzString) -> AzIdOrClassEnumWrapper { AzIdOrClassEnumWrapper { inner: AzIdOrClass::Id(v) } }
     #[staticmethod]
     fn Class(v: AzString) -> AzIdOrClassEnumWrapper { AzIdOrClassEnumWrapper { inner: AzIdOrClass::Class(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzIdOrClass;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzIdOrClass::Id(v) => Ok(vec!["Id".into_py(py), v.clone().into_py(py)]),
+            AzIdOrClass::Class(v) => Ok(vec!["Class".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15445,6 +15884,19 @@ impl AzNodeDataInlineCssPropertyEnumWrapper {
     fn Focus(v: AzCssPropertyEnumWrapper) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper { inner: AzNodeDataInlineCssProperty::Focus(unsafe { mem::transmute(v) }) } }
     #[staticmethod]
     fn Hover(v: AzCssPropertyEnumWrapper) -> AzNodeDataInlineCssPropertyEnumWrapper { AzNodeDataInlineCssPropertyEnumWrapper { inner: AzNodeDataInlineCssProperty::Hover(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeDataInlineCssProperty;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeDataInlineCssProperty::Normal(v) => Ok(vec!["Normal".into_py(py), { let m: &AzCssPropertyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzNodeDataInlineCssProperty::Active(v) => Ok(vec!["Active".into_py(py), { let m: &AzCssPropertyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzNodeDataInlineCssProperty::Focus(v) => Ok(vec!["Focus".into_py(py), { let m: &AzCssPropertyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzNodeDataInlineCssProperty::Hover(v) => Ok(vec!["Hover".into_py(py), { let m: &AzCssPropertyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15486,6 +15938,18 @@ impl AzMenuItemEnumWrapper {
     fn Separator() -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::Separator } }
     #[classattr]
     fn BreakLine() -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::BreakLine } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzMenuItem;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzMenuItem::Label(v) => Ok(vec!["Label".into_py(py), v.clone().into_py(py)]),
+            AzMenuItem::Separator => Ok(vec!["Separator".into_py(py), ().into_py(py)]),
+            AzMenuItem::BreakLine => Ok(vec!["BreakLine".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15580,6 +16044,17 @@ impl AzMenuItemIconEnumWrapper {
     fn Checkbox(v: bool) -> AzMenuItemIconEnumWrapper { AzMenuItemIconEnumWrapper { inner: AzMenuItemIcon::Checkbox(v) } }
     #[staticmethod]
     fn Image(v: AzImageRef) -> AzMenuItemIconEnumWrapper { AzMenuItemIconEnumWrapper { inner: AzMenuItemIcon::Image(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzMenuItemIcon;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzMenuItemIcon::Checkbox(v) => Ok(vec!["Checkbox".into_py(py), v.into_py(py)]),
+            AzMenuItemIcon::Image(v) => Ok(vec!["Image".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15609,6 +16084,16 @@ impl PyObjectProtocol for AzMenuItemStateEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::MenuItemState = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzMenuItemStateEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -15640,6 +16125,17 @@ impl AzCssDeclarationEnumWrapper {
     fn Static(v: AzCssPropertyEnumWrapper) -> AzCssDeclarationEnumWrapper { AzCssDeclarationEnumWrapper { inner: AzCssDeclaration::Static(unsafe { mem::transmute(v) }) } }
     #[staticmethod]
     fn Dynamic(v: AzDynamicCssProperty) -> AzCssDeclarationEnumWrapper { AzCssDeclarationEnumWrapper { inner: AzCssDeclaration::Dynamic(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssDeclaration;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssDeclaration::Static(v) => Ok(vec!["Static".into_py(py), { let m: &AzCssPropertyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssDeclaration::Dynamic(v) => Ok(vec!["Dynamic".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15711,6 +16207,22 @@ impl AzCssPathSelectorEnumWrapper {
     fn DirectChildren() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::DirectChildren } }
     #[classattr]
     fn Children() -> AzCssPathSelectorEnumWrapper { AzCssPathSelectorEnumWrapper { inner: AzCssPathSelector::Children } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssPathSelector;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssPathSelector::Global => Ok(vec!["Global".into_py(py), ().into_py(py)]),
+            AzCssPathSelector::Type(v) => Ok(vec!["Type".into_py(py), { let m: &AzNodeTypeKeyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssPathSelector::Class(v) => Ok(vec!["Class".into_py(py), v.clone().into_py(py)]),
+            AzCssPathSelector::Id(v) => Ok(vec!["Id".into_py(py), v.clone().into_py(py)]),
+            AzCssPathSelector::PseudoSelector(v) => Ok(vec!["PseudoSelector".into_py(py), { let m: &AzCssPathPseudoSelectorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssPathSelector::DirectChildren => Ok(vec!["DirectChildren".into_py(py), ().into_py(py)]),
+            AzCssPathSelector::Children => Ok(vec!["Children".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15747,6 +16259,16 @@ impl PyObjectProtocol for AzNodeTypeKeyEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::NodeTypeTag = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzNodeTypeKeyEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -15763,6 +16285,21 @@ impl AzCssPathPseudoSelectorEnumWrapper {
     fn Active() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::Active } }
     #[classattr]
     fn Focus() -> AzCssPathPseudoSelectorEnumWrapper { AzCssPathPseudoSelectorEnumWrapper { inner: AzCssPathPseudoSelector::Focus } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssPathPseudoSelector;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssPathPseudoSelector::First => Ok(vec!["First".into_py(py), ().into_py(py)]),
+            AzCssPathPseudoSelector::Last => Ok(vec!["Last".into_py(py), ().into_py(py)]),
+            AzCssPathPseudoSelector::NthChild(v) => Ok(vec!["NthChild".into_py(py), { let m: &AzCssNthChildSelectorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssPathPseudoSelector::Hover => Ok(vec!["Hover".into_py(py), ().into_py(py)]),
+            AzCssPathPseudoSelector::Active => Ok(vec!["Active".into_py(py), ().into_py(py)]),
+            AzCssPathPseudoSelector::Focus => Ok(vec!["Focus".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -15785,6 +16322,19 @@ impl AzCssNthChildSelectorEnumWrapper {
     fn Odd() -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper { inner: AzCssNthChildSelector::Odd } }
     #[staticmethod]
     fn Pattern(v: AzCssNthChildPattern) -> AzCssNthChildSelectorEnumWrapper { AzCssNthChildSelectorEnumWrapper { inner: AzCssNthChildSelector::Pattern(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssNthChildSelector;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssNthChildSelector::Number(v) => Ok(vec!["Number".into_py(py), v.into_py(py)]),
+            AzCssNthChildSelector::Even => Ok(vec!["Even".into_py(py), ().into_py(py)]),
+            AzCssNthChildSelector::Odd => Ok(vec!["Odd".into_py(py), ().into_py(py)]),
+            AzCssNthChildSelector::Pattern(v) => Ok(vec!["Pattern".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -16017,6 +16567,16 @@ impl PyObjectProtocol for AzCssPropertyTypeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::CssPropertyType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzCssPropertyTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16033,6 +16593,21 @@ impl AzAnimationInterpolationFunctionEnumWrapper {
     fn EaseInOut() -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::EaseInOut } }
     #[staticmethod]
     fn CubicBezier(v: AzSvgCubicCurve) -> AzAnimationInterpolationFunctionEnumWrapper { AzAnimationInterpolationFunctionEnumWrapper { inner: AzAnimationInterpolationFunction::CubicBezier(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzAnimationInterpolationFunction;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzAnimationInterpolationFunction::Ease => Ok(vec!["Ease".into_py(py), ().into_py(py)]),
+            AzAnimationInterpolationFunction::Linear => Ok(vec!["Linear".into_py(py), ().into_py(py)]),
+            AzAnimationInterpolationFunction::EaseIn => Ok(vec!["EaseIn".into_py(py), ().into_py(py)]),
+            AzAnimationInterpolationFunction::EaseOut => Ok(vec!["EaseOut".into_py(py), ().into_py(py)]),
+            AzAnimationInterpolationFunction::EaseInOut => Ok(vec!["EaseInOut".into_py(py), ().into_py(py)]),
+            AzAnimationInterpolationFunction::CubicBezier(v) => Ok(vec!["CubicBezier".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -16116,6 +16691,16 @@ impl PyObjectProtocol for AzSizeMetricEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::SizeMetric = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzSizeMetricEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16198,6 +16783,16 @@ impl PyObjectProtocol for AzBoxShadowClipModeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::BoxShadowClipMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzBoxShadowClipModeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16238,6 +16833,16 @@ impl PyObjectProtocol for AzLayoutAlignContentEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutAlignContent = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzLayoutAlignContentEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16259,6 +16864,16 @@ impl PyObjectProtocol for AzLayoutAlignItemsEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutAlignItems = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzLayoutAlignItemsEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -16299,6 +16914,16 @@ impl PyObjectProtocol for AzLayoutBoxSizingEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutBoxSizing = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzLayoutBoxSizingEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16321,6 +16946,16 @@ impl PyObjectProtocol for AzLayoutFlexDirectionEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutFlexDirection = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzLayoutFlexDirectionEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16342,6 +16977,16 @@ impl PyObjectProtocol for AzLayoutDisplayEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutDisplay = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzLayoutDisplayEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -16403,6 +17048,16 @@ impl PyObjectProtocol for AzLayoutFloatEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutFloat = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzLayoutFloatEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16449,6 +17104,16 @@ impl PyObjectProtocol for AzLayoutJustifyContentEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutJustifyContent = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzLayoutJustifyContentEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -16745,6 +17410,16 @@ impl PyObjectProtocol for AzLayoutPositionEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutPosition = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzLayoutPositionEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16826,6 +17501,16 @@ impl PyObjectProtocol for AzLayoutFlexWrapEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutFlexWrap = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzLayoutFlexWrapEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -16847,6 +17532,16 @@ impl PyObjectProtocol for AzLayoutOverflowEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::LayoutOverflow = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzLayoutOverflowEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -16892,6 +17587,16 @@ impl PyObjectProtocol for AzAngleMetricEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::AngleMetric = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzAngleMetricEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -16989,6 +17694,16 @@ impl PyObjectProtocol for AzDirectionCornerEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::DirectionCorner = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzDirectionCornerEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -17019,6 +17734,17 @@ impl AzDirectionEnumWrapper {
     fn Angle(v: AzAngleValue) -> AzDirectionEnumWrapper { AzDirectionEnumWrapper { inner: AzDirection::Angle(v) } }
     #[staticmethod]
     fn FromTo(v: AzDirectionCorners) -> AzDirectionEnumWrapper { AzDirectionEnumWrapper { inner: AzDirection::FromTo(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzDirection;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzDirection::Angle(v) => Ok(vec!["Angle".into_py(py), v.clone().into_py(py)]),
+            AzDirection::FromTo(v) => Ok(vec!["FromTo".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -17046,6 +17772,16 @@ impl PyObjectProtocol for AzExtendModeEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::ExtendMode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzExtendModeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -17088,6 +17824,16 @@ impl PyObjectProtocol for AzShapeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::Shape = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzShapeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -17109,6 +17855,16 @@ impl PyObjectProtocol for AzRadialGradientSizeEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::RadialGradientSize = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzRadialGradientSizeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -17173,6 +17929,20 @@ impl AzStyleBackgroundContentEnumWrapper {
     fn Image(v: AzString) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::Image(v) } }
     #[staticmethod]
     fn Color(v: AzColorU) -> AzStyleBackgroundContentEnumWrapper { AzStyleBackgroundContentEnumWrapper { inner: AzStyleBackgroundContent::Color(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundContent;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundContent::LinearGradient(v) => Ok(vec!["LinearGradient".into_py(py), v.clone().into_py(py)]),
+            AzStyleBackgroundContent::RadialGradient(v) => Ok(vec!["RadialGradient".into_py(py), v.clone().into_py(py)]),
+            AzStyleBackgroundContent::ConicGradient(v) => Ok(vec!["ConicGradient".into_py(py), v.clone().into_py(py)]),
+            AzStyleBackgroundContent::Image(v) => Ok(vec!["Image".into_py(py), v.clone().into_py(py)]),
+            AzStyleBackgroundContent::Color(v) => Ok(vec!["Color".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -17195,6 +17965,19 @@ impl AzBackgroundPositionHorizontalEnumWrapper {
     fn Right() -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper { inner: AzBackgroundPositionHorizontal::Right } }
     #[staticmethod]
     fn Exact(v: AzPixelValue) -> AzBackgroundPositionHorizontalEnumWrapper { AzBackgroundPositionHorizontalEnumWrapper { inner: AzBackgroundPositionHorizontal::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzBackgroundPositionHorizontal;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzBackgroundPositionHorizontal::Left => Ok(vec!["Left".into_py(py), ().into_py(py)]),
+            AzBackgroundPositionHorizontal::Center => Ok(vec!["Center".into_py(py), ().into_py(py)]),
+            AzBackgroundPositionHorizontal::Right => Ok(vec!["Right".into_py(py), ().into_py(py)]),
+            AzBackgroundPositionHorizontal::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -17217,6 +18000,19 @@ impl AzBackgroundPositionVerticalEnumWrapper {
     fn Bottom() -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper { inner: AzBackgroundPositionVertical::Bottom } }
     #[staticmethod]
     fn Exact(v: AzPixelValue) -> AzBackgroundPositionVerticalEnumWrapper { AzBackgroundPositionVerticalEnumWrapper { inner: AzBackgroundPositionVertical::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzBackgroundPositionVertical;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzBackgroundPositionVertical::Top => Ok(vec!["Top".into_py(py), ().into_py(py)]),
+            AzBackgroundPositionVertical::Center => Ok(vec!["Center".into_py(py), ().into_py(py)]),
+            AzBackgroundPositionVertical::Bottom => Ok(vec!["Bottom".into_py(py), ().into_py(py)]),
+            AzBackgroundPositionVertical::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -17271,6 +18067,16 @@ impl PyObjectProtocol for AzStyleBackgroundRepeatEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::StyleBackgroundRepeat = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzStyleBackgroundRepeatEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -17279,6 +18085,18 @@ impl AzStyleBackgroundSizeEnumWrapper {
     fn Contain() -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper { inner: AzStyleBackgroundSize::Contain } }
     #[classattr]
     fn Cover() -> AzStyleBackgroundSizeEnumWrapper { AzStyleBackgroundSizeEnumWrapper { inner: AzStyleBackgroundSize::Cover } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundSize;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundSize::ExactSize(v) => Ok(vec!["ExactSize".into_py(py), v.to_vec().into_py(py)]),
+            AzStyleBackgroundSize::Contain => Ok(vec!["Contain".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSize::Cover => Ok(vec!["Cover".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -17385,6 +18203,16 @@ impl PyObjectProtocol for AzBorderStyleEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::BorderStyle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzBorderStyleEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -17783,6 +18611,16 @@ impl PyObjectProtocol for AzStyleCursorEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::StyleCursor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzStyleCursorEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -17793,6 +18631,18 @@ impl AzStyleFontFamilyEnumWrapper {
     fn File(v: AzString) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper { inner: AzStyleFontFamily::File(v) } }
     #[staticmethod]
     fn Ref(v: AzFontRef) -> AzStyleFontFamilyEnumWrapper { AzStyleFontFamilyEnumWrapper { inner: AzStyleFontFamily::Ref(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleFontFamily;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleFontFamily::System(v) => Ok(vec!["System".into_py(py), v.clone().into_py(py)]),
+            AzStyleFontFamily::File(v) => Ok(vec!["File".into_py(py), v.clone().into_py(py)]),
+            AzStyleFontFamily::Ref(v) => Ok(vec!["Ref".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -17970,6 +18820,16 @@ impl PyObjectProtocol for AzStyleBackfaceVisibilityEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::StyleBackfaceVisibility = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzStyleBackfaceVisibilityEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -18016,6 +18876,36 @@ impl AzStyleTransformEnumWrapper {
     fn SkewY(v: AzPercentageValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::SkewY(v) } }
     #[staticmethod]
     fn Perspective(v: AzPixelValue) -> AzStyleTransformEnumWrapper { AzStyleTransformEnumWrapper { inner: AzStyleTransform::Perspective(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTransform;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTransform::Matrix(v) => Ok(vec!["Matrix".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Matrix3D(v) => Ok(vec!["Matrix3D".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Translate(v) => Ok(vec!["Translate".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Translate3D(v) => Ok(vec!["Translate3D".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::TranslateX(v) => Ok(vec!["TranslateX".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::TranslateY(v) => Ok(vec!["TranslateY".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::TranslateZ(v) => Ok(vec!["TranslateZ".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Rotate(v) => Ok(vec!["Rotate".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Rotate3D(v) => Ok(vec!["Rotate3D".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::RotateX(v) => Ok(vec!["RotateX".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::RotateY(v) => Ok(vec!["RotateY".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::RotateZ(v) => Ok(vec!["RotateZ".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Scale(v) => Ok(vec!["Scale".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Scale3D(v) => Ok(vec!["Scale3D".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::ScaleX(v) => Ok(vec!["ScaleX".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::ScaleY(v) => Ok(vec!["ScaleY".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::ScaleZ(v) => Ok(vec!["ScaleZ".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Skew(v) => Ok(vec!["Skew".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::SkewX(v) => Ok(vec!["SkewX".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::SkewY(v) => Ok(vec!["SkewY".into_py(py), v.clone().into_py(py)]),
+            AzStyleTransform::Perspective(v) => Ok(vec!["Perspective".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18244,6 +19134,16 @@ impl PyObjectProtocol for AzStyleTextAlignEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::StyleTextAlign = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzStyleTextAlignEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -18300,6 +19200,20 @@ impl AzStyleBoxShadowValueEnumWrapper {
     fn Initial() -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBoxShadow) -> AzStyleBoxShadowValueEnumWrapper { AzStyleBoxShadowValueEnumWrapper { inner: AzStyleBoxShadowValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBoxShadowValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBoxShadowValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBoxShadowValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBoxShadowValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBoxShadowValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBoxShadowValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18324,6 +19238,20 @@ impl AzLayoutAlignContentValueEnumWrapper {
     fn Initial() -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutAlignContentEnumWrapper) -> AzLayoutAlignContentValueEnumWrapper { AzLayoutAlignContentValueEnumWrapper { inner: AzLayoutAlignContentValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutAlignContentValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutAlignContentValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutAlignContentValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutAlignContentValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutAlignContentValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutAlignContentValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutAlignContentEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18348,6 +19276,20 @@ impl AzLayoutAlignItemsValueEnumWrapper {
     fn Initial() -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutAlignItemsEnumWrapper) -> AzLayoutAlignItemsValueEnumWrapper { AzLayoutAlignItemsValueEnumWrapper { inner: AzLayoutAlignItemsValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutAlignItemsValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutAlignItemsValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutAlignItemsValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutAlignItemsValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutAlignItemsValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutAlignItemsValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutAlignItemsEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18372,6 +19314,20 @@ impl AzLayoutBottomValueEnumWrapper {
     fn Initial() -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutBottom) -> AzLayoutBottomValueEnumWrapper { AzLayoutBottomValueEnumWrapper { inner: AzLayoutBottomValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutBottomValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutBottomValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutBottomValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutBottomValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutBottomValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutBottomValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18396,6 +19352,20 @@ impl AzLayoutBoxSizingValueEnumWrapper {
     fn Initial() -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutBoxSizingEnumWrapper) -> AzLayoutBoxSizingValueEnumWrapper { AzLayoutBoxSizingValueEnumWrapper { inner: AzLayoutBoxSizingValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutBoxSizingValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutBoxSizingValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutBoxSizingValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutBoxSizingValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutBoxSizingValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutBoxSizingValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutBoxSizingEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18420,6 +19390,20 @@ impl AzLayoutFlexDirectionValueEnumWrapper {
     fn Initial() -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutFlexDirectionEnumWrapper) -> AzLayoutFlexDirectionValueEnumWrapper { AzLayoutFlexDirectionValueEnumWrapper { inner: AzLayoutFlexDirectionValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutFlexDirectionValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutFlexDirectionValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutFlexDirectionValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutFlexDirectionValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutFlexDirectionValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutFlexDirectionValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutFlexDirectionEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18444,6 +19428,20 @@ impl AzLayoutDisplayValueEnumWrapper {
     fn Initial() -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutDisplayEnumWrapper) -> AzLayoutDisplayValueEnumWrapper { AzLayoutDisplayValueEnumWrapper { inner: AzLayoutDisplayValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutDisplayValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutDisplayValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutDisplayValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutDisplayValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutDisplayValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutDisplayValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutDisplayEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18468,6 +19466,20 @@ impl AzLayoutFlexGrowValueEnumWrapper {
     fn Initial() -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutFlexGrow) -> AzLayoutFlexGrowValueEnumWrapper { AzLayoutFlexGrowValueEnumWrapper { inner: AzLayoutFlexGrowValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutFlexGrowValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutFlexGrowValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutFlexGrowValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutFlexGrowValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutFlexGrowValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutFlexGrowValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18492,6 +19504,20 @@ impl AzLayoutFlexShrinkValueEnumWrapper {
     fn Initial() -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutFlexShrink) -> AzLayoutFlexShrinkValueEnumWrapper { AzLayoutFlexShrinkValueEnumWrapper { inner: AzLayoutFlexShrinkValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutFlexShrinkValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutFlexShrinkValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutFlexShrinkValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutFlexShrinkValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutFlexShrinkValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutFlexShrinkValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18516,6 +19542,20 @@ impl AzLayoutFloatValueEnumWrapper {
     fn Initial() -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutFloatEnumWrapper) -> AzLayoutFloatValueEnumWrapper { AzLayoutFloatValueEnumWrapper { inner: AzLayoutFloatValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutFloatValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutFloatValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutFloatValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutFloatValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutFloatValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutFloatValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutFloatEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18540,6 +19580,20 @@ impl AzLayoutHeightValueEnumWrapper {
     fn Initial() -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutHeight) -> AzLayoutHeightValueEnumWrapper { AzLayoutHeightValueEnumWrapper { inner: AzLayoutHeightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutHeightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutHeightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutHeightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutHeightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutHeightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutHeightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18564,6 +19618,20 @@ impl AzLayoutJustifyContentValueEnumWrapper {
     fn Initial() -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutJustifyContentEnumWrapper) -> AzLayoutJustifyContentValueEnumWrapper { AzLayoutJustifyContentValueEnumWrapper { inner: AzLayoutJustifyContentValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutJustifyContentValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutJustifyContentValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutJustifyContentValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutJustifyContentValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutJustifyContentValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutJustifyContentValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutJustifyContentEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18588,6 +19656,20 @@ impl AzLayoutLeftValueEnumWrapper {
     fn Initial() -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutLeft) -> AzLayoutLeftValueEnumWrapper { AzLayoutLeftValueEnumWrapper { inner: AzLayoutLeftValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutLeftValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutLeftValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutLeftValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutLeftValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutLeftValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutLeftValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18612,6 +19694,20 @@ impl AzLayoutMarginBottomValueEnumWrapper {
     fn Initial() -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMarginBottom) -> AzLayoutMarginBottomValueEnumWrapper { AzLayoutMarginBottomValueEnumWrapper { inner: AzLayoutMarginBottomValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMarginBottomValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMarginBottomValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMarginBottomValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMarginBottomValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMarginBottomValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMarginBottomValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18636,6 +19732,20 @@ impl AzLayoutMarginLeftValueEnumWrapper {
     fn Initial() -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMarginLeft) -> AzLayoutMarginLeftValueEnumWrapper { AzLayoutMarginLeftValueEnumWrapper { inner: AzLayoutMarginLeftValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMarginLeftValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMarginLeftValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMarginLeftValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMarginLeftValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMarginLeftValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMarginLeftValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18660,6 +19770,20 @@ impl AzLayoutMarginRightValueEnumWrapper {
     fn Initial() -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMarginRight) -> AzLayoutMarginRightValueEnumWrapper { AzLayoutMarginRightValueEnumWrapper { inner: AzLayoutMarginRightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMarginRightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMarginRightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMarginRightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMarginRightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMarginRightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMarginRightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18684,6 +19808,20 @@ impl AzLayoutMarginTopValueEnumWrapper {
     fn Initial() -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMarginTop) -> AzLayoutMarginTopValueEnumWrapper { AzLayoutMarginTopValueEnumWrapper { inner: AzLayoutMarginTopValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMarginTopValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMarginTopValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMarginTopValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMarginTopValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMarginTopValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMarginTopValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18708,6 +19846,20 @@ impl AzLayoutMaxHeightValueEnumWrapper {
     fn Initial() -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMaxHeight) -> AzLayoutMaxHeightValueEnumWrapper { AzLayoutMaxHeightValueEnumWrapper { inner: AzLayoutMaxHeightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMaxHeightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMaxHeightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMaxHeightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMaxHeightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMaxHeightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMaxHeightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18732,6 +19884,20 @@ impl AzLayoutMaxWidthValueEnumWrapper {
     fn Initial() -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMaxWidth) -> AzLayoutMaxWidthValueEnumWrapper { AzLayoutMaxWidthValueEnumWrapper { inner: AzLayoutMaxWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMaxWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMaxWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMaxWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMaxWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMaxWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMaxWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18756,6 +19922,20 @@ impl AzLayoutMinHeightValueEnumWrapper {
     fn Initial() -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMinHeight) -> AzLayoutMinHeightValueEnumWrapper { AzLayoutMinHeightValueEnumWrapper { inner: AzLayoutMinHeightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMinHeightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMinHeightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMinHeightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMinHeightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMinHeightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMinHeightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18780,6 +19960,20 @@ impl AzLayoutMinWidthValueEnumWrapper {
     fn Initial() -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutMinWidth) -> AzLayoutMinWidthValueEnumWrapper { AzLayoutMinWidthValueEnumWrapper { inner: AzLayoutMinWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutMinWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutMinWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutMinWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutMinWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutMinWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutMinWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18804,6 +19998,20 @@ impl AzLayoutPaddingBottomValueEnumWrapper {
     fn Initial() -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutPaddingBottom) -> AzLayoutPaddingBottomValueEnumWrapper { AzLayoutPaddingBottomValueEnumWrapper { inner: AzLayoutPaddingBottomValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutPaddingBottomValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutPaddingBottomValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingBottomValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingBottomValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingBottomValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingBottomValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18828,6 +20036,20 @@ impl AzLayoutPaddingLeftValueEnumWrapper {
     fn Initial() -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutPaddingLeft) -> AzLayoutPaddingLeftValueEnumWrapper { AzLayoutPaddingLeftValueEnumWrapper { inner: AzLayoutPaddingLeftValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutPaddingLeftValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutPaddingLeftValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingLeftValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingLeftValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingLeftValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingLeftValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18852,6 +20074,20 @@ impl AzLayoutPaddingRightValueEnumWrapper {
     fn Initial() -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutPaddingRight) -> AzLayoutPaddingRightValueEnumWrapper { AzLayoutPaddingRightValueEnumWrapper { inner: AzLayoutPaddingRightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutPaddingRightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutPaddingRightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingRightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingRightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingRightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingRightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18876,6 +20112,20 @@ impl AzLayoutPaddingTopValueEnumWrapper {
     fn Initial() -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutPaddingTop) -> AzLayoutPaddingTopValueEnumWrapper { AzLayoutPaddingTopValueEnumWrapper { inner: AzLayoutPaddingTopValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutPaddingTopValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutPaddingTopValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingTopValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingTopValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingTopValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutPaddingTopValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18900,6 +20150,20 @@ impl AzLayoutPositionValueEnumWrapper {
     fn Initial() -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutPositionEnumWrapper) -> AzLayoutPositionValueEnumWrapper { AzLayoutPositionValueEnumWrapper { inner: AzLayoutPositionValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutPositionValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutPositionValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutPositionValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutPositionValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutPositionValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutPositionValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutPositionEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18924,6 +20188,20 @@ impl AzLayoutRightValueEnumWrapper {
     fn Initial() -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutRight) -> AzLayoutRightValueEnumWrapper { AzLayoutRightValueEnumWrapper { inner: AzLayoutRightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutRightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutRightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutRightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutRightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutRightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutRightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18948,6 +20226,20 @@ impl AzLayoutTopValueEnumWrapper {
     fn Initial() -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutTop) -> AzLayoutTopValueEnumWrapper { AzLayoutTopValueEnumWrapper { inner: AzLayoutTopValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutTopValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutTopValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutTopValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutTopValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutTopValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutTopValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18972,6 +20264,20 @@ impl AzLayoutWidthValueEnumWrapper {
     fn Initial() -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutWidth) -> AzLayoutWidthValueEnumWrapper { AzLayoutWidthValueEnumWrapper { inner: AzLayoutWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -18996,6 +20302,20 @@ impl AzLayoutFlexWrapValueEnumWrapper {
     fn Initial() -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutFlexWrapEnumWrapper) -> AzLayoutFlexWrapValueEnumWrapper { AzLayoutFlexWrapValueEnumWrapper { inner: AzLayoutFlexWrapValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutFlexWrapValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutFlexWrapValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutFlexWrapValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutFlexWrapValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutFlexWrapValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutFlexWrapValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutFlexWrapEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19020,6 +20340,20 @@ impl AzLayoutOverflowValueEnumWrapper {
     fn Initial() -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutOverflowEnumWrapper) -> AzLayoutOverflowValueEnumWrapper { AzLayoutOverflowValueEnumWrapper { inner: AzLayoutOverflowValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutOverflowValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutOverflowValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutOverflowValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutOverflowValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutOverflowValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutOverflowValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzLayoutOverflowEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19044,6 +20378,20 @@ impl AzScrollbarStyleValueEnumWrapper {
     fn Initial() -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzScrollbarStyle) -> AzScrollbarStyleValueEnumWrapper { AzScrollbarStyleValueEnumWrapper { inner: AzScrollbarStyleValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzScrollbarStyleValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzScrollbarStyleValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzScrollbarStyleValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzScrollbarStyleValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzScrollbarStyleValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzScrollbarStyleValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19068,6 +20416,20 @@ impl AzStyleBackgroundContentVecValueEnumWrapper {
     fn Initial() -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBackgroundContentVec) -> AzStyleBackgroundContentVecValueEnumWrapper { AzStyleBackgroundContentVecValueEnumWrapper { inner: AzStyleBackgroundContentVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundContentVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundContentVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundContentVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundContentVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundContentVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundContentVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19092,6 +20454,20 @@ impl AzStyleBackgroundPositionVecValueEnumWrapper {
     fn Initial() -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBackgroundPositionVec) -> AzStyleBackgroundPositionVecValueEnumWrapper { AzStyleBackgroundPositionVecValueEnumWrapper { inner: AzStyleBackgroundPositionVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundPositionVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundPositionVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundPositionVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundPositionVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundPositionVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundPositionVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19116,6 +20492,20 @@ impl AzStyleBackgroundRepeatVecValueEnumWrapper {
     fn Initial() -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBackgroundRepeatVec) -> AzStyleBackgroundRepeatVecValueEnumWrapper { AzStyleBackgroundRepeatVecValueEnumWrapper { inner: AzStyleBackgroundRepeatVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundRepeatVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundRepeatVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundRepeatVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundRepeatVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundRepeatVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundRepeatVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19140,6 +20530,20 @@ impl AzStyleBackgroundSizeVecValueEnumWrapper {
     fn Initial() -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBackgroundSizeVec) -> AzStyleBackgroundSizeVecValueEnumWrapper { AzStyleBackgroundSizeVecValueEnumWrapper { inner: AzStyleBackgroundSizeVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundSizeVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundSizeVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSizeVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSizeVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSizeVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSizeVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19164,6 +20568,20 @@ impl AzStyleBorderBottomColorValueEnumWrapper {
     fn Initial() -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderBottomColor) -> AzStyleBorderBottomColorValueEnumWrapper { AzStyleBorderBottomColorValueEnumWrapper { inner: AzStyleBorderBottomColorValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderBottomColorValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderBottomColorValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomColorValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomColorValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomColorValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomColorValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19188,6 +20606,20 @@ impl AzStyleBorderBottomLeftRadiusValueEnumWrapper {
     fn Initial() -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadiusValueEnumWrapper { AzStyleBorderBottomLeftRadiusValueEnumWrapper { inner: AzStyleBorderBottomLeftRadiusValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderBottomLeftRadiusValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderBottomLeftRadiusValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomLeftRadiusValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomLeftRadiusValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomLeftRadiusValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomLeftRadiusValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19212,6 +20644,20 @@ impl AzStyleBorderBottomRightRadiusValueEnumWrapper {
     fn Initial() -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadiusValueEnumWrapper { AzStyleBorderBottomRightRadiusValueEnumWrapper { inner: AzStyleBorderBottomRightRadiusValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderBottomRightRadiusValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderBottomRightRadiusValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomRightRadiusValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomRightRadiusValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomRightRadiusValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomRightRadiusValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19236,6 +20682,20 @@ impl AzStyleBorderBottomStyleValueEnumWrapper {
     fn Initial() -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyleValueEnumWrapper { AzStyleBorderBottomStyleValueEnumWrapper { inner: AzStyleBorderBottomStyleValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderBottomStyleValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderBottomStyleValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomStyleValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomStyleValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomStyleValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderBottomStyleValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19260,6 +20720,20 @@ impl AzLayoutBorderBottomWidthValueEnumWrapper {
     fn Initial() -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutBorderBottomWidth) -> AzLayoutBorderBottomWidthValueEnumWrapper { AzLayoutBorderBottomWidthValueEnumWrapper { inner: AzLayoutBorderBottomWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutBorderBottomWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutBorderBottomWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutBorderBottomWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutBorderBottomWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutBorderBottomWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutBorderBottomWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19284,6 +20758,20 @@ impl AzStyleBorderLeftColorValueEnumWrapper {
     fn Initial() -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderLeftColor) -> AzStyleBorderLeftColorValueEnumWrapper { AzStyleBorderLeftColorValueEnumWrapper { inner: AzStyleBorderLeftColorValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderLeftColorValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderLeftColorValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftColorValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftColorValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftColorValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftColorValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19308,6 +20796,20 @@ impl AzStyleBorderLeftStyleValueEnumWrapper {
     fn Initial() -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyleValueEnumWrapper { AzStyleBorderLeftStyleValueEnumWrapper { inner: AzStyleBorderLeftStyleValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderLeftStyleValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderLeftStyleValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftStyleValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftStyleValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftStyleValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderLeftStyleValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19332,6 +20834,20 @@ impl AzLayoutBorderLeftWidthValueEnumWrapper {
     fn Initial() -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutBorderLeftWidth) -> AzLayoutBorderLeftWidthValueEnumWrapper { AzLayoutBorderLeftWidthValueEnumWrapper { inner: AzLayoutBorderLeftWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutBorderLeftWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutBorderLeftWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutBorderLeftWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutBorderLeftWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutBorderLeftWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutBorderLeftWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19356,6 +20872,20 @@ impl AzStyleBorderRightColorValueEnumWrapper {
     fn Initial() -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderRightColor) -> AzStyleBorderRightColorValueEnumWrapper { AzStyleBorderRightColorValueEnumWrapper { inner: AzStyleBorderRightColorValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderRightColorValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderRightColorValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightColorValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightColorValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightColorValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightColorValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19380,6 +20910,20 @@ impl AzStyleBorderRightStyleValueEnumWrapper {
     fn Initial() -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderRightStyle) -> AzStyleBorderRightStyleValueEnumWrapper { AzStyleBorderRightStyleValueEnumWrapper { inner: AzStyleBorderRightStyleValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderRightStyleValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderRightStyleValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightStyleValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightStyleValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightStyleValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderRightStyleValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19404,6 +20948,20 @@ impl AzLayoutBorderRightWidthValueEnumWrapper {
     fn Initial() -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutBorderRightWidth) -> AzLayoutBorderRightWidthValueEnumWrapper { AzLayoutBorderRightWidthValueEnumWrapper { inner: AzLayoutBorderRightWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutBorderRightWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutBorderRightWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutBorderRightWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutBorderRightWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutBorderRightWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutBorderRightWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19428,6 +20986,20 @@ impl AzStyleBorderTopColorValueEnumWrapper {
     fn Initial() -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderTopColor) -> AzStyleBorderTopColorValueEnumWrapper { AzStyleBorderTopColorValueEnumWrapper { inner: AzStyleBorderTopColorValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderTopColorValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderTopColorValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopColorValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopColorValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopColorValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopColorValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19452,6 +21024,20 @@ impl AzStyleBorderTopLeftRadiusValueEnumWrapper {
     fn Initial() -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadiusValueEnumWrapper { AzStyleBorderTopLeftRadiusValueEnumWrapper { inner: AzStyleBorderTopLeftRadiusValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderTopLeftRadiusValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderTopLeftRadiusValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopLeftRadiusValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopLeftRadiusValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopLeftRadiusValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopLeftRadiusValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19476,6 +21062,20 @@ impl AzStyleBorderTopRightRadiusValueEnumWrapper {
     fn Initial() -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadiusValueEnumWrapper { AzStyleBorderTopRightRadiusValueEnumWrapper { inner: AzStyleBorderTopRightRadiusValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderTopRightRadiusValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderTopRightRadiusValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopRightRadiusValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopRightRadiusValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopRightRadiusValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopRightRadiusValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19500,6 +21100,20 @@ impl AzStyleBorderTopStyleValueEnumWrapper {
     fn Initial() -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBorderTopStyle) -> AzStyleBorderTopStyleValueEnumWrapper { AzStyleBorderTopStyleValueEnumWrapper { inner: AzStyleBorderTopStyleValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBorderTopStyleValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBorderTopStyleValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopStyleValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopStyleValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopStyleValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBorderTopStyleValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19524,6 +21138,20 @@ impl AzLayoutBorderTopWidthValueEnumWrapper {
     fn Initial() -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzLayoutBorderTopWidth) -> AzLayoutBorderTopWidthValueEnumWrapper { AzLayoutBorderTopWidthValueEnumWrapper { inner: AzLayoutBorderTopWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzLayoutBorderTopWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzLayoutBorderTopWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzLayoutBorderTopWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzLayoutBorderTopWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzLayoutBorderTopWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzLayoutBorderTopWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19548,6 +21176,20 @@ impl AzStyleCursorValueEnumWrapper {
     fn Initial() -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleCursorEnumWrapper) -> AzStyleCursorValueEnumWrapper { AzStyleCursorValueEnumWrapper { inner: AzStyleCursorValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleCursorValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleCursorValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleCursorValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleCursorValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleCursorValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleCursorValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzStyleCursorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19572,6 +21214,20 @@ impl AzStyleFontFamilyVecValueEnumWrapper {
     fn Initial() -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleFontFamilyVec) -> AzStyleFontFamilyVecValueEnumWrapper { AzStyleFontFamilyVecValueEnumWrapper { inner: AzStyleFontFamilyVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleFontFamilyVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleFontFamilyVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleFontFamilyVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleFontFamilyVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleFontFamilyVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleFontFamilyVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19596,6 +21252,20 @@ impl AzStyleFontSizeValueEnumWrapper {
     fn Initial() -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleFontSize) -> AzStyleFontSizeValueEnumWrapper { AzStyleFontSizeValueEnumWrapper { inner: AzStyleFontSizeValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleFontSizeValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleFontSizeValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleFontSizeValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleFontSizeValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleFontSizeValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleFontSizeValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19620,6 +21290,20 @@ impl AzStyleLetterSpacingValueEnumWrapper {
     fn Initial() -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleLetterSpacing) -> AzStyleLetterSpacingValueEnumWrapper { AzStyleLetterSpacingValueEnumWrapper { inner: AzStyleLetterSpacingValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleLetterSpacingValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleLetterSpacingValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleLetterSpacingValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleLetterSpacingValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleLetterSpacingValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleLetterSpacingValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19644,6 +21328,20 @@ impl AzStyleLineHeightValueEnumWrapper {
     fn Initial() -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleLineHeight) -> AzStyleLineHeightValueEnumWrapper { AzStyleLineHeightValueEnumWrapper { inner: AzStyleLineHeightValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleLineHeightValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleLineHeightValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleLineHeightValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleLineHeightValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleLineHeightValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleLineHeightValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19668,6 +21366,20 @@ impl AzStyleTabWidthValueEnumWrapper {
     fn Initial() -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleTabWidth) -> AzStyleTabWidthValueEnumWrapper { AzStyleTabWidthValueEnumWrapper { inner: AzStyleTabWidthValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTabWidthValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTabWidthValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleTabWidthValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleTabWidthValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleTabWidthValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleTabWidthValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19692,6 +21404,20 @@ impl AzStyleTextAlignValueEnumWrapper {
     fn Initial() -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleTextAlignEnumWrapper) -> AzStyleTextAlignValueEnumWrapper { AzStyleTextAlignValueEnumWrapper { inner: AzStyleTextAlignValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTextAlignValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTextAlignValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleTextAlignValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleTextAlignValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleTextAlignValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleTextAlignValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzStyleTextAlignEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19716,6 +21442,20 @@ impl AzStyleTextColorValueEnumWrapper {
     fn Initial() -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleTextColor) -> AzStyleTextColorValueEnumWrapper { AzStyleTextColorValueEnumWrapper { inner: AzStyleTextColorValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTextColorValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTextColorValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleTextColorValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleTextColorValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleTextColorValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleTextColorValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19740,6 +21480,20 @@ impl AzStyleWordSpacingValueEnumWrapper {
     fn Initial() -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleWordSpacing) -> AzStyleWordSpacingValueEnumWrapper { AzStyleWordSpacingValueEnumWrapper { inner: AzStyleWordSpacingValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleWordSpacingValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleWordSpacingValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleWordSpacingValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleWordSpacingValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleWordSpacingValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleWordSpacingValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19764,6 +21518,20 @@ impl AzStyleOpacityValueEnumWrapper {
     fn Initial() -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleOpacity) -> AzStyleOpacityValueEnumWrapper { AzStyleOpacityValueEnumWrapper { inner: AzStyleOpacityValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleOpacityValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleOpacityValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleOpacityValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleOpacityValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleOpacityValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleOpacityValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19788,6 +21556,20 @@ impl AzStyleTransformVecValueEnumWrapper {
     fn Initial() -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleTransformVec) -> AzStyleTransformVecValueEnumWrapper { AzStyleTransformVecValueEnumWrapper { inner: AzStyleTransformVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTransformVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTransformVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleTransformVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleTransformVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleTransformVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleTransformVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19812,6 +21594,20 @@ impl AzStyleTransformOriginValueEnumWrapper {
     fn Initial() -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleTransformOrigin) -> AzStyleTransformOriginValueEnumWrapper { AzStyleTransformOriginValueEnumWrapper { inner: AzStyleTransformOriginValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTransformOriginValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTransformOriginValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleTransformOriginValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleTransformOriginValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleTransformOriginValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleTransformOriginValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19836,6 +21632,20 @@ impl AzStylePerspectiveOriginValueEnumWrapper {
     fn Initial() -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStylePerspectiveOrigin) -> AzStylePerspectiveOriginValueEnumWrapper { AzStylePerspectiveOriginValueEnumWrapper { inner: AzStylePerspectiveOriginValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStylePerspectiveOriginValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStylePerspectiveOriginValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStylePerspectiveOriginValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStylePerspectiveOriginValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStylePerspectiveOriginValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStylePerspectiveOriginValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -19860,6 +21670,20 @@ impl AzStyleBackfaceVisibilityValueEnumWrapper {
     fn Initial() -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::Initial } }
     #[staticmethod]
     fn Exact(v: AzStyleBackfaceVisibilityEnumWrapper) -> AzStyleBackfaceVisibilityValueEnumWrapper { AzStyleBackfaceVisibilityValueEnumWrapper { inner: AzStyleBackfaceVisibilityValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackfaceVisibilityValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackfaceVisibilityValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleBackfaceVisibilityValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleBackfaceVisibilityValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleBackfaceVisibilityValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleBackfaceVisibilityValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzStyleBackfaceVisibilityEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -20014,6 +21838,85 @@ impl AzCssPropertyEnumWrapper {
     fn PerspectiveOrigin(v: AzStylePerspectiveOriginValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PerspectiveOrigin(unsafe { mem::transmute(v) }) } }
     #[staticmethod]
     fn BackfaceVisibility(v: AzStyleBackfaceVisibilityValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackfaceVisibility(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssProperty;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssProperty::TextColor(v) => Ok(vec!["TextColor".into_py(py), { let m: &AzStyleTextColorValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::FontSize(v) => Ok(vec!["FontSize".into_py(py), { let m: &AzStyleFontSizeValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::FontFamily(v) => Ok(vec!["FontFamily".into_py(py), { let m: &AzStyleFontFamilyVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::TextAlign(v) => Ok(vec!["TextAlign".into_py(py), { let m: &AzStyleTextAlignValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::LetterSpacing(v) => Ok(vec!["LetterSpacing".into_py(py), { let m: &AzStyleLetterSpacingValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::LineHeight(v) => Ok(vec!["LineHeight".into_py(py), { let m: &AzStyleLineHeightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::WordSpacing(v) => Ok(vec!["WordSpacing".into_py(py), { let m: &AzStyleWordSpacingValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::TabWidth(v) => Ok(vec!["TabWidth".into_py(py), { let m: &AzStyleTabWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Cursor(v) => Ok(vec!["Cursor".into_py(py), { let m: &AzStyleCursorValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Display(v) => Ok(vec!["Display".into_py(py), { let m: &AzLayoutDisplayValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Float(v) => Ok(vec!["Float".into_py(py), { let m: &AzLayoutFloatValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BoxSizing(v) => Ok(vec!["BoxSizing".into_py(py), { let m: &AzLayoutBoxSizingValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Width(v) => Ok(vec!["Width".into_py(py), { let m: &AzLayoutWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Height(v) => Ok(vec!["Height".into_py(py), { let m: &AzLayoutHeightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MinWidth(v) => Ok(vec!["MinWidth".into_py(py), { let m: &AzLayoutMinWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MinHeight(v) => Ok(vec!["MinHeight".into_py(py), { let m: &AzLayoutMinHeightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MaxWidth(v) => Ok(vec!["MaxWidth".into_py(py), { let m: &AzLayoutMaxWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MaxHeight(v) => Ok(vec!["MaxHeight".into_py(py), { let m: &AzLayoutMaxHeightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Position(v) => Ok(vec!["Position".into_py(py), { let m: &AzLayoutPositionValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Top(v) => Ok(vec!["Top".into_py(py), { let m: &AzLayoutTopValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Right(v) => Ok(vec!["Right".into_py(py), { let m: &AzLayoutRightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Left(v) => Ok(vec!["Left".into_py(py), { let m: &AzLayoutLeftValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Bottom(v) => Ok(vec!["Bottom".into_py(py), { let m: &AzLayoutBottomValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::FlexWrap(v) => Ok(vec!["FlexWrap".into_py(py), { let m: &AzLayoutFlexWrapValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::FlexDirection(v) => Ok(vec!["FlexDirection".into_py(py), { let m: &AzLayoutFlexDirectionValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::FlexGrow(v) => Ok(vec!["FlexGrow".into_py(py), { let m: &AzLayoutFlexGrowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::FlexShrink(v) => Ok(vec!["FlexShrink".into_py(py), { let m: &AzLayoutFlexShrinkValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::JustifyContent(v) => Ok(vec!["JustifyContent".into_py(py), { let m: &AzLayoutJustifyContentValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::AlignItems(v) => Ok(vec!["AlignItems".into_py(py), { let m: &AzLayoutAlignItemsValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::AlignContent(v) => Ok(vec!["AlignContent".into_py(py), { let m: &AzLayoutAlignContentValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BackgroundContent(v) => Ok(vec!["BackgroundContent".into_py(py), { let m: &AzStyleBackgroundContentVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BackgroundPosition(v) => Ok(vec!["BackgroundPosition".into_py(py), { let m: &AzStyleBackgroundPositionVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BackgroundSize(v) => Ok(vec!["BackgroundSize".into_py(py), { let m: &AzStyleBackgroundSizeVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BackgroundRepeat(v) => Ok(vec!["BackgroundRepeat".into_py(py), { let m: &AzStyleBackgroundRepeatVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::OverflowX(v) => Ok(vec!["OverflowX".into_py(py), { let m: &AzLayoutOverflowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::OverflowY(v) => Ok(vec!["OverflowY".into_py(py), { let m: &AzLayoutOverflowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::PaddingTop(v) => Ok(vec!["PaddingTop".into_py(py), { let m: &AzLayoutPaddingTopValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::PaddingLeft(v) => Ok(vec!["PaddingLeft".into_py(py), { let m: &AzLayoutPaddingLeftValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::PaddingRight(v) => Ok(vec!["PaddingRight".into_py(py), { let m: &AzLayoutPaddingRightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::PaddingBottom(v) => Ok(vec!["PaddingBottom".into_py(py), { let m: &AzLayoutPaddingBottomValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MarginTop(v) => Ok(vec!["MarginTop".into_py(py), { let m: &AzLayoutMarginTopValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MarginLeft(v) => Ok(vec!["MarginLeft".into_py(py), { let m: &AzLayoutMarginLeftValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MarginRight(v) => Ok(vec!["MarginRight".into_py(py), { let m: &AzLayoutMarginRightValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MarginBottom(v) => Ok(vec!["MarginBottom".into_py(py), { let m: &AzLayoutMarginBottomValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderTopLeftRadius(v) => Ok(vec!["BorderTopLeftRadius".into_py(py), { let m: &AzStyleBorderTopLeftRadiusValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderTopRightRadius(v) => Ok(vec!["BorderTopRightRadius".into_py(py), { let m: &AzStyleBorderTopRightRadiusValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderBottomLeftRadius(v) => Ok(vec!["BorderBottomLeftRadius".into_py(py), { let m: &AzStyleBorderBottomLeftRadiusValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderBottomRightRadius(v) => Ok(vec!["BorderBottomRightRadius".into_py(py), { let m: &AzStyleBorderBottomRightRadiusValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderTopColor(v) => Ok(vec!["BorderTopColor".into_py(py), { let m: &AzStyleBorderTopColorValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderRightColor(v) => Ok(vec!["BorderRightColor".into_py(py), { let m: &AzStyleBorderRightColorValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderLeftColor(v) => Ok(vec!["BorderLeftColor".into_py(py), { let m: &AzStyleBorderLeftColorValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderBottomColor(v) => Ok(vec!["BorderBottomColor".into_py(py), { let m: &AzStyleBorderBottomColorValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderTopStyle(v) => Ok(vec!["BorderTopStyle".into_py(py), { let m: &AzStyleBorderTopStyleValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderRightStyle(v) => Ok(vec!["BorderRightStyle".into_py(py), { let m: &AzStyleBorderRightStyleValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderLeftStyle(v) => Ok(vec!["BorderLeftStyle".into_py(py), { let m: &AzStyleBorderLeftStyleValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderBottomStyle(v) => Ok(vec!["BorderBottomStyle".into_py(py), { let m: &AzStyleBorderBottomStyleValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderTopWidth(v) => Ok(vec!["BorderTopWidth".into_py(py), { let m: &AzLayoutBorderTopWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderRightWidth(v) => Ok(vec!["BorderRightWidth".into_py(py), { let m: &AzLayoutBorderRightWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderLeftWidth(v) => Ok(vec!["BorderLeftWidth".into_py(py), { let m: &AzLayoutBorderLeftWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BorderBottomWidth(v) => Ok(vec!["BorderBottomWidth".into_py(py), { let m: &AzLayoutBorderBottomWidthValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BoxShadowLeft(v) => Ok(vec!["BoxShadowLeft".into_py(py), { let m: &AzStyleBoxShadowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BoxShadowRight(v) => Ok(vec!["BoxShadowRight".into_py(py), { let m: &AzStyleBoxShadowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BoxShadowTop(v) => Ok(vec!["BoxShadowTop".into_py(py), { let m: &AzStyleBoxShadowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BoxShadowBottom(v) => Ok(vec!["BoxShadowBottom".into_py(py), { let m: &AzStyleBoxShadowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::ScrollbarStyle(v) => Ok(vec!["ScrollbarStyle".into_py(py), { let m: &AzScrollbarStyleValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Opacity(v) => Ok(vec!["Opacity".into_py(py), { let m: &AzStyleOpacityValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Transform(v) => Ok(vec!["Transform".into_py(py), { let m: &AzStyleTransformVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::TransformOrigin(v) => Ok(vec!["TransformOrigin".into_py(py), { let m: &AzStyleTransformOriginValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::PerspectiveOrigin(v) => Ok(vec!["PerspectiveOrigin".into_py(py), { let m: &AzStylePerspectiveOriginValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BackfaceVisibility(v) => Ok(vec!["BackfaceVisibility".into_py(py), { let m: &AzStyleBackfaceVisibilityValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -20464,6 +22367,17 @@ impl AzTextInputSelectionEnumWrapper {
     fn All() -> AzTextInputSelectionEnumWrapper { AzTextInputSelectionEnumWrapper { inner: AzTextInputSelection::All } }
     #[staticmethod]
     fn FromTo(v: AzTextInputSelectionRange) -> AzTextInputSelectionEnumWrapper { AzTextInputSelectionEnumWrapper { inner: AzTextInputSelection::FromTo(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzTextInputSelection;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzTextInputSelection::All => Ok(vec!["All".into_py(py), ().into_py(py)]),
+            AzTextInputSelection::FromTo(v) => Ok(vec!["FromTo".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -20644,6 +22558,16 @@ impl PyObjectProtocol for AzTextInputValidEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::text_input::TextInputValid = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzTextInputValidEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -20800,6 +22724,17 @@ impl AzCssPropertySourceEnumWrapper {
     fn Css(v: AzCssPath) -> AzCssPropertySourceEnumWrapper { AzCssPropertySourceEnumWrapper { inner: AzCssPropertySource::Css(v) } }
     #[classattr]
     fn Inline() -> AzCssPropertySourceEnumWrapper { AzCssPropertySourceEnumWrapper { inner: AzCssPropertySource::Inline } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssPropertySource;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssPropertySource::Css(v) => Ok(vec!["Css".into_py(py), v.clone().into_py(py)]),
+            AzCssPropertySource::Inline => Ok(vec!["Inline".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -25790,6 +27725,16 @@ impl PyObjectProtocol for AzVertexAttributeTypeEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::gl::VertexAttributeType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzVertexAttributeTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -25884,6 +27829,16 @@ impl PyObjectProtocol for AzIndexBufferFormatEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::gl::IndexBufferFormat = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzIndexBufferFormatEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -25927,6 +27882,16 @@ impl PyObjectProtocol for AzGlTypeEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::gl::AzGlType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzGlTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -26451,6 +28416,16 @@ impl PyObjectProtocol for AzRawImageFormatEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::resources::RawImageFormat = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzRawImageFormatEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -26472,6 +28447,16 @@ impl PyObjectProtocol for AzEncodeImageErrorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::resources::encode::EncodeImageError = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzEncodeImageErrorEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -26495,6 +28480,16 @@ impl PyObjectProtocol for AzDecodeImageErrorEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::resources::decode::DecodeImageError = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzDecodeImageErrorEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -26505,6 +28500,18 @@ impl AzRawImageDataEnumWrapper {
     fn U16(v: AzU16Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper { inner: AzRawImageData::U16(v) } }
     #[staticmethod]
     fn F32(v: AzF32Vec) -> AzRawImageDataEnumWrapper { AzRawImageDataEnumWrapper { inner: AzRawImageData::F32(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzRawImageData;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzRawImageData::U8(v) => Ok(vec!["U8".into_py(py), v.clone().into_py(py)]),
+            AzRawImageData::U16(v) => Ok(vec!["U16".into_py(py), v.clone().into_py(py)]),
+            AzRawImageData::F32(v) => Ok(vec!["F32".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -26735,6 +28742,20 @@ impl AzSvgNodeEnumWrapper {
     fn Circle(v: AzSvgCircle) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Circle(v) } }
     #[staticmethod]
     fn Rect(v: AzSvgRect) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Rect(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgNode;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgNode::MultiPolygonCollection(v) => Ok(vec!["MultiPolygonCollection".into_py(py), v.clone().into_py(py)]),
+            AzSvgNode::MultiPolygon(v) => Ok(vec!["MultiPolygon".into_py(py), v.clone().into_py(py)]),
+            AzSvgNode::Path(v) => Ok(vec!["Path".into_py(py), v.clone().into_py(py)]),
+            AzSvgNode::Circle(v) => Ok(vec!["Circle".into_py(py), v.clone().into_py(py)]),
+            AzSvgNode::Rect(v) => Ok(vec!["Rect".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -26850,6 +28871,18 @@ impl AzSvgPathElementEnumWrapper {
     fn QuadraticCurve(v: AzSvgQuadraticCurve) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper { inner: AzSvgPathElement::QuadraticCurve(v) } }
     #[staticmethod]
     fn CubicCurve(v: AzSvgCubicCurve) -> AzSvgPathElementEnumWrapper { AzSvgPathElementEnumWrapper { inner: AzSvgPathElement::CubicCurve(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgPathElement;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgPathElement::Line(v) => Ok(vec!["Line".into_py(py), v.clone().into_py(py)]),
+            AzSvgPathElement::QuadraticCurve(v) => Ok(vec!["QuadraticCurve".into_py(py), v.clone().into_py(py)]),
+            AzSvgPathElement::CubicCurve(v) => Ok(vec!["CubicCurve".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -27090,6 +29123,16 @@ impl PyObjectProtocol for AzShapeRenderingEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::ShapeRendering = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzShapeRenderingEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -27110,6 +29153,16 @@ impl PyObjectProtocol for AzTextRenderingEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::TextRendering = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzTextRenderingEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -27128,6 +29181,16 @@ impl PyObjectProtocol for AzImageRenderingEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::ImageRendering = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzImageRenderingEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -27145,6 +29208,16 @@ impl PyObjectProtocol for AzFontDatabaseEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::FontDatabase = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzFontDatabaseEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -27197,6 +29270,18 @@ impl AzIndentEnumWrapper {
     fn Spaces(v: u8) -> AzIndentEnumWrapper { AzIndentEnumWrapper { inner: AzIndent::Spaces(v) } }
     #[classattr]
     fn Tabs() -> AzIndentEnumWrapper { AzIndentEnumWrapper { inner: AzIndent::Tabs } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzIndent;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzIndent::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzIndent::Spaces(v) => Ok(vec!["Spaces".into_py(py), v.into_py(py)]),
+            AzIndent::Tabs => Ok(vec!["Tabs".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -27219,6 +29304,19 @@ impl AzSvgFitToEnumWrapper {
     fn Height(v: u32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper { inner: AzSvgFitTo::Height(v) } }
     #[staticmethod]
     fn Zoom(v: f32) -> AzSvgFitToEnumWrapper { AzSvgFitToEnumWrapper { inner: AzSvgFitTo::Zoom(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgFitTo;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgFitTo::Original => Ok(vec!["Original".into_py(py), ().into_py(py)]),
+            AzSvgFitTo::Width(v) => Ok(vec!["Width".into_py(py), v.into_py(py)]),
+            AzSvgFitTo::Height(v) => Ok(vec!["Height".into_py(py), v.into_py(py)]),
+            AzSvgFitTo::Zoom(v) => Ok(vec!["Zoom".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -27237,6 +29335,17 @@ impl AzSvgStyleEnumWrapper {
     fn Fill(v: AzSvgFillStyle) -> AzSvgStyleEnumWrapper { AzSvgStyleEnumWrapper { inner: AzSvgStyle::Fill(v) } }
     #[staticmethod]
     fn Stroke(v: AzSvgStrokeStyle) -> AzSvgStyleEnumWrapper { AzSvgStyleEnumWrapper { inner: AzSvgStyle::Stroke(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgStyle;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgStyle::Fill(v) => Ok(vec!["Fill".into_py(py), v.clone().into_py(py)]),
+            AzSvgStyle::Stroke(v) => Ok(vec!["Stroke".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -27264,6 +29373,16 @@ impl PyObjectProtocol for AzSvgFillRuleEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::SvgFillRule = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzSvgFillRuleEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -27371,6 +29490,16 @@ impl PyObjectProtocol for AzSvgLineJoinEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::SvgLineJoin = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzSvgLineJoinEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -27390,6 +29519,16 @@ impl PyObjectProtocol for AzSvgLineCapEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::SvgLineCap = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzSvgLineCapEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -27613,6 +29752,16 @@ impl PyObjectProtocol for AzMsgBoxIconEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dialogs::MsgBoxIcon = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzMsgBoxIconEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -27631,6 +29780,16 @@ impl PyObjectProtocol for AzMsgBoxYesNoEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dialogs::YesNo = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzMsgBoxYesNoEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -27648,6 +29807,16 @@ impl PyObjectProtocol for AzMsgBoxOkCancelEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dialogs::OkCancel = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzMsgBoxOkCancelEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -27814,6 +29983,17 @@ impl AzInstantEnumWrapper {
     fn System(v: AzInstantPtr) -> AzInstantEnumWrapper { AzInstantEnumWrapper { inner: AzInstant::System(v) } }
     #[staticmethod]
     fn Tick(v: AzSystemTick) -> AzInstantEnumWrapper { AzInstantEnumWrapper { inner: AzInstant::Tick(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInstant;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInstant::System(v) => Ok(vec!["System".into_py(py), v.clone().into_py(py)]),
+            AzInstant::Tick(v) => Ok(vec!["Tick".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -27895,6 +30075,17 @@ impl AzDurationEnumWrapper {
     fn System(v: AzSystemTimeDiff) -> AzDurationEnumWrapper { AzDurationEnumWrapper { inner: AzDuration::System(v) } }
     #[staticmethod]
     fn Tick(v: AzSystemTickDiff) -> AzDurationEnumWrapper { AzDurationEnumWrapper { inner: AzDuration::Tick(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzDuration;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzDuration::System(v) => Ok(vec!["System".into_py(py), v.clone().into_py(py)]),
+            AzDuration::Tick(v) => Ok(vec!["Tick".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -28019,6 +30210,16 @@ impl PyObjectProtocol for AzTerminateTimerEnumWrapper {
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::task::TerminateTimer = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
+    fn __richcmp__(&self, other: AzTerminateTimerEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
 }
 
 #[pymethods]
@@ -28108,6 +30309,18 @@ impl AzThreadSendMsgEnumWrapper {
     fn Tick() -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper { inner: AzThreadSendMsg::Tick } }
     #[staticmethod]
     fn Custom(v: AzRefAny) -> AzThreadSendMsgEnumWrapper { AzThreadSendMsgEnumWrapper { inner: AzThreadSendMsg::Custom(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzThreadSendMsg;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzThreadSendMsg::TerminateThread => Ok(vec!["TerminateThread".into_py(py), ().into_py(py)]),
+            AzThreadSendMsg::Tick => Ok(vec!["Tick".into_py(py), ().into_py(py)]),
+            AzThreadSendMsg::Custom(v) => Ok(vec!["Custom".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -28126,6 +30339,17 @@ impl AzThreadReceiveMsgEnumWrapper {
     fn WriteBack(v: AzThreadWriteBackMsg) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::WriteBack(v) } }
     #[staticmethod]
     fn Update(v: AzUpdateEnumWrapper) -> AzThreadReceiveMsgEnumWrapper { AzThreadReceiveMsgEnumWrapper { inner: AzThreadReceiveMsg::Update(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzThreadReceiveMsg;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzThreadReceiveMsg::WriteBack(v) => Ok(vec!["WriteBack".into_py(py), v.clone().into_py(py)]),
+            AzThreadReceiveMsg::Update(v) => Ok(vec!["Update".into_py(py), { let m: &AzUpdateEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -28332,6 +30556,30 @@ impl AzFmtValueEnumWrapper {
     fn Str(v: AzString) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::Str(v) } }
     #[staticmethod]
     fn StrVec(v: AzStringVec) -> AzFmtValueEnumWrapper { AzFmtValueEnumWrapper { inner: AzFmtValue::StrVec(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzFmtValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzFmtValue::Bool(v) => Ok(vec!["Bool".into_py(py), v.into_py(py)]),
+            AzFmtValue::Uchar(v) => Ok(vec!["Uchar".into_py(py), v.into_py(py)]),
+            AzFmtValue::Schar(v) => Ok(vec!["Schar".into_py(py), v.into_py(py)]),
+            AzFmtValue::Ushort(v) => Ok(vec!["Ushort".into_py(py), v.into_py(py)]),
+            AzFmtValue::Sshort(v) => Ok(vec!["Sshort".into_py(py), v.into_py(py)]),
+            AzFmtValue::Uint(v) => Ok(vec!["Uint".into_py(py), v.into_py(py)]),
+            AzFmtValue::Sint(v) => Ok(vec!["Sint".into_py(py), v.into_py(py)]),
+            AzFmtValue::Ulong(v) => Ok(vec!["Ulong".into_py(py), v.into_py(py)]),
+            AzFmtValue::Slong(v) => Ok(vec!["Slong".into_py(py), v.into_py(py)]),
+            AzFmtValue::Isize(v) => Ok(vec!["Isize".into_py(py), v.into_py(py)]),
+            AzFmtValue::Usize(v) => Ok(vec!["Usize".into_py(py), v.into_py(py)]),
+            AzFmtValue::Float(v) => Ok(vec!["Float".into_py(py), v.into_py(py)]),
+            AzFmtValue::Double(v) => Ok(vec!["Double".into_py(py), v.into_py(py)]),
+            AzFmtValue::Str(v) => Ok(vec!["Str".into_py(py), v.clone().into_py(py)]),
+            AzFmtValue::StrVec(v) => Ok(vec!["StrVec".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29677,6 +31925,18 @@ impl AzStyleFontFamilyVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper { inner: AzStyleFontFamilyVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyleFontFamilyVecDestructorEnumWrapper { AzStyleFontFamilyVecDestructorEnumWrapper { inner: AzStyleFontFamilyVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleFontFamilyVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleFontFamilyVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyleFontFamilyVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyleFontFamilyVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29695,6 +31955,18 @@ impl AzAccessibilityStateVecDestructorEnumWrapper {
     fn DefaultRust() -> AzAccessibilityStateVecDestructorEnumWrapper { AzAccessibilityStateVecDestructorEnumWrapper { inner: AzAccessibilityStateVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzAccessibilityStateVecDestructorEnumWrapper { AzAccessibilityStateVecDestructorEnumWrapper { inner: AzAccessibilityStateVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzAccessibilityStateVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzAccessibilityStateVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzAccessibilityStateVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzAccessibilityStateVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29713,6 +31985,18 @@ impl AzMenuItemVecDestructorEnumWrapper {
     fn DefaultRust() -> AzMenuItemVecDestructorEnumWrapper { AzMenuItemVecDestructorEnumWrapper { inner: AzMenuItemVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzMenuItemVecDestructorEnumWrapper { AzMenuItemVecDestructorEnumWrapper { inner: AzMenuItemVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzMenuItemVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzMenuItemVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzMenuItemVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzMenuItemVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29731,6 +32015,18 @@ impl AzTesselatedSvgNodeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzTesselatedSvgNodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzTesselatedSvgNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzTesselatedSvgNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzTesselatedSvgNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29749,6 +32045,18 @@ impl AzXmlNodeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper { inner: AzXmlNodeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzXmlNodeVecDestructorEnumWrapper { AzXmlNodeVecDestructorEnumWrapper { inner: AzXmlNodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzXmlNodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzXmlNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzXmlNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzXmlNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29767,6 +32075,18 @@ impl AzFmtArgVecDestructorEnumWrapper {
     fn DefaultRust() -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper { inner: AzFmtArgVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzFmtArgVecDestructorEnumWrapper { AzFmtArgVecDestructorEnumWrapper { inner: AzFmtArgVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzFmtArgVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzFmtArgVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzFmtArgVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzFmtArgVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29785,6 +32105,18 @@ impl AzInlineLineVecDestructorEnumWrapper {
     fn DefaultRust() -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper { inner: AzInlineLineVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzInlineLineVecDestructorEnumWrapper { AzInlineLineVecDestructorEnumWrapper { inner: AzInlineLineVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInlineLineVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInlineLineVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInlineLineVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInlineLineVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29803,6 +32135,18 @@ impl AzInlineWordVecDestructorEnumWrapper {
     fn DefaultRust() -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper { inner: AzInlineWordVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzInlineWordVecDestructorEnumWrapper { AzInlineWordVecDestructorEnumWrapper { inner: AzInlineWordVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInlineWordVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInlineWordVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInlineWordVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInlineWordVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29821,6 +32165,18 @@ impl AzInlineGlyphVecDestructorEnumWrapper {
     fn DefaultRust() -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper { inner: AzInlineGlyphVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzInlineGlyphVecDestructorEnumWrapper { AzInlineGlyphVecDestructorEnumWrapper { inner: AzInlineGlyphVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInlineGlyphVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInlineGlyphVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInlineGlyphVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInlineGlyphVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29839,6 +32195,18 @@ impl AzInlineTextHitVecDestructorEnumWrapper {
     fn DefaultRust() -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper { inner: AzInlineTextHitVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzInlineTextHitVecDestructorEnumWrapper { AzInlineTextHitVecDestructorEnumWrapper { inner: AzInlineTextHitVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInlineTextHitVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInlineTextHitVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInlineTextHitVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInlineTextHitVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29857,6 +32225,18 @@ impl AzMonitorVecDestructorEnumWrapper {
     fn DefaultRust() -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper { inner: AzMonitorVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzMonitorVecDestructorEnumWrapper { AzMonitorVecDestructorEnumWrapper { inner: AzMonitorVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzMonitorVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzMonitorVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzMonitorVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzMonitorVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29875,6 +32255,18 @@ impl AzVideoModeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper { inner: AzVideoModeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzVideoModeVecDestructorEnumWrapper { AzVideoModeVecDestructorEnumWrapper { inner: AzVideoModeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzVideoModeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzVideoModeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzVideoModeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzVideoModeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29893,6 +32285,18 @@ impl AzDomVecDestructorEnumWrapper {
     fn DefaultRust() -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper { inner: AzDomVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzDomVecDestructorEnumWrapper { AzDomVecDestructorEnumWrapper { inner: AzDomVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzDomVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzDomVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzDomVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzDomVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29911,6 +32315,18 @@ impl AzIdOrClassVecDestructorEnumWrapper {
     fn DefaultRust() -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper { inner: AzIdOrClassVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzIdOrClassVecDestructorEnumWrapper { AzIdOrClassVecDestructorEnumWrapper { inner: AzIdOrClassVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzIdOrClassVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzIdOrClassVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzIdOrClassVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzIdOrClassVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29929,6 +32345,18 @@ impl AzNodeDataInlineCssPropertyVecDestructorEnumWrapper {
     fn DefaultRust() -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { inner: AzNodeDataInlineCssPropertyVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { AzNodeDataInlineCssPropertyVecDestructorEnumWrapper { inner: AzNodeDataInlineCssPropertyVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeDataInlineCssPropertyVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeDataInlineCssPropertyVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeDataInlineCssPropertyVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeDataInlineCssPropertyVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29947,6 +32375,18 @@ impl AzStyleBackgroundContentVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper { inner: AzStyleBackgroundContentVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyleBackgroundContentVecDestructorEnumWrapper { AzStyleBackgroundContentVecDestructorEnumWrapper { inner: AzStyleBackgroundContentVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundContentVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundContentVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundContentVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundContentVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29965,6 +32405,18 @@ impl AzStyleBackgroundPositionVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper { inner: AzStyleBackgroundPositionVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyleBackgroundPositionVecDestructorEnumWrapper { AzStyleBackgroundPositionVecDestructorEnumWrapper { inner: AzStyleBackgroundPositionVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundPositionVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundPositionVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundPositionVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundPositionVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -29983,6 +32435,18 @@ impl AzStyleBackgroundRepeatVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper { inner: AzStyleBackgroundRepeatVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyleBackgroundRepeatVecDestructorEnumWrapper { AzStyleBackgroundRepeatVecDestructorEnumWrapper { inner: AzStyleBackgroundRepeatVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundRepeatVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundRepeatVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundRepeatVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundRepeatVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30001,6 +32465,18 @@ impl AzStyleBackgroundSizeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper { inner: AzStyleBackgroundSizeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyleBackgroundSizeVecDestructorEnumWrapper { AzStyleBackgroundSizeVecDestructorEnumWrapper { inner: AzStyleBackgroundSizeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleBackgroundSizeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleBackgroundSizeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSizeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyleBackgroundSizeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30019,6 +32495,18 @@ impl AzStyleTransformVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper { inner: AzStyleTransformVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyleTransformVecDestructorEnumWrapper { AzStyleTransformVecDestructorEnumWrapper { inner: AzStyleTransformVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleTransformVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleTransformVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyleTransformVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyleTransformVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30037,6 +32525,18 @@ impl AzCssPropertyVecDestructorEnumWrapper {
     fn DefaultRust() -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper { inner: AzCssPropertyVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzCssPropertyVecDestructorEnumWrapper { AzCssPropertyVecDestructorEnumWrapper { inner: AzCssPropertyVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssPropertyVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssPropertyVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzCssPropertyVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzCssPropertyVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30055,6 +32555,18 @@ impl AzSvgMultiPolygonVecDestructorEnumWrapper {
     fn DefaultRust() -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper { inner: AzSvgMultiPolygonVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzSvgMultiPolygonVecDestructorEnumWrapper { AzSvgMultiPolygonVecDestructorEnumWrapper { inner: AzSvgMultiPolygonVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgMultiPolygonVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgMultiPolygonVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzSvgMultiPolygonVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzSvgMultiPolygonVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30073,6 +32585,18 @@ impl AzSvgPathVecDestructorEnumWrapper {
     fn DefaultRust() -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper { inner: AzSvgPathVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzSvgPathVecDestructorEnumWrapper { AzSvgPathVecDestructorEnumWrapper { inner: AzSvgPathVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgPathVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgPathVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzSvgPathVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzSvgPathVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30091,6 +32615,18 @@ impl AzVertexAttributeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper { inner: AzVertexAttributeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzVertexAttributeVecDestructorEnumWrapper { AzVertexAttributeVecDestructorEnumWrapper { inner: AzVertexAttributeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzVertexAttributeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzVertexAttributeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzVertexAttributeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzVertexAttributeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30109,6 +32645,18 @@ impl AzSvgPathElementVecDestructorEnumWrapper {
     fn DefaultRust() -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper { inner: AzSvgPathElementVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzSvgPathElementVecDestructorEnumWrapper { AzSvgPathElementVecDestructorEnumWrapper { inner: AzSvgPathElementVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgPathElementVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgPathElementVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzSvgPathElementVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzSvgPathElementVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30127,6 +32675,18 @@ impl AzSvgVertexVecDestructorEnumWrapper {
     fn DefaultRust() -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper { inner: AzSvgVertexVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzSvgVertexVecDestructorEnumWrapper { AzSvgVertexVecDestructorEnumWrapper { inner: AzSvgVertexVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgVertexVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgVertexVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzSvgVertexVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzSvgVertexVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30145,6 +32705,18 @@ impl AzU32VecDestructorEnumWrapper {
     fn DefaultRust() -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper { inner: AzU32VecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzU32VecDestructorEnumWrapper { AzU32VecDestructorEnumWrapper { inner: AzU32VecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzU32VecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzU32VecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzU32VecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzU32VecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30163,6 +32735,18 @@ impl AzXWindowTypeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper { inner: AzXWindowTypeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzXWindowTypeVecDestructorEnumWrapper { AzXWindowTypeVecDestructorEnumWrapper { inner: AzXWindowTypeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzXWindowTypeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzXWindowTypeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzXWindowTypeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzXWindowTypeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30181,6 +32765,18 @@ impl AzVirtualKeyCodeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper { inner: AzVirtualKeyCodeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzVirtualKeyCodeVecDestructorEnumWrapper { AzVirtualKeyCodeVecDestructorEnumWrapper { inner: AzVirtualKeyCodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzVirtualKeyCodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzVirtualKeyCodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzVirtualKeyCodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzVirtualKeyCodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30199,6 +32795,18 @@ impl AzCascadeInfoVecDestructorEnumWrapper {
     fn DefaultRust() -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper { inner: AzCascadeInfoVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzCascadeInfoVecDestructorEnumWrapper { AzCascadeInfoVecDestructorEnumWrapper { inner: AzCascadeInfoVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCascadeInfoVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCascadeInfoVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzCascadeInfoVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzCascadeInfoVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30217,6 +32825,18 @@ impl AzScanCodeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper { inner: AzScanCodeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzScanCodeVecDestructorEnumWrapper { AzScanCodeVecDestructorEnumWrapper { inner: AzScanCodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzScanCodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzScanCodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzScanCodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzScanCodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30235,6 +32855,18 @@ impl AzCssDeclarationVecDestructorEnumWrapper {
     fn DefaultRust() -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper { inner: AzCssDeclarationVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzCssDeclarationVecDestructorEnumWrapper { AzCssDeclarationVecDestructorEnumWrapper { inner: AzCssDeclarationVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssDeclarationVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssDeclarationVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzCssDeclarationVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzCssDeclarationVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30253,6 +32885,18 @@ impl AzCssPathSelectorVecDestructorEnumWrapper {
     fn DefaultRust() -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper { inner: AzCssPathSelectorVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzCssPathSelectorVecDestructorEnumWrapper { AzCssPathSelectorVecDestructorEnumWrapper { inner: AzCssPathSelectorVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssPathSelectorVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssPathSelectorVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzCssPathSelectorVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzCssPathSelectorVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30271,6 +32915,18 @@ impl AzStylesheetVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper { inner: AzStylesheetVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStylesheetVecDestructorEnumWrapper { AzStylesheetVecDestructorEnumWrapper { inner: AzStylesheetVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStylesheetVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStylesheetVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStylesheetVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStylesheetVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30289,6 +32945,18 @@ impl AzCssRuleBlockVecDestructorEnumWrapper {
     fn DefaultRust() -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper { inner: AzCssRuleBlockVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzCssRuleBlockVecDestructorEnumWrapper { AzCssRuleBlockVecDestructorEnumWrapper { inner: AzCssRuleBlockVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCssRuleBlockVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCssRuleBlockVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzCssRuleBlockVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzCssRuleBlockVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30307,6 +32975,18 @@ impl AzF32VecDestructorEnumWrapper {
     fn DefaultRust() -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper { inner: AzF32VecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzF32VecDestructorEnumWrapper { AzF32VecDestructorEnumWrapper { inner: AzF32VecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzF32VecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzF32VecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzF32VecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzF32VecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30325,6 +33005,18 @@ impl AzU16VecDestructorEnumWrapper {
     fn DefaultRust() -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper { inner: AzU16VecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzU16VecDestructorEnumWrapper { AzU16VecDestructorEnumWrapper { inner: AzU16VecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzU16VecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzU16VecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzU16VecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzU16VecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30343,6 +33035,18 @@ impl AzU8VecDestructorEnumWrapper {
     fn DefaultRust() -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper { inner: AzU8VecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzU8VecDestructorEnumWrapper { AzU8VecDestructorEnumWrapper { inner: AzU8VecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzU8VecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzU8VecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzU8VecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzU8VecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30361,6 +33065,18 @@ impl AzCallbackDataVecDestructorEnumWrapper {
     fn DefaultRust() -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper { inner: AzCallbackDataVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzCallbackDataVecDestructorEnumWrapper { AzCallbackDataVecDestructorEnumWrapper { inner: AzCallbackDataVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzCallbackDataVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzCallbackDataVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzCallbackDataVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzCallbackDataVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30379,6 +33095,18 @@ impl AzDebugMessageVecDestructorEnumWrapper {
     fn DefaultRust() -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper { inner: AzDebugMessageVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzDebugMessageVecDestructorEnumWrapper { AzDebugMessageVecDestructorEnumWrapper { inner: AzDebugMessageVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzDebugMessageVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzDebugMessageVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzDebugMessageVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzDebugMessageVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30397,6 +33125,18 @@ impl AzGLuintVecDestructorEnumWrapper {
     fn DefaultRust() -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper { inner: AzGLuintVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzGLuintVecDestructorEnumWrapper { AzGLuintVecDestructorEnumWrapper { inner: AzGLuintVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzGLuintVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzGLuintVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzGLuintVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzGLuintVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30415,6 +33155,18 @@ impl AzGLintVecDestructorEnumWrapper {
     fn DefaultRust() -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper { inner: AzGLintVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzGLintVecDestructorEnumWrapper { AzGLintVecDestructorEnumWrapper { inner: AzGLintVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzGLintVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzGLintVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzGLintVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzGLintVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30433,6 +33185,18 @@ impl AzStringVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper { inner: AzStringVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStringVecDestructorEnumWrapper { AzStringVecDestructorEnumWrapper { inner: AzStringVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStringVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStringVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStringVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStringVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30451,6 +33215,18 @@ impl AzStringPairVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper { inner: AzStringPairVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStringPairVecDestructorEnumWrapper { AzStringPairVecDestructorEnumWrapper { inner: AzStringPairVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStringPairVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStringPairVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStringPairVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStringPairVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30469,6 +33245,18 @@ impl AzNormalizedLinearColorStopVecDestructorEnumWrapper {
     fn DefaultRust() -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper { inner: AzNormalizedLinearColorStopVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzNormalizedLinearColorStopVecDestructorEnumWrapper { AzNormalizedLinearColorStopVecDestructorEnumWrapper { inner: AzNormalizedLinearColorStopVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNormalizedLinearColorStopVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNormalizedLinearColorStopVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNormalizedLinearColorStopVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNormalizedLinearColorStopVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30487,6 +33275,18 @@ impl AzNormalizedRadialColorStopVecDestructorEnumWrapper {
     fn DefaultRust() -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper { inner: AzNormalizedRadialColorStopVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzNormalizedRadialColorStopVecDestructorEnumWrapper { AzNormalizedRadialColorStopVecDestructorEnumWrapper { inner: AzNormalizedRadialColorStopVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNormalizedRadialColorStopVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNormalizedRadialColorStopVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNormalizedRadialColorStopVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNormalizedRadialColorStopVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30505,6 +33305,18 @@ impl AzNodeIdVecDestructorEnumWrapper {
     fn DefaultRust() -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper { inner: AzNodeIdVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzNodeIdVecDestructorEnumWrapper { AzNodeIdVecDestructorEnumWrapper { inner: AzNodeIdVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeIdVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeIdVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeIdVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeIdVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30523,6 +33335,18 @@ impl AzNodeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30541,6 +33365,18 @@ impl AzStyledNodeVecDestructorEnumWrapper {
     fn DefaultRust() -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper { inner: AzStyledNodeVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzStyledNodeVecDestructorEnumWrapper { AzStyledNodeVecDestructorEnumWrapper { inner: AzStyledNodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyledNodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyledNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzStyledNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzStyledNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30559,6 +33395,18 @@ impl AzTagIdToNodeIdMappingVecDestructorEnumWrapper {
     fn DefaultRust() -> AzTagIdToNodeIdMappingVecDestructorEnumWrapper { AzTagIdToNodeIdMappingVecDestructorEnumWrapper { inner: AzTagIdToNodeIdMappingVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzTagIdToNodeIdMappingVecDestructorEnumWrapper { AzTagIdToNodeIdMappingVecDestructorEnumWrapper { inner: AzTagIdToNodeIdMappingVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzTagIdToNodeIdMappingVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzTagIdToNodeIdMappingVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzTagIdToNodeIdMappingVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzTagIdToNodeIdMappingVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30577,6 +33425,18 @@ impl AzParentWithNodeDepthVecDestructorEnumWrapper {
     fn DefaultRust() -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper { inner: AzParentWithNodeDepthVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzParentWithNodeDepthVecDestructorEnumWrapper { AzParentWithNodeDepthVecDestructorEnumWrapper { inner: AzParentWithNodeDepthVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzParentWithNodeDepthVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzParentWithNodeDepthVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzParentWithNodeDepthVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzParentWithNodeDepthVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30595,6 +33455,18 @@ impl AzNodeDataVecDestructorEnumWrapper {
     fn DefaultRust() -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper { inner: AzNodeDataVecDestructor::DefaultRust } }
     #[classattr]
     fn NoDestructor() -> AzNodeDataVecDestructorEnumWrapper { AzNodeDataVecDestructorEnumWrapper { inner: AzNodeDataVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeDataVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeDataVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeDataVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeDataVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30613,6 +33485,17 @@ impl AzOptionColorInputOnValueChangeEnumWrapper {
     fn None() -> AzOptionColorInputOnValueChangeEnumWrapper { AzOptionColorInputOnValueChangeEnumWrapper { inner: AzOptionColorInputOnValueChange::None } }
     #[staticmethod]
     fn Some(v: AzColorInputOnValueChange) -> AzOptionColorInputOnValueChangeEnumWrapper { AzOptionColorInputOnValueChangeEnumWrapper { inner: AzOptionColorInputOnValueChange::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionColorInputOnValueChange;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionColorInputOnValueChange::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionColorInputOnValueChange::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30631,6 +33514,17 @@ impl AzOptionButtonOnClickEnumWrapper {
     fn None() -> AzOptionButtonOnClickEnumWrapper { AzOptionButtonOnClickEnumWrapper { inner: AzOptionButtonOnClick::None } }
     #[staticmethod]
     fn Some(v: AzButtonOnClick) -> AzOptionButtonOnClickEnumWrapper { AzOptionButtonOnClickEnumWrapper { inner: AzOptionButtonOnClick::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionButtonOnClick;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionButtonOnClick::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionButtonOnClick::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30649,6 +33543,17 @@ impl AzOptionCheckBoxOnToggleEnumWrapper {
     fn None() -> AzOptionCheckBoxOnToggleEnumWrapper { AzOptionCheckBoxOnToggleEnumWrapper { inner: AzOptionCheckBoxOnToggle::None } }
     #[staticmethod]
     fn Some(v: AzCheckBoxOnToggle) -> AzOptionCheckBoxOnToggleEnumWrapper { AzOptionCheckBoxOnToggleEnumWrapper { inner: AzOptionCheckBoxOnToggle::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionCheckBoxOnToggle;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionCheckBoxOnToggle::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionCheckBoxOnToggle::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30667,6 +33572,17 @@ impl AzOptionTextInputOnTextInputEnumWrapper {
     fn None() -> AzOptionTextInputOnTextInputEnumWrapper { AzOptionTextInputOnTextInputEnumWrapper { inner: AzOptionTextInputOnTextInput::None } }
     #[staticmethod]
     fn Some(v: AzTextInputOnTextInput) -> AzOptionTextInputOnTextInputEnumWrapper { AzOptionTextInputOnTextInputEnumWrapper { inner: AzOptionTextInputOnTextInput::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTextInputOnTextInput;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTextInputOnTextInput::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTextInputOnTextInput::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30685,6 +33601,17 @@ impl AzOptionTextInputOnVirtualKeyDownEnumWrapper {
     fn None() -> AzOptionTextInputOnVirtualKeyDownEnumWrapper { AzOptionTextInputOnVirtualKeyDownEnumWrapper { inner: AzOptionTextInputOnVirtualKeyDown::None } }
     #[staticmethod]
     fn Some(v: AzTextInputOnVirtualKeyDown) -> AzOptionTextInputOnVirtualKeyDownEnumWrapper { AzOptionTextInputOnVirtualKeyDownEnumWrapper { inner: AzOptionTextInputOnVirtualKeyDown::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTextInputOnVirtualKeyDown;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTextInputOnVirtualKeyDown::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTextInputOnVirtualKeyDown::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30703,6 +33630,17 @@ impl AzOptionTextInputOnFocusLostEnumWrapper {
     fn None() -> AzOptionTextInputOnFocusLostEnumWrapper { AzOptionTextInputOnFocusLostEnumWrapper { inner: AzOptionTextInputOnFocusLost::None } }
     #[staticmethod]
     fn Some(v: AzTextInputOnFocusLost) -> AzOptionTextInputOnFocusLostEnumWrapper { AzOptionTextInputOnFocusLostEnumWrapper { inner: AzOptionTextInputOnFocusLost::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTextInputOnFocusLost;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTextInputOnFocusLost::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTextInputOnFocusLost::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30721,6 +33659,17 @@ impl AzOptionTextInputSelectionEnumWrapper {
     fn None() -> AzOptionTextInputSelectionEnumWrapper { AzOptionTextInputSelectionEnumWrapper { inner: AzOptionTextInputSelection::None } }
     #[staticmethod]
     fn Some(v: AzTextInputSelectionEnumWrapper) -> AzOptionTextInputSelectionEnumWrapper { AzOptionTextInputSelectionEnumWrapper { inner: AzOptionTextInputSelection::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTextInputSelection;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTextInputSelection::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTextInputSelection::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzTextInputSelectionEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30739,6 +33688,17 @@ impl AzOptionNumberInputOnValueChangeEnumWrapper {
     fn None() -> AzOptionNumberInputOnValueChangeEnumWrapper { AzOptionNumberInputOnValueChangeEnumWrapper { inner: AzOptionNumberInputOnValueChange::None } }
     #[staticmethod]
     fn Some(v: AzNumberInputOnValueChange) -> AzOptionNumberInputOnValueChangeEnumWrapper { AzOptionNumberInputOnValueChangeEnumWrapper { inner: AzOptionNumberInputOnValueChange::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNumberInputOnValueChange;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNumberInputOnValueChange::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNumberInputOnValueChange::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30757,6 +33717,17 @@ impl AzOptionMenuItemIconEnumWrapper {
     fn None() -> AzOptionMenuItemIconEnumWrapper { AzOptionMenuItemIconEnumWrapper { inner: AzOptionMenuItemIcon::None } }
     #[staticmethod]
     fn Some(v: AzMenuItemIconEnumWrapper) -> AzOptionMenuItemIconEnumWrapper { AzOptionMenuItemIconEnumWrapper { inner: AzOptionMenuItemIcon::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionMenuItemIcon;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionMenuItemIcon::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionMenuItemIcon::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzMenuItemIconEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30775,6 +33746,17 @@ impl AzOptionMenuCallbackEnumWrapper {
     fn None() -> AzOptionMenuCallbackEnumWrapper { AzOptionMenuCallbackEnumWrapper { inner: AzOptionMenuCallback::None } }
     #[staticmethod]
     fn Some(v: AzMenuCallback) -> AzOptionMenuCallbackEnumWrapper { AzOptionMenuCallbackEnumWrapper { inner: AzOptionMenuCallback::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionMenuCallback;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionMenuCallback::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionMenuCallback::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30793,6 +33775,17 @@ impl AzOptionVirtualKeyCodeComboEnumWrapper {
     fn None() -> AzOptionVirtualKeyCodeComboEnumWrapper { AzOptionVirtualKeyCodeComboEnumWrapper { inner: AzOptionVirtualKeyCodeCombo::None } }
     #[staticmethod]
     fn Some(v: AzVirtualKeyCodeCombo) -> AzOptionVirtualKeyCodeComboEnumWrapper { AzOptionVirtualKeyCodeComboEnumWrapper { inner: AzOptionVirtualKeyCodeCombo::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionVirtualKeyCodeCombo;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionVirtualKeyCodeCombo::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionVirtualKeyCodeCombo::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30811,6 +33804,17 @@ impl AzOptionCssPropertyEnumWrapper {
     fn None() -> AzOptionCssPropertyEnumWrapper { AzOptionCssPropertyEnumWrapper { inner: AzOptionCssProperty::None } }
     #[staticmethod]
     fn Some(v: AzCssPropertyEnumWrapper) -> AzOptionCssPropertyEnumWrapper { AzOptionCssPropertyEnumWrapper { inner: AzOptionCssProperty::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionCssProperty;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionCssProperty::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionCssProperty::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzCssPropertyEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30829,6 +33833,17 @@ impl AzOptionPositionInfoEnumWrapper {
     fn None() -> AzOptionPositionInfoEnumWrapper { AzOptionPositionInfoEnumWrapper { inner: AzOptionPositionInfo::None } }
     #[staticmethod]
     fn Some(v: AzPositionInfoEnumWrapper) -> AzOptionPositionInfoEnumWrapper { AzOptionPositionInfoEnumWrapper { inner: AzOptionPositionInfo::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionPositionInfo;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionPositionInfo::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionPositionInfo::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzPositionInfoEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30847,6 +33862,17 @@ impl AzOptionTimerIdEnumWrapper {
     fn None() -> AzOptionTimerIdEnumWrapper { AzOptionTimerIdEnumWrapper { inner: AzOptionTimerId::None } }
     #[staticmethod]
     fn Some(v: AzTimerId) -> AzOptionTimerIdEnumWrapper { AzOptionTimerIdEnumWrapper { inner: AzOptionTimerId::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTimerId;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTimerId::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTimerId::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30865,6 +33891,17 @@ impl AzOptionThreadIdEnumWrapper {
     fn None() -> AzOptionThreadIdEnumWrapper { AzOptionThreadIdEnumWrapper { inner: AzOptionThreadId::None } }
     #[staticmethod]
     fn Some(v: AzThreadId) -> AzOptionThreadIdEnumWrapper { AzOptionThreadIdEnumWrapper { inner: AzOptionThreadId::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionThreadId;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionThreadId::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionThreadId::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30883,6 +33920,17 @@ impl AzOptionI16EnumWrapper {
     fn None() -> AzOptionI16EnumWrapper { AzOptionI16EnumWrapper { inner: AzOptionI16::None } }
     #[staticmethod]
     fn Some(v: i16) -> AzOptionI16EnumWrapper { AzOptionI16EnumWrapper { inner: AzOptionI16::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionI16;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionI16::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionI16::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30901,6 +33949,17 @@ impl AzOptionU16EnumWrapper {
     fn None() -> AzOptionU16EnumWrapper { AzOptionU16EnumWrapper { inner: AzOptionU16::None } }
     #[staticmethod]
     fn Some(v: u16) -> AzOptionU16EnumWrapper { AzOptionU16EnumWrapper { inner: AzOptionU16::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionU16;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionU16::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionU16::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30919,6 +33978,17 @@ impl AzOptionU32EnumWrapper {
     fn None() -> AzOptionU32EnumWrapper { AzOptionU32EnumWrapper { inner: AzOptionU32::None } }
     #[staticmethod]
     fn Some(v: u32) -> AzOptionU32EnumWrapper { AzOptionU32EnumWrapper { inner: AzOptionU32::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionU32;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionU32::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionU32::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30937,6 +34007,17 @@ impl AzOptionImageRefEnumWrapper {
     fn None() -> AzOptionImageRefEnumWrapper { AzOptionImageRefEnumWrapper { inner: AzOptionImageRef::None } }
     #[staticmethod]
     fn Some(v: AzImageRef) -> AzOptionImageRefEnumWrapper { AzOptionImageRefEnumWrapper { inner: AzOptionImageRef::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionImageRef;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionImageRef::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionImageRef::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30955,6 +34036,17 @@ impl AzOptionFontRefEnumWrapper {
     fn None() -> AzOptionFontRefEnumWrapper { AzOptionFontRefEnumWrapper { inner: AzOptionFontRef::None } }
     #[staticmethod]
     fn Some(v: AzFontRef) -> AzOptionFontRefEnumWrapper { AzOptionFontRefEnumWrapper { inner: AzOptionFontRef::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionFontRef;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionFontRef::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionFontRef::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30973,6 +34065,17 @@ impl AzOptionSystemClipboardEnumWrapper {
     fn None() -> AzOptionSystemClipboardEnumWrapper { AzOptionSystemClipboardEnumWrapper { inner: AzOptionSystemClipboard::None } }
     #[staticmethod]
     fn Some(v: AzSystemClipboard) -> AzOptionSystemClipboardEnumWrapper { AzOptionSystemClipboardEnumWrapper { inner: AzOptionSystemClipboard::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionSystemClipboard;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionSystemClipboard::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionSystemClipboard::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -30991,6 +34094,17 @@ impl AzOptionFileTypeListEnumWrapper {
     fn None() -> AzOptionFileTypeListEnumWrapper { AzOptionFileTypeListEnumWrapper { inner: AzOptionFileTypeList::None } }
     #[staticmethod]
     fn Some(v: AzFileTypeList) -> AzOptionFileTypeListEnumWrapper { AzOptionFileTypeListEnumWrapper { inner: AzOptionFileTypeList::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionFileTypeList;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionFileTypeList::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionFileTypeList::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31009,6 +34123,17 @@ impl AzOptionWindowStateEnumWrapper {
     fn None() -> AzOptionWindowStateEnumWrapper { AzOptionWindowStateEnumWrapper { inner: AzOptionWindowState::None } }
     #[staticmethod]
     fn Some(v: AzWindowState) -> AzOptionWindowStateEnumWrapper { AzOptionWindowStateEnumWrapper { inner: AzOptionWindowState::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionWindowState;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionWindowState::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionWindowState::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31027,6 +34152,17 @@ impl AzOptionMouseStateEnumWrapper {
     fn None() -> AzOptionMouseStateEnumWrapper { AzOptionMouseStateEnumWrapper { inner: AzOptionMouseState::None } }
     #[staticmethod]
     fn Some(v: AzMouseState) -> AzOptionMouseStateEnumWrapper { AzOptionMouseStateEnumWrapper { inner: AzOptionMouseState::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionMouseState;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionMouseState::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionMouseState::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31045,6 +34181,17 @@ impl AzOptionKeyboardStateEnumWrapper {
     fn None() -> AzOptionKeyboardStateEnumWrapper { AzOptionKeyboardStateEnumWrapper { inner: AzOptionKeyboardState::None } }
     #[staticmethod]
     fn Some(v: AzKeyboardState) -> AzOptionKeyboardStateEnumWrapper { AzOptionKeyboardStateEnumWrapper { inner: AzOptionKeyboardState::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionKeyboardState;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionKeyboardState::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionKeyboardState::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31063,6 +34210,17 @@ impl AzOptionStringVecEnumWrapper {
     fn None() -> AzOptionStringVecEnumWrapper { AzOptionStringVecEnumWrapper { inner: AzOptionStringVec::None } }
     #[staticmethod]
     fn Some(v: AzStringVec) -> AzOptionStringVecEnumWrapper { AzOptionStringVecEnumWrapper { inner: AzOptionStringVec::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionStringVec;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionStringVec::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionStringVec::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31081,6 +34239,17 @@ impl AzOptionFileEnumWrapper {
     fn None() -> AzOptionFileEnumWrapper { AzOptionFileEnumWrapper { inner: AzOptionFile::None } }
     #[staticmethod]
     fn Some(v: AzFile) -> AzOptionFileEnumWrapper { AzOptionFileEnumWrapper { inner: AzOptionFile::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionFile;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionFile::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionFile::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31099,6 +34268,17 @@ impl AzOptionGlEnumWrapper {
     fn None() -> AzOptionGlEnumWrapper { AzOptionGlEnumWrapper { inner: AzOptionGl::None } }
     #[staticmethod]
     fn Some(v: AzGl) -> AzOptionGlEnumWrapper { AzOptionGlEnumWrapper { inner: AzOptionGl::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionGl;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionGl::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionGl::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31117,6 +34297,17 @@ impl AzOptionThreadReceiveMsgEnumWrapper {
     fn None() -> AzOptionThreadReceiveMsgEnumWrapper { AzOptionThreadReceiveMsgEnumWrapper { inner: AzOptionThreadReceiveMsg::None } }
     #[staticmethod]
     fn Some(v: AzThreadReceiveMsgEnumWrapper) -> AzOptionThreadReceiveMsgEnumWrapper { AzOptionThreadReceiveMsgEnumWrapper { inner: AzOptionThreadReceiveMsg::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionThreadReceiveMsg;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionThreadReceiveMsg::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionThreadReceiveMsg::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzThreadReceiveMsgEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31135,6 +34326,17 @@ impl AzOptionPercentageValueEnumWrapper {
     fn None() -> AzOptionPercentageValueEnumWrapper { AzOptionPercentageValueEnumWrapper { inner: AzOptionPercentageValue::None } }
     #[staticmethod]
     fn Some(v: AzPercentageValue) -> AzOptionPercentageValueEnumWrapper { AzOptionPercentageValueEnumWrapper { inner: AzOptionPercentageValue::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionPercentageValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionPercentageValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionPercentageValue::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31153,6 +34355,17 @@ impl AzOptionAngleValueEnumWrapper {
     fn None() -> AzOptionAngleValueEnumWrapper { AzOptionAngleValueEnumWrapper { inner: AzOptionAngleValue::None } }
     #[staticmethod]
     fn Some(v: AzAngleValue) -> AzOptionAngleValueEnumWrapper { AzOptionAngleValueEnumWrapper { inner: AzOptionAngleValue::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionAngleValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionAngleValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionAngleValue::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31171,6 +34384,17 @@ impl AzOptionRendererOptionsEnumWrapper {
     fn None() -> AzOptionRendererOptionsEnumWrapper { AzOptionRendererOptionsEnumWrapper { inner: AzOptionRendererOptions::None } }
     #[staticmethod]
     fn Some(v: AzRendererOptions) -> AzOptionRendererOptionsEnumWrapper { AzOptionRendererOptionsEnumWrapper { inner: AzOptionRendererOptions::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionRendererOptions;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionRendererOptions::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionRendererOptions::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31189,6 +34413,17 @@ impl AzOptionCallbackEnumWrapper {
     fn None() -> AzOptionCallbackEnumWrapper { AzOptionCallbackEnumWrapper { inner: AzOptionCallback::None } }
     #[staticmethod]
     fn Some(v: AzCallback) -> AzOptionCallbackEnumWrapper { AzOptionCallbackEnumWrapper { inner: AzOptionCallback::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionCallback;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionCallback::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionCallback::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31207,6 +34442,17 @@ impl AzOptionThreadSendMsgEnumWrapper {
     fn None() -> AzOptionThreadSendMsgEnumWrapper { AzOptionThreadSendMsgEnumWrapper { inner: AzOptionThreadSendMsg::None } }
     #[staticmethod]
     fn Some(v: AzThreadSendMsgEnumWrapper) -> AzOptionThreadSendMsgEnumWrapper { AzOptionThreadSendMsgEnumWrapper { inner: AzOptionThreadSendMsg::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionThreadSendMsg;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionThreadSendMsg::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionThreadSendMsg::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzThreadSendMsgEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31225,6 +34471,17 @@ impl AzOptionLayoutRectEnumWrapper {
     fn None() -> AzOptionLayoutRectEnumWrapper { AzOptionLayoutRectEnumWrapper { inner: AzOptionLayoutRect::None } }
     #[staticmethod]
     fn Some(v: AzLayoutRect) -> AzOptionLayoutRectEnumWrapper { AzOptionLayoutRectEnumWrapper { inner: AzOptionLayoutRect::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionLayoutRect;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionLayoutRect::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionLayoutRect::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31243,6 +34500,17 @@ impl AzOptionRefAnyEnumWrapper {
     fn None() -> AzOptionRefAnyEnumWrapper { AzOptionRefAnyEnumWrapper { inner: AzOptionRefAny::None } }
     #[staticmethod]
     fn Some(v: AzRefAny) -> AzOptionRefAnyEnumWrapper { AzOptionRefAnyEnumWrapper { inner: AzOptionRefAny::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionRefAny;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionRefAny::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionRefAny::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31261,6 +34529,17 @@ impl AzOptionInlineTextEnumWrapper {
     fn None() -> AzOptionInlineTextEnumWrapper { AzOptionInlineTextEnumWrapper { inner: AzOptionInlineText::None } }
     #[staticmethod]
     fn Some(v: AzInlineText) -> AzOptionInlineTextEnumWrapper { AzOptionInlineTextEnumWrapper { inner: AzOptionInlineText::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionInlineText;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionInlineText::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionInlineText::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31279,6 +34558,17 @@ impl AzOptionLayoutPointEnumWrapper {
     fn None() -> AzOptionLayoutPointEnumWrapper { AzOptionLayoutPointEnumWrapper { inner: AzOptionLayoutPoint::None } }
     #[staticmethod]
     fn Some(v: AzLayoutPoint) -> AzOptionLayoutPointEnumWrapper { AzOptionLayoutPointEnumWrapper { inner: AzOptionLayoutPoint::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionLayoutPoint;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionLayoutPoint::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionLayoutPoint::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31297,6 +34587,17 @@ impl AzOptionLayoutSizeEnumWrapper {
     fn None() -> AzOptionLayoutSizeEnumWrapper { AzOptionLayoutSizeEnumWrapper { inner: AzOptionLayoutSize::None } }
     #[staticmethod]
     fn Some(v: AzLayoutSize) -> AzOptionLayoutSizeEnumWrapper { AzOptionLayoutSizeEnumWrapper { inner: AzOptionLayoutSize::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionLayoutSize;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionLayoutSize::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionLayoutSize::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31315,6 +34616,17 @@ impl AzOptionWindowThemeEnumWrapper {
     fn None() -> AzOptionWindowThemeEnumWrapper { AzOptionWindowThemeEnumWrapper { inner: AzOptionWindowTheme::None } }
     #[staticmethod]
     fn Some(v: AzWindowThemeEnumWrapper) -> AzOptionWindowThemeEnumWrapper { AzOptionWindowThemeEnumWrapper { inner: AzOptionWindowTheme::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionWindowTheme;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionWindowTheme::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionWindowTheme::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzWindowThemeEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31333,6 +34645,17 @@ impl AzOptionNodeIdEnumWrapper {
     fn None() -> AzOptionNodeIdEnumWrapper { AzOptionNodeIdEnumWrapper { inner: AzOptionNodeId::None } }
     #[staticmethod]
     fn Some(v: AzNodeId) -> AzOptionNodeIdEnumWrapper { AzOptionNodeIdEnumWrapper { inner: AzOptionNodeId::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeId;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeId::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeId::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31351,6 +34674,17 @@ impl AzOptionDomNodeIdEnumWrapper {
     fn None() -> AzOptionDomNodeIdEnumWrapper { AzOptionDomNodeIdEnumWrapper { inner: AzOptionDomNodeId::None } }
     #[staticmethod]
     fn Some(v: AzDomNodeId) -> AzOptionDomNodeIdEnumWrapper { AzOptionDomNodeIdEnumWrapper { inner: AzOptionDomNodeId::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionDomNodeId;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionDomNodeId::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionDomNodeId::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31369,6 +34703,17 @@ impl AzOptionColorUEnumWrapper {
     fn None() -> AzOptionColorUEnumWrapper { AzOptionColorUEnumWrapper { inner: AzOptionColorU::None } }
     #[staticmethod]
     fn Some(v: AzColorU) -> AzOptionColorUEnumWrapper { AzOptionColorUEnumWrapper { inner: AzOptionColorU::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionColorU;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionColorU::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionColorU::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31387,6 +34732,17 @@ impl AzOptionRawImageEnumWrapper {
     fn None() -> AzOptionRawImageEnumWrapper { AzOptionRawImageEnumWrapper { inner: AzOptionRawImage::None } }
     #[staticmethod]
     fn Some(v: AzRawImage) -> AzOptionRawImageEnumWrapper { AzOptionRawImageEnumWrapper { inner: AzOptionRawImage::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionRawImage;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionRawImage::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionRawImage::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31405,6 +34761,17 @@ impl AzOptionSvgDashPatternEnumWrapper {
     fn None() -> AzOptionSvgDashPatternEnumWrapper { AzOptionSvgDashPatternEnumWrapper { inner: AzOptionSvgDashPattern::None } }
     #[staticmethod]
     fn Some(v: AzSvgDashPattern) -> AzOptionSvgDashPatternEnumWrapper { AzOptionSvgDashPatternEnumWrapper { inner: AzOptionSvgDashPattern::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionSvgDashPattern;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionSvgDashPattern::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionSvgDashPattern::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31423,6 +34790,17 @@ impl AzOptionWaylandThemeEnumWrapper {
     fn None() -> AzOptionWaylandThemeEnumWrapper { AzOptionWaylandThemeEnumWrapper { inner: AzOptionWaylandTheme::None } }
     #[staticmethod]
     fn Some(v: AzWaylandTheme) -> AzOptionWaylandThemeEnumWrapper { AzOptionWaylandThemeEnumWrapper { inner: AzOptionWaylandTheme::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionWaylandTheme;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionWaylandTheme::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionWaylandTheme::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31441,6 +34819,17 @@ impl AzOptionTaskBarIconEnumWrapper {
     fn None() -> AzOptionTaskBarIconEnumWrapper { AzOptionTaskBarIconEnumWrapper { inner: AzOptionTaskBarIcon::None } }
     #[staticmethod]
     fn Some(v: AzTaskBarIcon) -> AzOptionTaskBarIconEnumWrapper { AzOptionTaskBarIconEnumWrapper { inner: AzOptionTaskBarIcon::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTaskBarIcon;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTaskBarIcon::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTaskBarIcon::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31457,6 +34846,17 @@ impl PyObjectProtocol for AzOptionTaskBarIconEnumWrapper {
 impl AzOptionHwndHandleEnumWrapper {
     #[classattr]
     fn None() -> AzOptionHwndHandleEnumWrapper { AzOptionHwndHandleEnumWrapper { inner: AzOptionHwndHandle::None } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionHwndHandle;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionHwndHandle::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionHwndHandle::Some(v) => Ok(vec!["Some".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31475,6 +34875,17 @@ impl AzOptionLogicalPositionEnumWrapper {
     fn None() -> AzOptionLogicalPositionEnumWrapper { AzOptionLogicalPositionEnumWrapper { inner: AzOptionLogicalPosition::None } }
     #[staticmethod]
     fn Some(v: AzLogicalPosition) -> AzOptionLogicalPositionEnumWrapper { AzOptionLogicalPositionEnumWrapper { inner: AzOptionLogicalPosition::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionLogicalPosition;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionLogicalPosition::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionLogicalPosition::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31493,6 +34904,17 @@ impl AzOptionPhysicalPositionI32EnumWrapper {
     fn None() -> AzOptionPhysicalPositionI32EnumWrapper { AzOptionPhysicalPositionI32EnumWrapper { inner: AzOptionPhysicalPositionI32::None } }
     #[staticmethod]
     fn Some(v: AzPhysicalPositionI32) -> AzOptionPhysicalPositionI32EnumWrapper { AzOptionPhysicalPositionI32EnumWrapper { inner: AzOptionPhysicalPositionI32::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionPhysicalPositionI32;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionPhysicalPositionI32::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionPhysicalPositionI32::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31511,6 +34933,17 @@ impl AzOptionWindowIconEnumWrapper {
     fn None() -> AzOptionWindowIconEnumWrapper { AzOptionWindowIconEnumWrapper { inner: AzOptionWindowIcon::None } }
     #[staticmethod]
     fn Some(v: AzWindowIconEnumWrapper) -> AzOptionWindowIconEnumWrapper { AzOptionWindowIconEnumWrapper { inner: AzOptionWindowIcon::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionWindowIcon;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionWindowIcon::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionWindowIcon::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzWindowIconEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31529,6 +34962,17 @@ impl AzOptionStringEnumWrapper {
     fn None() -> AzOptionStringEnumWrapper { AzOptionStringEnumWrapper { inner: AzOptionString::None } }
     #[staticmethod]
     fn Some(v: AzString) -> AzOptionStringEnumWrapper { AzOptionStringEnumWrapper { inner: AzOptionString::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionString;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionString::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionString::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31545,6 +34989,17 @@ impl PyObjectProtocol for AzOptionStringEnumWrapper {
 impl AzOptionX11VisualEnumWrapper {
     #[classattr]
     fn None() -> AzOptionX11VisualEnumWrapper { AzOptionX11VisualEnumWrapper { inner: AzOptionX11Visual::None } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionX11Visual;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionX11Visual::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionX11Visual::Some(v) => Ok(vec!["Some".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31563,6 +35018,17 @@ impl AzOptionI32EnumWrapper {
     fn None() -> AzOptionI32EnumWrapper { AzOptionI32EnumWrapper { inner: AzOptionI32::None } }
     #[staticmethod]
     fn Some(v: i32) -> AzOptionI32EnumWrapper { AzOptionI32EnumWrapper { inner: AzOptionI32::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionI32;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionI32::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionI32::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31581,6 +35047,17 @@ impl AzOptionF32EnumWrapper {
     fn None() -> AzOptionF32EnumWrapper { AzOptionF32EnumWrapper { inner: AzOptionF32::None } }
     #[staticmethod]
     fn Some(v: f32) -> AzOptionF32EnumWrapper { AzOptionF32EnumWrapper { inner: AzOptionF32::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionF32;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionF32::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionF32::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31599,6 +35076,17 @@ impl AzOptionMouseCursorTypeEnumWrapper {
     fn None() -> AzOptionMouseCursorTypeEnumWrapper { AzOptionMouseCursorTypeEnumWrapper { inner: AzOptionMouseCursorType::None } }
     #[staticmethod]
     fn Some(v: AzMouseCursorTypeEnumWrapper) -> AzOptionMouseCursorTypeEnumWrapper { AzOptionMouseCursorTypeEnumWrapper { inner: AzOptionMouseCursorType::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionMouseCursorType;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionMouseCursorType::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionMouseCursorType::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzMouseCursorTypeEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31617,6 +35105,17 @@ impl AzOptionLogicalSizeEnumWrapper {
     fn None() -> AzOptionLogicalSizeEnumWrapper { AzOptionLogicalSizeEnumWrapper { inner: AzOptionLogicalSize::None } }
     #[staticmethod]
     fn Some(v: AzLogicalSize) -> AzOptionLogicalSizeEnumWrapper { AzOptionLogicalSizeEnumWrapper { inner: AzOptionLogicalSize::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionLogicalSize;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionLogicalSize::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionLogicalSize::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31635,6 +35134,17 @@ impl AzOptionCharEnumWrapper {
     fn None() -> AzOptionCharEnumWrapper { AzOptionCharEnumWrapper { inner: AzOptionChar::None } }
     #[staticmethod]
     fn Some(v: u32) -> AzOptionCharEnumWrapper { AzOptionCharEnumWrapper { inner: AzOptionChar::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionChar;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionChar::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionChar::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31653,6 +35163,17 @@ impl AzOptionVirtualKeyCodeEnumWrapper {
     fn None() -> AzOptionVirtualKeyCodeEnumWrapper { AzOptionVirtualKeyCodeEnumWrapper { inner: AzOptionVirtualKeyCode::None } }
     #[staticmethod]
     fn Some(v: AzVirtualKeyCodeEnumWrapper) -> AzOptionVirtualKeyCodeEnumWrapper { AzOptionVirtualKeyCodeEnumWrapper { inner: AzOptionVirtualKeyCode::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionVirtualKeyCode;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionVirtualKeyCode::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionVirtualKeyCode::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzVirtualKeyCodeEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31671,6 +35192,17 @@ impl AzOptionDomEnumWrapper {
     fn None() -> AzOptionDomEnumWrapper { AzOptionDomEnumWrapper { inner: AzOptionDom::None } }
     #[staticmethod]
     fn Some(v: AzDom) -> AzOptionDomEnumWrapper { AzOptionDomEnumWrapper { inner: AzOptionDom::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionDom;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionDom::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionDom::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31689,6 +35221,17 @@ impl AzOptionTextureEnumWrapper {
     fn None() -> AzOptionTextureEnumWrapper { AzOptionTextureEnumWrapper { inner: AzOptionTexture::None } }
     #[staticmethod]
     fn Some(v: AzTexture) -> AzOptionTextureEnumWrapper { AzOptionTextureEnumWrapper { inner: AzOptionTexture::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTexture;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTexture::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTexture::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31707,6 +35250,17 @@ impl AzOptionImageMaskEnumWrapper {
     fn None() -> AzOptionImageMaskEnumWrapper { AzOptionImageMaskEnumWrapper { inner: AzOptionImageMask::None } }
     #[staticmethod]
     fn Some(v: AzImageMask) -> AzOptionImageMaskEnumWrapper { AzOptionImageMaskEnumWrapper { inner: AzOptionImageMask::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionImageMask;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionImageMask::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionImageMask::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31725,6 +35279,17 @@ impl AzOptionTabIndexEnumWrapper {
     fn None() -> AzOptionTabIndexEnumWrapper { AzOptionTabIndexEnumWrapper { inner: AzOptionTabIndex::None } }
     #[staticmethod]
     fn Some(v: AzTabIndexEnumWrapper) -> AzOptionTabIndexEnumWrapper { AzOptionTabIndexEnumWrapper { inner: AzOptionTabIndex::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTabIndex;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTabIndex::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTabIndex::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzTabIndexEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31743,6 +35308,17 @@ impl AzOptionTagIdEnumWrapper {
     fn None() -> AzOptionTagIdEnumWrapper { AzOptionTagIdEnumWrapper { inner: AzOptionTagId::None } }
     #[staticmethod]
     fn Some(v: AzTagId) -> AzOptionTagIdEnumWrapper { AzOptionTagIdEnumWrapper { inner: AzOptionTagId::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTagId;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTagId::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTagId::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31761,6 +35337,17 @@ impl AzOptionDurationEnumWrapper {
     fn None() -> AzOptionDurationEnumWrapper { AzOptionDurationEnumWrapper { inner: AzOptionDuration::None } }
     #[staticmethod]
     fn Some(v: AzDurationEnumWrapper) -> AzOptionDurationEnumWrapper { AzOptionDurationEnumWrapper { inner: AzOptionDuration::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionDuration;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionDuration::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionDuration::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzDurationEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31779,6 +35366,17 @@ impl AzOptionInstantEnumWrapper {
     fn None() -> AzOptionInstantEnumWrapper { AzOptionInstantEnumWrapper { inner: AzOptionInstant::None } }
     #[staticmethod]
     fn Some(v: AzInstantEnumWrapper) -> AzOptionInstantEnumWrapper { AzOptionInstantEnumWrapper { inner: AzOptionInstant::Some(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionInstant;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionInstant::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionInstant::Some(v) => Ok(vec!["Some".into_py(py), { let m: &AzInstantEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31797,6 +35395,17 @@ impl AzOptionUsizeEnumWrapper {
     fn None() -> AzOptionUsizeEnumWrapper { AzOptionUsizeEnumWrapper { inner: AzOptionUsize::None } }
     #[staticmethod]
     fn Some(v: usize) -> AzOptionUsizeEnumWrapper { AzOptionUsizeEnumWrapper { inner: AzOptionUsize::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionUsize;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionUsize::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionUsize::Some(v) => Ok(vec!["Some".into_py(py), v.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31815,6 +35424,17 @@ impl AzOptionU8VecEnumWrapper {
     fn None() -> AzOptionU8VecEnumWrapper { AzOptionU8VecEnumWrapper { inner: AzOptionU8Vec::None } }
     #[staticmethod]
     fn Some(v: AzU8Vec) -> AzOptionU8VecEnumWrapper { AzOptionU8VecEnumWrapper { inner: AzOptionU8Vec::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionU8Vec;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionU8Vec::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionU8Vec::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31833,6 +35453,17 @@ impl AzOptionU8VecRefEnumWrapper {
     fn None() -> AzOptionU8VecRefEnumWrapper { AzOptionU8VecRefEnumWrapper { inner: AzOptionU8VecRef::None } }
     #[staticmethod]
     fn Some(v: AzU8VecRef) -> AzOptionU8VecRefEnumWrapper { AzOptionU8VecRefEnumWrapper { inner: AzOptionU8VecRef::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionU8VecRef;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionU8VecRef::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionU8VecRef::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31851,6 +35482,17 @@ impl AzResultXmlXmlErrorEnumWrapper {
     fn Ok(v: AzXml) -> AzResultXmlXmlErrorEnumWrapper { AzResultXmlXmlErrorEnumWrapper { inner: AzResultXmlXmlError::Ok(v) } }
     #[staticmethod]
     fn Err(v: AzXmlErrorEnumWrapper) -> AzResultXmlXmlErrorEnumWrapper { AzResultXmlXmlErrorEnumWrapper { inner: AzResultXmlXmlError::Err(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzResultXmlXmlError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzResultXmlXmlError::Ok(v) => Ok(vec!["Ok".into_py(py), v.clone().into_py(py)]),
+            AzResultXmlXmlError::Err(v) => Ok(vec!["Err".into_py(py), { let m: &AzXmlErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31869,6 +35511,17 @@ impl AzResultRawImageDecodeImageErrorEnumWrapper {
     fn Ok(v: AzRawImage) -> AzResultRawImageDecodeImageErrorEnumWrapper { AzResultRawImageDecodeImageErrorEnumWrapper { inner: AzResultRawImageDecodeImageError::Ok(v) } }
     #[staticmethod]
     fn Err(v: AzDecodeImageErrorEnumWrapper) -> AzResultRawImageDecodeImageErrorEnumWrapper { AzResultRawImageDecodeImageErrorEnumWrapper { inner: AzResultRawImageDecodeImageError::Err(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzResultRawImageDecodeImageError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzResultRawImageDecodeImageError::Ok(v) => Ok(vec!["Ok".into_py(py), v.clone().into_py(py)]),
+            AzResultRawImageDecodeImageError::Err(v) => Ok(vec!["Err".into_py(py), { let m: &AzDecodeImageErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31887,6 +35540,17 @@ impl AzResultU8VecEncodeImageErrorEnumWrapper {
     fn Ok(v: AzU8Vec) -> AzResultU8VecEncodeImageErrorEnumWrapper { AzResultU8VecEncodeImageErrorEnumWrapper { inner: AzResultU8VecEncodeImageError::Ok(v) } }
     #[staticmethod]
     fn Err(v: AzEncodeImageErrorEnumWrapper) -> AzResultU8VecEncodeImageErrorEnumWrapper { AzResultU8VecEncodeImageErrorEnumWrapper { inner: AzResultU8VecEncodeImageError::Err(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzResultU8VecEncodeImageError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzResultU8VecEncodeImageError::Ok(v) => Ok(vec!["Ok".into_py(py), v.clone().into_py(py)]),
+            AzResultU8VecEncodeImageError::Err(v) => Ok(vec!["Err".into_py(py), { let m: &AzEncodeImageErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31905,6 +35569,17 @@ impl AzResultSvgXmlNodeSvgParseErrorEnumWrapper {
     fn Ok(v: AzSvgXmlNode) -> AzResultSvgXmlNodeSvgParseErrorEnumWrapper { AzResultSvgXmlNodeSvgParseErrorEnumWrapper { inner: AzResultSvgXmlNodeSvgParseError::Ok(v) } }
     #[staticmethod]
     fn Err(v: AzSvgParseErrorEnumWrapper) -> AzResultSvgXmlNodeSvgParseErrorEnumWrapper { AzResultSvgXmlNodeSvgParseErrorEnumWrapper { inner: AzResultSvgXmlNodeSvgParseError::Err(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzResultSvgXmlNodeSvgParseError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzResultSvgXmlNodeSvgParseError::Ok(v) => Ok(vec!["Ok".into_py(py), v.clone().into_py(py)]),
+            AzResultSvgXmlNodeSvgParseError::Err(v) => Ok(vec!["Err".into_py(py), { let m: &AzSvgParseErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31923,6 +35598,17 @@ impl AzResultSvgSvgParseErrorEnumWrapper {
     fn Ok(v: AzSvg) -> AzResultSvgSvgParseErrorEnumWrapper { AzResultSvgSvgParseErrorEnumWrapper { inner: AzResultSvgSvgParseError::Ok(v) } }
     #[staticmethod]
     fn Err(v: AzSvgParseErrorEnumWrapper) -> AzResultSvgSvgParseErrorEnumWrapper { AzResultSvgSvgParseErrorEnumWrapper { inner: AzResultSvgSvgParseError::Err(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzResultSvgSvgParseError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzResultSvgSvgParseError::Ok(v) => Ok(vec!["Ok".into_py(py), v.clone().into_py(py)]),
+            AzResultSvgSvgParseError::Err(v) => Ok(vec!["Err".into_py(py), { let m: &AzSvgParseErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31949,6 +35635,21 @@ impl AzSvgParseErrorEnumWrapper {
     fn InvalidSize() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::InvalidSize } }
     #[staticmethod]
     fn ParsingFailed(v: AzXmlErrorEnumWrapper) -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::ParsingFailed(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgParseError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgParseError::InvalidFileSuffix => Ok(vec!["InvalidFileSuffix".into_py(py), ().into_py(py)]),
+            AzSvgParseError::FileOpenFailed => Ok(vec!["FileOpenFailed".into_py(py), ().into_py(py)]),
+            AzSvgParseError::NotAnUtf8Str => Ok(vec!["NotAnUtf8Str".into_py(py), ().into_py(py)]),
+            AzSvgParseError::MalformedGZip => Ok(vec!["MalformedGZip".into_py(py), ().into_py(py)]),
+            AzSvgParseError::InvalidSize => Ok(vec!["InvalidSize".into_py(py), ().into_py(py)]),
+            AzSvgParseError::ParsingFailed(v) => Ok(vec!["ParsingFailed".into_py(py), { let m: &AzXmlErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -31995,6 +35696,31 @@ impl AzXmlErrorEnumWrapper {
     fn SizeLimit() -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::SizeLimit } }
     #[staticmethod]
     fn ParserError(v: AzXmlParseErrorEnumWrapper) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::ParserError(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzXmlError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzXmlError::InvalidXmlPrefixUri(v) => Ok(vec!["InvalidXmlPrefixUri".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::UnexpectedXmlUri(v) => Ok(vec!["UnexpectedXmlUri".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::UnexpectedXmlnsUri(v) => Ok(vec!["UnexpectedXmlnsUri".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::InvalidElementNamePrefix(v) => Ok(vec!["InvalidElementNamePrefix".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::DuplicatedNamespace(v) => Ok(vec!["DuplicatedNamespace".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::UnknownNamespace(v) => Ok(vec!["UnknownNamespace".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::UnexpectedCloseTag(v) => Ok(vec!["UnexpectedCloseTag".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::UnexpectedEntityCloseTag(v) => Ok(vec!["UnexpectedEntityCloseTag".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::UnknownEntityReference(v) => Ok(vec!["UnknownEntityReference".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::MalformedEntityReference(v) => Ok(vec!["MalformedEntityReference".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::EntityReferenceLoop(v) => Ok(vec!["EntityReferenceLoop".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::InvalidAttributeValue(v) => Ok(vec!["InvalidAttributeValue".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::DuplicatedAttribute(v) => Ok(vec!["DuplicatedAttribute".into_py(py), v.clone().into_py(py)]),
+            AzXmlError::NoRootNode => Ok(vec!["NoRootNode".into_py(py), ().into_py(py)]),
+            AzXmlError::SizeLimit => Ok(vec!["SizeLimit".into_py(py), ().into_py(py)]),
+            AzXmlError::ParserError(v) => Ok(vec!["ParserError".into_py(py), { let m: &AzXmlParseErrorEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -32140,6 +35866,25 @@ impl AzXmlParseErrorEnumWrapper {
     fn InvalidCharData(v: AzXmlTextError) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::InvalidCharData(v) } }
     #[staticmethod]
     fn UnknownToken(v: AzSvgParseErrorPosition) -> AzXmlParseErrorEnumWrapper { AzXmlParseErrorEnumWrapper { inner: AzXmlParseError::UnknownToken(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzXmlParseError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzXmlParseError::InvalidDeclaration(v) => Ok(vec!["InvalidDeclaration".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidComment(v) => Ok(vec!["InvalidComment".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidPI(v) => Ok(vec!["InvalidPI".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidDoctype(v) => Ok(vec!["InvalidDoctype".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidEntity(v) => Ok(vec!["InvalidEntity".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidElement(v) => Ok(vec!["InvalidElement".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidAttribute(v) => Ok(vec!["InvalidAttribute".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidCdata(v) => Ok(vec!["InvalidCdata".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::InvalidCharData(v) => Ok(vec!["InvalidCharData".into_py(py), v.clone().into_py(py)]),
+            AzXmlParseError::UnknownToken(v) => Ok(vec!["UnknownToken".into_py(py), v.clone().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]
@@ -32202,6 +35947,28 @@ impl AzXmlStreamErrorEnumWrapper {
     fn InvalidCommentEnd() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidCommentEnd } }
     #[classattr]
     fn InvalidCharacterData() -> AzXmlStreamErrorEnumWrapper { AzXmlStreamErrorEnumWrapper { inner: AzXmlStreamError::InvalidCharacterData } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzXmlStreamError;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzXmlStreamError::UnexpectedEndOfStream => Ok(vec!["UnexpectedEndOfStream".into_py(py), ().into_py(py)]),
+            AzXmlStreamError::InvalidName => Ok(vec!["InvalidName".into_py(py), ().into_py(py)]),
+            AzXmlStreamError::NonXmlChar(v) => Ok(vec!["NonXmlChar".into_py(py), v.clone().into_py(py)]),
+            AzXmlStreamError::InvalidChar(v) => Ok(vec!["InvalidChar".into_py(py), v.clone().into_py(py)]),
+            AzXmlStreamError::InvalidCharMultiple(v) => Ok(vec!["InvalidCharMultiple".into_py(py), v.clone().into_py(py)]),
+            AzXmlStreamError::InvalidQuote(v) => Ok(vec!["InvalidQuote".into_py(py), v.clone().into_py(py)]),
+            AzXmlStreamError::InvalidSpace(v) => Ok(vec!["InvalidSpace".into_py(py), v.clone().into_py(py)]),
+            AzXmlStreamError::InvalidString(v) => Ok(vec!["InvalidString".into_py(py), v.clone().into_py(py)]),
+            AzXmlStreamError::InvalidReference => Ok(vec!["InvalidReference".into_py(py), ().into_py(py)]),
+            AzXmlStreamError::InvalidExternalID => Ok(vec!["InvalidExternalID".into_py(py), ().into_py(py)]),
+            AzXmlStreamError::InvalidCommentData => Ok(vec!["InvalidCommentData".into_py(py), ().into_py(py)]),
+            AzXmlStreamError::InvalidCommentEnd => Ok(vec!["InvalidCommentEnd".into_py(py), ().into_py(py)]),
+            AzXmlStreamError::InvalidCharacterData => Ok(vec!["InvalidCharacterData".into_py(py), ().into_py(py)]),
+        }
+    }
 }
 
 #[pyproto]

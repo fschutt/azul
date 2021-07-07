@@ -300,10 +300,10 @@ extern "C" fn invoke_python_iframe(data: &mut azul_impl::callbacks::RefAny, info
 
     let default = azul_impl::callbacks::IFrameCallbackReturn {
          dom: azul_impl::styled_dom::StyledDom::default(),
-         scroll_size: azul_impl::window::LogicalSize::new(0.0, 0.0),
-         scroll_offset: azul_impl::window::LogicalPosition::new(0.0, 0.0),
-         virtual_scroll_size: azul_impl::window::LogicalSize::new(0.0, 0.0),
-         virtual_scroll_offset: azul_impl::window::LogicalPosition::new(0.0, 0.0),
+         scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
+         scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
+         virtual_scroll_size: azul_core::window::LogicalSize::new(0.0, 0.0),
+         virtual_scroll_offset: azul_core::window::LogicalPosition::new(0.0, 0.0),
     };
 
     let data: &mut azul_impl::callbacks::RefAny = unsafe { mem::transmute(data) };
