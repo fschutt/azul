@@ -842,8 +842,6 @@ union AzAnimationRepeatCount {
     AzAnimationRepeatCountVariant_Infinite Infinite;
 };
 typedef union AzAnimationRepeatCount AzAnimationRepeatCount;
-#define AzAnimationRepeatCount_Times(v) { .Times = { .tag = AzAnimationRepeatCountTag_Times, .payload = v } }
-#define AzAnimationRepeatCount_Infinite { .Infinite = { .tag = AzAnimationRepeatCountTag_Infinite } }
 
 struct AzIFrameCallback {
     AzIFrameCallbackType cb;
@@ -1106,9 +1104,6 @@ union AzTabIndex {
     AzTabIndexVariant_NoKeyboardFocus NoKeyboardFocus;
 };
 typedef union AzTabIndex AzTabIndex;
-#define AzTabIndex_Auto { .Auto = { .tag = AzTabIndexTag_Auto } }
-#define AzTabIndex_OverrideInParent(v) { .OverrideInParent = { .tag = AzTabIndexTag_OverrideInParent, .payload = v } }
-#define AzTabIndex_NoKeyboardFocus { .NoKeyboardFocus = { .tag = AzTabIndexTag_NoKeyboardFocus } }
 
 enum AzMenuItemState {
    AzMenuItemState_Normal,
@@ -1754,9 +1749,6 @@ union AzIndent {
     AzIndentVariant_Tabs Tabs;
 };
 typedef union AzIndent AzIndent;
-#define AzIndent_None { .None = { .tag = AzIndentTag_None } }
-#define AzIndent_Spaces(v) { .Spaces = { .tag = AzIndentTag_Spaces, .payload = v } }
-#define AzIndent_Tabs { .Tabs = { .tag = AzIndentTag_Tabs } }
 
 enum AzSvgFitToTag {
    AzSvgFitToTag_Original,
@@ -1781,10 +1773,6 @@ union AzSvgFitTo {
     AzSvgFitToVariant_Zoom Zoom;
 };
 typedef union AzSvgFitTo AzSvgFitTo;
-#define AzSvgFitTo_Original { .Original = { .tag = AzSvgFitToTag_Original } }
-#define AzSvgFitTo_Width(v) { .Width = { .tag = AzSvgFitToTag_Width, .payload = v } }
-#define AzSvgFitTo_Height(v) { .Height = { .tag = AzSvgFitToTag_Height, .payload = v } }
-#define AzSvgFitTo_Zoom(v) { .Zoom = { .tag = AzSvgFitToTag_Zoom, .payload = v } }
 
 enum AzSvgFillRule {
    AzSvgFillRule_Winding,
@@ -1994,9 +1982,6 @@ union AzStyleFontFamilyVecDestructor {
     AzStyleFontFamilyVecDestructorVariant_External External;
 };
 typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
-#define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
-#define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
-#define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
 
 enum AzAccessibilityStateVecDestructorTag {
    AzAccessibilityStateVecDestructorTag_DefaultRust,
@@ -2017,9 +2002,6 @@ union AzAccessibilityStateVecDestructor {
     AzAccessibilityStateVecDestructorVariant_External External;
 };
 typedef union AzAccessibilityStateVecDestructor AzAccessibilityStateVecDestructor;
-#define AzAccessibilityStateVecDestructor_DefaultRust { .DefaultRust = { .tag = AzAccessibilityStateVecDestructorTag_DefaultRust } }
-#define AzAccessibilityStateVecDestructor_NoDestructor { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor } }
-#define AzAccessibilityStateVecDestructor_External(v) { .External = { .tag = AzAccessibilityStateVecDestructorTag_External, .payload = v } }
 
 enum AzMenuItemVecDestructorTag {
    AzMenuItemVecDestructorTag_DefaultRust,
@@ -2040,9 +2022,6 @@ union AzMenuItemVecDestructor {
     AzMenuItemVecDestructorVariant_External External;
 };
 typedef union AzMenuItemVecDestructor AzMenuItemVecDestructor;
-#define AzMenuItemVecDestructor_DefaultRust { .DefaultRust = { .tag = AzMenuItemVecDestructorTag_DefaultRust } }
-#define AzMenuItemVecDestructor_NoDestructor { .NoDestructor = { .tag = AzMenuItemVecDestructorTag_NoDestructor } }
-#define AzMenuItemVecDestructor_External(v) { .External = { .tag = AzMenuItemVecDestructorTag_External, .payload = v } }
 
 enum AzTesselatedSvgNodeVecDestructorTag {
    AzTesselatedSvgNodeVecDestructorTag_DefaultRust,
@@ -2063,9 +2042,6 @@ union AzTesselatedSvgNodeVecDestructor {
     AzTesselatedSvgNodeVecDestructorVariant_External External;
 };
 typedef union AzTesselatedSvgNodeVecDestructor AzTesselatedSvgNodeVecDestructor;
-#define AzTesselatedSvgNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTesselatedSvgNodeVecDestructorTag_DefaultRust } }
-#define AzTesselatedSvgNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor } }
-#define AzTesselatedSvgNodeVecDestructor_External(v) { .External = { .tag = AzTesselatedSvgNodeVecDestructorTag_External, .payload = v } }
 
 enum AzXmlNodeVecDestructorTag {
    AzXmlNodeVecDestructorTag_DefaultRust,
@@ -2086,9 +2062,6 @@ union AzXmlNodeVecDestructor {
     AzXmlNodeVecDestructorVariant_External External;
 };
 typedef union AzXmlNodeVecDestructor AzXmlNodeVecDestructor;
-#define AzXmlNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzXmlNodeVecDestructorTag_DefaultRust } }
-#define AzXmlNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor } }
-#define AzXmlNodeVecDestructor_External(v) { .External = { .tag = AzXmlNodeVecDestructorTag_External, .payload = v } }
 
 enum AzFmtArgVecDestructorTag {
    AzFmtArgVecDestructorTag_DefaultRust,
@@ -2109,9 +2082,6 @@ union AzFmtArgVecDestructor {
     AzFmtArgVecDestructorVariant_External External;
 };
 typedef union AzFmtArgVecDestructor AzFmtArgVecDestructor;
-#define AzFmtArgVecDestructor_DefaultRust { .DefaultRust = { .tag = AzFmtArgVecDestructorTag_DefaultRust } }
-#define AzFmtArgVecDestructor_NoDestructor { .NoDestructor = { .tag = AzFmtArgVecDestructorTag_NoDestructor } }
-#define AzFmtArgVecDestructor_External(v) { .External = { .tag = AzFmtArgVecDestructorTag_External, .payload = v } }
 
 enum AzInlineLineVecDestructorTag {
    AzInlineLineVecDestructorTag_DefaultRust,
@@ -2132,9 +2102,6 @@ union AzInlineLineVecDestructor {
     AzInlineLineVecDestructorVariant_External External;
 };
 typedef union AzInlineLineVecDestructor AzInlineLineVecDestructor;
-#define AzInlineLineVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineLineVecDestructorTag_DefaultRust } }
-#define AzInlineLineVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor } }
-#define AzInlineLineVecDestructor_External(v) { .External = { .tag = AzInlineLineVecDestructorTag_External, .payload = v } }
 
 enum AzInlineWordVecDestructorTag {
    AzInlineWordVecDestructorTag_DefaultRust,
@@ -2155,9 +2122,6 @@ union AzInlineWordVecDestructor {
     AzInlineWordVecDestructorVariant_External External;
 };
 typedef union AzInlineWordVecDestructor AzInlineWordVecDestructor;
-#define AzInlineWordVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineWordVecDestructorTag_DefaultRust } }
-#define AzInlineWordVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineWordVecDestructorTag_NoDestructor } }
-#define AzInlineWordVecDestructor_External(v) { .External = { .tag = AzInlineWordVecDestructorTag_External, .payload = v } }
 
 enum AzInlineGlyphVecDestructorTag {
    AzInlineGlyphVecDestructorTag_DefaultRust,
@@ -2178,9 +2142,6 @@ union AzInlineGlyphVecDestructor {
     AzInlineGlyphVecDestructorVariant_External External;
 };
 typedef union AzInlineGlyphVecDestructor AzInlineGlyphVecDestructor;
-#define AzInlineGlyphVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineGlyphVecDestructorTag_DefaultRust } }
-#define AzInlineGlyphVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineGlyphVecDestructorTag_NoDestructor } }
-#define AzInlineGlyphVecDestructor_External(v) { .External = { .tag = AzInlineGlyphVecDestructorTag_External, .payload = v } }
 
 enum AzInlineTextHitVecDestructorTag {
    AzInlineTextHitVecDestructorTag_DefaultRust,
@@ -2201,9 +2162,6 @@ union AzInlineTextHitVecDestructor {
     AzInlineTextHitVecDestructorVariant_External External;
 };
 typedef union AzInlineTextHitVecDestructor AzInlineTextHitVecDestructor;
-#define AzInlineTextHitVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineTextHitVecDestructorTag_DefaultRust } }
-#define AzInlineTextHitVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineTextHitVecDestructorTag_NoDestructor } }
-#define AzInlineTextHitVecDestructor_External(v) { .External = { .tag = AzInlineTextHitVecDestructorTag_External, .payload = v } }
 
 enum AzMonitorVecDestructorTag {
    AzMonitorVecDestructorTag_DefaultRust,
@@ -2224,9 +2182,6 @@ union AzMonitorVecDestructor {
     AzMonitorVecDestructorVariant_External External;
 };
 typedef union AzMonitorVecDestructor AzMonitorVecDestructor;
-#define AzMonitorVecDestructor_DefaultRust { .DefaultRust = { .tag = AzMonitorVecDestructorTag_DefaultRust } }
-#define AzMonitorVecDestructor_NoDestructor { .NoDestructor = { .tag = AzMonitorVecDestructorTag_NoDestructor } }
-#define AzMonitorVecDestructor_External(v) { .External = { .tag = AzMonitorVecDestructorTag_External, .payload = v } }
 
 enum AzVideoModeVecDestructorTag {
    AzVideoModeVecDestructorTag_DefaultRust,
@@ -2247,9 +2202,6 @@ union AzVideoModeVecDestructor {
     AzVideoModeVecDestructorVariant_External External;
 };
 typedef union AzVideoModeVecDestructor AzVideoModeVecDestructor;
-#define AzVideoModeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzVideoModeVecDestructorTag_DefaultRust } }
-#define AzVideoModeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzVideoModeVecDestructorTag_NoDestructor } }
-#define AzVideoModeVecDestructor_External(v) { .External = { .tag = AzVideoModeVecDestructorTag_External, .payload = v } }
 
 enum AzDomVecDestructorTag {
    AzDomVecDestructorTag_DefaultRust,
@@ -2270,9 +2222,6 @@ union AzDomVecDestructor {
     AzDomVecDestructorVariant_External External;
 };
 typedef union AzDomVecDestructor AzDomVecDestructor;
-#define AzDomVecDestructor_DefaultRust { .DefaultRust = { .tag = AzDomVecDestructorTag_DefaultRust } }
-#define AzDomVecDestructor_NoDestructor { .NoDestructor = { .tag = AzDomVecDestructorTag_NoDestructor } }
-#define AzDomVecDestructor_External(v) { .External = { .tag = AzDomVecDestructorTag_External, .payload = v } }
 
 enum AzIdOrClassVecDestructorTag {
    AzIdOrClassVecDestructorTag_DefaultRust,
@@ -2293,9 +2242,6 @@ union AzIdOrClassVecDestructor {
     AzIdOrClassVecDestructorVariant_External External;
 };
 typedef union AzIdOrClassVecDestructor AzIdOrClassVecDestructor;
-#define AzIdOrClassVecDestructor_DefaultRust { .DefaultRust = { .tag = AzIdOrClassVecDestructorTag_DefaultRust } }
-#define AzIdOrClassVecDestructor_NoDestructor { .NoDestructor = { .tag = AzIdOrClassVecDestructorTag_NoDestructor } }
-#define AzIdOrClassVecDestructor_External(v) { .External = { .tag = AzIdOrClassVecDestructorTag_External, .payload = v } }
 
 enum AzNodeDataInlineCssPropertyVecDestructorTag {
    AzNodeDataInlineCssPropertyVecDestructorTag_DefaultRust,
@@ -2316,9 +2262,6 @@ union AzNodeDataInlineCssPropertyVecDestructor {
     AzNodeDataInlineCssPropertyVecDestructorVariant_External External;
 };
 typedef union AzNodeDataInlineCssPropertyVecDestructor AzNodeDataInlineCssPropertyVecDestructor;
-#define AzNodeDataInlineCssPropertyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_DefaultRust } }
-#define AzNodeDataInlineCssPropertyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_NoDestructor } }
-#define AzNodeDataInlineCssPropertyVecDestructor_External(v) { .External = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_External, .payload = v } }
 
 enum AzStyleBackgroundContentVecDestructorTag {
    AzStyleBackgroundContentVecDestructorTag_DefaultRust,
@@ -2339,9 +2282,6 @@ union AzStyleBackgroundContentVecDestructor {
     AzStyleBackgroundContentVecDestructorVariant_External External;
 };
 typedef union AzStyleBackgroundContentVecDestructor AzStyleBackgroundContentVecDestructor;
-#define AzStyleBackgroundContentVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundContentVecDestructorTag_DefaultRust } }
-#define AzStyleBackgroundContentVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundContentVecDestructorTag_NoDestructor } }
-#define AzStyleBackgroundContentVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundContentVecDestructorTag_External, .payload = v } }
 
 enum AzStyleBackgroundPositionVecDestructorTag {
    AzStyleBackgroundPositionVecDestructorTag_DefaultRust,
@@ -2362,9 +2302,6 @@ union AzStyleBackgroundPositionVecDestructor {
     AzStyleBackgroundPositionVecDestructorVariant_External External;
 };
 typedef union AzStyleBackgroundPositionVecDestructor AzStyleBackgroundPositionVecDestructor;
-#define AzStyleBackgroundPositionVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundPositionVecDestructorTag_DefaultRust } }
-#define AzStyleBackgroundPositionVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundPositionVecDestructorTag_NoDestructor } }
-#define AzStyleBackgroundPositionVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundPositionVecDestructorTag_External, .payload = v } }
 
 enum AzStyleBackgroundRepeatVecDestructorTag {
    AzStyleBackgroundRepeatVecDestructorTag_DefaultRust,
@@ -2385,9 +2322,6 @@ union AzStyleBackgroundRepeatVecDestructor {
     AzStyleBackgroundRepeatVecDestructorVariant_External External;
 };
 typedef union AzStyleBackgroundRepeatVecDestructor AzStyleBackgroundRepeatVecDestructor;
-#define AzStyleBackgroundRepeatVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundRepeatVecDestructorTag_DefaultRust } }
-#define AzStyleBackgroundRepeatVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundRepeatVecDestructorTag_NoDestructor } }
-#define AzStyleBackgroundRepeatVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundRepeatVecDestructorTag_External, .payload = v } }
 
 enum AzStyleBackgroundSizeVecDestructorTag {
    AzStyleBackgroundSizeVecDestructorTag_DefaultRust,
@@ -2408,9 +2342,6 @@ union AzStyleBackgroundSizeVecDestructor {
     AzStyleBackgroundSizeVecDestructorVariant_External External;
 };
 typedef union AzStyleBackgroundSizeVecDestructor AzStyleBackgroundSizeVecDestructor;
-#define AzStyleBackgroundSizeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundSizeVecDestructorTag_DefaultRust } }
-#define AzStyleBackgroundSizeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundSizeVecDestructorTag_NoDestructor } }
-#define AzStyleBackgroundSizeVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundSizeVecDestructorTag_External, .payload = v } }
 
 enum AzStyleTransformVecDestructorTag {
    AzStyleTransformVecDestructorTag_DefaultRust,
@@ -2431,9 +2362,6 @@ union AzStyleTransformVecDestructor {
     AzStyleTransformVecDestructorVariant_External External;
 };
 typedef union AzStyleTransformVecDestructor AzStyleTransformVecDestructor;
-#define AzStyleTransformVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleTransformVecDestructorTag_DefaultRust } }
-#define AzStyleTransformVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleTransformVecDestructorTag_NoDestructor } }
-#define AzStyleTransformVecDestructor_External(v) { .External = { .tag = AzStyleTransformVecDestructorTag_External, .payload = v } }
 
 enum AzCssPropertyVecDestructorTag {
    AzCssPropertyVecDestructorTag_DefaultRust,
@@ -2454,9 +2382,6 @@ union AzCssPropertyVecDestructor {
     AzCssPropertyVecDestructorVariant_External External;
 };
 typedef union AzCssPropertyVecDestructor AzCssPropertyVecDestructor;
-#define AzCssPropertyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssPropertyVecDestructorTag_DefaultRust } }
-#define AzCssPropertyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssPropertyVecDestructorTag_NoDestructor } }
-#define AzCssPropertyVecDestructor_External(v) { .External = { .tag = AzCssPropertyVecDestructorTag_External, .payload = v } }
 
 enum AzSvgMultiPolygonVecDestructorTag {
    AzSvgMultiPolygonVecDestructorTag_DefaultRust,
@@ -2477,9 +2402,6 @@ union AzSvgMultiPolygonVecDestructor {
     AzSvgMultiPolygonVecDestructorVariant_External External;
 };
 typedef union AzSvgMultiPolygonVecDestructor AzSvgMultiPolygonVecDestructor;
-#define AzSvgMultiPolygonVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgMultiPolygonVecDestructorTag_DefaultRust } }
-#define AzSvgMultiPolygonVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor } }
-#define AzSvgMultiPolygonVecDestructor_External(v) { .External = { .tag = AzSvgMultiPolygonVecDestructorTag_External, .payload = v } }
 
 enum AzSvgPathVecDestructorTag {
    AzSvgPathVecDestructorTag_DefaultRust,
@@ -2500,9 +2422,6 @@ union AzSvgPathVecDestructor {
     AzSvgPathVecDestructorVariant_External External;
 };
 typedef union AzSvgPathVecDestructor AzSvgPathVecDestructor;
-#define AzSvgPathVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgPathVecDestructorTag_DefaultRust } }
-#define AzSvgPathVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgPathVecDestructorTag_NoDestructor } }
-#define AzSvgPathVecDestructor_External(v) { .External = { .tag = AzSvgPathVecDestructorTag_External, .payload = v } }
 
 enum AzVertexAttributeVecDestructorTag {
    AzVertexAttributeVecDestructorTag_DefaultRust,
@@ -2523,9 +2442,6 @@ union AzVertexAttributeVecDestructor {
     AzVertexAttributeVecDestructorVariant_External External;
 };
 typedef union AzVertexAttributeVecDestructor AzVertexAttributeVecDestructor;
-#define AzVertexAttributeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzVertexAttributeVecDestructorTag_DefaultRust } }
-#define AzVertexAttributeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzVertexAttributeVecDestructorTag_NoDestructor } }
-#define AzVertexAttributeVecDestructor_External(v) { .External = { .tag = AzVertexAttributeVecDestructorTag_External, .payload = v } }
 
 enum AzSvgPathElementVecDestructorTag {
    AzSvgPathElementVecDestructorTag_DefaultRust,
@@ -2546,9 +2462,6 @@ union AzSvgPathElementVecDestructor {
     AzSvgPathElementVecDestructorVariant_External External;
 };
 typedef union AzSvgPathElementVecDestructor AzSvgPathElementVecDestructor;
-#define AzSvgPathElementVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgPathElementVecDestructorTag_DefaultRust } }
-#define AzSvgPathElementVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgPathElementVecDestructorTag_NoDestructor } }
-#define AzSvgPathElementVecDestructor_External(v) { .External = { .tag = AzSvgPathElementVecDestructorTag_External, .payload = v } }
 
 enum AzSvgVertexVecDestructorTag {
    AzSvgVertexVecDestructorTag_DefaultRust,
@@ -2569,9 +2482,6 @@ union AzSvgVertexVecDestructor {
     AzSvgVertexVecDestructorVariant_External External;
 };
 typedef union AzSvgVertexVecDestructor AzSvgVertexVecDestructor;
-#define AzSvgVertexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgVertexVecDestructorTag_DefaultRust } }
-#define AzSvgVertexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor } }
-#define AzSvgVertexVecDestructor_External(v) { .External = { .tag = AzSvgVertexVecDestructorTag_External, .payload = v } }
 
 enum AzU32VecDestructorTag {
    AzU32VecDestructorTag_DefaultRust,
@@ -2592,9 +2502,6 @@ union AzU32VecDestructor {
     AzU32VecDestructorVariant_External External;
 };
 typedef union AzU32VecDestructor AzU32VecDestructor;
-#define AzU32VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU32VecDestructorTag_DefaultRust } }
-#define AzU32VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor } }
-#define AzU32VecDestructor_External(v) { .External = { .tag = AzU32VecDestructorTag_External, .payload = v } }
 
 enum AzXWindowTypeVecDestructorTag {
    AzXWindowTypeVecDestructorTag_DefaultRust,
@@ -2615,9 +2522,6 @@ union AzXWindowTypeVecDestructor {
     AzXWindowTypeVecDestructorVariant_External External;
 };
 typedef union AzXWindowTypeVecDestructor AzXWindowTypeVecDestructor;
-#define AzXWindowTypeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzXWindowTypeVecDestructorTag_DefaultRust } }
-#define AzXWindowTypeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzXWindowTypeVecDestructorTag_NoDestructor } }
-#define AzXWindowTypeVecDestructor_External(v) { .External = { .tag = AzXWindowTypeVecDestructorTag_External, .payload = v } }
 
 enum AzVirtualKeyCodeVecDestructorTag {
    AzVirtualKeyCodeVecDestructorTag_DefaultRust,
@@ -2638,9 +2542,6 @@ union AzVirtualKeyCodeVecDestructor {
     AzVirtualKeyCodeVecDestructorVariant_External External;
 };
 typedef union AzVirtualKeyCodeVecDestructor AzVirtualKeyCodeVecDestructor;
-#define AzVirtualKeyCodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzVirtualKeyCodeVecDestructorTag_DefaultRust } }
-#define AzVirtualKeyCodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzVirtualKeyCodeVecDestructorTag_NoDestructor } }
-#define AzVirtualKeyCodeVecDestructor_External(v) { .External = { .tag = AzVirtualKeyCodeVecDestructorTag_External, .payload = v } }
 
 enum AzCascadeInfoVecDestructorTag {
    AzCascadeInfoVecDestructorTag_DefaultRust,
@@ -2661,9 +2562,6 @@ union AzCascadeInfoVecDestructor {
     AzCascadeInfoVecDestructorVariant_External External;
 };
 typedef union AzCascadeInfoVecDestructor AzCascadeInfoVecDestructor;
-#define AzCascadeInfoVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCascadeInfoVecDestructorTag_DefaultRust } }
-#define AzCascadeInfoVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCascadeInfoVecDestructorTag_NoDestructor } }
-#define AzCascadeInfoVecDestructor_External(v) { .External = { .tag = AzCascadeInfoVecDestructorTag_External, .payload = v } }
 
 enum AzScanCodeVecDestructorTag {
    AzScanCodeVecDestructorTag_DefaultRust,
@@ -2684,9 +2582,6 @@ union AzScanCodeVecDestructor {
     AzScanCodeVecDestructorVariant_External External;
 };
 typedef union AzScanCodeVecDestructor AzScanCodeVecDestructor;
-#define AzScanCodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzScanCodeVecDestructorTag_DefaultRust } }
-#define AzScanCodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzScanCodeVecDestructorTag_NoDestructor } }
-#define AzScanCodeVecDestructor_External(v) { .External = { .tag = AzScanCodeVecDestructorTag_External, .payload = v } }
 
 enum AzCssDeclarationVecDestructorTag {
    AzCssDeclarationVecDestructorTag_DefaultRust,
@@ -2707,9 +2602,6 @@ union AzCssDeclarationVecDestructor {
     AzCssDeclarationVecDestructorVariant_External External;
 };
 typedef union AzCssDeclarationVecDestructor AzCssDeclarationVecDestructor;
-#define AzCssDeclarationVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssDeclarationVecDestructorTag_DefaultRust } }
-#define AzCssDeclarationVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssDeclarationVecDestructorTag_NoDestructor } }
-#define AzCssDeclarationVecDestructor_External(v) { .External = { .tag = AzCssDeclarationVecDestructorTag_External, .payload = v } }
 
 enum AzCssPathSelectorVecDestructorTag {
    AzCssPathSelectorVecDestructorTag_DefaultRust,
@@ -2730,9 +2622,6 @@ union AzCssPathSelectorVecDestructor {
     AzCssPathSelectorVecDestructorVariant_External External;
 };
 typedef union AzCssPathSelectorVecDestructor AzCssPathSelectorVecDestructor;
-#define AzCssPathSelectorVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssPathSelectorVecDestructorTag_DefaultRust } }
-#define AzCssPathSelectorVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssPathSelectorVecDestructorTag_NoDestructor } }
-#define AzCssPathSelectorVecDestructor_External(v) { .External = { .tag = AzCssPathSelectorVecDestructorTag_External, .payload = v } }
 
 enum AzStylesheetVecDestructorTag {
    AzStylesheetVecDestructorTag_DefaultRust,
@@ -2753,9 +2642,6 @@ union AzStylesheetVecDestructor {
     AzStylesheetVecDestructorVariant_External External;
 };
 typedef union AzStylesheetVecDestructor AzStylesheetVecDestructor;
-#define AzStylesheetVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStylesheetVecDestructorTag_DefaultRust } }
-#define AzStylesheetVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStylesheetVecDestructorTag_NoDestructor } }
-#define AzStylesheetVecDestructor_External(v) { .External = { .tag = AzStylesheetVecDestructorTag_External, .payload = v } }
 
 enum AzCssRuleBlockVecDestructorTag {
    AzCssRuleBlockVecDestructorTag_DefaultRust,
@@ -2776,9 +2662,6 @@ union AzCssRuleBlockVecDestructor {
     AzCssRuleBlockVecDestructorVariant_External External;
 };
 typedef union AzCssRuleBlockVecDestructor AzCssRuleBlockVecDestructor;
-#define AzCssRuleBlockVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssRuleBlockVecDestructorTag_DefaultRust } }
-#define AzCssRuleBlockVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor } }
-#define AzCssRuleBlockVecDestructor_External(v) { .External = { .tag = AzCssRuleBlockVecDestructorTag_External, .payload = v } }
 
 enum AzF32VecDestructorTag {
    AzF32VecDestructorTag_DefaultRust,
@@ -2799,9 +2682,6 @@ union AzF32VecDestructor {
     AzF32VecDestructorVariant_External External;
 };
 typedef union AzF32VecDestructor AzF32VecDestructor;
-#define AzF32VecDestructor_DefaultRust { .DefaultRust = { .tag = AzF32VecDestructorTag_DefaultRust } }
-#define AzF32VecDestructor_NoDestructor { .NoDestructor = { .tag = AzF32VecDestructorTag_NoDestructor } }
-#define AzF32VecDestructor_External(v) { .External = { .tag = AzF32VecDestructorTag_External, .payload = v } }
 
 enum AzU16VecDestructorTag {
    AzU16VecDestructorTag_DefaultRust,
@@ -2822,9 +2702,6 @@ union AzU16VecDestructor {
     AzU16VecDestructorVariant_External External;
 };
 typedef union AzU16VecDestructor AzU16VecDestructor;
-#define AzU16VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU16VecDestructorTag_DefaultRust } }
-#define AzU16VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU16VecDestructorTag_NoDestructor } }
-#define AzU16VecDestructor_External(v) { .External = { .tag = AzU16VecDestructorTag_External, .payload = v } }
 
 enum AzU8VecDestructorTag {
    AzU8VecDestructorTag_DefaultRust,
@@ -2845,9 +2722,6 @@ union AzU8VecDestructor {
     AzU8VecDestructorVariant_External External;
 };
 typedef union AzU8VecDestructor AzU8VecDestructor;
-#define AzU8VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU8VecDestructorTag_DefaultRust } }
-#define AzU8VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor } }
-#define AzU8VecDestructor_External(v) { .External = { .tag = AzU8VecDestructorTag_External, .payload = v } }
 
 enum AzCallbackDataVecDestructorTag {
    AzCallbackDataVecDestructorTag_DefaultRust,
@@ -2868,9 +2742,6 @@ union AzCallbackDataVecDestructor {
     AzCallbackDataVecDestructorVariant_External External;
 };
 typedef union AzCallbackDataVecDestructor AzCallbackDataVecDestructor;
-#define AzCallbackDataVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCallbackDataVecDestructorTag_DefaultRust } }
-#define AzCallbackDataVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCallbackDataVecDestructorTag_NoDestructor } }
-#define AzCallbackDataVecDestructor_External(v) { .External = { .tag = AzCallbackDataVecDestructorTag_External, .payload = v } }
 
 enum AzDebugMessageVecDestructorTag {
    AzDebugMessageVecDestructorTag_DefaultRust,
@@ -2891,9 +2762,6 @@ union AzDebugMessageVecDestructor {
     AzDebugMessageVecDestructorVariant_External External;
 };
 typedef union AzDebugMessageVecDestructor AzDebugMessageVecDestructor;
-#define AzDebugMessageVecDestructor_DefaultRust { .DefaultRust = { .tag = AzDebugMessageVecDestructorTag_DefaultRust } }
-#define AzDebugMessageVecDestructor_NoDestructor { .NoDestructor = { .tag = AzDebugMessageVecDestructorTag_NoDestructor } }
-#define AzDebugMessageVecDestructor_External(v) { .External = { .tag = AzDebugMessageVecDestructorTag_External, .payload = v } }
 
 enum AzGLuintVecDestructorTag {
    AzGLuintVecDestructorTag_DefaultRust,
@@ -2914,9 +2782,6 @@ union AzGLuintVecDestructor {
     AzGLuintVecDestructorVariant_External External;
 };
 typedef union AzGLuintVecDestructor AzGLuintVecDestructor;
-#define AzGLuintVecDestructor_DefaultRust { .DefaultRust = { .tag = AzGLuintVecDestructorTag_DefaultRust } }
-#define AzGLuintVecDestructor_NoDestructor { .NoDestructor = { .tag = AzGLuintVecDestructorTag_NoDestructor } }
-#define AzGLuintVecDestructor_External(v) { .External = { .tag = AzGLuintVecDestructorTag_External, .payload = v } }
 
 enum AzGLintVecDestructorTag {
    AzGLintVecDestructorTag_DefaultRust,
@@ -2937,9 +2802,6 @@ union AzGLintVecDestructor {
     AzGLintVecDestructorVariant_External External;
 };
 typedef union AzGLintVecDestructor AzGLintVecDestructor;
-#define AzGLintVecDestructor_DefaultRust { .DefaultRust = { .tag = AzGLintVecDestructorTag_DefaultRust } }
-#define AzGLintVecDestructor_NoDestructor { .NoDestructor = { .tag = AzGLintVecDestructorTag_NoDestructor } }
-#define AzGLintVecDestructor_External(v) { .External = { .tag = AzGLintVecDestructorTag_External, .payload = v } }
 
 enum AzStringVecDestructorTag {
    AzStringVecDestructorTag_DefaultRust,
@@ -2960,9 +2822,6 @@ union AzStringVecDestructor {
     AzStringVecDestructorVariant_External External;
 };
 typedef union AzStringVecDestructor AzStringVecDestructor;
-#define AzStringVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStringVecDestructorTag_DefaultRust } }
-#define AzStringVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStringVecDestructorTag_NoDestructor } }
-#define AzStringVecDestructor_External(v) { .External = { .tag = AzStringVecDestructorTag_External, .payload = v } }
 
 enum AzStringPairVecDestructorTag {
    AzStringPairVecDestructorTag_DefaultRust,
@@ -2983,9 +2842,6 @@ union AzStringPairVecDestructor {
     AzStringPairVecDestructorVariant_External External;
 };
 typedef union AzStringPairVecDestructor AzStringPairVecDestructor;
-#define AzStringPairVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStringPairVecDestructorTag_DefaultRust } }
-#define AzStringPairVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor } }
-#define AzStringPairVecDestructor_External(v) { .External = { .tag = AzStringPairVecDestructorTag_External, .payload = v } }
 
 enum AzNormalizedLinearColorStopVecDestructorTag {
    AzNormalizedLinearColorStopVecDestructorTag_DefaultRust,
@@ -3006,9 +2862,6 @@ union AzNormalizedLinearColorStopVecDestructor {
     AzNormalizedLinearColorStopVecDestructorVariant_External External;
 };
 typedef union AzNormalizedLinearColorStopVecDestructor AzNormalizedLinearColorStopVecDestructor;
-#define AzNormalizedLinearColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNormalizedLinearColorStopVecDestructorTag_DefaultRust } }
-#define AzNormalizedLinearColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNormalizedLinearColorStopVecDestructorTag_NoDestructor } }
-#define AzNormalizedLinearColorStopVecDestructor_External(v) { .External = { .tag = AzNormalizedLinearColorStopVecDestructorTag_External, .payload = v } }
 
 enum AzNormalizedRadialColorStopVecDestructorTag {
    AzNormalizedRadialColorStopVecDestructorTag_DefaultRust,
@@ -3029,9 +2882,6 @@ union AzNormalizedRadialColorStopVecDestructor {
     AzNormalizedRadialColorStopVecDestructorVariant_External External;
 };
 typedef union AzNormalizedRadialColorStopVecDestructor AzNormalizedRadialColorStopVecDestructor;
-#define AzNormalizedRadialColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNormalizedRadialColorStopVecDestructorTag_DefaultRust } }
-#define AzNormalizedRadialColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNormalizedRadialColorStopVecDestructorTag_NoDestructor } }
-#define AzNormalizedRadialColorStopVecDestructor_External(v) { .External = { .tag = AzNormalizedRadialColorStopVecDestructorTag_External, .payload = v } }
 
 enum AzNodeIdVecDestructorTag {
    AzNodeIdVecDestructorTag_DefaultRust,
@@ -3052,9 +2902,6 @@ union AzNodeIdVecDestructor {
     AzNodeIdVecDestructorVariant_External External;
 };
 typedef union AzNodeIdVecDestructor AzNodeIdVecDestructor;
-#define AzNodeIdVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeIdVecDestructorTag_DefaultRust } }
-#define AzNodeIdVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor } }
-#define AzNodeIdVecDestructor_External(v) { .External = { .tag = AzNodeIdVecDestructorTag_External, .payload = v } }
 
 enum AzNodeVecDestructorTag {
    AzNodeVecDestructorTag_DefaultRust,
@@ -3075,9 +2922,6 @@ union AzNodeVecDestructor {
     AzNodeVecDestructorVariant_External External;
 };
 typedef union AzNodeVecDestructor AzNodeVecDestructor;
-#define AzNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeVecDestructorTag_DefaultRust } }
-#define AzNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor } }
-#define AzNodeVecDestructor_External(v) { .External = { .tag = AzNodeVecDestructorTag_External, .payload = v } }
 
 enum AzStyledNodeVecDestructorTag {
    AzStyledNodeVecDestructorTag_DefaultRust,
@@ -3098,9 +2942,6 @@ union AzStyledNodeVecDestructor {
     AzStyledNodeVecDestructorVariant_External External;
 };
 typedef union AzStyledNodeVecDestructor AzStyledNodeVecDestructor;
-#define AzStyledNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyledNodeVecDestructorTag_DefaultRust } }
-#define AzStyledNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor } }
-#define AzStyledNodeVecDestructor_External(v) { .External = { .tag = AzStyledNodeVecDestructorTag_External, .payload = v } }
 
 enum AzTagIdToNodeIdMappingVecDestructorTag {
    AzTagIdToNodeIdMappingVecDestructorTag_DefaultRust,
@@ -3121,9 +2962,6 @@ union AzTagIdToNodeIdMappingVecDestructor {
     AzTagIdToNodeIdMappingVecDestructorVariant_External External;
 };
 typedef union AzTagIdToNodeIdMappingVecDestructor AzTagIdToNodeIdMappingVecDestructor;
-#define AzTagIdToNodeIdMappingVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_DefaultRust } }
-#define AzTagIdToNodeIdMappingVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_NoDestructor } }
-#define AzTagIdToNodeIdMappingVecDestructor_External(v) { .External = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_External, .payload = v } }
 
 enum AzParentWithNodeDepthVecDestructorTag {
    AzParentWithNodeDepthVecDestructorTag_DefaultRust,
@@ -3144,9 +2982,6 @@ union AzParentWithNodeDepthVecDestructor {
     AzParentWithNodeDepthVecDestructorVariant_External External;
 };
 typedef union AzParentWithNodeDepthVecDestructor AzParentWithNodeDepthVecDestructor;
-#define AzParentWithNodeDepthVecDestructor_DefaultRust { .DefaultRust = { .tag = AzParentWithNodeDepthVecDestructorTag_DefaultRust } }
-#define AzParentWithNodeDepthVecDestructor_NoDestructor { .NoDestructor = { .tag = AzParentWithNodeDepthVecDestructorTag_NoDestructor } }
-#define AzParentWithNodeDepthVecDestructor_External(v) { .External = { .tag = AzParentWithNodeDepthVecDestructorTag_External, .payload = v } }
 
 enum AzNodeDataVecDestructorTag {
    AzNodeDataVecDestructorTag_DefaultRust,
@@ -3167,9 +3002,6 @@ union AzNodeDataVecDestructor {
     AzNodeDataVecDestructorVariant_External External;
 };
 typedef union AzNodeDataVecDestructor AzNodeDataVecDestructor;
-#define AzNodeDataVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeDataVecDestructorTag_DefaultRust } }
-#define AzNodeDataVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeDataVecDestructorTag_NoDestructor } }
-#define AzNodeDataVecDestructor_External(v) { .External = { .tag = AzNodeDataVecDestructorTag_External, .payload = v } }
 
 enum AzOptionI16Tag {
    AzOptionI16Tag_None,
@@ -3186,8 +3018,6 @@ union AzOptionI16 {
     AzOptionI16Variant_Some Some;
 };
 typedef union AzOptionI16 AzOptionI16;
-#define AzOptionI16_None { .None = { .tag = AzOptionI16Tag_None } }
-#define AzOptionI16_Some(v) { .Some = { .tag = AzOptionI16Tag_Some, .payload = v } }
 
 enum AzOptionU16Tag {
    AzOptionU16Tag_None,
@@ -3204,8 +3034,6 @@ union AzOptionU16 {
     AzOptionU16Variant_Some Some;
 };
 typedef union AzOptionU16 AzOptionU16;
-#define AzOptionU16_None { .None = { .tag = AzOptionU16Tag_None } }
-#define AzOptionU16_Some(v) { .Some = { .tag = AzOptionU16Tag_Some, .payload = v } }
 
 enum AzOptionU32Tag {
    AzOptionU32Tag_None,
@@ -3222,8 +3050,6 @@ union AzOptionU32 {
     AzOptionU32Variant_Some Some;
 };
 typedef union AzOptionU32 AzOptionU32;
-#define AzOptionU32_None { .None = { .tag = AzOptionU32Tag_None } }
-#define AzOptionU32_Some(v) { .Some = { .tag = AzOptionU32Tag_Some, .payload = v } }
 
 enum AzOptionHwndHandleTag {
    AzOptionHwndHandleTag_None,
@@ -3240,8 +3066,6 @@ union AzOptionHwndHandle {
     AzOptionHwndHandleVariant_Some Some;
 };
 typedef union AzOptionHwndHandle AzOptionHwndHandle;
-#define AzOptionHwndHandle_None { .None = { .tag = AzOptionHwndHandleTag_None } }
-#define AzOptionHwndHandle_Some(v) { .Some = { .tag = AzOptionHwndHandleTag_Some, .payload = v } }
 
 enum AzOptionX11VisualTag {
    AzOptionX11VisualTag_None,
@@ -3258,8 +3082,6 @@ union AzOptionX11Visual {
     AzOptionX11VisualVariant_Some Some;
 };
 typedef union AzOptionX11Visual AzOptionX11Visual;
-#define AzOptionX11Visual_None { .None = { .tag = AzOptionX11VisualTag_None } }
-#define AzOptionX11Visual_Some(v) { .Some = { .tag = AzOptionX11VisualTag_Some, .payload = v } }
 
 enum AzOptionI32Tag {
    AzOptionI32Tag_None,
@@ -3276,8 +3098,6 @@ union AzOptionI32 {
     AzOptionI32Variant_Some Some;
 };
 typedef union AzOptionI32 AzOptionI32;
-#define AzOptionI32_None { .None = { .tag = AzOptionI32Tag_None } }
-#define AzOptionI32_Some(v) { .Some = { .tag = AzOptionI32Tag_Some, .payload = v } }
 
 enum AzOptionF32Tag {
    AzOptionF32Tag_None,
@@ -3294,8 +3114,6 @@ union AzOptionF32 {
     AzOptionF32Variant_Some Some;
 };
 typedef union AzOptionF32 AzOptionF32;
-#define AzOptionF32_None { .None = { .tag = AzOptionF32Tag_None } }
-#define AzOptionF32_Some(v) { .Some = { .tag = AzOptionF32Tag_Some, .payload = v } }
 
 enum AzOptionCharTag {
    AzOptionCharTag_None,
@@ -3312,8 +3130,6 @@ union AzOptionChar {
     AzOptionCharVariant_Some Some;
 };
 typedef union AzOptionChar AzOptionChar;
-#define AzOptionChar_None { .None = { .tag = AzOptionCharTag_None } }
-#define AzOptionChar_Some(v) { .Some = { .tag = AzOptionCharTag_Some, .payload = v } }
 
 enum AzOptionUsizeTag {
    AzOptionUsizeTag_None,
@@ -3330,8 +3146,6 @@ union AzOptionUsize {
     AzOptionUsizeVariant_Some Some;
 };
 typedef union AzOptionUsize AzOptionUsize;
-#define AzOptionUsize_None { .None = { .tag = AzOptionUsizeTag_None } }
-#define AzOptionUsize_Some(v) { .Some = { .tag = AzOptionUsizeTag_Some, .payload = v } }
 
 struct AzSvgParseErrorPosition {
     uint32_t row;
@@ -3401,15 +3215,6 @@ union AzRawWindowHandle {
     AzRawWindowHandleVariant_Unsupported Unsupported;
 };
 typedef union AzRawWindowHandle AzRawWindowHandle;
-#define AzRawWindowHandle_IOS(v) { .IOS = { .tag = AzRawWindowHandleTag_IOS, .payload = v } }
-#define AzRawWindowHandle_MacOS(v) { .MacOS = { .tag = AzRawWindowHandleTag_MacOS, .payload = v } }
-#define AzRawWindowHandle_Xlib(v) { .Xlib = { .tag = AzRawWindowHandleTag_Xlib, .payload = v } }
-#define AzRawWindowHandle_Xcb(v) { .Xcb = { .tag = AzRawWindowHandleTag_Xcb, .payload = v } }
-#define AzRawWindowHandle_Wayland(v) { .Wayland = { .tag = AzRawWindowHandleTag_Wayland, .payload = v } }
-#define AzRawWindowHandle_Windows(v) { .Windows = { .tag = AzRawWindowHandleTag_Windows, .payload = v } }
-#define AzRawWindowHandle_Web(v) { .Web = { .tag = AzRawWindowHandleTag_Web, .payload = v } }
-#define AzRawWindowHandle_Android(v) { .Android = { .tag = AzRawWindowHandleTag_Android, .payload = v } }
-#define AzRawWindowHandle_Unsupported { .Unsupported = { .tag = AzRawWindowHandleTag_Unsupported } }
 
 struct AzLogicalRect {
     AzLogicalPosition origin;
@@ -3440,10 +3245,6 @@ union AzAcceleratorKey {
     AzAcceleratorKeyVariant_Key Key;
 };
 typedef union AzAcceleratorKey AzAcceleratorKey;
-#define AzAcceleratorKey_Ctrl { .Ctrl = { .tag = AzAcceleratorKeyTag_Ctrl } }
-#define AzAcceleratorKey_Alt { .Alt = { .tag = AzAcceleratorKeyTag_Alt } }
-#define AzAcceleratorKey_Shift { .Shift = { .tag = AzAcceleratorKeyTag_Shift } }
-#define AzAcceleratorKey_Key(v) { .Key = { .tag = AzAcceleratorKeyTag_Key, .payload = v } }
 
 struct AzWindowFlags {
     AzWindowFrame frame;
@@ -3479,9 +3280,6 @@ union AzCursorPosition {
     AzCursorPositionVariant_InWindow InWindow;
 };
 typedef union AzCursorPosition AzCursorPosition;
-#define AzCursorPosition_OutOfWindow { .OutOfWindow = { .tag = AzCursorPositionTag_OutOfWindow } }
-#define AzCursorPosition_Uninitialized { .Uninitialized = { .tag = AzCursorPositionTag_Uninitialized } }
-#define AzCursorPosition_InWindow(v) { .InWindow = { .tag = AzCursorPositionTag_InWindow, .payload = v } }
 
 enum AzWindowPositionTag {
    AzWindowPositionTag_Uninitialized,
@@ -3498,8 +3296,6 @@ union AzWindowPosition {
     AzWindowPositionVariant_Initialized Initialized;
 };
 typedef union AzWindowPosition AzWindowPosition;
-#define AzWindowPosition_Uninitialized { .Uninitialized = { .tag = AzWindowPositionTag_Uninitialized } }
-#define AzWindowPosition_Initialized(v) { .Initialized = { .tag = AzWindowPositionTag_Initialized, .payload = v } }
 
 enum AzImePositionTag {
    AzImePositionTag_Uninitialized,
@@ -3516,8 +3312,6 @@ union AzImePosition {
     AzImePositionVariant_Initialized Initialized;
 };
 typedef union AzImePosition AzImePosition;
-#define AzImePosition_Uninitialized { .Uninitialized = { .tag = AzImePositionTag_Uninitialized } }
-#define AzImePosition_Initialized(v) { .Initialized = { .tag = AzImePositionTag_Initialized, .payload = v } }
 
 struct AzVideoMode {
     AzLayoutSize size;
@@ -3555,10 +3349,6 @@ union AzPositionInfo {
     AzPositionInfoVariant_Relative Relative;
 };
 typedef union AzPositionInfo AzPositionInfo;
-#define AzPositionInfo_Static(v) { .Static = { .tag = AzPositionInfoTag_Static, .payload = v } }
-#define AzPositionInfo_Fixed(v) { .Fixed = { .tag = AzPositionInfoTag_Fixed, .payload = v } }
-#define AzPositionInfo_Absolute(v) { .Absolute = { .tag = AzPositionInfoTag_Absolute, .payload = v } }
-#define AzPositionInfo_Relative(v) { .Relative = { .tag = AzPositionInfoTag_Relative, .payload = v } }
 
 struct AzHidpiAdjustedBounds {
     AzLogicalSize logical_size;
@@ -3640,8 +3430,6 @@ union AzNotEventFilter {
     AzNotEventFilterVariant_Focus Focus;
 };
 typedef union AzNotEventFilter AzNotEventFilter;
-#define AzNotEventFilter_Hover(v) { .Hover = { .tag = AzNotEventFilterTag_Hover, .payload = v } }
-#define AzNotEventFilter_Focus(v) { .Focus = { .tag = AzNotEventFilterTag_Focus, .payload = v } }
 
 struct AzMenuCallback {
     AzCallback callback;
@@ -3664,8 +3452,6 @@ union AzMenuItemIcon {
     AzMenuItemIconVariant_Image Image;
 };
 typedef union AzMenuItemIcon AzMenuItemIcon;
-#define AzMenuItemIcon_Checkbox(v) { .Checkbox = { .tag = AzMenuItemIconTag_Checkbox, .payload = v } }
-#define AzMenuItemIcon_Image(v) { .Image = { .tag = AzMenuItemIconTag_Image, .payload = v } }
 
 enum AzCssNthChildSelectorTag {
    AzCssNthChildSelectorTag_Number,
@@ -3690,10 +3476,6 @@ union AzCssNthChildSelector {
     AzCssNthChildSelectorVariant_Pattern Pattern;
 };
 typedef union AzCssNthChildSelector AzCssNthChildSelector;
-#define AzCssNthChildSelector_Number(v) { .Number = { .tag = AzCssNthChildSelectorTag_Number, .payload = v } }
-#define AzCssNthChildSelector_Even { .Even = { .tag = AzCssNthChildSelectorTag_Even } }
-#define AzCssNthChildSelector_Odd { .Odd = { .tag = AzCssNthChildSelectorTag_Odd } }
-#define AzCssNthChildSelector_Pattern(v) { .Pattern = { .tag = AzCssNthChildSelectorTag_Pattern, .payload = v } }
 
 struct AzPixelValue {
     AzSizeMetric metric;
@@ -3859,8 +3641,6 @@ union AzDirection {
     AzDirectionVariant_FromTo FromTo;
 };
 typedef union AzDirection AzDirection;
-#define AzDirection_Angle(v) { .Angle = { .tag = AzDirectionTag_Angle, .payload = v } }
-#define AzDirection_FromTo(v) { .FromTo = { .tag = AzDirectionTag_FromTo, .payload = v } }
 
 enum AzBackgroundPositionHorizontalTag {
    AzBackgroundPositionHorizontalTag_Left,
@@ -3885,10 +3665,6 @@ union AzBackgroundPositionHorizontal {
     AzBackgroundPositionHorizontalVariant_Exact Exact;
 };
 typedef union AzBackgroundPositionHorizontal AzBackgroundPositionHorizontal;
-#define AzBackgroundPositionHorizontal_Left { .Left = { .tag = AzBackgroundPositionHorizontalTag_Left } }
-#define AzBackgroundPositionHorizontal_Center { .Center = { .tag = AzBackgroundPositionHorizontalTag_Center } }
-#define AzBackgroundPositionHorizontal_Right { .Right = { .tag = AzBackgroundPositionHorizontalTag_Right } }
-#define AzBackgroundPositionHorizontal_Exact(v) { .Exact = { .tag = AzBackgroundPositionHorizontalTag_Exact, .payload = v } }
 
 enum AzBackgroundPositionVerticalTag {
    AzBackgroundPositionVerticalTag_Top,
@@ -3913,10 +3689,6 @@ union AzBackgroundPositionVertical {
     AzBackgroundPositionVerticalVariant_Exact Exact;
 };
 typedef union AzBackgroundPositionVertical AzBackgroundPositionVertical;
-#define AzBackgroundPositionVertical_Top { .Top = { .tag = AzBackgroundPositionVerticalTag_Top } }
-#define AzBackgroundPositionVertical_Center { .Center = { .tag = AzBackgroundPositionVerticalTag_Center } }
-#define AzBackgroundPositionVertical_Bottom { .Bottom = { .tag = AzBackgroundPositionVerticalTag_Bottom } }
-#define AzBackgroundPositionVertical_Exact(v) { .Exact = { .tag = AzBackgroundPositionVerticalTag_Exact, .payload = v } }
 
 struct AzStyleBackgroundPosition {
     AzBackgroundPositionHorizontal horizontal;
@@ -3943,9 +3715,6 @@ union AzStyleBackgroundSize {
     AzStyleBackgroundSizeVariant_Cover Cover;
 };
 typedef union AzStyleBackgroundSize AzStyleBackgroundSize;
-#define AzStyleBackgroundSize_ExactSize(v) { .ExactSize = { .tag = AzStyleBackgroundSizeTag_ExactSize, .payload = v } }
-#define AzStyleBackgroundSize_Contain { .Contain = { .tag = AzStyleBackgroundSizeTag_Contain } }
-#define AzStyleBackgroundSize_Cover { .Cover = { .tag = AzStyleBackgroundSizeTag_Cover } }
 
 struct AzStyleBorderBottomColor {
     AzColorU inner;
@@ -4171,11 +3940,6 @@ union AzStyleBoxShadowValue {
     AzStyleBoxShadowValueVariant_Exact Exact;
 };
 typedef union AzStyleBoxShadowValue AzStyleBoxShadowValue;
-#define AzStyleBoxShadowValue_Auto { .Auto = { .tag = AzStyleBoxShadowValueTag_Auto } }
-#define AzStyleBoxShadowValue_None { .None = { .tag = AzStyleBoxShadowValueTag_None } }
-#define AzStyleBoxShadowValue_Inherit { .Inherit = { .tag = AzStyleBoxShadowValueTag_Inherit } }
-#define AzStyleBoxShadowValue_Initial { .Initial = { .tag = AzStyleBoxShadowValueTag_Initial } }
-#define AzStyleBoxShadowValue_Exact(v) { .Exact = { .tag = AzStyleBoxShadowValueTag_Exact, .payload = v } }
 
 enum AzLayoutAlignContentValueTag {
    AzLayoutAlignContentValueTag_Auto,
@@ -4204,11 +3968,6 @@ union AzLayoutAlignContentValue {
     AzLayoutAlignContentValueVariant_Exact Exact;
 };
 typedef union AzLayoutAlignContentValue AzLayoutAlignContentValue;
-#define AzLayoutAlignContentValue_Auto { .Auto = { .tag = AzLayoutAlignContentValueTag_Auto } }
-#define AzLayoutAlignContentValue_None { .None = { .tag = AzLayoutAlignContentValueTag_None } }
-#define AzLayoutAlignContentValue_Inherit { .Inherit = { .tag = AzLayoutAlignContentValueTag_Inherit } }
-#define AzLayoutAlignContentValue_Initial { .Initial = { .tag = AzLayoutAlignContentValueTag_Initial } }
-#define AzLayoutAlignContentValue_Exact(v) { .Exact = { .tag = AzLayoutAlignContentValueTag_Exact, .payload = v } }
 
 enum AzLayoutAlignItemsValueTag {
    AzLayoutAlignItemsValueTag_Auto,
@@ -4237,11 +3996,6 @@ union AzLayoutAlignItemsValue {
     AzLayoutAlignItemsValueVariant_Exact Exact;
 };
 typedef union AzLayoutAlignItemsValue AzLayoutAlignItemsValue;
-#define AzLayoutAlignItemsValue_Auto { .Auto = { .tag = AzLayoutAlignItemsValueTag_Auto } }
-#define AzLayoutAlignItemsValue_None { .None = { .tag = AzLayoutAlignItemsValueTag_None } }
-#define AzLayoutAlignItemsValue_Inherit { .Inherit = { .tag = AzLayoutAlignItemsValueTag_Inherit } }
-#define AzLayoutAlignItemsValue_Initial { .Initial = { .tag = AzLayoutAlignItemsValueTag_Initial } }
-#define AzLayoutAlignItemsValue_Exact(v) { .Exact = { .tag = AzLayoutAlignItemsValueTag_Exact, .payload = v } }
 
 enum AzLayoutBottomValueTag {
    AzLayoutBottomValueTag_Auto,
@@ -4270,11 +4024,6 @@ union AzLayoutBottomValue {
     AzLayoutBottomValueVariant_Exact Exact;
 };
 typedef union AzLayoutBottomValue AzLayoutBottomValue;
-#define AzLayoutBottomValue_Auto { .Auto = { .tag = AzLayoutBottomValueTag_Auto } }
-#define AzLayoutBottomValue_None { .None = { .tag = AzLayoutBottomValueTag_None } }
-#define AzLayoutBottomValue_Inherit { .Inherit = { .tag = AzLayoutBottomValueTag_Inherit } }
-#define AzLayoutBottomValue_Initial { .Initial = { .tag = AzLayoutBottomValueTag_Initial } }
-#define AzLayoutBottomValue_Exact(v) { .Exact = { .tag = AzLayoutBottomValueTag_Exact, .payload = v } }
 
 enum AzLayoutBoxSizingValueTag {
    AzLayoutBoxSizingValueTag_Auto,
@@ -4303,11 +4052,6 @@ union AzLayoutBoxSizingValue {
     AzLayoutBoxSizingValueVariant_Exact Exact;
 };
 typedef union AzLayoutBoxSizingValue AzLayoutBoxSizingValue;
-#define AzLayoutBoxSizingValue_Auto { .Auto = { .tag = AzLayoutBoxSizingValueTag_Auto } }
-#define AzLayoutBoxSizingValue_None { .None = { .tag = AzLayoutBoxSizingValueTag_None } }
-#define AzLayoutBoxSizingValue_Inherit { .Inherit = { .tag = AzLayoutBoxSizingValueTag_Inherit } }
-#define AzLayoutBoxSizingValue_Initial { .Initial = { .tag = AzLayoutBoxSizingValueTag_Initial } }
-#define AzLayoutBoxSizingValue_Exact(v) { .Exact = { .tag = AzLayoutBoxSizingValueTag_Exact, .payload = v } }
 
 enum AzLayoutFlexDirectionValueTag {
    AzLayoutFlexDirectionValueTag_Auto,
@@ -4336,11 +4080,6 @@ union AzLayoutFlexDirectionValue {
     AzLayoutFlexDirectionValueVariant_Exact Exact;
 };
 typedef union AzLayoutFlexDirectionValue AzLayoutFlexDirectionValue;
-#define AzLayoutFlexDirectionValue_Auto { .Auto = { .tag = AzLayoutFlexDirectionValueTag_Auto } }
-#define AzLayoutFlexDirectionValue_None { .None = { .tag = AzLayoutFlexDirectionValueTag_None } }
-#define AzLayoutFlexDirectionValue_Inherit { .Inherit = { .tag = AzLayoutFlexDirectionValueTag_Inherit } }
-#define AzLayoutFlexDirectionValue_Initial { .Initial = { .tag = AzLayoutFlexDirectionValueTag_Initial } }
-#define AzLayoutFlexDirectionValue_Exact(v) { .Exact = { .tag = AzLayoutFlexDirectionValueTag_Exact, .payload = v } }
 
 enum AzLayoutDisplayValueTag {
    AzLayoutDisplayValueTag_Auto,
@@ -4369,11 +4108,6 @@ union AzLayoutDisplayValue {
     AzLayoutDisplayValueVariant_Exact Exact;
 };
 typedef union AzLayoutDisplayValue AzLayoutDisplayValue;
-#define AzLayoutDisplayValue_Auto { .Auto = { .tag = AzLayoutDisplayValueTag_Auto } }
-#define AzLayoutDisplayValue_None { .None = { .tag = AzLayoutDisplayValueTag_None } }
-#define AzLayoutDisplayValue_Inherit { .Inherit = { .tag = AzLayoutDisplayValueTag_Inherit } }
-#define AzLayoutDisplayValue_Initial { .Initial = { .tag = AzLayoutDisplayValueTag_Initial } }
-#define AzLayoutDisplayValue_Exact(v) { .Exact = { .tag = AzLayoutDisplayValueTag_Exact, .payload = v } }
 
 enum AzLayoutFlexGrowValueTag {
    AzLayoutFlexGrowValueTag_Auto,
@@ -4402,11 +4136,6 @@ union AzLayoutFlexGrowValue {
     AzLayoutFlexGrowValueVariant_Exact Exact;
 };
 typedef union AzLayoutFlexGrowValue AzLayoutFlexGrowValue;
-#define AzLayoutFlexGrowValue_Auto { .Auto = { .tag = AzLayoutFlexGrowValueTag_Auto } }
-#define AzLayoutFlexGrowValue_None { .None = { .tag = AzLayoutFlexGrowValueTag_None } }
-#define AzLayoutFlexGrowValue_Inherit { .Inherit = { .tag = AzLayoutFlexGrowValueTag_Inherit } }
-#define AzLayoutFlexGrowValue_Initial { .Initial = { .tag = AzLayoutFlexGrowValueTag_Initial } }
-#define AzLayoutFlexGrowValue_Exact(v) { .Exact = { .tag = AzLayoutFlexGrowValueTag_Exact, .payload = v } }
 
 enum AzLayoutFlexShrinkValueTag {
    AzLayoutFlexShrinkValueTag_Auto,
@@ -4435,11 +4164,6 @@ union AzLayoutFlexShrinkValue {
     AzLayoutFlexShrinkValueVariant_Exact Exact;
 };
 typedef union AzLayoutFlexShrinkValue AzLayoutFlexShrinkValue;
-#define AzLayoutFlexShrinkValue_Auto { .Auto = { .tag = AzLayoutFlexShrinkValueTag_Auto } }
-#define AzLayoutFlexShrinkValue_None { .None = { .tag = AzLayoutFlexShrinkValueTag_None } }
-#define AzLayoutFlexShrinkValue_Inherit { .Inherit = { .tag = AzLayoutFlexShrinkValueTag_Inherit } }
-#define AzLayoutFlexShrinkValue_Initial { .Initial = { .tag = AzLayoutFlexShrinkValueTag_Initial } }
-#define AzLayoutFlexShrinkValue_Exact(v) { .Exact = { .tag = AzLayoutFlexShrinkValueTag_Exact, .payload = v } }
 
 enum AzLayoutFloatValueTag {
    AzLayoutFloatValueTag_Auto,
@@ -4468,11 +4192,6 @@ union AzLayoutFloatValue {
     AzLayoutFloatValueVariant_Exact Exact;
 };
 typedef union AzLayoutFloatValue AzLayoutFloatValue;
-#define AzLayoutFloatValue_Auto { .Auto = { .tag = AzLayoutFloatValueTag_Auto } }
-#define AzLayoutFloatValue_None { .None = { .tag = AzLayoutFloatValueTag_None } }
-#define AzLayoutFloatValue_Inherit { .Inherit = { .tag = AzLayoutFloatValueTag_Inherit } }
-#define AzLayoutFloatValue_Initial { .Initial = { .tag = AzLayoutFloatValueTag_Initial } }
-#define AzLayoutFloatValue_Exact(v) { .Exact = { .tag = AzLayoutFloatValueTag_Exact, .payload = v } }
 
 enum AzLayoutHeightValueTag {
    AzLayoutHeightValueTag_Auto,
@@ -4501,11 +4220,6 @@ union AzLayoutHeightValue {
     AzLayoutHeightValueVariant_Exact Exact;
 };
 typedef union AzLayoutHeightValue AzLayoutHeightValue;
-#define AzLayoutHeightValue_Auto { .Auto = { .tag = AzLayoutHeightValueTag_Auto } }
-#define AzLayoutHeightValue_None { .None = { .tag = AzLayoutHeightValueTag_None } }
-#define AzLayoutHeightValue_Inherit { .Inherit = { .tag = AzLayoutHeightValueTag_Inherit } }
-#define AzLayoutHeightValue_Initial { .Initial = { .tag = AzLayoutHeightValueTag_Initial } }
-#define AzLayoutHeightValue_Exact(v) { .Exact = { .tag = AzLayoutHeightValueTag_Exact, .payload = v } }
 
 enum AzLayoutJustifyContentValueTag {
    AzLayoutJustifyContentValueTag_Auto,
@@ -4534,11 +4248,6 @@ union AzLayoutJustifyContentValue {
     AzLayoutJustifyContentValueVariant_Exact Exact;
 };
 typedef union AzLayoutJustifyContentValue AzLayoutJustifyContentValue;
-#define AzLayoutJustifyContentValue_Auto { .Auto = { .tag = AzLayoutJustifyContentValueTag_Auto } }
-#define AzLayoutJustifyContentValue_None { .None = { .tag = AzLayoutJustifyContentValueTag_None } }
-#define AzLayoutJustifyContentValue_Inherit { .Inherit = { .tag = AzLayoutJustifyContentValueTag_Inherit } }
-#define AzLayoutJustifyContentValue_Initial { .Initial = { .tag = AzLayoutJustifyContentValueTag_Initial } }
-#define AzLayoutJustifyContentValue_Exact(v) { .Exact = { .tag = AzLayoutJustifyContentValueTag_Exact, .payload = v } }
 
 enum AzLayoutLeftValueTag {
    AzLayoutLeftValueTag_Auto,
@@ -4567,11 +4276,6 @@ union AzLayoutLeftValue {
     AzLayoutLeftValueVariant_Exact Exact;
 };
 typedef union AzLayoutLeftValue AzLayoutLeftValue;
-#define AzLayoutLeftValue_Auto { .Auto = { .tag = AzLayoutLeftValueTag_Auto } }
-#define AzLayoutLeftValue_None { .None = { .tag = AzLayoutLeftValueTag_None } }
-#define AzLayoutLeftValue_Inherit { .Inherit = { .tag = AzLayoutLeftValueTag_Inherit } }
-#define AzLayoutLeftValue_Initial { .Initial = { .tag = AzLayoutLeftValueTag_Initial } }
-#define AzLayoutLeftValue_Exact(v) { .Exact = { .tag = AzLayoutLeftValueTag_Exact, .payload = v } }
 
 enum AzLayoutMarginBottomValueTag {
    AzLayoutMarginBottomValueTag_Auto,
@@ -4600,11 +4304,6 @@ union AzLayoutMarginBottomValue {
     AzLayoutMarginBottomValueVariant_Exact Exact;
 };
 typedef union AzLayoutMarginBottomValue AzLayoutMarginBottomValue;
-#define AzLayoutMarginBottomValue_Auto { .Auto = { .tag = AzLayoutMarginBottomValueTag_Auto } }
-#define AzLayoutMarginBottomValue_None { .None = { .tag = AzLayoutMarginBottomValueTag_None } }
-#define AzLayoutMarginBottomValue_Inherit { .Inherit = { .tag = AzLayoutMarginBottomValueTag_Inherit } }
-#define AzLayoutMarginBottomValue_Initial { .Initial = { .tag = AzLayoutMarginBottomValueTag_Initial } }
-#define AzLayoutMarginBottomValue_Exact(v) { .Exact = { .tag = AzLayoutMarginBottomValueTag_Exact, .payload = v } }
 
 enum AzLayoutMarginLeftValueTag {
    AzLayoutMarginLeftValueTag_Auto,
@@ -4633,11 +4332,6 @@ union AzLayoutMarginLeftValue {
     AzLayoutMarginLeftValueVariant_Exact Exact;
 };
 typedef union AzLayoutMarginLeftValue AzLayoutMarginLeftValue;
-#define AzLayoutMarginLeftValue_Auto { .Auto = { .tag = AzLayoutMarginLeftValueTag_Auto } }
-#define AzLayoutMarginLeftValue_None { .None = { .tag = AzLayoutMarginLeftValueTag_None } }
-#define AzLayoutMarginLeftValue_Inherit { .Inherit = { .tag = AzLayoutMarginLeftValueTag_Inherit } }
-#define AzLayoutMarginLeftValue_Initial { .Initial = { .tag = AzLayoutMarginLeftValueTag_Initial } }
-#define AzLayoutMarginLeftValue_Exact(v) { .Exact = { .tag = AzLayoutMarginLeftValueTag_Exact, .payload = v } }
 
 enum AzLayoutMarginRightValueTag {
    AzLayoutMarginRightValueTag_Auto,
@@ -4666,11 +4360,6 @@ union AzLayoutMarginRightValue {
     AzLayoutMarginRightValueVariant_Exact Exact;
 };
 typedef union AzLayoutMarginRightValue AzLayoutMarginRightValue;
-#define AzLayoutMarginRightValue_Auto { .Auto = { .tag = AzLayoutMarginRightValueTag_Auto } }
-#define AzLayoutMarginRightValue_None { .None = { .tag = AzLayoutMarginRightValueTag_None } }
-#define AzLayoutMarginRightValue_Inherit { .Inherit = { .tag = AzLayoutMarginRightValueTag_Inherit } }
-#define AzLayoutMarginRightValue_Initial { .Initial = { .tag = AzLayoutMarginRightValueTag_Initial } }
-#define AzLayoutMarginRightValue_Exact(v) { .Exact = { .tag = AzLayoutMarginRightValueTag_Exact, .payload = v } }
 
 enum AzLayoutMarginTopValueTag {
    AzLayoutMarginTopValueTag_Auto,
@@ -4699,11 +4388,6 @@ union AzLayoutMarginTopValue {
     AzLayoutMarginTopValueVariant_Exact Exact;
 };
 typedef union AzLayoutMarginTopValue AzLayoutMarginTopValue;
-#define AzLayoutMarginTopValue_Auto { .Auto = { .tag = AzLayoutMarginTopValueTag_Auto } }
-#define AzLayoutMarginTopValue_None { .None = { .tag = AzLayoutMarginTopValueTag_None } }
-#define AzLayoutMarginTopValue_Inherit { .Inherit = { .tag = AzLayoutMarginTopValueTag_Inherit } }
-#define AzLayoutMarginTopValue_Initial { .Initial = { .tag = AzLayoutMarginTopValueTag_Initial } }
-#define AzLayoutMarginTopValue_Exact(v) { .Exact = { .tag = AzLayoutMarginTopValueTag_Exact, .payload = v } }
 
 enum AzLayoutMaxHeightValueTag {
    AzLayoutMaxHeightValueTag_Auto,
@@ -4732,11 +4416,6 @@ union AzLayoutMaxHeightValue {
     AzLayoutMaxHeightValueVariant_Exact Exact;
 };
 typedef union AzLayoutMaxHeightValue AzLayoutMaxHeightValue;
-#define AzLayoutMaxHeightValue_Auto { .Auto = { .tag = AzLayoutMaxHeightValueTag_Auto } }
-#define AzLayoutMaxHeightValue_None { .None = { .tag = AzLayoutMaxHeightValueTag_None } }
-#define AzLayoutMaxHeightValue_Inherit { .Inherit = { .tag = AzLayoutMaxHeightValueTag_Inherit } }
-#define AzLayoutMaxHeightValue_Initial { .Initial = { .tag = AzLayoutMaxHeightValueTag_Initial } }
-#define AzLayoutMaxHeightValue_Exact(v) { .Exact = { .tag = AzLayoutMaxHeightValueTag_Exact, .payload = v } }
 
 enum AzLayoutMaxWidthValueTag {
    AzLayoutMaxWidthValueTag_Auto,
@@ -4765,11 +4444,6 @@ union AzLayoutMaxWidthValue {
     AzLayoutMaxWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutMaxWidthValue AzLayoutMaxWidthValue;
-#define AzLayoutMaxWidthValue_Auto { .Auto = { .tag = AzLayoutMaxWidthValueTag_Auto } }
-#define AzLayoutMaxWidthValue_None { .None = { .tag = AzLayoutMaxWidthValueTag_None } }
-#define AzLayoutMaxWidthValue_Inherit { .Inherit = { .tag = AzLayoutMaxWidthValueTag_Inherit } }
-#define AzLayoutMaxWidthValue_Initial { .Initial = { .tag = AzLayoutMaxWidthValueTag_Initial } }
-#define AzLayoutMaxWidthValue_Exact(v) { .Exact = { .tag = AzLayoutMaxWidthValueTag_Exact, .payload = v } }
 
 enum AzLayoutMinHeightValueTag {
    AzLayoutMinHeightValueTag_Auto,
@@ -4798,11 +4472,6 @@ union AzLayoutMinHeightValue {
     AzLayoutMinHeightValueVariant_Exact Exact;
 };
 typedef union AzLayoutMinHeightValue AzLayoutMinHeightValue;
-#define AzLayoutMinHeightValue_Auto { .Auto = { .tag = AzLayoutMinHeightValueTag_Auto } }
-#define AzLayoutMinHeightValue_None { .None = { .tag = AzLayoutMinHeightValueTag_None } }
-#define AzLayoutMinHeightValue_Inherit { .Inherit = { .tag = AzLayoutMinHeightValueTag_Inherit } }
-#define AzLayoutMinHeightValue_Initial { .Initial = { .tag = AzLayoutMinHeightValueTag_Initial } }
-#define AzLayoutMinHeightValue_Exact(v) { .Exact = { .tag = AzLayoutMinHeightValueTag_Exact, .payload = v } }
 
 enum AzLayoutMinWidthValueTag {
    AzLayoutMinWidthValueTag_Auto,
@@ -4831,11 +4500,6 @@ union AzLayoutMinWidthValue {
     AzLayoutMinWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutMinWidthValue AzLayoutMinWidthValue;
-#define AzLayoutMinWidthValue_Auto { .Auto = { .tag = AzLayoutMinWidthValueTag_Auto } }
-#define AzLayoutMinWidthValue_None { .None = { .tag = AzLayoutMinWidthValueTag_None } }
-#define AzLayoutMinWidthValue_Inherit { .Inherit = { .tag = AzLayoutMinWidthValueTag_Inherit } }
-#define AzLayoutMinWidthValue_Initial { .Initial = { .tag = AzLayoutMinWidthValueTag_Initial } }
-#define AzLayoutMinWidthValue_Exact(v) { .Exact = { .tag = AzLayoutMinWidthValueTag_Exact, .payload = v } }
 
 enum AzLayoutPaddingBottomValueTag {
    AzLayoutPaddingBottomValueTag_Auto,
@@ -4864,11 +4528,6 @@ union AzLayoutPaddingBottomValue {
     AzLayoutPaddingBottomValueVariant_Exact Exact;
 };
 typedef union AzLayoutPaddingBottomValue AzLayoutPaddingBottomValue;
-#define AzLayoutPaddingBottomValue_Auto { .Auto = { .tag = AzLayoutPaddingBottomValueTag_Auto } }
-#define AzLayoutPaddingBottomValue_None { .None = { .tag = AzLayoutPaddingBottomValueTag_None } }
-#define AzLayoutPaddingBottomValue_Inherit { .Inherit = { .tag = AzLayoutPaddingBottomValueTag_Inherit } }
-#define AzLayoutPaddingBottomValue_Initial { .Initial = { .tag = AzLayoutPaddingBottomValueTag_Initial } }
-#define AzLayoutPaddingBottomValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingBottomValueTag_Exact, .payload = v } }
 
 enum AzLayoutPaddingLeftValueTag {
    AzLayoutPaddingLeftValueTag_Auto,
@@ -4897,11 +4556,6 @@ union AzLayoutPaddingLeftValue {
     AzLayoutPaddingLeftValueVariant_Exact Exact;
 };
 typedef union AzLayoutPaddingLeftValue AzLayoutPaddingLeftValue;
-#define AzLayoutPaddingLeftValue_Auto { .Auto = { .tag = AzLayoutPaddingLeftValueTag_Auto } }
-#define AzLayoutPaddingLeftValue_None { .None = { .tag = AzLayoutPaddingLeftValueTag_None } }
-#define AzLayoutPaddingLeftValue_Inherit { .Inherit = { .tag = AzLayoutPaddingLeftValueTag_Inherit } }
-#define AzLayoutPaddingLeftValue_Initial { .Initial = { .tag = AzLayoutPaddingLeftValueTag_Initial } }
-#define AzLayoutPaddingLeftValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingLeftValueTag_Exact, .payload = v } }
 
 enum AzLayoutPaddingRightValueTag {
    AzLayoutPaddingRightValueTag_Auto,
@@ -4930,11 +4584,6 @@ union AzLayoutPaddingRightValue {
     AzLayoutPaddingRightValueVariant_Exact Exact;
 };
 typedef union AzLayoutPaddingRightValue AzLayoutPaddingRightValue;
-#define AzLayoutPaddingRightValue_Auto { .Auto = { .tag = AzLayoutPaddingRightValueTag_Auto } }
-#define AzLayoutPaddingRightValue_None { .None = { .tag = AzLayoutPaddingRightValueTag_None } }
-#define AzLayoutPaddingRightValue_Inherit { .Inherit = { .tag = AzLayoutPaddingRightValueTag_Inherit } }
-#define AzLayoutPaddingRightValue_Initial { .Initial = { .tag = AzLayoutPaddingRightValueTag_Initial } }
-#define AzLayoutPaddingRightValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingRightValueTag_Exact, .payload = v } }
 
 enum AzLayoutPaddingTopValueTag {
    AzLayoutPaddingTopValueTag_Auto,
@@ -4963,11 +4612,6 @@ union AzLayoutPaddingTopValue {
     AzLayoutPaddingTopValueVariant_Exact Exact;
 };
 typedef union AzLayoutPaddingTopValue AzLayoutPaddingTopValue;
-#define AzLayoutPaddingTopValue_Auto { .Auto = { .tag = AzLayoutPaddingTopValueTag_Auto } }
-#define AzLayoutPaddingTopValue_None { .None = { .tag = AzLayoutPaddingTopValueTag_None } }
-#define AzLayoutPaddingTopValue_Inherit { .Inherit = { .tag = AzLayoutPaddingTopValueTag_Inherit } }
-#define AzLayoutPaddingTopValue_Initial { .Initial = { .tag = AzLayoutPaddingTopValueTag_Initial } }
-#define AzLayoutPaddingTopValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingTopValueTag_Exact, .payload = v } }
 
 enum AzLayoutPositionValueTag {
    AzLayoutPositionValueTag_Auto,
@@ -4996,11 +4640,6 @@ union AzLayoutPositionValue {
     AzLayoutPositionValueVariant_Exact Exact;
 };
 typedef union AzLayoutPositionValue AzLayoutPositionValue;
-#define AzLayoutPositionValue_Auto { .Auto = { .tag = AzLayoutPositionValueTag_Auto } }
-#define AzLayoutPositionValue_None { .None = { .tag = AzLayoutPositionValueTag_None } }
-#define AzLayoutPositionValue_Inherit { .Inherit = { .tag = AzLayoutPositionValueTag_Inherit } }
-#define AzLayoutPositionValue_Initial { .Initial = { .tag = AzLayoutPositionValueTag_Initial } }
-#define AzLayoutPositionValue_Exact(v) { .Exact = { .tag = AzLayoutPositionValueTag_Exact, .payload = v } }
 
 enum AzLayoutRightValueTag {
    AzLayoutRightValueTag_Auto,
@@ -5029,11 +4668,6 @@ union AzLayoutRightValue {
     AzLayoutRightValueVariant_Exact Exact;
 };
 typedef union AzLayoutRightValue AzLayoutRightValue;
-#define AzLayoutRightValue_Auto { .Auto = { .tag = AzLayoutRightValueTag_Auto } }
-#define AzLayoutRightValue_None { .None = { .tag = AzLayoutRightValueTag_None } }
-#define AzLayoutRightValue_Inherit { .Inherit = { .tag = AzLayoutRightValueTag_Inherit } }
-#define AzLayoutRightValue_Initial { .Initial = { .tag = AzLayoutRightValueTag_Initial } }
-#define AzLayoutRightValue_Exact(v) { .Exact = { .tag = AzLayoutRightValueTag_Exact, .payload = v } }
 
 enum AzLayoutTopValueTag {
    AzLayoutTopValueTag_Auto,
@@ -5062,11 +4696,6 @@ union AzLayoutTopValue {
     AzLayoutTopValueVariant_Exact Exact;
 };
 typedef union AzLayoutTopValue AzLayoutTopValue;
-#define AzLayoutTopValue_Auto { .Auto = { .tag = AzLayoutTopValueTag_Auto } }
-#define AzLayoutTopValue_None { .None = { .tag = AzLayoutTopValueTag_None } }
-#define AzLayoutTopValue_Inherit { .Inherit = { .tag = AzLayoutTopValueTag_Inherit } }
-#define AzLayoutTopValue_Initial { .Initial = { .tag = AzLayoutTopValueTag_Initial } }
-#define AzLayoutTopValue_Exact(v) { .Exact = { .tag = AzLayoutTopValueTag_Exact, .payload = v } }
 
 enum AzLayoutWidthValueTag {
    AzLayoutWidthValueTag_Auto,
@@ -5095,11 +4724,6 @@ union AzLayoutWidthValue {
     AzLayoutWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutWidthValue AzLayoutWidthValue;
-#define AzLayoutWidthValue_Auto { .Auto = { .tag = AzLayoutWidthValueTag_Auto } }
-#define AzLayoutWidthValue_None { .None = { .tag = AzLayoutWidthValueTag_None } }
-#define AzLayoutWidthValue_Inherit { .Inherit = { .tag = AzLayoutWidthValueTag_Inherit } }
-#define AzLayoutWidthValue_Initial { .Initial = { .tag = AzLayoutWidthValueTag_Initial } }
-#define AzLayoutWidthValue_Exact(v) { .Exact = { .tag = AzLayoutWidthValueTag_Exact, .payload = v } }
 
 enum AzLayoutFlexWrapValueTag {
    AzLayoutFlexWrapValueTag_Auto,
@@ -5128,11 +4752,6 @@ union AzLayoutFlexWrapValue {
     AzLayoutFlexWrapValueVariant_Exact Exact;
 };
 typedef union AzLayoutFlexWrapValue AzLayoutFlexWrapValue;
-#define AzLayoutFlexWrapValue_Auto { .Auto = { .tag = AzLayoutFlexWrapValueTag_Auto } }
-#define AzLayoutFlexWrapValue_None { .None = { .tag = AzLayoutFlexWrapValueTag_None } }
-#define AzLayoutFlexWrapValue_Inherit { .Inherit = { .tag = AzLayoutFlexWrapValueTag_Inherit } }
-#define AzLayoutFlexWrapValue_Initial { .Initial = { .tag = AzLayoutFlexWrapValueTag_Initial } }
-#define AzLayoutFlexWrapValue_Exact(v) { .Exact = { .tag = AzLayoutFlexWrapValueTag_Exact, .payload = v } }
 
 enum AzLayoutOverflowValueTag {
    AzLayoutOverflowValueTag_Auto,
@@ -5161,11 +4780,6 @@ union AzLayoutOverflowValue {
     AzLayoutOverflowValueVariant_Exact Exact;
 };
 typedef union AzLayoutOverflowValue AzLayoutOverflowValue;
-#define AzLayoutOverflowValue_Auto { .Auto = { .tag = AzLayoutOverflowValueTag_Auto } }
-#define AzLayoutOverflowValue_None { .None = { .tag = AzLayoutOverflowValueTag_None } }
-#define AzLayoutOverflowValue_Inherit { .Inherit = { .tag = AzLayoutOverflowValueTag_Inherit } }
-#define AzLayoutOverflowValue_Initial { .Initial = { .tag = AzLayoutOverflowValueTag_Initial } }
-#define AzLayoutOverflowValue_Exact(v) { .Exact = { .tag = AzLayoutOverflowValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderBottomColorValueTag {
    AzStyleBorderBottomColorValueTag_Auto,
@@ -5194,11 +4808,6 @@ union AzStyleBorderBottomColorValue {
     AzStyleBorderBottomColorValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderBottomColorValue AzStyleBorderBottomColorValue;
-#define AzStyleBorderBottomColorValue_Auto { .Auto = { .tag = AzStyleBorderBottomColorValueTag_Auto } }
-#define AzStyleBorderBottomColorValue_None { .None = { .tag = AzStyleBorderBottomColorValueTag_None } }
-#define AzStyleBorderBottomColorValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomColorValueTag_Inherit } }
-#define AzStyleBorderBottomColorValue_Initial { .Initial = { .tag = AzStyleBorderBottomColorValueTag_Initial } }
-#define AzStyleBorderBottomColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomColorValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderBottomLeftRadiusValueTag {
    AzStyleBorderBottomLeftRadiusValueTag_Auto,
@@ -5227,11 +4836,6 @@ union AzStyleBorderBottomLeftRadiusValue {
     AzStyleBorderBottomLeftRadiusValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderBottomLeftRadiusValue AzStyleBorderBottomLeftRadiusValue;
-#define AzStyleBorderBottomLeftRadiusValue_Auto { .Auto = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Auto } }
-#define AzStyleBorderBottomLeftRadiusValue_None { .None = { .tag = AzStyleBorderBottomLeftRadiusValueTag_None } }
-#define AzStyleBorderBottomLeftRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Inherit } }
-#define AzStyleBorderBottomLeftRadiusValue_Initial { .Initial = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Initial } }
-#define AzStyleBorderBottomLeftRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderBottomRightRadiusValueTag {
    AzStyleBorderBottomRightRadiusValueTag_Auto,
@@ -5260,11 +4864,6 @@ union AzStyleBorderBottomRightRadiusValue {
     AzStyleBorderBottomRightRadiusValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderBottomRightRadiusValue AzStyleBorderBottomRightRadiusValue;
-#define AzStyleBorderBottomRightRadiusValue_Auto { .Auto = { .tag = AzStyleBorderBottomRightRadiusValueTag_Auto } }
-#define AzStyleBorderBottomRightRadiusValue_None { .None = { .tag = AzStyleBorderBottomRightRadiusValueTag_None } }
-#define AzStyleBorderBottomRightRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomRightRadiusValueTag_Inherit } }
-#define AzStyleBorderBottomRightRadiusValue_Initial { .Initial = { .tag = AzStyleBorderBottomRightRadiusValueTag_Initial } }
-#define AzStyleBorderBottomRightRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomRightRadiusValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderBottomStyleValueTag {
    AzStyleBorderBottomStyleValueTag_Auto,
@@ -5293,11 +4892,6 @@ union AzStyleBorderBottomStyleValue {
     AzStyleBorderBottomStyleValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderBottomStyleValue AzStyleBorderBottomStyleValue;
-#define AzStyleBorderBottomStyleValue_Auto { .Auto = { .tag = AzStyleBorderBottomStyleValueTag_Auto } }
-#define AzStyleBorderBottomStyleValue_None { .None = { .tag = AzStyleBorderBottomStyleValueTag_None } }
-#define AzStyleBorderBottomStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomStyleValueTag_Inherit } }
-#define AzStyleBorderBottomStyleValue_Initial { .Initial = { .tag = AzStyleBorderBottomStyleValueTag_Initial } }
-#define AzStyleBorderBottomStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomStyleValueTag_Exact, .payload = v } }
 
 enum AzLayoutBorderBottomWidthValueTag {
    AzLayoutBorderBottomWidthValueTag_Auto,
@@ -5326,11 +4920,6 @@ union AzLayoutBorderBottomWidthValue {
     AzLayoutBorderBottomWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutBorderBottomWidthValue AzLayoutBorderBottomWidthValue;
-#define AzLayoutBorderBottomWidthValue_Auto { .Auto = { .tag = AzLayoutBorderBottomWidthValueTag_Auto } }
-#define AzLayoutBorderBottomWidthValue_None { .None = { .tag = AzLayoutBorderBottomWidthValueTag_None } }
-#define AzLayoutBorderBottomWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderBottomWidthValueTag_Inherit } }
-#define AzLayoutBorderBottomWidthValue_Initial { .Initial = { .tag = AzLayoutBorderBottomWidthValueTag_Initial } }
-#define AzLayoutBorderBottomWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderBottomWidthValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderLeftColorValueTag {
    AzStyleBorderLeftColorValueTag_Auto,
@@ -5359,11 +4948,6 @@ union AzStyleBorderLeftColorValue {
     AzStyleBorderLeftColorValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderLeftColorValue AzStyleBorderLeftColorValue;
-#define AzStyleBorderLeftColorValue_Auto { .Auto = { .tag = AzStyleBorderLeftColorValueTag_Auto } }
-#define AzStyleBorderLeftColorValue_None { .None = { .tag = AzStyleBorderLeftColorValueTag_None } }
-#define AzStyleBorderLeftColorValue_Inherit { .Inherit = { .tag = AzStyleBorderLeftColorValueTag_Inherit } }
-#define AzStyleBorderLeftColorValue_Initial { .Initial = { .tag = AzStyleBorderLeftColorValueTag_Initial } }
-#define AzStyleBorderLeftColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderLeftColorValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderLeftStyleValueTag {
    AzStyleBorderLeftStyleValueTag_Auto,
@@ -5392,11 +4976,6 @@ union AzStyleBorderLeftStyleValue {
     AzStyleBorderLeftStyleValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderLeftStyleValue AzStyleBorderLeftStyleValue;
-#define AzStyleBorderLeftStyleValue_Auto { .Auto = { .tag = AzStyleBorderLeftStyleValueTag_Auto } }
-#define AzStyleBorderLeftStyleValue_None { .None = { .tag = AzStyleBorderLeftStyleValueTag_None } }
-#define AzStyleBorderLeftStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderLeftStyleValueTag_Inherit } }
-#define AzStyleBorderLeftStyleValue_Initial { .Initial = { .tag = AzStyleBorderLeftStyleValueTag_Initial } }
-#define AzStyleBorderLeftStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderLeftStyleValueTag_Exact, .payload = v } }
 
 enum AzLayoutBorderLeftWidthValueTag {
    AzLayoutBorderLeftWidthValueTag_Auto,
@@ -5425,11 +5004,6 @@ union AzLayoutBorderLeftWidthValue {
     AzLayoutBorderLeftWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutBorderLeftWidthValue AzLayoutBorderLeftWidthValue;
-#define AzLayoutBorderLeftWidthValue_Auto { .Auto = { .tag = AzLayoutBorderLeftWidthValueTag_Auto } }
-#define AzLayoutBorderLeftWidthValue_None { .None = { .tag = AzLayoutBorderLeftWidthValueTag_None } }
-#define AzLayoutBorderLeftWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderLeftWidthValueTag_Inherit } }
-#define AzLayoutBorderLeftWidthValue_Initial { .Initial = { .tag = AzLayoutBorderLeftWidthValueTag_Initial } }
-#define AzLayoutBorderLeftWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderLeftWidthValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderRightColorValueTag {
    AzStyleBorderRightColorValueTag_Auto,
@@ -5458,11 +5032,6 @@ union AzStyleBorderRightColorValue {
     AzStyleBorderRightColorValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderRightColorValue AzStyleBorderRightColorValue;
-#define AzStyleBorderRightColorValue_Auto { .Auto = { .tag = AzStyleBorderRightColorValueTag_Auto } }
-#define AzStyleBorderRightColorValue_None { .None = { .tag = AzStyleBorderRightColorValueTag_None } }
-#define AzStyleBorderRightColorValue_Inherit { .Inherit = { .tag = AzStyleBorderRightColorValueTag_Inherit } }
-#define AzStyleBorderRightColorValue_Initial { .Initial = { .tag = AzStyleBorderRightColorValueTag_Initial } }
-#define AzStyleBorderRightColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderRightColorValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderRightStyleValueTag {
    AzStyleBorderRightStyleValueTag_Auto,
@@ -5491,11 +5060,6 @@ union AzStyleBorderRightStyleValue {
     AzStyleBorderRightStyleValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderRightStyleValue AzStyleBorderRightStyleValue;
-#define AzStyleBorderRightStyleValue_Auto { .Auto = { .tag = AzStyleBorderRightStyleValueTag_Auto } }
-#define AzStyleBorderRightStyleValue_None { .None = { .tag = AzStyleBorderRightStyleValueTag_None } }
-#define AzStyleBorderRightStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderRightStyleValueTag_Inherit } }
-#define AzStyleBorderRightStyleValue_Initial { .Initial = { .tag = AzStyleBorderRightStyleValueTag_Initial } }
-#define AzStyleBorderRightStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderRightStyleValueTag_Exact, .payload = v } }
 
 enum AzLayoutBorderRightWidthValueTag {
    AzLayoutBorderRightWidthValueTag_Auto,
@@ -5524,11 +5088,6 @@ union AzLayoutBorderRightWidthValue {
     AzLayoutBorderRightWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutBorderRightWidthValue AzLayoutBorderRightWidthValue;
-#define AzLayoutBorderRightWidthValue_Auto { .Auto = { .tag = AzLayoutBorderRightWidthValueTag_Auto } }
-#define AzLayoutBorderRightWidthValue_None { .None = { .tag = AzLayoutBorderRightWidthValueTag_None } }
-#define AzLayoutBorderRightWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderRightWidthValueTag_Inherit } }
-#define AzLayoutBorderRightWidthValue_Initial { .Initial = { .tag = AzLayoutBorderRightWidthValueTag_Initial } }
-#define AzLayoutBorderRightWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderRightWidthValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderTopColorValueTag {
    AzStyleBorderTopColorValueTag_Auto,
@@ -5557,11 +5116,6 @@ union AzStyleBorderTopColorValue {
     AzStyleBorderTopColorValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderTopColorValue AzStyleBorderTopColorValue;
-#define AzStyleBorderTopColorValue_Auto { .Auto = { .tag = AzStyleBorderTopColorValueTag_Auto } }
-#define AzStyleBorderTopColorValue_None { .None = { .tag = AzStyleBorderTopColorValueTag_None } }
-#define AzStyleBorderTopColorValue_Inherit { .Inherit = { .tag = AzStyleBorderTopColorValueTag_Inherit } }
-#define AzStyleBorderTopColorValue_Initial { .Initial = { .tag = AzStyleBorderTopColorValueTag_Initial } }
-#define AzStyleBorderTopColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopColorValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderTopLeftRadiusValueTag {
    AzStyleBorderTopLeftRadiusValueTag_Auto,
@@ -5590,11 +5144,6 @@ union AzStyleBorderTopLeftRadiusValue {
     AzStyleBorderTopLeftRadiusValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderTopLeftRadiusValue AzStyleBorderTopLeftRadiusValue;
-#define AzStyleBorderTopLeftRadiusValue_Auto { .Auto = { .tag = AzStyleBorderTopLeftRadiusValueTag_Auto } }
-#define AzStyleBorderTopLeftRadiusValue_None { .None = { .tag = AzStyleBorderTopLeftRadiusValueTag_None } }
-#define AzStyleBorderTopLeftRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderTopLeftRadiusValueTag_Inherit } }
-#define AzStyleBorderTopLeftRadiusValue_Initial { .Initial = { .tag = AzStyleBorderTopLeftRadiusValueTag_Initial } }
-#define AzStyleBorderTopLeftRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopLeftRadiusValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderTopRightRadiusValueTag {
    AzStyleBorderTopRightRadiusValueTag_Auto,
@@ -5623,11 +5172,6 @@ union AzStyleBorderTopRightRadiusValue {
     AzStyleBorderTopRightRadiusValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderTopRightRadiusValue AzStyleBorderTopRightRadiusValue;
-#define AzStyleBorderTopRightRadiusValue_Auto { .Auto = { .tag = AzStyleBorderTopRightRadiusValueTag_Auto } }
-#define AzStyleBorderTopRightRadiusValue_None { .None = { .tag = AzStyleBorderTopRightRadiusValueTag_None } }
-#define AzStyleBorderTopRightRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderTopRightRadiusValueTag_Inherit } }
-#define AzStyleBorderTopRightRadiusValue_Initial { .Initial = { .tag = AzStyleBorderTopRightRadiusValueTag_Initial } }
-#define AzStyleBorderTopRightRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopRightRadiusValueTag_Exact, .payload = v } }
 
 enum AzStyleBorderTopStyleValueTag {
    AzStyleBorderTopStyleValueTag_Auto,
@@ -5656,11 +5200,6 @@ union AzStyleBorderTopStyleValue {
     AzStyleBorderTopStyleValueVariant_Exact Exact;
 };
 typedef union AzStyleBorderTopStyleValue AzStyleBorderTopStyleValue;
-#define AzStyleBorderTopStyleValue_Auto { .Auto = { .tag = AzStyleBorderTopStyleValueTag_Auto } }
-#define AzStyleBorderTopStyleValue_None { .None = { .tag = AzStyleBorderTopStyleValueTag_None } }
-#define AzStyleBorderTopStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderTopStyleValueTag_Inherit } }
-#define AzStyleBorderTopStyleValue_Initial { .Initial = { .tag = AzStyleBorderTopStyleValueTag_Initial } }
-#define AzStyleBorderTopStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopStyleValueTag_Exact, .payload = v } }
 
 enum AzLayoutBorderTopWidthValueTag {
    AzLayoutBorderTopWidthValueTag_Auto,
@@ -5689,11 +5228,6 @@ union AzLayoutBorderTopWidthValue {
     AzLayoutBorderTopWidthValueVariant_Exact Exact;
 };
 typedef union AzLayoutBorderTopWidthValue AzLayoutBorderTopWidthValue;
-#define AzLayoutBorderTopWidthValue_Auto { .Auto = { .tag = AzLayoutBorderTopWidthValueTag_Auto } }
-#define AzLayoutBorderTopWidthValue_None { .None = { .tag = AzLayoutBorderTopWidthValueTag_None } }
-#define AzLayoutBorderTopWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderTopWidthValueTag_Inherit } }
-#define AzLayoutBorderTopWidthValue_Initial { .Initial = { .tag = AzLayoutBorderTopWidthValueTag_Initial } }
-#define AzLayoutBorderTopWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderTopWidthValueTag_Exact, .payload = v } }
 
 enum AzStyleCursorValueTag {
    AzStyleCursorValueTag_Auto,
@@ -5722,11 +5256,6 @@ union AzStyleCursorValue {
     AzStyleCursorValueVariant_Exact Exact;
 };
 typedef union AzStyleCursorValue AzStyleCursorValue;
-#define AzStyleCursorValue_Auto { .Auto = { .tag = AzStyleCursorValueTag_Auto } }
-#define AzStyleCursorValue_None { .None = { .tag = AzStyleCursorValueTag_None } }
-#define AzStyleCursorValue_Inherit { .Inherit = { .tag = AzStyleCursorValueTag_Inherit } }
-#define AzStyleCursorValue_Initial { .Initial = { .tag = AzStyleCursorValueTag_Initial } }
-#define AzStyleCursorValue_Exact(v) { .Exact = { .tag = AzStyleCursorValueTag_Exact, .payload = v } }
 
 enum AzStyleFontSizeValueTag {
    AzStyleFontSizeValueTag_Auto,
@@ -5755,11 +5284,6 @@ union AzStyleFontSizeValue {
     AzStyleFontSizeValueVariant_Exact Exact;
 };
 typedef union AzStyleFontSizeValue AzStyleFontSizeValue;
-#define AzStyleFontSizeValue_Auto { .Auto = { .tag = AzStyleFontSizeValueTag_Auto } }
-#define AzStyleFontSizeValue_None { .None = { .tag = AzStyleFontSizeValueTag_None } }
-#define AzStyleFontSizeValue_Inherit { .Inherit = { .tag = AzStyleFontSizeValueTag_Inherit } }
-#define AzStyleFontSizeValue_Initial { .Initial = { .tag = AzStyleFontSizeValueTag_Initial } }
-#define AzStyleFontSizeValue_Exact(v) { .Exact = { .tag = AzStyleFontSizeValueTag_Exact, .payload = v } }
 
 enum AzStyleLetterSpacingValueTag {
    AzStyleLetterSpacingValueTag_Auto,
@@ -5788,11 +5312,6 @@ union AzStyleLetterSpacingValue {
     AzStyleLetterSpacingValueVariant_Exact Exact;
 };
 typedef union AzStyleLetterSpacingValue AzStyleLetterSpacingValue;
-#define AzStyleLetterSpacingValue_Auto { .Auto = { .tag = AzStyleLetterSpacingValueTag_Auto } }
-#define AzStyleLetterSpacingValue_None { .None = { .tag = AzStyleLetterSpacingValueTag_None } }
-#define AzStyleLetterSpacingValue_Inherit { .Inherit = { .tag = AzStyleLetterSpacingValueTag_Inherit } }
-#define AzStyleLetterSpacingValue_Initial { .Initial = { .tag = AzStyleLetterSpacingValueTag_Initial } }
-#define AzStyleLetterSpacingValue_Exact(v) { .Exact = { .tag = AzStyleLetterSpacingValueTag_Exact, .payload = v } }
 
 enum AzStyleLineHeightValueTag {
    AzStyleLineHeightValueTag_Auto,
@@ -5821,11 +5340,6 @@ union AzStyleLineHeightValue {
     AzStyleLineHeightValueVariant_Exact Exact;
 };
 typedef union AzStyleLineHeightValue AzStyleLineHeightValue;
-#define AzStyleLineHeightValue_Auto { .Auto = { .tag = AzStyleLineHeightValueTag_Auto } }
-#define AzStyleLineHeightValue_None { .None = { .tag = AzStyleLineHeightValueTag_None } }
-#define AzStyleLineHeightValue_Inherit { .Inherit = { .tag = AzStyleLineHeightValueTag_Inherit } }
-#define AzStyleLineHeightValue_Initial { .Initial = { .tag = AzStyleLineHeightValueTag_Initial } }
-#define AzStyleLineHeightValue_Exact(v) { .Exact = { .tag = AzStyleLineHeightValueTag_Exact, .payload = v } }
 
 enum AzStyleTabWidthValueTag {
    AzStyleTabWidthValueTag_Auto,
@@ -5854,11 +5368,6 @@ union AzStyleTabWidthValue {
     AzStyleTabWidthValueVariant_Exact Exact;
 };
 typedef union AzStyleTabWidthValue AzStyleTabWidthValue;
-#define AzStyleTabWidthValue_Auto { .Auto = { .tag = AzStyleTabWidthValueTag_Auto } }
-#define AzStyleTabWidthValue_None { .None = { .tag = AzStyleTabWidthValueTag_None } }
-#define AzStyleTabWidthValue_Inherit { .Inherit = { .tag = AzStyleTabWidthValueTag_Inherit } }
-#define AzStyleTabWidthValue_Initial { .Initial = { .tag = AzStyleTabWidthValueTag_Initial } }
-#define AzStyleTabWidthValue_Exact(v) { .Exact = { .tag = AzStyleTabWidthValueTag_Exact, .payload = v } }
 
 enum AzStyleTextAlignValueTag {
    AzStyleTextAlignValueTag_Auto,
@@ -5887,11 +5396,6 @@ union AzStyleTextAlignValue {
     AzStyleTextAlignValueVariant_Exact Exact;
 };
 typedef union AzStyleTextAlignValue AzStyleTextAlignValue;
-#define AzStyleTextAlignValue_Auto { .Auto = { .tag = AzStyleTextAlignValueTag_Auto } }
-#define AzStyleTextAlignValue_None { .None = { .tag = AzStyleTextAlignValueTag_None } }
-#define AzStyleTextAlignValue_Inherit { .Inherit = { .tag = AzStyleTextAlignValueTag_Inherit } }
-#define AzStyleTextAlignValue_Initial { .Initial = { .tag = AzStyleTextAlignValueTag_Initial } }
-#define AzStyleTextAlignValue_Exact(v) { .Exact = { .tag = AzStyleTextAlignValueTag_Exact, .payload = v } }
 
 enum AzStyleTextColorValueTag {
    AzStyleTextColorValueTag_Auto,
@@ -5920,11 +5424,6 @@ union AzStyleTextColorValue {
     AzStyleTextColorValueVariant_Exact Exact;
 };
 typedef union AzStyleTextColorValue AzStyleTextColorValue;
-#define AzStyleTextColorValue_Auto { .Auto = { .tag = AzStyleTextColorValueTag_Auto } }
-#define AzStyleTextColorValue_None { .None = { .tag = AzStyleTextColorValueTag_None } }
-#define AzStyleTextColorValue_Inherit { .Inherit = { .tag = AzStyleTextColorValueTag_Inherit } }
-#define AzStyleTextColorValue_Initial { .Initial = { .tag = AzStyleTextColorValueTag_Initial } }
-#define AzStyleTextColorValue_Exact(v) { .Exact = { .tag = AzStyleTextColorValueTag_Exact, .payload = v } }
 
 enum AzStyleWordSpacingValueTag {
    AzStyleWordSpacingValueTag_Auto,
@@ -5953,11 +5452,6 @@ union AzStyleWordSpacingValue {
     AzStyleWordSpacingValueVariant_Exact Exact;
 };
 typedef union AzStyleWordSpacingValue AzStyleWordSpacingValue;
-#define AzStyleWordSpacingValue_Auto { .Auto = { .tag = AzStyleWordSpacingValueTag_Auto } }
-#define AzStyleWordSpacingValue_None { .None = { .tag = AzStyleWordSpacingValueTag_None } }
-#define AzStyleWordSpacingValue_Inherit { .Inherit = { .tag = AzStyleWordSpacingValueTag_Inherit } }
-#define AzStyleWordSpacingValue_Initial { .Initial = { .tag = AzStyleWordSpacingValueTag_Initial } }
-#define AzStyleWordSpacingValue_Exact(v) { .Exact = { .tag = AzStyleWordSpacingValueTag_Exact, .payload = v } }
 
 enum AzStyleOpacityValueTag {
    AzStyleOpacityValueTag_Auto,
@@ -5986,11 +5480,6 @@ union AzStyleOpacityValue {
     AzStyleOpacityValueVariant_Exact Exact;
 };
 typedef union AzStyleOpacityValue AzStyleOpacityValue;
-#define AzStyleOpacityValue_Auto { .Auto = { .tag = AzStyleOpacityValueTag_Auto } }
-#define AzStyleOpacityValue_None { .None = { .tag = AzStyleOpacityValueTag_None } }
-#define AzStyleOpacityValue_Inherit { .Inherit = { .tag = AzStyleOpacityValueTag_Inherit } }
-#define AzStyleOpacityValue_Initial { .Initial = { .tag = AzStyleOpacityValueTag_Initial } }
-#define AzStyleOpacityValue_Exact(v) { .Exact = { .tag = AzStyleOpacityValueTag_Exact, .payload = v } }
 
 enum AzStyleTransformOriginValueTag {
    AzStyleTransformOriginValueTag_Auto,
@@ -6019,11 +5508,6 @@ union AzStyleTransformOriginValue {
     AzStyleTransformOriginValueVariant_Exact Exact;
 };
 typedef union AzStyleTransformOriginValue AzStyleTransformOriginValue;
-#define AzStyleTransformOriginValue_Auto { .Auto = { .tag = AzStyleTransformOriginValueTag_Auto } }
-#define AzStyleTransformOriginValue_None { .None = { .tag = AzStyleTransformOriginValueTag_None } }
-#define AzStyleTransformOriginValue_Inherit { .Inherit = { .tag = AzStyleTransformOriginValueTag_Inherit } }
-#define AzStyleTransformOriginValue_Initial { .Initial = { .tag = AzStyleTransformOriginValueTag_Initial } }
-#define AzStyleTransformOriginValue_Exact(v) { .Exact = { .tag = AzStyleTransformOriginValueTag_Exact, .payload = v } }
 
 enum AzStylePerspectiveOriginValueTag {
    AzStylePerspectiveOriginValueTag_Auto,
@@ -6052,11 +5536,6 @@ union AzStylePerspectiveOriginValue {
     AzStylePerspectiveOriginValueVariant_Exact Exact;
 };
 typedef union AzStylePerspectiveOriginValue AzStylePerspectiveOriginValue;
-#define AzStylePerspectiveOriginValue_Auto { .Auto = { .tag = AzStylePerspectiveOriginValueTag_Auto } }
-#define AzStylePerspectiveOriginValue_None { .None = { .tag = AzStylePerspectiveOriginValueTag_None } }
-#define AzStylePerspectiveOriginValue_Inherit { .Inherit = { .tag = AzStylePerspectiveOriginValueTag_Inherit } }
-#define AzStylePerspectiveOriginValue_Initial { .Initial = { .tag = AzStylePerspectiveOriginValueTag_Initial } }
-#define AzStylePerspectiveOriginValue_Exact(v) { .Exact = { .tag = AzStylePerspectiveOriginValueTag_Exact, .payload = v } }
 
 enum AzStyleBackfaceVisibilityValueTag {
    AzStyleBackfaceVisibilityValueTag_Auto,
@@ -6085,11 +5564,6 @@ union AzStyleBackfaceVisibilityValue {
     AzStyleBackfaceVisibilityValueVariant_Exact Exact;
 };
 typedef union AzStyleBackfaceVisibilityValue AzStyleBackfaceVisibilityValue;
-#define AzStyleBackfaceVisibilityValue_Auto { .Auto = { .tag = AzStyleBackfaceVisibilityValueTag_Auto } }
-#define AzStyleBackfaceVisibilityValue_None { .None = { .tag = AzStyleBackfaceVisibilityValueTag_None } }
-#define AzStyleBackfaceVisibilityValue_Inherit { .Inherit = { .tag = AzStyleBackfaceVisibilityValueTag_Inherit } }
-#define AzStyleBackfaceVisibilityValue_Initial { .Initial = { .tag = AzStyleBackfaceVisibilityValueTag_Initial } }
-#define AzStyleBackfaceVisibilityValue_Exact(v) { .Exact = { .tag = AzStyleBackfaceVisibilityValueTag_Exact, .payload = v } }
 
 struct AzButtonOnClick {
     AzRefAny data;
@@ -6129,8 +5603,6 @@ union AzTextInputSelection {
     AzTextInputSelectionVariant_FromTo FromTo;
 };
 typedef union AzTextInputSelection AzTextInputSelection;
-#define AzTextInputSelection_All { .All = { .tag = AzTextInputSelectionTag_All } }
-#define AzTextInputSelection_FromTo(v) { .FromTo = { .tag = AzTextInputSelectionTag_FromTo, .payload = v } }
 
 struct AzTextInputOnTextInput {
     AzRefAny data;
@@ -6307,8 +5779,6 @@ union AzDuration {
     AzDurationVariant_Tick Tick;
 };
 typedef union AzDuration AzDuration;
-#define AzDuration_System(v) { .System = { .tag = AzDurationTag_System, .payload = v } }
-#define AzDuration_Tick(v) { .Tick = { .tag = AzDurationTag_Tick, .payload = v } }
 
 enum AzThreadSendMsgTag {
    AzThreadSendMsgTag_TerminateThread,
@@ -6329,9 +5799,6 @@ union AzThreadSendMsg {
     AzThreadSendMsgVariant_Custom Custom;
 };
 typedef union AzThreadSendMsg AzThreadSendMsg;
-#define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
-#define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
-#define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
 
 struct AzThreadWriteBackMsg {
     AzRefAny data;
@@ -6568,8 +6035,6 @@ union AzOptionColorInputOnValueChange {
     AzOptionColorInputOnValueChangeVariant_Some Some;
 };
 typedef union AzOptionColorInputOnValueChange AzOptionColorInputOnValueChange;
-#define AzOptionColorInputOnValueChange_None { .None = { .tag = AzOptionColorInputOnValueChangeTag_None } }
-#define AzOptionColorInputOnValueChange_Some(v) { .Some = { .tag = AzOptionColorInputOnValueChangeTag_Some, .payload = v } }
 
 enum AzOptionButtonOnClickTag {
    AzOptionButtonOnClickTag_None,
@@ -6586,8 +6051,6 @@ union AzOptionButtonOnClick {
     AzOptionButtonOnClickVariant_Some Some;
 };
 typedef union AzOptionButtonOnClick AzOptionButtonOnClick;
-#define AzOptionButtonOnClick_None { .None = { .tag = AzOptionButtonOnClickTag_None } }
-#define AzOptionButtonOnClick_Some(v) { .Some = { .tag = AzOptionButtonOnClickTag_Some, .payload = v } }
 
 enum AzOptionCheckBoxOnToggleTag {
    AzOptionCheckBoxOnToggleTag_None,
@@ -6604,8 +6067,6 @@ union AzOptionCheckBoxOnToggle {
     AzOptionCheckBoxOnToggleVariant_Some Some;
 };
 typedef union AzOptionCheckBoxOnToggle AzOptionCheckBoxOnToggle;
-#define AzOptionCheckBoxOnToggle_None { .None = { .tag = AzOptionCheckBoxOnToggleTag_None } }
-#define AzOptionCheckBoxOnToggle_Some(v) { .Some = { .tag = AzOptionCheckBoxOnToggleTag_Some, .payload = v } }
 
 enum AzOptionTextInputOnTextInputTag {
    AzOptionTextInputOnTextInputTag_None,
@@ -6622,8 +6083,6 @@ union AzOptionTextInputOnTextInput {
     AzOptionTextInputOnTextInputVariant_Some Some;
 };
 typedef union AzOptionTextInputOnTextInput AzOptionTextInputOnTextInput;
-#define AzOptionTextInputOnTextInput_None { .None = { .tag = AzOptionTextInputOnTextInputTag_None } }
-#define AzOptionTextInputOnTextInput_Some(v) { .Some = { .tag = AzOptionTextInputOnTextInputTag_Some, .payload = v } }
 
 enum AzOptionTextInputOnVirtualKeyDownTag {
    AzOptionTextInputOnVirtualKeyDownTag_None,
@@ -6640,8 +6099,6 @@ union AzOptionTextInputOnVirtualKeyDown {
     AzOptionTextInputOnVirtualKeyDownVariant_Some Some;
 };
 typedef union AzOptionTextInputOnVirtualKeyDown AzOptionTextInputOnVirtualKeyDown;
-#define AzOptionTextInputOnVirtualKeyDown_None { .None = { .tag = AzOptionTextInputOnVirtualKeyDownTag_None } }
-#define AzOptionTextInputOnVirtualKeyDown_Some(v) { .Some = { .tag = AzOptionTextInputOnVirtualKeyDownTag_Some, .payload = v } }
 
 enum AzOptionTextInputOnFocusLostTag {
    AzOptionTextInputOnFocusLostTag_None,
@@ -6658,8 +6115,6 @@ union AzOptionTextInputOnFocusLost {
     AzOptionTextInputOnFocusLostVariant_Some Some;
 };
 typedef union AzOptionTextInputOnFocusLost AzOptionTextInputOnFocusLost;
-#define AzOptionTextInputOnFocusLost_None { .None = { .tag = AzOptionTextInputOnFocusLostTag_None } }
-#define AzOptionTextInputOnFocusLost_Some(v) { .Some = { .tag = AzOptionTextInputOnFocusLostTag_Some, .payload = v } }
 
 enum AzOptionTextInputSelectionTag {
    AzOptionTextInputSelectionTag_None,
@@ -6676,8 +6131,6 @@ union AzOptionTextInputSelection {
     AzOptionTextInputSelectionVariant_Some Some;
 };
 typedef union AzOptionTextInputSelection AzOptionTextInputSelection;
-#define AzOptionTextInputSelection_None { .None = { .tag = AzOptionTextInputSelectionTag_None } }
-#define AzOptionTextInputSelection_Some(v) { .Some = { .tag = AzOptionTextInputSelectionTag_Some, .payload = v } }
 
 enum AzOptionNumberInputOnValueChangeTag {
    AzOptionNumberInputOnValueChangeTag_None,
@@ -6694,8 +6147,6 @@ union AzOptionNumberInputOnValueChange {
     AzOptionNumberInputOnValueChangeVariant_Some Some;
 };
 typedef union AzOptionNumberInputOnValueChange AzOptionNumberInputOnValueChange;
-#define AzOptionNumberInputOnValueChange_None { .None = { .tag = AzOptionNumberInputOnValueChangeTag_None } }
-#define AzOptionNumberInputOnValueChange_Some(v) { .Some = { .tag = AzOptionNumberInputOnValueChangeTag_Some, .payload = v } }
 
 enum AzOptionMenuItemIconTag {
    AzOptionMenuItemIconTag_None,
@@ -6712,8 +6163,6 @@ union AzOptionMenuItemIcon {
     AzOptionMenuItemIconVariant_Some Some;
 };
 typedef union AzOptionMenuItemIcon AzOptionMenuItemIcon;
-#define AzOptionMenuItemIcon_None { .None = { .tag = AzOptionMenuItemIconTag_None } }
-#define AzOptionMenuItemIcon_Some(v) { .Some = { .tag = AzOptionMenuItemIconTag_Some, .payload = v } }
 
 enum AzOptionMenuCallbackTag {
    AzOptionMenuCallbackTag_None,
@@ -6730,8 +6179,6 @@ union AzOptionMenuCallback {
     AzOptionMenuCallbackVariant_Some Some;
 };
 typedef union AzOptionMenuCallback AzOptionMenuCallback;
-#define AzOptionMenuCallback_None { .None = { .tag = AzOptionMenuCallbackTag_None } }
-#define AzOptionMenuCallback_Some(v) { .Some = { .tag = AzOptionMenuCallbackTag_Some, .payload = v } }
 
 enum AzOptionPositionInfoTag {
    AzOptionPositionInfoTag_None,
@@ -6748,8 +6195,6 @@ union AzOptionPositionInfo {
     AzOptionPositionInfoVariant_Some Some;
 };
 typedef union AzOptionPositionInfo AzOptionPositionInfo;
-#define AzOptionPositionInfo_None { .None = { .tag = AzOptionPositionInfoTag_None } }
-#define AzOptionPositionInfo_Some(v) { .Some = { .tag = AzOptionPositionInfoTag_Some, .payload = v } }
 
 enum AzOptionTimerIdTag {
    AzOptionTimerIdTag_None,
@@ -6766,8 +6211,6 @@ union AzOptionTimerId {
     AzOptionTimerIdVariant_Some Some;
 };
 typedef union AzOptionTimerId AzOptionTimerId;
-#define AzOptionTimerId_None { .None = { .tag = AzOptionTimerIdTag_None } }
-#define AzOptionTimerId_Some(v) { .Some = { .tag = AzOptionTimerIdTag_Some, .payload = v } }
 
 enum AzOptionThreadIdTag {
    AzOptionThreadIdTag_None,
@@ -6784,8 +6227,6 @@ union AzOptionThreadId {
     AzOptionThreadIdVariant_Some Some;
 };
 typedef union AzOptionThreadId AzOptionThreadId;
-#define AzOptionThreadId_None { .None = { .tag = AzOptionThreadIdTag_None } }
-#define AzOptionThreadId_Some(v) { .Some = { .tag = AzOptionThreadIdTag_Some, .payload = v } }
 
 enum AzOptionImageRefTag {
    AzOptionImageRefTag_None,
@@ -6802,8 +6243,6 @@ union AzOptionImageRef {
     AzOptionImageRefVariant_Some Some;
 };
 typedef union AzOptionImageRef AzOptionImageRef;
-#define AzOptionImageRef_None { .None = { .tag = AzOptionImageRefTag_None } }
-#define AzOptionImageRef_Some(v) { .Some = { .tag = AzOptionImageRefTag_Some, .payload = v } }
 
 enum AzOptionFontRefTag {
    AzOptionFontRefTag_None,
@@ -6820,8 +6259,6 @@ union AzOptionFontRef {
     AzOptionFontRefVariant_Some Some;
 };
 typedef union AzOptionFontRef AzOptionFontRef;
-#define AzOptionFontRef_None { .None = { .tag = AzOptionFontRefTag_None } }
-#define AzOptionFontRef_Some(v) { .Some = { .tag = AzOptionFontRefTag_Some, .payload = v } }
 
 enum AzOptionSystemClipboardTag {
    AzOptionSystemClipboardTag_None,
@@ -6838,8 +6275,6 @@ union AzOptionSystemClipboard {
     AzOptionSystemClipboardVariant_Some Some;
 };
 typedef union AzOptionSystemClipboard AzOptionSystemClipboard;
-#define AzOptionSystemClipboard_None { .None = { .tag = AzOptionSystemClipboardTag_None } }
-#define AzOptionSystemClipboard_Some(v) { .Some = { .tag = AzOptionSystemClipboardTag_Some, .payload = v } }
 
 enum AzOptionGlTag {
    AzOptionGlTag_None,
@@ -6856,8 +6291,6 @@ union AzOptionGl {
     AzOptionGlVariant_Some Some;
 };
 typedef union AzOptionGl AzOptionGl;
-#define AzOptionGl_None { .None = { .tag = AzOptionGlTag_None } }
-#define AzOptionGl_Some(v) { .Some = { .tag = AzOptionGlTag_Some, .payload = v } }
 
 enum AzOptionPercentageValueTag {
    AzOptionPercentageValueTag_None,
@@ -6874,8 +6307,6 @@ union AzOptionPercentageValue {
     AzOptionPercentageValueVariant_Some Some;
 };
 typedef union AzOptionPercentageValue AzOptionPercentageValue;
-#define AzOptionPercentageValue_None { .None = { .tag = AzOptionPercentageValueTag_None } }
-#define AzOptionPercentageValue_Some(v) { .Some = { .tag = AzOptionPercentageValueTag_Some, .payload = v } }
 
 enum AzOptionAngleValueTag {
    AzOptionAngleValueTag_None,
@@ -6892,8 +6323,6 @@ union AzOptionAngleValue {
     AzOptionAngleValueVariant_Some Some;
 };
 typedef union AzOptionAngleValue AzOptionAngleValue;
-#define AzOptionAngleValue_None { .None = { .tag = AzOptionAngleValueTag_None } }
-#define AzOptionAngleValue_Some(v) { .Some = { .tag = AzOptionAngleValueTag_Some, .payload = v } }
 
 enum AzOptionRendererOptionsTag {
    AzOptionRendererOptionsTag_None,
@@ -6910,8 +6339,6 @@ union AzOptionRendererOptions {
     AzOptionRendererOptionsVariant_Some Some;
 };
 typedef union AzOptionRendererOptions AzOptionRendererOptions;
-#define AzOptionRendererOptions_None { .None = { .tag = AzOptionRendererOptionsTag_None } }
-#define AzOptionRendererOptions_Some(v) { .Some = { .tag = AzOptionRendererOptionsTag_Some, .payload = v } }
 
 enum AzOptionCallbackTag {
    AzOptionCallbackTag_None,
@@ -6928,8 +6355,6 @@ union AzOptionCallback {
     AzOptionCallbackVariant_Some Some;
 };
 typedef union AzOptionCallback AzOptionCallback;
-#define AzOptionCallback_None { .None = { .tag = AzOptionCallbackTag_None } }
-#define AzOptionCallback_Some(v) { .Some = { .tag = AzOptionCallbackTag_Some, .payload = v } }
 
 enum AzOptionThreadSendMsgTag {
    AzOptionThreadSendMsgTag_None,
@@ -6946,8 +6371,6 @@ union AzOptionThreadSendMsg {
     AzOptionThreadSendMsgVariant_Some Some;
 };
 typedef union AzOptionThreadSendMsg AzOptionThreadSendMsg;
-#define AzOptionThreadSendMsg_None { .None = { .tag = AzOptionThreadSendMsgTag_None } }
-#define AzOptionThreadSendMsg_Some(v) { .Some = { .tag = AzOptionThreadSendMsgTag_Some, .payload = v } }
 
 enum AzOptionLayoutRectTag {
    AzOptionLayoutRectTag_None,
@@ -6964,8 +6387,6 @@ union AzOptionLayoutRect {
     AzOptionLayoutRectVariant_Some Some;
 };
 typedef union AzOptionLayoutRect AzOptionLayoutRect;
-#define AzOptionLayoutRect_None { .None = { .tag = AzOptionLayoutRectTag_None } }
-#define AzOptionLayoutRect_Some(v) { .Some = { .tag = AzOptionLayoutRectTag_Some, .payload = v } }
 
 enum AzOptionRefAnyTag {
    AzOptionRefAnyTag_None,
@@ -6982,8 +6403,6 @@ union AzOptionRefAny {
     AzOptionRefAnyVariant_Some Some;
 };
 typedef union AzOptionRefAny AzOptionRefAny;
-#define AzOptionRefAny_None { .None = { .tag = AzOptionRefAnyTag_None } }
-#define AzOptionRefAny_Some(v) { .Some = { .tag = AzOptionRefAnyTag_Some, .payload = v } }
 
 enum AzOptionLayoutPointTag {
    AzOptionLayoutPointTag_None,
@@ -7000,8 +6419,6 @@ union AzOptionLayoutPoint {
     AzOptionLayoutPointVariant_Some Some;
 };
 typedef union AzOptionLayoutPoint AzOptionLayoutPoint;
-#define AzOptionLayoutPoint_None { .None = { .tag = AzOptionLayoutPointTag_None } }
-#define AzOptionLayoutPoint_Some(v) { .Some = { .tag = AzOptionLayoutPointTag_Some, .payload = v } }
 
 enum AzOptionLayoutSizeTag {
    AzOptionLayoutSizeTag_None,
@@ -7018,8 +6435,6 @@ union AzOptionLayoutSize {
     AzOptionLayoutSizeVariant_Some Some;
 };
 typedef union AzOptionLayoutSize AzOptionLayoutSize;
-#define AzOptionLayoutSize_None { .None = { .tag = AzOptionLayoutSizeTag_None } }
-#define AzOptionLayoutSize_Some(v) { .Some = { .tag = AzOptionLayoutSizeTag_Some, .payload = v } }
 
 enum AzOptionWindowThemeTag {
    AzOptionWindowThemeTag_None,
@@ -7036,8 +6451,6 @@ union AzOptionWindowTheme {
     AzOptionWindowThemeVariant_Some Some;
 };
 typedef union AzOptionWindowTheme AzOptionWindowTheme;
-#define AzOptionWindowTheme_None { .None = { .tag = AzOptionWindowThemeTag_None } }
-#define AzOptionWindowTheme_Some(v) { .Some = { .tag = AzOptionWindowThemeTag_Some, .payload = v } }
 
 enum AzOptionNodeIdTag {
    AzOptionNodeIdTag_None,
@@ -7054,8 +6467,6 @@ union AzOptionNodeId {
     AzOptionNodeIdVariant_Some Some;
 };
 typedef union AzOptionNodeId AzOptionNodeId;
-#define AzOptionNodeId_None { .None = { .tag = AzOptionNodeIdTag_None } }
-#define AzOptionNodeId_Some(v) { .Some = { .tag = AzOptionNodeIdTag_Some, .payload = v } }
 
 enum AzOptionDomNodeIdTag {
    AzOptionDomNodeIdTag_None,
@@ -7072,8 +6483,6 @@ union AzOptionDomNodeId {
     AzOptionDomNodeIdVariant_Some Some;
 };
 typedef union AzOptionDomNodeId AzOptionDomNodeId;
-#define AzOptionDomNodeId_None { .None = { .tag = AzOptionDomNodeIdTag_None } }
-#define AzOptionDomNodeId_Some(v) { .Some = { .tag = AzOptionDomNodeIdTag_Some, .payload = v } }
 
 enum AzOptionColorUTag {
    AzOptionColorUTag_None,
@@ -7090,8 +6499,6 @@ union AzOptionColorU {
     AzOptionColorUVariant_Some Some;
 };
 typedef union AzOptionColorU AzOptionColorU;
-#define AzOptionColorU_None { .None = { .tag = AzOptionColorUTag_None } }
-#define AzOptionColorU_Some(v) { .Some = { .tag = AzOptionColorUTag_Some, .payload = v } }
 
 enum AzOptionSvgDashPatternTag {
    AzOptionSvgDashPatternTag_None,
@@ -7108,8 +6515,6 @@ union AzOptionSvgDashPattern {
     AzOptionSvgDashPatternVariant_Some Some;
 };
 typedef union AzOptionSvgDashPattern AzOptionSvgDashPattern;
-#define AzOptionSvgDashPattern_None { .None = { .tag = AzOptionSvgDashPatternTag_None } }
-#define AzOptionSvgDashPattern_Some(v) { .Some = { .tag = AzOptionSvgDashPatternTag_Some, .payload = v } }
 
 enum AzOptionLogicalPositionTag {
    AzOptionLogicalPositionTag_None,
@@ -7126,8 +6531,6 @@ union AzOptionLogicalPosition {
     AzOptionLogicalPositionVariant_Some Some;
 };
 typedef union AzOptionLogicalPosition AzOptionLogicalPosition;
-#define AzOptionLogicalPosition_None { .None = { .tag = AzOptionLogicalPositionTag_None } }
-#define AzOptionLogicalPosition_Some(v) { .Some = { .tag = AzOptionLogicalPositionTag_Some, .payload = v } }
 
 enum AzOptionPhysicalPositionI32Tag {
    AzOptionPhysicalPositionI32Tag_None,
@@ -7144,8 +6547,6 @@ union AzOptionPhysicalPositionI32 {
     AzOptionPhysicalPositionI32Variant_Some Some;
 };
 typedef union AzOptionPhysicalPositionI32 AzOptionPhysicalPositionI32;
-#define AzOptionPhysicalPositionI32_None { .None = { .tag = AzOptionPhysicalPositionI32Tag_None } }
-#define AzOptionPhysicalPositionI32_Some(v) { .Some = { .tag = AzOptionPhysicalPositionI32Tag_Some, .payload = v } }
 
 enum AzOptionMouseCursorTypeTag {
    AzOptionMouseCursorTypeTag_None,
@@ -7162,8 +6563,6 @@ union AzOptionMouseCursorType {
     AzOptionMouseCursorTypeVariant_Some Some;
 };
 typedef union AzOptionMouseCursorType AzOptionMouseCursorType;
-#define AzOptionMouseCursorType_None { .None = { .tag = AzOptionMouseCursorTypeTag_None } }
-#define AzOptionMouseCursorType_Some(v) { .Some = { .tag = AzOptionMouseCursorTypeTag_Some, .payload = v } }
 
 enum AzOptionLogicalSizeTag {
    AzOptionLogicalSizeTag_None,
@@ -7180,8 +6579,6 @@ union AzOptionLogicalSize {
     AzOptionLogicalSizeVariant_Some Some;
 };
 typedef union AzOptionLogicalSize AzOptionLogicalSize;
-#define AzOptionLogicalSize_None { .None = { .tag = AzOptionLogicalSizeTag_None } }
-#define AzOptionLogicalSize_Some(v) { .Some = { .tag = AzOptionLogicalSizeTag_Some, .payload = v } }
 
 enum AzOptionVirtualKeyCodeTag {
    AzOptionVirtualKeyCodeTag_None,
@@ -7198,8 +6595,6 @@ union AzOptionVirtualKeyCode {
     AzOptionVirtualKeyCodeVariant_Some Some;
 };
 typedef union AzOptionVirtualKeyCode AzOptionVirtualKeyCode;
-#define AzOptionVirtualKeyCode_None { .None = { .tag = AzOptionVirtualKeyCodeTag_None } }
-#define AzOptionVirtualKeyCode_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeTag_Some, .payload = v } }
 
 enum AzOptionImageMaskTag {
    AzOptionImageMaskTag_None,
@@ -7216,8 +6611,6 @@ union AzOptionImageMask {
     AzOptionImageMaskVariant_Some Some;
 };
 typedef union AzOptionImageMask AzOptionImageMask;
-#define AzOptionImageMask_None { .None = { .tag = AzOptionImageMaskTag_None } }
-#define AzOptionImageMask_Some(v) { .Some = { .tag = AzOptionImageMaskTag_Some, .payload = v } }
 
 enum AzOptionTabIndexTag {
    AzOptionTabIndexTag_None,
@@ -7234,8 +6627,6 @@ union AzOptionTabIndex {
     AzOptionTabIndexVariant_Some Some;
 };
 typedef union AzOptionTabIndex AzOptionTabIndex;
-#define AzOptionTabIndex_None { .None = { .tag = AzOptionTabIndexTag_None } }
-#define AzOptionTabIndex_Some(v) { .Some = { .tag = AzOptionTabIndexTag_Some, .payload = v } }
 
 enum AzOptionTagIdTag {
    AzOptionTagIdTag_None,
@@ -7252,8 +6643,6 @@ union AzOptionTagId {
     AzOptionTagIdVariant_Some Some;
 };
 typedef union AzOptionTagId AzOptionTagId;
-#define AzOptionTagId_None { .None = { .tag = AzOptionTagIdTag_None } }
-#define AzOptionTagId_Some(v) { .Some = { .tag = AzOptionTagIdTag_Some, .payload = v } }
 
 enum AzOptionDurationTag {
    AzOptionDurationTag_None,
@@ -7270,8 +6659,6 @@ union AzOptionDuration {
     AzOptionDurationVariant_Some Some;
 };
 typedef union AzOptionDuration AzOptionDuration;
-#define AzOptionDuration_None { .None = { .tag = AzOptionDurationTag_None } }
-#define AzOptionDuration_Some(v) { .Some = { .tag = AzOptionDurationTag_Some, .payload = v } }
 
 enum AzOptionU8VecTag {
    AzOptionU8VecTag_None,
@@ -7288,8 +6675,6 @@ union AzOptionU8Vec {
     AzOptionU8VecVariant_Some Some;
 };
 typedef union AzOptionU8Vec AzOptionU8Vec;
-#define AzOptionU8Vec_None { .None = { .tag = AzOptionU8VecTag_None } }
-#define AzOptionU8Vec_Some(v) { .Some = { .tag = AzOptionU8VecTag_Some, .payload = v } }
 
 enum AzOptionU8VecRefTag {
    AzOptionU8VecRefTag_None,
@@ -7306,8 +6691,6 @@ union AzOptionU8VecRef {
     AzOptionU8VecRefVariant_Some Some;
 };
 typedef union AzOptionU8VecRef AzOptionU8VecRef;
-#define AzOptionU8VecRef_None { .None = { .tag = AzOptionU8VecRefTag_None } }
-#define AzOptionU8VecRef_Some(v) { .Some = { .tag = AzOptionU8VecRefTag_Some, .payload = v } }
 
 enum AzResultU8VecEncodeImageErrorTag {
    AzResultU8VecEncodeImageErrorTag_Ok,
@@ -7324,8 +6707,6 @@ union AzResultU8VecEncodeImageError {
     AzResultU8VecEncodeImageErrorVariant_Err Err;
 };
 typedef union AzResultU8VecEncodeImageError AzResultU8VecEncodeImageError;
-#define AzResultU8VecEncodeImageError_Ok(v) { .Ok = { .tag = AzResultU8VecEncodeImageErrorTag_Ok, .payload = v } }
-#define AzResultU8VecEncodeImageError_Err(v) { .Err = { .tag = AzResultU8VecEncodeImageErrorTag_Err, .payload = v } }
 
 struct AzNonXmlCharError {
     uint32_t ch;
@@ -7396,8 +6777,6 @@ union AzWindowIcon {
     AzWindowIconVariant_Large Large;
 };
 typedef union AzWindowIcon AzWindowIcon;
-#define AzWindowIcon_Small(v) { .Small = { .tag = AzWindowIconTag_Small, .payload = v } }
-#define AzWindowIcon_Large(v) { .Large = { .tag = AzWindowIconTag_Large, .payload = v } }
 
 struct AzTaskBarIcon {
     AzIconKey key;
@@ -7482,12 +6861,6 @@ union AzAnimationEasing {
     AzAnimationEasingVariant_CubicBezier CubicBezier;
 };
 typedef union AzAnimationEasing AzAnimationEasing;
-#define AzAnimationEasing_Ease { .Ease = { .tag = AzAnimationEasingTag_Ease } }
-#define AzAnimationEasing_Linear { .Linear = { .tag = AzAnimationEasingTag_Linear } }
-#define AzAnimationEasing_EaseIn { .EaseIn = { .tag = AzAnimationEasingTag_EaseIn } }
-#define AzAnimationEasing_EaseOut { .EaseOut = { .tag = AzAnimationEasingTag_EaseOut } }
-#define AzAnimationEasing_EaseInOut { .EaseInOut = { .tag = AzAnimationEasingTag_EaseInOut } }
-#define AzAnimationEasing_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationEasingTag_CubicBezier, .payload = v } }
 
 struct AzRenderImageCallbackInfo {
     AzDomNodeId callback_node_id;
@@ -7547,12 +6920,6 @@ union AzEventFilter {
     AzEventFilterVariant_Application Application;
 };
 typedef union AzEventFilter AzEventFilter;
-#define AzEventFilter_Hover(v) { .Hover = { .tag = AzEventFilterTag_Hover, .payload = v } }
-#define AzEventFilter_Not(v) { .Not = { .tag = AzEventFilterTag_Not, .payload = v } }
-#define AzEventFilter_Focus(v) { .Focus = { .tag = AzEventFilterTag_Focus, .payload = v } }
-#define AzEventFilter_Window(v) { .Window = { .tag = AzEventFilterTag_Window, .payload = v } }
-#define AzEventFilter_Component(v) { .Component = { .tag = AzEventFilterTag_Component, .payload = v } }
-#define AzEventFilter_Application(v) { .Application = { .tag = AzEventFilterTag_Application, .payload = v } }
 
 struct AzMenu {
     AzMenuItemVec items;
@@ -7595,12 +6962,6 @@ union AzCssPathPseudoSelector {
     AzCssPathPseudoSelectorVariant_Focus Focus;
 };
 typedef union AzCssPathPseudoSelector AzCssPathPseudoSelector;
-#define AzCssPathPseudoSelector_First { .First = { .tag = AzCssPathPseudoSelectorTag_First } }
-#define AzCssPathPseudoSelector_Last { .Last = { .tag = AzCssPathPseudoSelectorTag_Last } }
-#define AzCssPathPseudoSelector_NthChild(v) { .NthChild = { .tag = AzCssPathPseudoSelectorTag_NthChild, .payload = v } }
-#define AzCssPathPseudoSelector_Hover { .Hover = { .tag = AzCssPathPseudoSelectorTag_Hover } }
-#define AzCssPathPseudoSelector_Active { .Active = { .tag = AzCssPathPseudoSelectorTag_Active } }
-#define AzCssPathPseudoSelector_Focus { .Focus = { .tag = AzCssPathPseudoSelectorTag_Focus } }
 
 enum AzAnimationInterpolationFunctionTag {
    AzAnimationInterpolationFunctionTag_Ease,
@@ -7633,12 +6994,6 @@ union AzAnimationInterpolationFunction {
     AzAnimationInterpolationFunctionVariant_CubicBezier CubicBezier;
 };
 typedef union AzAnimationInterpolationFunction AzAnimationInterpolationFunction;
-#define AzAnimationInterpolationFunction_Ease { .Ease = { .tag = AzAnimationInterpolationFunctionTag_Ease } }
-#define AzAnimationInterpolationFunction_Linear { .Linear = { .tag = AzAnimationInterpolationFunctionTag_Linear } }
-#define AzAnimationInterpolationFunction_EaseIn { .EaseIn = { .tag = AzAnimationInterpolationFunctionTag_EaseIn } }
-#define AzAnimationInterpolationFunction_EaseOut { .EaseOut = { .tag = AzAnimationInterpolationFunctionTag_EaseOut } }
-#define AzAnimationInterpolationFunction_EaseInOut { .EaseInOut = { .tag = AzAnimationInterpolationFunctionTag_EaseInOut } }
-#define AzAnimationInterpolationFunction_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationInterpolationFunctionTag_CubicBezier, .payload = v } }
 
 struct AzInterpolateContext {
     AzAnimationInterpolationFunction animation_func;
@@ -7764,27 +7119,6 @@ union AzStyleTransform {
     AzStyleTransformVariant_Perspective Perspective;
 };
 typedef union AzStyleTransform AzStyleTransform;
-#define AzStyleTransform_Matrix(v) { .Matrix = { .tag = AzStyleTransformTag_Matrix, .payload = v } }
-#define AzStyleTransform_Matrix3D(v) { .Matrix3D = { .tag = AzStyleTransformTag_Matrix3D, .payload = v } }
-#define AzStyleTransform_Translate(v) { .Translate = { .tag = AzStyleTransformTag_Translate, .payload = v } }
-#define AzStyleTransform_Translate3D(v) { .Translate3D = { .tag = AzStyleTransformTag_Translate3D, .payload = v } }
-#define AzStyleTransform_TranslateX(v) { .TranslateX = { .tag = AzStyleTransformTag_TranslateX, .payload = v } }
-#define AzStyleTransform_TranslateY(v) { .TranslateY = { .tag = AzStyleTransformTag_TranslateY, .payload = v } }
-#define AzStyleTransform_TranslateZ(v) { .TranslateZ = { .tag = AzStyleTransformTag_TranslateZ, .payload = v } }
-#define AzStyleTransform_Rotate(v) { .Rotate = { .tag = AzStyleTransformTag_Rotate, .payload = v } }
-#define AzStyleTransform_Rotate3D(v) { .Rotate3D = { .tag = AzStyleTransformTag_Rotate3D, .payload = v } }
-#define AzStyleTransform_RotateX(v) { .RotateX = { .tag = AzStyleTransformTag_RotateX, .payload = v } }
-#define AzStyleTransform_RotateY(v) { .RotateY = { .tag = AzStyleTransformTag_RotateY, .payload = v } }
-#define AzStyleTransform_RotateZ(v) { .RotateZ = { .tag = AzStyleTransformTag_RotateZ, .payload = v } }
-#define AzStyleTransform_Scale(v) { .Scale = { .tag = AzStyleTransformTag_Scale, .payload = v } }
-#define AzStyleTransform_Scale3D(v) { .Scale3D = { .tag = AzStyleTransformTag_Scale3D, .payload = v } }
-#define AzStyleTransform_ScaleX(v) { .ScaleX = { .tag = AzStyleTransformTag_ScaleX, .payload = v } }
-#define AzStyleTransform_ScaleY(v) { .ScaleY = { .tag = AzStyleTransformTag_ScaleY, .payload = v } }
-#define AzStyleTransform_ScaleZ(v) { .ScaleZ = { .tag = AzStyleTransformTag_ScaleZ, .payload = v } }
-#define AzStyleTransform_Skew(v) { .Skew = { .tag = AzStyleTransformTag_Skew, .payload = v } }
-#define AzStyleTransform_SkewX(v) { .SkewX = { .tag = AzStyleTransformTag_SkewX, .payload = v } }
-#define AzStyleTransform_SkewY(v) { .SkewY = { .tag = AzStyleTransformTag_SkewY, .payload = v } }
-#define AzStyleTransform_Perspective(v) { .Perspective = { .tag = AzStyleTransformTag_Perspective, .payload = v } }
 
 enum AzStyleBackgroundPositionVecValueTag {
    AzStyleBackgroundPositionVecValueTag_Auto,
@@ -7813,11 +7147,6 @@ union AzStyleBackgroundPositionVecValue {
     AzStyleBackgroundPositionVecValueVariant_Exact Exact;
 };
 typedef union AzStyleBackgroundPositionVecValue AzStyleBackgroundPositionVecValue;
-#define AzStyleBackgroundPositionVecValue_Auto { .Auto = { .tag = AzStyleBackgroundPositionVecValueTag_Auto } }
-#define AzStyleBackgroundPositionVecValue_None { .None = { .tag = AzStyleBackgroundPositionVecValueTag_None } }
-#define AzStyleBackgroundPositionVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundPositionVecValueTag_Inherit } }
-#define AzStyleBackgroundPositionVecValue_Initial { .Initial = { .tag = AzStyleBackgroundPositionVecValueTag_Initial } }
-#define AzStyleBackgroundPositionVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundPositionVecValueTag_Exact, .payload = v } }
 
 enum AzStyleBackgroundRepeatVecValueTag {
    AzStyleBackgroundRepeatVecValueTag_Auto,
@@ -7846,11 +7175,6 @@ union AzStyleBackgroundRepeatVecValue {
     AzStyleBackgroundRepeatVecValueVariant_Exact Exact;
 };
 typedef union AzStyleBackgroundRepeatVecValue AzStyleBackgroundRepeatVecValue;
-#define AzStyleBackgroundRepeatVecValue_Auto { .Auto = { .tag = AzStyleBackgroundRepeatVecValueTag_Auto } }
-#define AzStyleBackgroundRepeatVecValue_None { .None = { .tag = AzStyleBackgroundRepeatVecValueTag_None } }
-#define AzStyleBackgroundRepeatVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundRepeatVecValueTag_Inherit } }
-#define AzStyleBackgroundRepeatVecValue_Initial { .Initial = { .tag = AzStyleBackgroundRepeatVecValueTag_Initial } }
-#define AzStyleBackgroundRepeatVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundRepeatVecValueTag_Exact, .payload = v } }
 
 enum AzStyleBackgroundSizeVecValueTag {
    AzStyleBackgroundSizeVecValueTag_Auto,
@@ -7879,11 +7203,6 @@ union AzStyleBackgroundSizeVecValue {
     AzStyleBackgroundSizeVecValueVariant_Exact Exact;
 };
 typedef union AzStyleBackgroundSizeVecValue AzStyleBackgroundSizeVecValue;
-#define AzStyleBackgroundSizeVecValue_Auto { .Auto = { .tag = AzStyleBackgroundSizeVecValueTag_Auto } }
-#define AzStyleBackgroundSizeVecValue_None { .None = { .tag = AzStyleBackgroundSizeVecValueTag_None } }
-#define AzStyleBackgroundSizeVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundSizeVecValueTag_Inherit } }
-#define AzStyleBackgroundSizeVecValue_Initial { .Initial = { .tag = AzStyleBackgroundSizeVecValueTag_Initial } }
-#define AzStyleBackgroundSizeVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundSizeVecValueTag_Exact, .payload = v } }
 
 struct AzCheckBoxStateWrapper {
     AzCheckBoxState inner;
@@ -7945,9 +7264,6 @@ union AzRawImageData {
     AzRawImageDataVariant_F32 F32;
 };
 typedef union AzRawImageData AzRawImageData;
-#define AzRawImageData_U8(v) { .U8 = { .tag = AzRawImageDataTag_U8, .payload = v } }
-#define AzRawImageData_U16(v) { .U16 = { .tag = AzRawImageDataTag_U16, .payload = v } }
-#define AzRawImageData_F32(v) { .F32 = { .tag = AzRawImageDataTag_F32, .payload = v } }
 
 struct AzFontSource {
     AzU8Vec data;
@@ -7975,9 +7291,6 @@ union AzSvgPathElement {
     AzSvgPathElementVariant_CubicCurve CubicCurve;
 };
 typedef union AzSvgPathElement AzSvgPathElement;
-#define AzSvgPathElement_Line(v) { .Line = { .tag = AzSvgPathElementTag_Line, .payload = v } }
-#define AzSvgPathElement_QuadraticCurve(v) { .QuadraticCurve = { .tag = AzSvgPathElementTag_QuadraticCurve, .payload = v } }
-#define AzSvgPathElement_CubicCurve(v) { .CubicCurve = { .tag = AzSvgPathElementTag_CubicCurve, .payload = v } }
 
 struct AzTesselatedSvgNode {
     AzSvgVertexVec vertices;
@@ -8033,8 +7346,6 @@ union AzInstant {
     AzInstantVariant_Tick Tick;
 };
 typedef union AzInstant AzInstant;
-#define AzInstant_System(v) { .System = { .tag = AzInstantTag_System, .payload = v } }
-#define AzInstant_Tick(v) { .Tick = { .tag = AzInstantTag_Tick, .payload = v } }
 
 enum AzThreadReceiveMsgTag {
    AzThreadReceiveMsgTag_WriteBack,
@@ -8051,8 +7362,6 @@ union AzThreadReceiveMsg {
     AzThreadReceiveMsgVariant_Update Update;
 };
 typedef union AzThreadReceiveMsg AzThreadReceiveMsg;
-#define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
-#define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
 
 struct AzString {
     AzU8Vec vec;
@@ -8122,8 +7431,6 @@ union AzOptionVirtualKeyCodeCombo {
     AzOptionVirtualKeyCodeComboVariant_Some Some;
 };
 typedef union AzOptionVirtualKeyCodeCombo AzOptionVirtualKeyCodeCombo;
-#define AzOptionVirtualKeyCodeCombo_None { .None = { .tag = AzOptionVirtualKeyCodeComboTag_None } }
-#define AzOptionVirtualKeyCodeCombo_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeComboTag_Some, .payload = v } }
 
 enum AzOptionMouseStateTag {
    AzOptionMouseStateTag_None,
@@ -8140,8 +7447,6 @@ union AzOptionMouseState {
     AzOptionMouseStateVariant_Some Some;
 };
 typedef union AzOptionMouseState AzOptionMouseState;
-#define AzOptionMouseState_None { .None = { .tag = AzOptionMouseStateTag_None } }
-#define AzOptionMouseState_Some(v) { .Some = { .tag = AzOptionMouseStateTag_Some, .payload = v } }
 
 enum AzOptionKeyboardStateTag {
    AzOptionKeyboardStateTag_None,
@@ -8158,8 +7463,6 @@ union AzOptionKeyboardState {
     AzOptionKeyboardStateVariant_Some Some;
 };
 typedef union AzOptionKeyboardState AzOptionKeyboardState;
-#define AzOptionKeyboardState_None { .None = { .tag = AzOptionKeyboardStateTag_None } }
-#define AzOptionKeyboardState_Some(v) { .Some = { .tag = AzOptionKeyboardStateTag_Some, .payload = v } }
 
 enum AzOptionStringVecTag {
    AzOptionStringVecTag_None,
@@ -8176,8 +7479,6 @@ union AzOptionStringVec {
     AzOptionStringVecVariant_Some Some;
 };
 typedef union AzOptionStringVec AzOptionStringVec;
-#define AzOptionStringVec_None { .None = { .tag = AzOptionStringVecTag_None } }
-#define AzOptionStringVec_Some(v) { .Some = { .tag = AzOptionStringVecTag_Some, .payload = v } }
 
 enum AzOptionThreadReceiveMsgTag {
    AzOptionThreadReceiveMsgTag_None,
@@ -8194,8 +7495,6 @@ union AzOptionThreadReceiveMsg {
     AzOptionThreadReceiveMsgVariant_Some Some;
 };
 typedef union AzOptionThreadReceiveMsg AzOptionThreadReceiveMsg;
-#define AzOptionThreadReceiveMsg_None { .None = { .tag = AzOptionThreadReceiveMsgTag_None } }
-#define AzOptionThreadReceiveMsg_Some(v) { .Some = { .tag = AzOptionThreadReceiveMsgTag_Some, .payload = v } }
 
 enum AzOptionTaskBarIconTag {
    AzOptionTaskBarIconTag_None,
@@ -8212,8 +7511,6 @@ union AzOptionTaskBarIcon {
     AzOptionTaskBarIconVariant_Some Some;
 };
 typedef union AzOptionTaskBarIcon AzOptionTaskBarIcon;
-#define AzOptionTaskBarIcon_None { .None = { .tag = AzOptionTaskBarIconTag_None } }
-#define AzOptionTaskBarIcon_Some(v) { .Some = { .tag = AzOptionTaskBarIconTag_Some, .payload = v } }
 
 enum AzOptionWindowIconTag {
    AzOptionWindowIconTag_None,
@@ -8230,8 +7527,6 @@ union AzOptionWindowIcon {
     AzOptionWindowIconVariant_Some Some;
 };
 typedef union AzOptionWindowIcon AzOptionWindowIcon;
-#define AzOptionWindowIcon_None { .None = { .tag = AzOptionWindowIconTag_None } }
-#define AzOptionWindowIcon_Some(v) { .Some = { .tag = AzOptionWindowIconTag_Some, .payload = v } }
 
 enum AzOptionStringTag {
    AzOptionStringTag_None,
@@ -8248,8 +7543,6 @@ union AzOptionString {
     AzOptionStringVariant_Some Some;
 };
 typedef union AzOptionString AzOptionString;
-#define AzOptionString_None { .None = { .tag = AzOptionStringTag_None } }
-#define AzOptionString_Some(v) { .Some = { .tag = AzOptionStringTag_Some, .payload = v } }
 
 enum AzOptionTextureTag {
    AzOptionTextureTag_None,
@@ -8266,8 +7559,6 @@ union AzOptionTexture {
     AzOptionTextureVariant_Some Some;
 };
 typedef union AzOptionTexture AzOptionTexture;
-#define AzOptionTexture_None { .None = { .tag = AzOptionTextureTag_None } }
-#define AzOptionTexture_Some(v) { .Some = { .tag = AzOptionTextureTag_Some, .payload = v } }
 
 enum AzOptionInstantTag {
    AzOptionInstantTag_None,
@@ -8284,8 +7575,6 @@ union AzOptionInstant {
     AzOptionInstantVariant_Some Some;
 };
 typedef union AzOptionInstant AzOptionInstant;
-#define AzOptionInstant_None { .None = { .tag = AzOptionInstantTag_None } }
-#define AzOptionInstant_Some(v) { .Some = { .tag = AzOptionInstantTag_Some, .payload = v } }
 
 struct AzDuplicatedNamespaceError {
     AzString ns;
@@ -8413,8 +7702,6 @@ union AzLayoutCallback {
     AzLayoutCallbackVariant_Marshaled Marshaled;
 };
 typedef union AzLayoutCallback AzLayoutCallback;
-#define AzLayoutCallback_Raw(v) { .Raw = { .tag = AzLayoutCallbackTag_Raw, .payload = v } }
-#define AzLayoutCallback_Marshaled(v) { .Marshaled = { .tag = AzLayoutCallbackTag_Marshaled, .payload = v } }
 
 enum AzInlineWordTag {
    AzInlineWordTag_Tab,
@@ -8439,10 +7726,6 @@ union AzInlineWord {
     AzInlineWordVariant_Word Word;
 };
 typedef union AzInlineWord AzInlineWord;
-#define AzInlineWord_Tab { .Tab = { .tag = AzInlineWordTag_Tab } }
-#define AzInlineWord_Return { .Return = { .tag = AzInlineWordTag_Return } }
-#define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
-#define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
 
 struct AzCallbackData {
     AzEventFilter event;
@@ -8482,12 +7765,6 @@ union AzNodeType {
     AzNodeTypeVariant_IFrame IFrame;
 };
 typedef union AzNodeType AzNodeType;
-#define AzNodeType_Body { .Body = { .tag = AzNodeTypeTag_Body } }
-#define AzNodeType_Div { .Div = { .tag = AzNodeTypeTag_Div } }
-#define AzNodeType_Br { .Br = { .tag = AzNodeTypeTag_Br } }
-#define AzNodeType_Text(v) { .Text = { .tag = AzNodeTypeTag_Text, .payload = v } }
-#define AzNodeType_Image(v) { .Image = { .tag = AzNodeTypeTag_Image, .payload = v } }
-#define AzNodeType_IFrame(v) { .IFrame = { .tag = AzNodeTypeTag_IFrame, .payload = v } }
 
 struct AzAccessibilityInfo {
     AzOptionString name;
@@ -8514,8 +7791,6 @@ union AzIdOrClass {
     AzIdOrClassVariant_Class Class;
 };
 typedef union AzIdOrClass AzIdOrClass;
-#define AzIdOrClass_Id(v) { .Id = { .tag = AzIdOrClassTag_Id, .payload = v } }
-#define AzIdOrClass_Class(v) { .Class = { .tag = AzIdOrClassTag_Class, .payload = v } }
 
 struct AzStringMenuItem {
     AzString label;
@@ -8562,13 +7837,6 @@ union AzCssPathSelector {
     AzCssPathSelectorVariant_Children Children;
 };
 typedef union AzCssPathSelector AzCssPathSelector;
-#define AzCssPathSelector_Global { .Global = { .tag = AzCssPathSelectorTag_Global } }
-#define AzCssPathSelector_Type(v) { .Type = { .tag = AzCssPathSelectorTag_Type, .payload = v } }
-#define AzCssPathSelector_Class(v) { .Class = { .tag = AzCssPathSelectorTag_Class, .payload = v } }
-#define AzCssPathSelector_Id(v) { .Id = { .tag = AzCssPathSelectorTag_Id, .payload = v } }
-#define AzCssPathSelector_PseudoSelector(v) { .PseudoSelector = { .tag = AzCssPathSelectorTag_PseudoSelector, .payload = v } }
-#define AzCssPathSelector_DirectChildren { .DirectChildren = { .tag = AzCssPathSelectorTag_DirectChildren } }
-#define AzCssPathSelector_Children { .Children = { .tag = AzCssPathSelectorTag_Children } }
 
 enum AzStyleBackgroundContentTag {
    AzStyleBackgroundContentTag_LinearGradient,
@@ -8597,11 +7865,6 @@ union AzStyleBackgroundContent {
     AzStyleBackgroundContentVariant_Color Color;
 };
 typedef union AzStyleBackgroundContent AzStyleBackgroundContent;
-#define AzStyleBackgroundContent_LinearGradient(v) { .LinearGradient = { .tag = AzStyleBackgroundContentTag_LinearGradient, .payload = v } }
-#define AzStyleBackgroundContent_RadialGradient(v) { .RadialGradient = { .tag = AzStyleBackgroundContentTag_RadialGradient, .payload = v } }
-#define AzStyleBackgroundContent_ConicGradient(v) { .ConicGradient = { .tag = AzStyleBackgroundContentTag_ConicGradient, .payload = v } }
-#define AzStyleBackgroundContent_Image(v) { .Image = { .tag = AzStyleBackgroundContentTag_Image, .payload = v } }
-#define AzStyleBackgroundContent_Color(v) { .Color = { .tag = AzStyleBackgroundContentTag_Color, .payload = v } }
 
 struct AzScrollbarInfo {
     AzLayoutWidth width;
@@ -8640,9 +7903,6 @@ union AzStyleFontFamily {
     AzStyleFontFamilyVariant_Ref Ref;
 };
 typedef union AzStyleFontFamily AzStyleFontFamily;
-#define AzStyleFontFamily_System(v) { .System = { .tag = AzStyleFontFamilyTag_System, .payload = v } }
-#define AzStyleFontFamily_File(v) { .File = { .tag = AzStyleFontFamilyTag_File, .payload = v } }
-#define AzStyleFontFamily_Ref(v) { .Ref = { .tag = AzStyleFontFamilyTag_Ref, .payload = v } }
 
 enum AzScrollbarStyleValueTag {
    AzScrollbarStyleValueTag_Auto,
@@ -8671,11 +7931,6 @@ union AzScrollbarStyleValue {
     AzScrollbarStyleValueVariant_Exact Exact;
 };
 typedef union AzScrollbarStyleValue AzScrollbarStyleValue;
-#define AzScrollbarStyleValue_Auto { .Auto = { .tag = AzScrollbarStyleValueTag_Auto } }
-#define AzScrollbarStyleValue_None { .None = { .tag = AzScrollbarStyleValueTag_None } }
-#define AzScrollbarStyleValue_Inherit { .Inherit = { .tag = AzScrollbarStyleValueTag_Inherit } }
-#define AzScrollbarStyleValue_Initial { .Initial = { .tag = AzScrollbarStyleValueTag_Initial } }
-#define AzScrollbarStyleValue_Exact(v) { .Exact = { .tag = AzScrollbarStyleValueTag_Exact, .payload = v } }
 
 enum AzStyleTransformVecValueTag {
    AzStyleTransformVecValueTag_Auto,
@@ -8704,11 +7959,6 @@ union AzStyleTransformVecValue {
     AzStyleTransformVecValueVariant_Exact Exact;
 };
 typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
-#define AzStyleTransformVecValue_Auto { .Auto = { .tag = AzStyleTransformVecValueTag_Auto } }
-#define AzStyleTransformVecValue_None { .None = { .tag = AzStyleTransformVecValueTag_None } }
-#define AzStyleTransformVecValue_Inherit { .Inherit = { .tag = AzStyleTransformVecValueTag_Inherit } }
-#define AzStyleTransformVecValue_Initial { .Initial = { .tag = AzStyleTransformVecValueTag_Initial } }
-#define AzStyleTransformVecValue_Exact(v) { .Exact = { .tag = AzStyleTransformVecValueTag_Exact, .payload = v } }
 
 struct AzColorInputStateWrapper {
     AzColorInputState inner;
@@ -8800,8 +8050,6 @@ union AzSvgStyle {
     AzSvgStyleVariant_Stroke Stroke;
 };
 typedef union AzSvgStyle AzSvgStyle;
-#define AzSvgStyle_Fill(v) { .Fill = { .tag = AzSvgStyleTag_Fill, .payload = v } }
-#define AzSvgStyle_Stroke(v) { .Stroke = { .tag = AzSvgStyleTag_Stroke, .payload = v } }
 
 struct AzFile {
     void* ptr;
@@ -8895,21 +8143,6 @@ union AzFmtValue {
     AzFmtValueVariant_StrVec StrVec;
 };
 typedef union AzFmtValue AzFmtValue;
-#define AzFmtValue_Bool(v) { .Bool = { .tag = AzFmtValueTag_Bool, .payload = v } }
-#define AzFmtValue_Uchar(v) { .Uchar = { .tag = AzFmtValueTag_Uchar, .payload = v } }
-#define AzFmtValue_Schar(v) { .Schar = { .tag = AzFmtValueTag_Schar, .payload = v } }
-#define AzFmtValue_Ushort(v) { .Ushort = { .tag = AzFmtValueTag_Ushort, .payload = v } }
-#define AzFmtValue_Sshort(v) { .Sshort = { .tag = AzFmtValueTag_Sshort, .payload = v } }
-#define AzFmtValue_Uint(v) { .Uint = { .tag = AzFmtValueTag_Uint, .payload = v } }
-#define AzFmtValue_Sint(v) { .Sint = { .tag = AzFmtValueTag_Sint, .payload = v } }
-#define AzFmtValue_Ulong(v) { .Ulong = { .tag = AzFmtValueTag_Ulong, .payload = v } }
-#define AzFmtValue_Slong(v) { .Slong = { .tag = AzFmtValueTag_Slong, .payload = v } }
-#define AzFmtValue_Isize(v) { .Isize = { .tag = AzFmtValueTag_Isize, .payload = v } }
-#define AzFmtValue_Usize(v) { .Usize = { .tag = AzFmtValueTag_Usize, .payload = v } }
-#define AzFmtValue_Float(v) { .Float = { .tag = AzFmtValueTag_Float, .payload = v } }
-#define AzFmtValue_Double(v) { .Double = { .tag = AzFmtValueTag_Double, .payload = v } }
-#define AzFmtValue_Str(v) { .Str = { .tag = AzFmtValueTag_Str, .payload = v } }
-#define AzFmtValue_StrVec(v) { .StrVec = { .tag = AzFmtValueTag_StrVec, .payload = v } }
 
 struct AzFmtArg {
     AzString key;
@@ -9028,8 +8261,6 @@ union AzOptionFileTypeList {
     AzOptionFileTypeListVariant_Some Some;
 };
 typedef union AzOptionFileTypeList AzOptionFileTypeList;
-#define AzOptionFileTypeList_None { .None = { .tag = AzOptionFileTypeListTag_None } }
-#define AzOptionFileTypeList_Some(v) { .Some = { .tag = AzOptionFileTypeListTag_Some, .payload = v } }
 
 enum AzOptionFileTag {
    AzOptionFileTag_None,
@@ -9046,8 +8277,6 @@ union AzOptionFile {
     AzOptionFileVariant_Some Some;
 };
 typedef union AzOptionFile AzOptionFile;
-#define AzOptionFile_None { .None = { .tag = AzOptionFileTag_None } }
-#define AzOptionFile_Some(v) { .Some = { .tag = AzOptionFileTag_Some, .payload = v } }
 
 enum AzOptionRawImageTag {
    AzOptionRawImageTag_None,
@@ -9064,8 +8293,6 @@ union AzOptionRawImage {
     AzOptionRawImageVariant_Some Some;
 };
 typedef union AzOptionRawImage AzOptionRawImage;
-#define AzOptionRawImage_None { .None = { .tag = AzOptionRawImageTag_None } }
-#define AzOptionRawImage_Some(v) { .Some = { .tag = AzOptionRawImageTag_Some, .payload = v } }
 
 enum AzOptionWaylandThemeTag {
    AzOptionWaylandThemeTag_None,
@@ -9082,8 +8309,6 @@ union AzOptionWaylandTheme {
     AzOptionWaylandThemeVariant_Some Some;
 };
 typedef union AzOptionWaylandTheme AzOptionWaylandTheme;
-#define AzOptionWaylandTheme_None { .None = { .tag = AzOptionWaylandThemeTag_None } }
-#define AzOptionWaylandTheme_Some(v) { .Some = { .tag = AzOptionWaylandThemeTag_Some, .payload = v } }
 
 enum AzResultRawImageDecodeImageErrorTag {
    AzResultRawImageDecodeImageErrorTag_Ok,
@@ -9100,8 +8325,6 @@ union AzResultRawImageDecodeImageError {
     AzResultRawImageDecodeImageErrorVariant_Err Err;
 };
 typedef union AzResultRawImageDecodeImageError AzResultRawImageDecodeImageError;
-#define AzResultRawImageDecodeImageError_Ok(v) { .Ok = { .tag = AzResultRawImageDecodeImageErrorTag_Ok, .payload = v } }
-#define AzResultRawImageDecodeImageError_Err(v) { .Err = { .tag = AzResultRawImageDecodeImageErrorTag_Err, .payload = v } }
 
 enum AzXmlStreamErrorTag {
    AzXmlStreamErrorTag_UnexpectedEndOfStream,
@@ -9162,19 +8385,6 @@ union AzXmlStreamError {
     AzXmlStreamErrorVariant_InvalidCharacterData InvalidCharacterData;
 };
 typedef union AzXmlStreamError AzXmlStreamError;
-#define AzXmlStreamError_UnexpectedEndOfStream { .UnexpectedEndOfStream = { .tag = AzXmlStreamErrorTag_UnexpectedEndOfStream } }
-#define AzXmlStreamError_InvalidName { .InvalidName = { .tag = AzXmlStreamErrorTag_InvalidName } }
-#define AzXmlStreamError_NonXmlChar(v) { .NonXmlChar = { .tag = AzXmlStreamErrorTag_NonXmlChar, .payload = v } }
-#define AzXmlStreamError_InvalidChar(v) { .InvalidChar = { .tag = AzXmlStreamErrorTag_InvalidChar, .payload = v } }
-#define AzXmlStreamError_InvalidCharMultiple(v) { .InvalidCharMultiple = { .tag = AzXmlStreamErrorTag_InvalidCharMultiple, .payload = v } }
-#define AzXmlStreamError_InvalidQuote(v) { .InvalidQuote = { .tag = AzXmlStreamErrorTag_InvalidQuote, .payload = v } }
-#define AzXmlStreamError_InvalidSpace(v) { .InvalidSpace = { .tag = AzXmlStreamErrorTag_InvalidSpace, .payload = v } }
-#define AzXmlStreamError_InvalidString(v) { .InvalidString = { .tag = AzXmlStreamErrorTag_InvalidString, .payload = v } }
-#define AzXmlStreamError_InvalidReference { .InvalidReference = { .tag = AzXmlStreamErrorTag_InvalidReference } }
-#define AzXmlStreamError_InvalidExternalID { .InvalidExternalID = { .tag = AzXmlStreamErrorTag_InvalidExternalID } }
-#define AzXmlStreamError_InvalidCommentData { .InvalidCommentData = { .tag = AzXmlStreamErrorTag_InvalidCommentData } }
-#define AzXmlStreamError_InvalidCommentEnd { .InvalidCommentEnd = { .tag = AzXmlStreamErrorTag_InvalidCommentEnd } }
-#define AzXmlStreamError_InvalidCharacterData { .InvalidCharacterData = { .tag = AzXmlStreamErrorTag_InvalidCharacterData } }
 
 struct AzLinuxWindowOptions {
     AzOptionX11Visual x11_visual;
@@ -9217,9 +8427,6 @@ union AzMenuItem {
     AzMenuItemVariant_BreakLine BreakLine;
 };
 typedef union AzMenuItem AzMenuItem;
-#define AzMenuItem_Label(v) { .Label = { .tag = AzMenuItemTag_Label, .payload = v } }
-#define AzMenuItem_Separator { .Separator = { .tag = AzMenuItemTag_Separator } }
-#define AzMenuItem_BreakLine { .BreakLine = { .tag = AzMenuItemTag_BreakLine } }
 
 struct AzCssPath {
     AzCssPathSelectorVec selectors;
@@ -9253,11 +8460,6 @@ union AzStyleBackgroundContentVecValue {
     AzStyleBackgroundContentVecValueVariant_Exact Exact;
 };
 typedef union AzStyleBackgroundContentVecValue AzStyleBackgroundContentVecValue;
-#define AzStyleBackgroundContentVecValue_Auto { .Auto = { .tag = AzStyleBackgroundContentVecValueTag_Auto } }
-#define AzStyleBackgroundContentVecValue_None { .None = { .tag = AzStyleBackgroundContentVecValueTag_None } }
-#define AzStyleBackgroundContentVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundContentVecValueTag_Inherit } }
-#define AzStyleBackgroundContentVecValue_Initial { .Initial = { .tag = AzStyleBackgroundContentVecValueTag_Initial } }
-#define AzStyleBackgroundContentVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundContentVecValueTag_Exact, .payload = v } }
 
 enum AzStyleFontFamilyVecValueTag {
    AzStyleFontFamilyVecValueTag_Auto,
@@ -9286,11 +8488,6 @@ union AzStyleFontFamilyVecValue {
     AzStyleFontFamilyVecValueVariant_Exact Exact;
 };
 typedef union AzStyleFontFamilyVecValue AzStyleFontFamilyVecValue;
-#define AzStyleFontFamilyVecValue_Auto { .Auto = { .tag = AzStyleFontFamilyVecValueTag_Auto } }
-#define AzStyleFontFamilyVecValue_None { .None = { .tag = AzStyleFontFamilyVecValueTag_None } }
-#define AzStyleFontFamilyVecValue_Inherit { .Inherit = { .tag = AzStyleFontFamilyVecValueTag_Inherit } }
-#define AzStyleFontFamilyVecValue_Initial { .Initial = { .tag = AzStyleFontFamilyVecValueTag_Initial } }
-#define AzStyleFontFamilyVecValue_Exact(v) { .Exact = { .tag = AzStyleFontFamilyVecValueTag_Exact, .payload = v } }
 
 enum AzCssPropertyTag {
    AzCssPropertyTag_TextColor,
@@ -9579,76 +8776,6 @@ union AzCssProperty {
     AzCssPropertyVariant_BackfaceVisibility BackfaceVisibility;
 };
 typedef union AzCssProperty AzCssProperty;
-#define AzCssProperty_TextColor(v) { .TextColor = { .tag = AzCssPropertyTag_TextColor, .payload = v } }
-#define AzCssProperty_FontSize(v) { .FontSize = { .tag = AzCssPropertyTag_FontSize, .payload = v } }
-#define AzCssProperty_FontFamily(v) { .FontFamily = { .tag = AzCssPropertyTag_FontFamily, .payload = v } }
-#define AzCssProperty_TextAlign(v) { .TextAlign = { .tag = AzCssPropertyTag_TextAlign, .payload = v } }
-#define AzCssProperty_LetterSpacing(v) { .LetterSpacing = { .tag = AzCssPropertyTag_LetterSpacing, .payload = v } }
-#define AzCssProperty_LineHeight(v) { .LineHeight = { .tag = AzCssPropertyTag_LineHeight, .payload = v } }
-#define AzCssProperty_WordSpacing(v) { .WordSpacing = { .tag = AzCssPropertyTag_WordSpacing, .payload = v } }
-#define AzCssProperty_TabWidth(v) { .TabWidth = { .tag = AzCssPropertyTag_TabWidth, .payload = v } }
-#define AzCssProperty_Cursor(v) { .Cursor = { .tag = AzCssPropertyTag_Cursor, .payload = v } }
-#define AzCssProperty_Display(v) { .Display = { .tag = AzCssPropertyTag_Display, .payload = v } }
-#define AzCssProperty_Float(v) { .Float = { .tag = AzCssPropertyTag_Float, .payload = v } }
-#define AzCssProperty_BoxSizing(v) { .BoxSizing = { .tag = AzCssPropertyTag_BoxSizing, .payload = v } }
-#define AzCssProperty_Width(v) { .Width = { .tag = AzCssPropertyTag_Width, .payload = v } }
-#define AzCssProperty_Height(v) { .Height = { .tag = AzCssPropertyTag_Height, .payload = v } }
-#define AzCssProperty_MinWidth(v) { .MinWidth = { .tag = AzCssPropertyTag_MinWidth, .payload = v } }
-#define AzCssProperty_MinHeight(v) { .MinHeight = { .tag = AzCssPropertyTag_MinHeight, .payload = v } }
-#define AzCssProperty_MaxWidth(v) { .MaxWidth = { .tag = AzCssPropertyTag_MaxWidth, .payload = v } }
-#define AzCssProperty_MaxHeight(v) { .MaxHeight = { .tag = AzCssPropertyTag_MaxHeight, .payload = v } }
-#define AzCssProperty_Position(v) { .Position = { .tag = AzCssPropertyTag_Position, .payload = v } }
-#define AzCssProperty_Top(v) { .Top = { .tag = AzCssPropertyTag_Top, .payload = v } }
-#define AzCssProperty_Right(v) { .Right = { .tag = AzCssPropertyTag_Right, .payload = v } }
-#define AzCssProperty_Left(v) { .Left = { .tag = AzCssPropertyTag_Left, .payload = v } }
-#define AzCssProperty_Bottom(v) { .Bottom = { .tag = AzCssPropertyTag_Bottom, .payload = v } }
-#define AzCssProperty_FlexWrap(v) { .FlexWrap = { .tag = AzCssPropertyTag_FlexWrap, .payload = v } }
-#define AzCssProperty_FlexDirection(v) { .FlexDirection = { .tag = AzCssPropertyTag_FlexDirection, .payload = v } }
-#define AzCssProperty_FlexGrow(v) { .FlexGrow = { .tag = AzCssPropertyTag_FlexGrow, .payload = v } }
-#define AzCssProperty_FlexShrink(v) { .FlexShrink = { .tag = AzCssPropertyTag_FlexShrink, .payload = v } }
-#define AzCssProperty_JustifyContent(v) { .JustifyContent = { .tag = AzCssPropertyTag_JustifyContent, .payload = v } }
-#define AzCssProperty_AlignItems(v) { .AlignItems = { .tag = AzCssPropertyTag_AlignItems, .payload = v } }
-#define AzCssProperty_AlignContent(v) { .AlignContent = { .tag = AzCssPropertyTag_AlignContent, .payload = v } }
-#define AzCssProperty_BackgroundContent(v) { .BackgroundContent = { .tag = AzCssPropertyTag_BackgroundContent, .payload = v } }
-#define AzCssProperty_BackgroundPosition(v) { .BackgroundPosition = { .tag = AzCssPropertyTag_BackgroundPosition, .payload = v } }
-#define AzCssProperty_BackgroundSize(v) { .BackgroundSize = { .tag = AzCssPropertyTag_BackgroundSize, .payload = v } }
-#define AzCssProperty_BackgroundRepeat(v) { .BackgroundRepeat = { .tag = AzCssPropertyTag_BackgroundRepeat, .payload = v } }
-#define AzCssProperty_OverflowX(v) { .OverflowX = { .tag = AzCssPropertyTag_OverflowX, .payload = v } }
-#define AzCssProperty_OverflowY(v) { .OverflowY = { .tag = AzCssPropertyTag_OverflowY, .payload = v } }
-#define AzCssProperty_PaddingTop(v) { .PaddingTop = { .tag = AzCssPropertyTag_PaddingTop, .payload = v } }
-#define AzCssProperty_PaddingLeft(v) { .PaddingLeft = { .tag = AzCssPropertyTag_PaddingLeft, .payload = v } }
-#define AzCssProperty_PaddingRight(v) { .PaddingRight = { .tag = AzCssPropertyTag_PaddingRight, .payload = v } }
-#define AzCssProperty_PaddingBottom(v) { .PaddingBottom = { .tag = AzCssPropertyTag_PaddingBottom, .payload = v } }
-#define AzCssProperty_MarginTop(v) { .MarginTop = { .tag = AzCssPropertyTag_MarginTop, .payload = v } }
-#define AzCssProperty_MarginLeft(v) { .MarginLeft = { .tag = AzCssPropertyTag_MarginLeft, .payload = v } }
-#define AzCssProperty_MarginRight(v) { .MarginRight = { .tag = AzCssPropertyTag_MarginRight, .payload = v } }
-#define AzCssProperty_MarginBottom(v) { .MarginBottom = { .tag = AzCssPropertyTag_MarginBottom, .payload = v } }
-#define AzCssProperty_BorderTopLeftRadius(v) { .BorderTopLeftRadius = { .tag = AzCssPropertyTag_BorderTopLeftRadius, .payload = v } }
-#define AzCssProperty_BorderTopRightRadius(v) { .BorderTopRightRadius = { .tag = AzCssPropertyTag_BorderTopRightRadius, .payload = v } }
-#define AzCssProperty_BorderBottomLeftRadius(v) { .BorderBottomLeftRadius = { .tag = AzCssPropertyTag_BorderBottomLeftRadius, .payload = v } }
-#define AzCssProperty_BorderBottomRightRadius(v) { .BorderBottomRightRadius = { .tag = AzCssPropertyTag_BorderBottomRightRadius, .payload = v } }
-#define AzCssProperty_BorderTopColor(v) { .BorderTopColor = { .tag = AzCssPropertyTag_BorderTopColor, .payload = v } }
-#define AzCssProperty_BorderRightColor(v) { .BorderRightColor = { .tag = AzCssPropertyTag_BorderRightColor, .payload = v } }
-#define AzCssProperty_BorderLeftColor(v) { .BorderLeftColor = { .tag = AzCssPropertyTag_BorderLeftColor, .payload = v } }
-#define AzCssProperty_BorderBottomColor(v) { .BorderBottomColor = { .tag = AzCssPropertyTag_BorderBottomColor, .payload = v } }
-#define AzCssProperty_BorderTopStyle(v) { .BorderTopStyle = { .tag = AzCssPropertyTag_BorderTopStyle, .payload = v } }
-#define AzCssProperty_BorderRightStyle(v) { .BorderRightStyle = { .tag = AzCssPropertyTag_BorderRightStyle, .payload = v } }
-#define AzCssProperty_BorderLeftStyle(v) { .BorderLeftStyle = { .tag = AzCssPropertyTag_BorderLeftStyle, .payload = v } }
-#define AzCssProperty_BorderBottomStyle(v) { .BorderBottomStyle = { .tag = AzCssPropertyTag_BorderBottomStyle, .payload = v } }
-#define AzCssProperty_BorderTopWidth(v) { .BorderTopWidth = { .tag = AzCssPropertyTag_BorderTopWidth, .payload = v } }
-#define AzCssProperty_BorderRightWidth(v) { .BorderRightWidth = { .tag = AzCssPropertyTag_BorderRightWidth, .payload = v } }
-#define AzCssProperty_BorderLeftWidth(v) { .BorderLeftWidth = { .tag = AzCssPropertyTag_BorderLeftWidth, .payload = v } }
-#define AzCssProperty_BorderBottomWidth(v) { .BorderBottomWidth = { .tag = AzCssPropertyTag_BorderBottomWidth, .payload = v } }
-#define AzCssProperty_BoxShadowLeft(v) { .BoxShadowLeft = { .tag = AzCssPropertyTag_BoxShadowLeft, .payload = v } }
-#define AzCssProperty_BoxShadowRight(v) { .BoxShadowRight = { .tag = AzCssPropertyTag_BoxShadowRight, .payload = v } }
-#define AzCssProperty_BoxShadowTop(v) { .BoxShadowTop = { .tag = AzCssPropertyTag_BoxShadowTop, .payload = v } }
-#define AzCssProperty_BoxShadowBottom(v) { .BoxShadowBottom = { .tag = AzCssPropertyTag_BoxShadowBottom, .payload = v } }
-#define AzCssProperty_ScrollbarStyle(v) { .ScrollbarStyle = { .tag = AzCssPropertyTag_ScrollbarStyle, .payload = v } }
-#define AzCssProperty_Opacity(v) { .Opacity = { .tag = AzCssPropertyTag_Opacity, .payload = v } }
-#define AzCssProperty_Transform(v) { .Transform = { .tag = AzCssPropertyTag_Transform, .payload = v } }
-#define AzCssProperty_TransformOrigin(v) { .TransformOrigin = { .tag = AzCssPropertyTag_TransformOrigin, .payload = v } }
-#define AzCssProperty_PerspectiveOrigin(v) { .PerspectiveOrigin = { .tag = AzCssPropertyTag_PerspectiveOrigin, .payload = v } }
-#define AzCssProperty_BackfaceVisibility(v) { .BackfaceVisibility = { .tag = AzCssPropertyTag_BackfaceVisibility, .payload = v } }
 
 struct AzTextInputStateWrapper {
     AzTextInputState inner;
@@ -9675,8 +8802,6 @@ union AzCssPropertySource {
     AzCssPropertySourceVariant_Inline Inline;
 };
 typedef union AzCssPropertySource AzCssPropertySource;
-#define AzCssPropertySource_Css(v) { .Css = { .tag = AzCssPropertySourceTag_Css, .payload = v } }
-#define AzCssPropertySource_Inline { .Inline = { .tag = AzCssPropertySourceTag_Inline } }
 
 struct AzVertexLayout {
     AzVertexAttributeVec fields;
@@ -9752,8 +8877,6 @@ union AzOptionCssProperty {
     AzOptionCssPropertyVariant_Some Some;
 };
 typedef union AzOptionCssProperty AzOptionCssProperty;
-#define AzOptionCssProperty_None { .None = { .tag = AzOptionCssPropertyTag_None } }
-#define AzOptionCssProperty_Some(v) { .Some = { .tag = AzOptionCssPropertyTag_Some, .payload = v } }
 
 struct AzXmlTextError {
     AzXmlStreamError stream_error;
@@ -9885,10 +9008,6 @@ union AzNodeDataInlineCssProperty {
     AzNodeDataInlineCssPropertyVariant_Hover Hover;
 };
 typedef union AzNodeDataInlineCssProperty AzNodeDataInlineCssProperty;
-#define AzNodeDataInlineCssProperty_Normal(v) { .Normal = { .tag = AzNodeDataInlineCssPropertyTag_Normal, .payload = v } }
-#define AzNodeDataInlineCssProperty_Active(v) { .Active = { .tag = AzNodeDataInlineCssPropertyTag_Active, .payload = v } }
-#define AzNodeDataInlineCssProperty_Focus(v) { .Focus = { .tag = AzNodeDataInlineCssPropertyTag_Focus, .payload = v } }
-#define AzNodeDataInlineCssProperty_Hover(v) { .Hover = { .tag = AzNodeDataInlineCssPropertyTag_Hover, .payload = v } }
 
 struct AzDynamicCssProperty {
     AzString dynamic_id;
@@ -9923,11 +9042,6 @@ union AzSvgNode {
     AzSvgNodeVariant_Rect Rect;
 };
 typedef union AzSvgNode AzSvgNode;
-#define AzSvgNode_MultiPolygonCollection(v) { .MultiPolygonCollection = { .tag = AzSvgNodeTag_MultiPolygonCollection, .payload = v } }
-#define AzSvgNode_MultiPolygon(v) { .MultiPolygon = { .tag = AzSvgNodeTag_MultiPolygon, .payload = v } }
-#define AzSvgNode_Path(v) { .Path = { .tag = AzSvgNodeTag_Path, .payload = v } }
-#define AzSvgNode_Circle(v) { .Circle = { .tag = AzSvgNodeTag_Circle, .payload = v } }
-#define AzSvgNode_Rect(v) { .Rect = { .tag = AzSvgNodeTag_Rect, .payload = v } }
 
 struct AzSvgStyledNode {
     AzSvgNode geometry;
@@ -9958,8 +9072,6 @@ union AzOptionWindowState {
     AzOptionWindowStateVariant_Some Some;
 };
 typedef union AzOptionWindowState AzOptionWindowState;
-#define AzOptionWindowState_None { .None = { .tag = AzOptionWindowStateTag_None } }
-#define AzOptionWindowState_Some(v) { .Some = { .tag = AzOptionWindowStateTag_Some, .payload = v } }
 
 enum AzOptionInlineTextTag {
    AzOptionInlineTextTag_None,
@@ -9976,8 +9088,6 @@ union AzOptionInlineText {
     AzOptionInlineTextVariant_Some Some;
 };
 typedef union AzOptionInlineText AzOptionInlineText;
-#define AzOptionInlineText_None { .None = { .tag = AzOptionInlineTextTag_None } }
-#define AzOptionInlineText_Some(v) { .Some = { .tag = AzOptionInlineTextTag_Some, .payload = v } }
 
 enum AzXmlParseErrorTag {
    AzXmlParseErrorTag_InvalidDeclaration,
@@ -10026,16 +9136,6 @@ union AzXmlParseError {
     AzXmlParseErrorVariant_UnknownToken UnknownToken;
 };
 typedef union AzXmlParseError AzXmlParseError;
-#define AzXmlParseError_InvalidDeclaration(v) { .InvalidDeclaration = { .tag = AzXmlParseErrorTag_InvalidDeclaration, .payload = v } }
-#define AzXmlParseError_InvalidComment(v) { .InvalidComment = { .tag = AzXmlParseErrorTag_InvalidComment, .payload = v } }
-#define AzXmlParseError_InvalidPI(v) { .InvalidPI = { .tag = AzXmlParseErrorTag_InvalidPI, .payload = v } }
-#define AzXmlParseError_InvalidDoctype(v) { .InvalidDoctype = { .tag = AzXmlParseErrorTag_InvalidDoctype, .payload = v } }
-#define AzXmlParseError_InvalidEntity(v) { .InvalidEntity = { .tag = AzXmlParseErrorTag_InvalidEntity, .payload = v } }
-#define AzXmlParseError_InvalidElement(v) { .InvalidElement = { .tag = AzXmlParseErrorTag_InvalidElement, .payload = v } }
-#define AzXmlParseError_InvalidAttribute(v) { .InvalidAttribute = { .tag = AzXmlParseErrorTag_InvalidAttribute, .payload = v } }
-#define AzXmlParseError_InvalidCdata(v) { .InvalidCdata = { .tag = AzXmlParseErrorTag_InvalidCdata, .payload = v } }
-#define AzXmlParseError_InvalidCharData(v) { .InvalidCharData = { .tag = AzXmlParseErrorTag_InvalidCharData, .payload = v } }
-#define AzXmlParseError_UnknownToken(v) { .UnknownToken = { .tag = AzXmlParseErrorTag_UnknownToken, .payload = v } }
 
 struct AzWindowCreateOptions {
     AzWindowState state;
@@ -10082,13 +9182,6 @@ union AzFocusTarget {
     AzFocusTargetVariant_NoFocus NoFocus;
 };
 typedef union AzFocusTarget AzFocusTarget;
-#define AzFocusTarget_Id(v) { .Id = { .tag = AzFocusTargetTag_Id, .payload = v } }
-#define AzFocusTarget_Path(v) { .Path = { .tag = AzFocusTargetTag_Path, .payload = v } }
-#define AzFocusTarget_Previous { .Previous = { .tag = AzFocusTargetTag_Previous } }
-#define AzFocusTarget_Next { .Next = { .tag = AzFocusTargetTag_Next } }
-#define AzFocusTarget_First { .First = { .tag = AzFocusTargetTag_First } }
-#define AzFocusTarget_Last { .Last = { .tag = AzFocusTargetTag_Last } }
-#define AzFocusTarget_NoFocus { .NoFocus = { .tag = AzFocusTargetTag_NoFocus } }
 
 struct AzNodeData {
     AzNodeType node_type;
@@ -10115,8 +9208,6 @@ union AzCssDeclaration {
     AzCssDeclarationVariant_Dynamic Dynamic;
 };
 typedef union AzCssDeclaration AzCssDeclaration;
-#define AzCssDeclaration_Static(v) { .Static = { .tag = AzCssDeclarationTag_Static, .payload = v } }
-#define AzCssDeclaration_Dynamic(v) { .Dynamic = { .tag = AzCssDeclarationTag_Dynamic, .payload = v } }
 
 struct AzButton {
     AzString label;
@@ -10248,22 +9339,6 @@ union AzXmlError {
     AzXmlErrorVariant_ParserError ParserError;
 };
 typedef union AzXmlError AzXmlError;
-#define AzXmlError_InvalidXmlPrefixUri(v) { .InvalidXmlPrefixUri = { .tag = AzXmlErrorTag_InvalidXmlPrefixUri, .payload = v } }
-#define AzXmlError_UnexpectedXmlUri(v) { .UnexpectedXmlUri = { .tag = AzXmlErrorTag_UnexpectedXmlUri, .payload = v } }
-#define AzXmlError_UnexpectedXmlnsUri(v) { .UnexpectedXmlnsUri = { .tag = AzXmlErrorTag_UnexpectedXmlnsUri, .payload = v } }
-#define AzXmlError_InvalidElementNamePrefix(v) { .InvalidElementNamePrefix = { .tag = AzXmlErrorTag_InvalidElementNamePrefix, .payload = v } }
-#define AzXmlError_DuplicatedNamespace(v) { .DuplicatedNamespace = { .tag = AzXmlErrorTag_DuplicatedNamespace, .payload = v } }
-#define AzXmlError_UnknownNamespace(v) { .UnknownNamespace = { .tag = AzXmlErrorTag_UnknownNamespace, .payload = v } }
-#define AzXmlError_UnexpectedCloseTag(v) { .UnexpectedCloseTag = { .tag = AzXmlErrorTag_UnexpectedCloseTag, .payload = v } }
-#define AzXmlError_UnexpectedEntityCloseTag(v) { .UnexpectedEntityCloseTag = { .tag = AzXmlErrorTag_UnexpectedEntityCloseTag, .payload = v } }
-#define AzXmlError_UnknownEntityReference(v) { .UnknownEntityReference = { .tag = AzXmlErrorTag_UnknownEntityReference, .payload = v } }
-#define AzXmlError_MalformedEntityReference(v) { .MalformedEntityReference = { .tag = AzXmlErrorTag_MalformedEntityReference, .payload = v } }
-#define AzXmlError_EntityReferenceLoop(v) { .EntityReferenceLoop = { .tag = AzXmlErrorTag_EntityReferenceLoop, .payload = v } }
-#define AzXmlError_InvalidAttributeValue(v) { .InvalidAttributeValue = { .tag = AzXmlErrorTag_InvalidAttributeValue, .payload = v } }
-#define AzXmlError_DuplicatedAttribute(v) { .DuplicatedAttribute = { .tag = AzXmlErrorTag_DuplicatedAttribute, .payload = v } }
-#define AzXmlError_NoRootNode { .NoRootNode = { .tag = AzXmlErrorTag_NoRootNode } }
-#define AzXmlError_SizeLimit { .SizeLimit = { .tag = AzXmlErrorTag_SizeLimit } }
-#define AzXmlError_ParserError(v) { .ParserError = { .tag = AzXmlErrorTag_ParserError, .payload = v } }
 
 struct AzDom {
     AzNodeData root;
@@ -10316,8 +9391,6 @@ union AzOptionDom {
     AzOptionDomVariant_Some Some;
 };
 typedef union AzOptionDom AzOptionDom;
-#define AzOptionDom_None { .None = { .tag = AzOptionDomTag_None } }
-#define AzOptionDom_Some(v) { .Some = { .tag = AzOptionDomTag_Some, .payload = v } }
 
 enum AzResultXmlXmlErrorTag {
    AzResultXmlXmlErrorTag_Ok,
@@ -10334,8 +9407,6 @@ union AzResultXmlXmlError {
     AzResultXmlXmlErrorVariant_Err Err;
 };
 typedef union AzResultXmlXmlError AzResultXmlXmlError;
-#define AzResultXmlXmlError_Ok(v) { .Ok = { .tag = AzResultXmlXmlErrorTag_Ok, .payload = v } }
-#define AzResultXmlXmlError_Err(v) { .Err = { .tag = AzResultXmlXmlErrorTag_Err, .payload = v } }
 
 enum AzSvgParseErrorTag {
    AzSvgParseErrorTag_InvalidFileSuffix,
@@ -10368,12 +9439,6 @@ union AzSvgParseError {
     AzSvgParseErrorVariant_ParsingFailed ParsingFailed;
 };
 typedef union AzSvgParseError AzSvgParseError;
-#define AzSvgParseError_InvalidFileSuffix { .InvalidFileSuffix = { .tag = AzSvgParseErrorTag_InvalidFileSuffix } }
-#define AzSvgParseError_FileOpenFailed { .FileOpenFailed = { .tag = AzSvgParseErrorTag_FileOpenFailed } }
-#define AzSvgParseError_NotAnUtf8Str { .NotAnUtf8Str = { .tag = AzSvgParseErrorTag_NotAnUtf8Str } }
-#define AzSvgParseError_MalformedGZip { .MalformedGZip = { .tag = AzSvgParseErrorTag_MalformedGZip } }
-#define AzSvgParseError_InvalidSize { .InvalidSize = { .tag = AzSvgParseErrorTag_InvalidSize } }
-#define AzSvgParseError_ParsingFailed(v) { .ParsingFailed = { .tag = AzSvgParseErrorTag_ParsingFailed, .payload = v } }
 
 struct AzIFrameCallbackReturn {
     AzStyledDom dom;
@@ -10412,8 +9477,6 @@ union AzResultSvgXmlNodeSvgParseError {
     AzResultSvgXmlNodeSvgParseErrorVariant_Err Err;
 };
 typedef union AzResultSvgXmlNodeSvgParseError AzResultSvgXmlNodeSvgParseError;
-#define AzResultSvgXmlNodeSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Ok, .payload = v } }
-#define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
 
 enum AzResultSvgSvgParseErrorTag {
    AzResultSvgSvgParseErrorTag_Ok,
@@ -10430,14 +9493,951 @@ union AzResultSvgSvgParseError {
     AzResultSvgSvgParseErrorVariant_Err Err;
 };
 typedef union AzResultSvgSvgParseError AzResultSvgSvgParseError;
-#define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
-#define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
 
 struct AzCss {
     AzStylesheetVec stylesheets;
 };
 typedef struct AzCss AzCss;
 
+#define AzAnimationRepeatCount_Times(v) { .Times = { .tag = AzAnimationRepeatCountTag_Times, .payload = v } }
+#define AzAnimationRepeatCount_Infinite { .Infinite = { .tag = AzAnimationRepeatCountTag_Infinite } }
+#define AzTabIndex_Auto { .Auto = { .tag = AzTabIndexTag_Auto } }
+#define AzTabIndex_OverrideInParent(v) { .OverrideInParent = { .tag = AzTabIndexTag_OverrideInParent, .payload = v } }
+#define AzTabIndex_NoKeyboardFocus { .NoKeyboardFocus = { .tag = AzTabIndexTag_NoKeyboardFocus } }
+#define AzIndent_None { .None = { .tag = AzIndentTag_None } }
+#define AzIndent_Spaces(v) { .Spaces = { .tag = AzIndentTag_Spaces, .payload = v } }
+#define AzIndent_Tabs { .Tabs = { .tag = AzIndentTag_Tabs } }
+#define AzSvgFitTo_Original { .Original = { .tag = AzSvgFitToTag_Original } }
+#define AzSvgFitTo_Width(v) { .Width = { .tag = AzSvgFitToTag_Width, .payload = v } }
+#define AzSvgFitTo_Height(v) { .Height = { .tag = AzSvgFitToTag_Height, .payload = v } }
+#define AzSvgFitTo_Zoom(v) { .Zoom = { .tag = AzSvgFitToTag_Zoom, .payload = v } }
+#define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
+#define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
+#define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+#define AzAccessibilityStateVecDestructor_DefaultRust { .DefaultRust = { .tag = AzAccessibilityStateVecDestructorTag_DefaultRust } }
+#define AzAccessibilityStateVecDestructor_NoDestructor { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor } }
+#define AzAccessibilityStateVecDestructor_External(v) { .External = { .tag = AzAccessibilityStateVecDestructorTag_External, .payload = v } }
+#define AzMenuItemVecDestructor_DefaultRust { .DefaultRust = { .tag = AzMenuItemVecDestructorTag_DefaultRust } }
+#define AzMenuItemVecDestructor_NoDestructor { .NoDestructor = { .tag = AzMenuItemVecDestructorTag_NoDestructor } }
+#define AzMenuItemVecDestructor_External(v) { .External = { .tag = AzMenuItemVecDestructorTag_External, .payload = v } }
+#define AzTesselatedSvgNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTesselatedSvgNodeVecDestructorTag_DefaultRust } }
+#define AzTesselatedSvgNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTesselatedSvgNodeVecDestructorTag_NoDestructor } }
+#define AzTesselatedSvgNodeVecDestructor_External(v) { .External = { .tag = AzTesselatedSvgNodeVecDestructorTag_External, .payload = v } }
+#define AzXmlNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzXmlNodeVecDestructorTag_DefaultRust } }
+#define AzXmlNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzXmlNodeVecDestructorTag_NoDestructor } }
+#define AzXmlNodeVecDestructor_External(v) { .External = { .tag = AzXmlNodeVecDestructorTag_External, .payload = v } }
+#define AzFmtArgVecDestructor_DefaultRust { .DefaultRust = { .tag = AzFmtArgVecDestructorTag_DefaultRust } }
+#define AzFmtArgVecDestructor_NoDestructor { .NoDestructor = { .tag = AzFmtArgVecDestructorTag_NoDestructor } }
+#define AzFmtArgVecDestructor_External(v) { .External = { .tag = AzFmtArgVecDestructorTag_External, .payload = v } }
+#define AzInlineLineVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineLineVecDestructorTag_DefaultRust } }
+#define AzInlineLineVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineLineVecDestructorTag_NoDestructor } }
+#define AzInlineLineVecDestructor_External(v) { .External = { .tag = AzInlineLineVecDestructorTag_External, .payload = v } }
+#define AzInlineWordVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineWordVecDestructorTag_DefaultRust } }
+#define AzInlineWordVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineWordVecDestructorTag_NoDestructor } }
+#define AzInlineWordVecDestructor_External(v) { .External = { .tag = AzInlineWordVecDestructorTag_External, .payload = v } }
+#define AzInlineGlyphVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineGlyphVecDestructorTag_DefaultRust } }
+#define AzInlineGlyphVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineGlyphVecDestructorTag_NoDestructor } }
+#define AzInlineGlyphVecDestructor_External(v) { .External = { .tag = AzInlineGlyphVecDestructorTag_External, .payload = v } }
+#define AzInlineTextHitVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInlineTextHitVecDestructorTag_DefaultRust } }
+#define AzInlineTextHitVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInlineTextHitVecDestructorTag_NoDestructor } }
+#define AzInlineTextHitVecDestructor_External(v) { .External = { .tag = AzInlineTextHitVecDestructorTag_External, .payload = v } }
+#define AzMonitorVecDestructor_DefaultRust { .DefaultRust = { .tag = AzMonitorVecDestructorTag_DefaultRust } }
+#define AzMonitorVecDestructor_NoDestructor { .NoDestructor = { .tag = AzMonitorVecDestructorTag_NoDestructor } }
+#define AzMonitorVecDestructor_External(v) { .External = { .tag = AzMonitorVecDestructorTag_External, .payload = v } }
+#define AzVideoModeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzVideoModeVecDestructorTag_DefaultRust } }
+#define AzVideoModeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzVideoModeVecDestructorTag_NoDestructor } }
+#define AzVideoModeVecDestructor_External(v) { .External = { .tag = AzVideoModeVecDestructorTag_External, .payload = v } }
+#define AzDomVecDestructor_DefaultRust { .DefaultRust = { .tag = AzDomVecDestructorTag_DefaultRust } }
+#define AzDomVecDestructor_NoDestructor { .NoDestructor = { .tag = AzDomVecDestructorTag_NoDestructor } }
+#define AzDomVecDestructor_External(v) { .External = { .tag = AzDomVecDestructorTag_External, .payload = v } }
+#define AzIdOrClassVecDestructor_DefaultRust { .DefaultRust = { .tag = AzIdOrClassVecDestructorTag_DefaultRust } }
+#define AzIdOrClassVecDestructor_NoDestructor { .NoDestructor = { .tag = AzIdOrClassVecDestructorTag_NoDestructor } }
+#define AzIdOrClassVecDestructor_External(v) { .External = { .tag = AzIdOrClassVecDestructorTag_External, .payload = v } }
+#define AzNodeDataInlineCssPropertyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_DefaultRust } }
+#define AzNodeDataInlineCssPropertyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_NoDestructor } }
+#define AzNodeDataInlineCssPropertyVecDestructor_External(v) { .External = { .tag = AzNodeDataInlineCssPropertyVecDestructorTag_External, .payload = v } }
+#define AzStyleBackgroundContentVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundContentVecDestructorTag_DefaultRust } }
+#define AzStyleBackgroundContentVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundContentVecDestructorTag_NoDestructor } }
+#define AzStyleBackgroundContentVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundContentVecDestructorTag_External, .payload = v } }
+#define AzStyleBackgroundPositionVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundPositionVecDestructorTag_DefaultRust } }
+#define AzStyleBackgroundPositionVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundPositionVecDestructorTag_NoDestructor } }
+#define AzStyleBackgroundPositionVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundPositionVecDestructorTag_External, .payload = v } }
+#define AzStyleBackgroundRepeatVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundRepeatVecDestructorTag_DefaultRust } }
+#define AzStyleBackgroundRepeatVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundRepeatVecDestructorTag_NoDestructor } }
+#define AzStyleBackgroundRepeatVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundRepeatVecDestructorTag_External, .payload = v } }
+#define AzStyleBackgroundSizeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleBackgroundSizeVecDestructorTag_DefaultRust } }
+#define AzStyleBackgroundSizeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleBackgroundSizeVecDestructorTag_NoDestructor } }
+#define AzStyleBackgroundSizeVecDestructor_External(v) { .External = { .tag = AzStyleBackgroundSizeVecDestructorTag_External, .payload = v } }
+#define AzStyleTransformVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleTransformVecDestructorTag_DefaultRust } }
+#define AzStyleTransformVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleTransformVecDestructorTag_NoDestructor } }
+#define AzStyleTransformVecDestructor_External(v) { .External = { .tag = AzStyleTransformVecDestructorTag_External, .payload = v } }
+#define AzCssPropertyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssPropertyVecDestructorTag_DefaultRust } }
+#define AzCssPropertyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssPropertyVecDestructorTag_NoDestructor } }
+#define AzCssPropertyVecDestructor_External(v) { .External = { .tag = AzCssPropertyVecDestructorTag_External, .payload = v } }
+#define AzSvgMultiPolygonVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgMultiPolygonVecDestructorTag_DefaultRust } }
+#define AzSvgMultiPolygonVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor } }
+#define AzSvgMultiPolygonVecDestructor_External(v) { .External = { .tag = AzSvgMultiPolygonVecDestructorTag_External, .payload = v } }
+#define AzSvgPathVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgPathVecDestructorTag_DefaultRust } }
+#define AzSvgPathVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgPathVecDestructorTag_NoDestructor } }
+#define AzSvgPathVecDestructor_External(v) { .External = { .tag = AzSvgPathVecDestructorTag_External, .payload = v } }
+#define AzVertexAttributeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzVertexAttributeVecDestructorTag_DefaultRust } }
+#define AzVertexAttributeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzVertexAttributeVecDestructorTag_NoDestructor } }
+#define AzVertexAttributeVecDestructor_External(v) { .External = { .tag = AzVertexAttributeVecDestructorTag_External, .payload = v } }
+#define AzSvgPathElementVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgPathElementVecDestructorTag_DefaultRust } }
+#define AzSvgPathElementVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgPathElementVecDestructorTag_NoDestructor } }
+#define AzSvgPathElementVecDestructor_External(v) { .External = { .tag = AzSvgPathElementVecDestructorTag_External, .payload = v } }
+#define AzSvgVertexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgVertexVecDestructorTag_DefaultRust } }
+#define AzSvgVertexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor } }
+#define AzSvgVertexVecDestructor_External(v) { .External = { .tag = AzSvgVertexVecDestructorTag_External, .payload = v } }
+#define AzU32VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU32VecDestructorTag_DefaultRust } }
+#define AzU32VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor } }
+#define AzU32VecDestructor_External(v) { .External = { .tag = AzU32VecDestructorTag_External, .payload = v } }
+#define AzXWindowTypeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzXWindowTypeVecDestructorTag_DefaultRust } }
+#define AzXWindowTypeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzXWindowTypeVecDestructorTag_NoDestructor } }
+#define AzXWindowTypeVecDestructor_External(v) { .External = { .tag = AzXWindowTypeVecDestructorTag_External, .payload = v } }
+#define AzVirtualKeyCodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzVirtualKeyCodeVecDestructorTag_DefaultRust } }
+#define AzVirtualKeyCodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzVirtualKeyCodeVecDestructorTag_NoDestructor } }
+#define AzVirtualKeyCodeVecDestructor_External(v) { .External = { .tag = AzVirtualKeyCodeVecDestructorTag_External, .payload = v } }
+#define AzCascadeInfoVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCascadeInfoVecDestructorTag_DefaultRust } }
+#define AzCascadeInfoVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCascadeInfoVecDestructorTag_NoDestructor } }
+#define AzCascadeInfoVecDestructor_External(v) { .External = { .tag = AzCascadeInfoVecDestructorTag_External, .payload = v } }
+#define AzScanCodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzScanCodeVecDestructorTag_DefaultRust } }
+#define AzScanCodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzScanCodeVecDestructorTag_NoDestructor } }
+#define AzScanCodeVecDestructor_External(v) { .External = { .tag = AzScanCodeVecDestructorTag_External, .payload = v } }
+#define AzCssDeclarationVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssDeclarationVecDestructorTag_DefaultRust } }
+#define AzCssDeclarationVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssDeclarationVecDestructorTag_NoDestructor } }
+#define AzCssDeclarationVecDestructor_External(v) { .External = { .tag = AzCssDeclarationVecDestructorTag_External, .payload = v } }
+#define AzCssPathSelectorVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssPathSelectorVecDestructorTag_DefaultRust } }
+#define AzCssPathSelectorVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssPathSelectorVecDestructorTag_NoDestructor } }
+#define AzCssPathSelectorVecDestructor_External(v) { .External = { .tag = AzCssPathSelectorVecDestructorTag_External, .payload = v } }
+#define AzStylesheetVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStylesheetVecDestructorTag_DefaultRust } }
+#define AzStylesheetVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStylesheetVecDestructorTag_NoDestructor } }
+#define AzStylesheetVecDestructor_External(v) { .External = { .tag = AzStylesheetVecDestructorTag_External, .payload = v } }
+#define AzCssRuleBlockVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCssRuleBlockVecDestructorTag_DefaultRust } }
+#define AzCssRuleBlockVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCssRuleBlockVecDestructorTag_NoDestructor } }
+#define AzCssRuleBlockVecDestructor_External(v) { .External = { .tag = AzCssRuleBlockVecDestructorTag_External, .payload = v } }
+#define AzF32VecDestructor_DefaultRust { .DefaultRust = { .tag = AzF32VecDestructorTag_DefaultRust } }
+#define AzF32VecDestructor_NoDestructor { .NoDestructor = { .tag = AzF32VecDestructorTag_NoDestructor } }
+#define AzF32VecDestructor_External(v) { .External = { .tag = AzF32VecDestructorTag_External, .payload = v } }
+#define AzU16VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU16VecDestructorTag_DefaultRust } }
+#define AzU16VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU16VecDestructorTag_NoDestructor } }
+#define AzU16VecDestructor_External(v) { .External = { .tag = AzU16VecDestructorTag_External, .payload = v } }
+#define AzU8VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU8VecDestructorTag_DefaultRust } }
+#define AzU8VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU8VecDestructorTag_NoDestructor } }
+#define AzU8VecDestructor_External(v) { .External = { .tag = AzU8VecDestructorTag_External, .payload = v } }
+#define AzCallbackDataVecDestructor_DefaultRust { .DefaultRust = { .tag = AzCallbackDataVecDestructorTag_DefaultRust } }
+#define AzCallbackDataVecDestructor_NoDestructor { .NoDestructor = { .tag = AzCallbackDataVecDestructorTag_NoDestructor } }
+#define AzCallbackDataVecDestructor_External(v) { .External = { .tag = AzCallbackDataVecDestructorTag_External, .payload = v } }
+#define AzDebugMessageVecDestructor_DefaultRust { .DefaultRust = { .tag = AzDebugMessageVecDestructorTag_DefaultRust } }
+#define AzDebugMessageVecDestructor_NoDestructor { .NoDestructor = { .tag = AzDebugMessageVecDestructorTag_NoDestructor } }
+#define AzDebugMessageVecDestructor_External(v) { .External = { .tag = AzDebugMessageVecDestructorTag_External, .payload = v } }
+#define AzGLuintVecDestructor_DefaultRust { .DefaultRust = { .tag = AzGLuintVecDestructorTag_DefaultRust } }
+#define AzGLuintVecDestructor_NoDestructor { .NoDestructor = { .tag = AzGLuintVecDestructorTag_NoDestructor } }
+#define AzGLuintVecDestructor_External(v) { .External = { .tag = AzGLuintVecDestructorTag_External, .payload = v } }
+#define AzGLintVecDestructor_DefaultRust { .DefaultRust = { .tag = AzGLintVecDestructorTag_DefaultRust } }
+#define AzGLintVecDestructor_NoDestructor { .NoDestructor = { .tag = AzGLintVecDestructorTag_NoDestructor } }
+#define AzGLintVecDestructor_External(v) { .External = { .tag = AzGLintVecDestructorTag_External, .payload = v } }
+#define AzStringVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStringVecDestructorTag_DefaultRust } }
+#define AzStringVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStringVecDestructorTag_NoDestructor } }
+#define AzStringVecDestructor_External(v) { .External = { .tag = AzStringVecDestructorTag_External, .payload = v } }
+#define AzStringPairVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStringPairVecDestructorTag_DefaultRust } }
+#define AzStringPairVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStringPairVecDestructorTag_NoDestructor } }
+#define AzStringPairVecDestructor_External(v) { .External = { .tag = AzStringPairVecDestructorTag_External, .payload = v } }
+#define AzNormalizedLinearColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNormalizedLinearColorStopVecDestructorTag_DefaultRust } }
+#define AzNormalizedLinearColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNormalizedLinearColorStopVecDestructorTag_NoDestructor } }
+#define AzNormalizedLinearColorStopVecDestructor_External(v) { .External = { .tag = AzNormalizedLinearColorStopVecDestructorTag_External, .payload = v } }
+#define AzNormalizedRadialColorStopVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNormalizedRadialColorStopVecDestructorTag_DefaultRust } }
+#define AzNormalizedRadialColorStopVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNormalizedRadialColorStopVecDestructorTag_NoDestructor } }
+#define AzNormalizedRadialColorStopVecDestructor_External(v) { .External = { .tag = AzNormalizedRadialColorStopVecDestructorTag_External, .payload = v } }
+#define AzNodeIdVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeIdVecDestructorTag_DefaultRust } }
+#define AzNodeIdVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor } }
+#define AzNodeIdVecDestructor_External(v) { .External = { .tag = AzNodeIdVecDestructorTag_External, .payload = v } }
+#define AzNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeVecDestructorTag_DefaultRust } }
+#define AzNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor } }
+#define AzNodeVecDestructor_External(v) { .External = { .tag = AzNodeVecDestructorTag_External, .payload = v } }
+#define AzStyledNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyledNodeVecDestructorTag_DefaultRust } }
+#define AzStyledNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor } }
+#define AzStyledNodeVecDestructor_External(v) { .External = { .tag = AzStyledNodeVecDestructorTag_External, .payload = v } }
+#define AzTagIdToNodeIdMappingVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_DefaultRust } }
+#define AzTagIdToNodeIdMappingVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_NoDestructor } }
+#define AzTagIdToNodeIdMappingVecDestructor_External(v) { .External = { .tag = AzTagIdToNodeIdMappingVecDestructorTag_External, .payload = v } }
+#define AzParentWithNodeDepthVecDestructor_DefaultRust { .DefaultRust = { .tag = AzParentWithNodeDepthVecDestructorTag_DefaultRust } }
+#define AzParentWithNodeDepthVecDestructor_NoDestructor { .NoDestructor = { .tag = AzParentWithNodeDepthVecDestructorTag_NoDestructor } }
+#define AzParentWithNodeDepthVecDestructor_External(v) { .External = { .tag = AzParentWithNodeDepthVecDestructorTag_External, .payload = v } }
+#define AzNodeDataVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeDataVecDestructorTag_DefaultRust } }
+#define AzNodeDataVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeDataVecDestructorTag_NoDestructor } }
+#define AzNodeDataVecDestructor_External(v) { .External = { .tag = AzNodeDataVecDestructorTag_External, .payload = v } }
+#define AzOptionI16_None { .None = { .tag = AzOptionI16Tag_None } }
+#define AzOptionI16_Some(v) { .Some = { .tag = AzOptionI16Tag_Some, .payload = v } }
+#define AzOptionU16_None { .None = { .tag = AzOptionU16Tag_None } }
+#define AzOptionU16_Some(v) { .Some = { .tag = AzOptionU16Tag_Some, .payload = v } }
+#define AzOptionU32_None { .None = { .tag = AzOptionU32Tag_None } }
+#define AzOptionU32_Some(v) { .Some = { .tag = AzOptionU32Tag_Some, .payload = v } }
+#define AzOptionHwndHandle_None { .None = { .tag = AzOptionHwndHandleTag_None } }
+#define AzOptionHwndHandle_Some(v) { .Some = { .tag = AzOptionHwndHandleTag_Some, .payload = v } }
+#define AzOptionX11Visual_None { .None = { .tag = AzOptionX11VisualTag_None } }
+#define AzOptionX11Visual_Some(v) { .Some = { .tag = AzOptionX11VisualTag_Some, .payload = v } }
+#define AzOptionI32_None { .None = { .tag = AzOptionI32Tag_None } }
+#define AzOptionI32_Some(v) { .Some = { .tag = AzOptionI32Tag_Some, .payload = v } }
+#define AzOptionF32_None { .None = { .tag = AzOptionF32Tag_None } }
+#define AzOptionF32_Some(v) { .Some = { .tag = AzOptionF32Tag_Some, .payload = v } }
+#define AzOptionChar_None { .None = { .tag = AzOptionCharTag_None } }
+#define AzOptionChar_Some(v) { .Some = { .tag = AzOptionCharTag_Some, .payload = v } }
+#define AzOptionUsize_None { .None = { .tag = AzOptionUsizeTag_None } }
+#define AzOptionUsize_Some(v) { .Some = { .tag = AzOptionUsizeTag_Some, .payload = v } }
+#define AzRawWindowHandle_IOS(v) { .IOS = { .tag = AzRawWindowHandleTag_IOS, .payload = v } }
+#define AzRawWindowHandle_MacOS(v) { .MacOS = { .tag = AzRawWindowHandleTag_MacOS, .payload = v } }
+#define AzRawWindowHandle_Xlib(v) { .Xlib = { .tag = AzRawWindowHandleTag_Xlib, .payload = v } }
+#define AzRawWindowHandle_Xcb(v) { .Xcb = { .tag = AzRawWindowHandleTag_Xcb, .payload = v } }
+#define AzRawWindowHandle_Wayland(v) { .Wayland = { .tag = AzRawWindowHandleTag_Wayland, .payload = v } }
+#define AzRawWindowHandle_Windows(v) { .Windows = { .tag = AzRawWindowHandleTag_Windows, .payload = v } }
+#define AzRawWindowHandle_Web(v) { .Web = { .tag = AzRawWindowHandleTag_Web, .payload = v } }
+#define AzRawWindowHandle_Android(v) { .Android = { .tag = AzRawWindowHandleTag_Android, .payload = v } }
+#define AzRawWindowHandle_Unsupported { .Unsupported = { .tag = AzRawWindowHandleTag_Unsupported } }
+#define AzAcceleratorKey_Ctrl { .Ctrl = { .tag = AzAcceleratorKeyTag_Ctrl } }
+#define AzAcceleratorKey_Alt { .Alt = { .tag = AzAcceleratorKeyTag_Alt } }
+#define AzAcceleratorKey_Shift { .Shift = { .tag = AzAcceleratorKeyTag_Shift } }
+#define AzAcceleratorKey_Key(v) { .Key = { .tag = AzAcceleratorKeyTag_Key, .payload = v } }
+#define AzCursorPosition_OutOfWindow { .OutOfWindow = { .tag = AzCursorPositionTag_OutOfWindow } }
+#define AzCursorPosition_Uninitialized { .Uninitialized = { .tag = AzCursorPositionTag_Uninitialized } }
+#define AzCursorPosition_InWindow(v) { .InWindow = { .tag = AzCursorPositionTag_InWindow, .payload = v } }
+#define AzWindowPosition_Uninitialized { .Uninitialized = { .tag = AzWindowPositionTag_Uninitialized } }
+#define AzWindowPosition_Initialized(v) { .Initialized = { .tag = AzWindowPositionTag_Initialized, .payload = v } }
+#define AzImePosition_Uninitialized { .Uninitialized = { .tag = AzImePositionTag_Uninitialized } }
+#define AzImePosition_Initialized(v) { .Initialized = { .tag = AzImePositionTag_Initialized, .payload = v } }
+#define AzPositionInfo_Static(v) { .Static = { .tag = AzPositionInfoTag_Static, .payload = v } }
+#define AzPositionInfo_Fixed(v) { .Fixed = { .tag = AzPositionInfoTag_Fixed, .payload = v } }
+#define AzPositionInfo_Absolute(v) { .Absolute = { .tag = AzPositionInfoTag_Absolute, .payload = v } }
+#define AzPositionInfo_Relative(v) { .Relative = { .tag = AzPositionInfoTag_Relative, .payload = v } }
+#define AzNotEventFilter_Hover(v) { .Hover = { .tag = AzNotEventFilterTag_Hover, .payload = v } }
+#define AzNotEventFilter_Focus(v) { .Focus = { .tag = AzNotEventFilterTag_Focus, .payload = v } }
+#define AzMenuItemIcon_Checkbox(v) { .Checkbox = { .tag = AzMenuItemIconTag_Checkbox, .payload = v } }
+#define AzMenuItemIcon_Image(v) { .Image = { .tag = AzMenuItemIconTag_Image, .payload = v } }
+#define AzCssNthChildSelector_Number(v) { .Number = { .tag = AzCssNthChildSelectorTag_Number, .payload = v } }
+#define AzCssNthChildSelector_Even { .Even = { .tag = AzCssNthChildSelectorTag_Even } }
+#define AzCssNthChildSelector_Odd { .Odd = { .tag = AzCssNthChildSelectorTag_Odd } }
+#define AzCssNthChildSelector_Pattern(v) { .Pattern = { .tag = AzCssNthChildSelectorTag_Pattern, .payload = v } }
+#define AzDirection_Angle(v) { .Angle = { .tag = AzDirectionTag_Angle, .payload = v } }
+#define AzDirection_FromTo(v) { .FromTo = { .tag = AzDirectionTag_FromTo, .payload = v } }
+#define AzBackgroundPositionHorizontal_Left { .Left = { .tag = AzBackgroundPositionHorizontalTag_Left } }
+#define AzBackgroundPositionHorizontal_Center { .Center = { .tag = AzBackgroundPositionHorizontalTag_Center } }
+#define AzBackgroundPositionHorizontal_Right { .Right = { .tag = AzBackgroundPositionHorizontalTag_Right } }
+#define AzBackgroundPositionHorizontal_Exact(v) { .Exact = { .tag = AzBackgroundPositionHorizontalTag_Exact, .payload = v } }
+#define AzBackgroundPositionVertical_Top { .Top = { .tag = AzBackgroundPositionVerticalTag_Top } }
+#define AzBackgroundPositionVertical_Center { .Center = { .tag = AzBackgroundPositionVerticalTag_Center } }
+#define AzBackgroundPositionVertical_Bottom { .Bottom = { .tag = AzBackgroundPositionVerticalTag_Bottom } }
+#define AzBackgroundPositionVertical_Exact(v) { .Exact = { .tag = AzBackgroundPositionVerticalTag_Exact, .payload = v } }
+#define AzStyleBackgroundSize_ExactSize(v) { .ExactSize = { .tag = AzStyleBackgroundSizeTag_ExactSize, .payload = v } }
+#define AzStyleBackgroundSize_Contain { .Contain = { .tag = AzStyleBackgroundSizeTag_Contain } }
+#define AzStyleBackgroundSize_Cover { .Cover = { .tag = AzStyleBackgroundSizeTag_Cover } }
+#define AzStyleBoxShadowValue_Auto { .Auto = { .tag = AzStyleBoxShadowValueTag_Auto } }
+#define AzStyleBoxShadowValue_None { .None = { .tag = AzStyleBoxShadowValueTag_None } }
+#define AzStyleBoxShadowValue_Inherit { .Inherit = { .tag = AzStyleBoxShadowValueTag_Inherit } }
+#define AzStyleBoxShadowValue_Initial { .Initial = { .tag = AzStyleBoxShadowValueTag_Initial } }
+#define AzStyleBoxShadowValue_Exact(v) { .Exact = { .tag = AzStyleBoxShadowValueTag_Exact, .payload = v } }
+#define AzLayoutAlignContentValue_Auto { .Auto = { .tag = AzLayoutAlignContentValueTag_Auto } }
+#define AzLayoutAlignContentValue_None { .None = { .tag = AzLayoutAlignContentValueTag_None } }
+#define AzLayoutAlignContentValue_Inherit { .Inherit = { .tag = AzLayoutAlignContentValueTag_Inherit } }
+#define AzLayoutAlignContentValue_Initial { .Initial = { .tag = AzLayoutAlignContentValueTag_Initial } }
+#define AzLayoutAlignContentValue_Exact(v) { .Exact = { .tag = AzLayoutAlignContentValueTag_Exact, .payload = v } }
+#define AzLayoutAlignItemsValue_Auto { .Auto = { .tag = AzLayoutAlignItemsValueTag_Auto } }
+#define AzLayoutAlignItemsValue_None { .None = { .tag = AzLayoutAlignItemsValueTag_None } }
+#define AzLayoutAlignItemsValue_Inherit { .Inherit = { .tag = AzLayoutAlignItemsValueTag_Inherit } }
+#define AzLayoutAlignItemsValue_Initial { .Initial = { .tag = AzLayoutAlignItemsValueTag_Initial } }
+#define AzLayoutAlignItemsValue_Exact(v) { .Exact = { .tag = AzLayoutAlignItemsValueTag_Exact, .payload = v } }
+#define AzLayoutBottomValue_Auto { .Auto = { .tag = AzLayoutBottomValueTag_Auto } }
+#define AzLayoutBottomValue_None { .None = { .tag = AzLayoutBottomValueTag_None } }
+#define AzLayoutBottomValue_Inherit { .Inherit = { .tag = AzLayoutBottomValueTag_Inherit } }
+#define AzLayoutBottomValue_Initial { .Initial = { .tag = AzLayoutBottomValueTag_Initial } }
+#define AzLayoutBottomValue_Exact(v) { .Exact = { .tag = AzLayoutBottomValueTag_Exact, .payload = v } }
+#define AzLayoutBoxSizingValue_Auto { .Auto = { .tag = AzLayoutBoxSizingValueTag_Auto } }
+#define AzLayoutBoxSizingValue_None { .None = { .tag = AzLayoutBoxSizingValueTag_None } }
+#define AzLayoutBoxSizingValue_Inherit { .Inherit = { .tag = AzLayoutBoxSizingValueTag_Inherit } }
+#define AzLayoutBoxSizingValue_Initial { .Initial = { .tag = AzLayoutBoxSizingValueTag_Initial } }
+#define AzLayoutBoxSizingValue_Exact(v) { .Exact = { .tag = AzLayoutBoxSizingValueTag_Exact, .payload = v } }
+#define AzLayoutFlexDirectionValue_Auto { .Auto = { .tag = AzLayoutFlexDirectionValueTag_Auto } }
+#define AzLayoutFlexDirectionValue_None { .None = { .tag = AzLayoutFlexDirectionValueTag_None } }
+#define AzLayoutFlexDirectionValue_Inherit { .Inherit = { .tag = AzLayoutFlexDirectionValueTag_Inherit } }
+#define AzLayoutFlexDirectionValue_Initial { .Initial = { .tag = AzLayoutFlexDirectionValueTag_Initial } }
+#define AzLayoutFlexDirectionValue_Exact(v) { .Exact = { .tag = AzLayoutFlexDirectionValueTag_Exact, .payload = v } }
+#define AzLayoutDisplayValue_Auto { .Auto = { .tag = AzLayoutDisplayValueTag_Auto } }
+#define AzLayoutDisplayValue_None { .None = { .tag = AzLayoutDisplayValueTag_None } }
+#define AzLayoutDisplayValue_Inherit { .Inherit = { .tag = AzLayoutDisplayValueTag_Inherit } }
+#define AzLayoutDisplayValue_Initial { .Initial = { .tag = AzLayoutDisplayValueTag_Initial } }
+#define AzLayoutDisplayValue_Exact(v) { .Exact = { .tag = AzLayoutDisplayValueTag_Exact, .payload = v } }
+#define AzLayoutFlexGrowValue_Auto { .Auto = { .tag = AzLayoutFlexGrowValueTag_Auto } }
+#define AzLayoutFlexGrowValue_None { .None = { .tag = AzLayoutFlexGrowValueTag_None } }
+#define AzLayoutFlexGrowValue_Inherit { .Inherit = { .tag = AzLayoutFlexGrowValueTag_Inherit } }
+#define AzLayoutFlexGrowValue_Initial { .Initial = { .tag = AzLayoutFlexGrowValueTag_Initial } }
+#define AzLayoutFlexGrowValue_Exact(v) { .Exact = { .tag = AzLayoutFlexGrowValueTag_Exact, .payload = v } }
+#define AzLayoutFlexShrinkValue_Auto { .Auto = { .tag = AzLayoutFlexShrinkValueTag_Auto } }
+#define AzLayoutFlexShrinkValue_None { .None = { .tag = AzLayoutFlexShrinkValueTag_None } }
+#define AzLayoutFlexShrinkValue_Inherit { .Inherit = { .tag = AzLayoutFlexShrinkValueTag_Inherit } }
+#define AzLayoutFlexShrinkValue_Initial { .Initial = { .tag = AzLayoutFlexShrinkValueTag_Initial } }
+#define AzLayoutFlexShrinkValue_Exact(v) { .Exact = { .tag = AzLayoutFlexShrinkValueTag_Exact, .payload = v } }
+#define AzLayoutFloatValue_Auto { .Auto = { .tag = AzLayoutFloatValueTag_Auto } }
+#define AzLayoutFloatValue_None { .None = { .tag = AzLayoutFloatValueTag_None } }
+#define AzLayoutFloatValue_Inherit { .Inherit = { .tag = AzLayoutFloatValueTag_Inherit } }
+#define AzLayoutFloatValue_Initial { .Initial = { .tag = AzLayoutFloatValueTag_Initial } }
+#define AzLayoutFloatValue_Exact(v) { .Exact = { .tag = AzLayoutFloatValueTag_Exact, .payload = v } }
+#define AzLayoutHeightValue_Auto { .Auto = { .tag = AzLayoutHeightValueTag_Auto } }
+#define AzLayoutHeightValue_None { .None = { .tag = AzLayoutHeightValueTag_None } }
+#define AzLayoutHeightValue_Inherit { .Inherit = { .tag = AzLayoutHeightValueTag_Inherit } }
+#define AzLayoutHeightValue_Initial { .Initial = { .tag = AzLayoutHeightValueTag_Initial } }
+#define AzLayoutHeightValue_Exact(v) { .Exact = { .tag = AzLayoutHeightValueTag_Exact, .payload = v } }
+#define AzLayoutJustifyContentValue_Auto { .Auto = { .tag = AzLayoutJustifyContentValueTag_Auto } }
+#define AzLayoutJustifyContentValue_None { .None = { .tag = AzLayoutJustifyContentValueTag_None } }
+#define AzLayoutJustifyContentValue_Inherit { .Inherit = { .tag = AzLayoutJustifyContentValueTag_Inherit } }
+#define AzLayoutJustifyContentValue_Initial { .Initial = { .tag = AzLayoutJustifyContentValueTag_Initial } }
+#define AzLayoutJustifyContentValue_Exact(v) { .Exact = { .tag = AzLayoutJustifyContentValueTag_Exact, .payload = v } }
+#define AzLayoutLeftValue_Auto { .Auto = { .tag = AzLayoutLeftValueTag_Auto } }
+#define AzLayoutLeftValue_None { .None = { .tag = AzLayoutLeftValueTag_None } }
+#define AzLayoutLeftValue_Inherit { .Inherit = { .tag = AzLayoutLeftValueTag_Inherit } }
+#define AzLayoutLeftValue_Initial { .Initial = { .tag = AzLayoutLeftValueTag_Initial } }
+#define AzLayoutLeftValue_Exact(v) { .Exact = { .tag = AzLayoutLeftValueTag_Exact, .payload = v } }
+#define AzLayoutMarginBottomValue_Auto { .Auto = { .tag = AzLayoutMarginBottomValueTag_Auto } }
+#define AzLayoutMarginBottomValue_None { .None = { .tag = AzLayoutMarginBottomValueTag_None } }
+#define AzLayoutMarginBottomValue_Inherit { .Inherit = { .tag = AzLayoutMarginBottomValueTag_Inherit } }
+#define AzLayoutMarginBottomValue_Initial { .Initial = { .tag = AzLayoutMarginBottomValueTag_Initial } }
+#define AzLayoutMarginBottomValue_Exact(v) { .Exact = { .tag = AzLayoutMarginBottomValueTag_Exact, .payload = v } }
+#define AzLayoutMarginLeftValue_Auto { .Auto = { .tag = AzLayoutMarginLeftValueTag_Auto } }
+#define AzLayoutMarginLeftValue_None { .None = { .tag = AzLayoutMarginLeftValueTag_None } }
+#define AzLayoutMarginLeftValue_Inherit { .Inherit = { .tag = AzLayoutMarginLeftValueTag_Inherit } }
+#define AzLayoutMarginLeftValue_Initial { .Initial = { .tag = AzLayoutMarginLeftValueTag_Initial } }
+#define AzLayoutMarginLeftValue_Exact(v) { .Exact = { .tag = AzLayoutMarginLeftValueTag_Exact, .payload = v } }
+#define AzLayoutMarginRightValue_Auto { .Auto = { .tag = AzLayoutMarginRightValueTag_Auto } }
+#define AzLayoutMarginRightValue_None { .None = { .tag = AzLayoutMarginRightValueTag_None } }
+#define AzLayoutMarginRightValue_Inherit { .Inherit = { .tag = AzLayoutMarginRightValueTag_Inherit } }
+#define AzLayoutMarginRightValue_Initial { .Initial = { .tag = AzLayoutMarginRightValueTag_Initial } }
+#define AzLayoutMarginRightValue_Exact(v) { .Exact = { .tag = AzLayoutMarginRightValueTag_Exact, .payload = v } }
+#define AzLayoutMarginTopValue_Auto { .Auto = { .tag = AzLayoutMarginTopValueTag_Auto } }
+#define AzLayoutMarginTopValue_None { .None = { .tag = AzLayoutMarginTopValueTag_None } }
+#define AzLayoutMarginTopValue_Inherit { .Inherit = { .tag = AzLayoutMarginTopValueTag_Inherit } }
+#define AzLayoutMarginTopValue_Initial { .Initial = { .tag = AzLayoutMarginTopValueTag_Initial } }
+#define AzLayoutMarginTopValue_Exact(v) { .Exact = { .tag = AzLayoutMarginTopValueTag_Exact, .payload = v } }
+#define AzLayoutMaxHeightValue_Auto { .Auto = { .tag = AzLayoutMaxHeightValueTag_Auto } }
+#define AzLayoutMaxHeightValue_None { .None = { .tag = AzLayoutMaxHeightValueTag_None } }
+#define AzLayoutMaxHeightValue_Inherit { .Inherit = { .tag = AzLayoutMaxHeightValueTag_Inherit } }
+#define AzLayoutMaxHeightValue_Initial { .Initial = { .tag = AzLayoutMaxHeightValueTag_Initial } }
+#define AzLayoutMaxHeightValue_Exact(v) { .Exact = { .tag = AzLayoutMaxHeightValueTag_Exact, .payload = v } }
+#define AzLayoutMaxWidthValue_Auto { .Auto = { .tag = AzLayoutMaxWidthValueTag_Auto } }
+#define AzLayoutMaxWidthValue_None { .None = { .tag = AzLayoutMaxWidthValueTag_None } }
+#define AzLayoutMaxWidthValue_Inherit { .Inherit = { .tag = AzLayoutMaxWidthValueTag_Inherit } }
+#define AzLayoutMaxWidthValue_Initial { .Initial = { .tag = AzLayoutMaxWidthValueTag_Initial } }
+#define AzLayoutMaxWidthValue_Exact(v) { .Exact = { .tag = AzLayoutMaxWidthValueTag_Exact, .payload = v } }
+#define AzLayoutMinHeightValue_Auto { .Auto = { .tag = AzLayoutMinHeightValueTag_Auto } }
+#define AzLayoutMinHeightValue_None { .None = { .tag = AzLayoutMinHeightValueTag_None } }
+#define AzLayoutMinHeightValue_Inherit { .Inherit = { .tag = AzLayoutMinHeightValueTag_Inherit } }
+#define AzLayoutMinHeightValue_Initial { .Initial = { .tag = AzLayoutMinHeightValueTag_Initial } }
+#define AzLayoutMinHeightValue_Exact(v) { .Exact = { .tag = AzLayoutMinHeightValueTag_Exact, .payload = v } }
+#define AzLayoutMinWidthValue_Auto { .Auto = { .tag = AzLayoutMinWidthValueTag_Auto } }
+#define AzLayoutMinWidthValue_None { .None = { .tag = AzLayoutMinWidthValueTag_None } }
+#define AzLayoutMinWidthValue_Inherit { .Inherit = { .tag = AzLayoutMinWidthValueTag_Inherit } }
+#define AzLayoutMinWidthValue_Initial { .Initial = { .tag = AzLayoutMinWidthValueTag_Initial } }
+#define AzLayoutMinWidthValue_Exact(v) { .Exact = { .tag = AzLayoutMinWidthValueTag_Exact, .payload = v } }
+#define AzLayoutPaddingBottomValue_Auto { .Auto = { .tag = AzLayoutPaddingBottomValueTag_Auto } }
+#define AzLayoutPaddingBottomValue_None { .None = { .tag = AzLayoutPaddingBottomValueTag_None } }
+#define AzLayoutPaddingBottomValue_Inherit { .Inherit = { .tag = AzLayoutPaddingBottomValueTag_Inherit } }
+#define AzLayoutPaddingBottomValue_Initial { .Initial = { .tag = AzLayoutPaddingBottomValueTag_Initial } }
+#define AzLayoutPaddingBottomValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingBottomValueTag_Exact, .payload = v } }
+#define AzLayoutPaddingLeftValue_Auto { .Auto = { .tag = AzLayoutPaddingLeftValueTag_Auto } }
+#define AzLayoutPaddingLeftValue_None { .None = { .tag = AzLayoutPaddingLeftValueTag_None } }
+#define AzLayoutPaddingLeftValue_Inherit { .Inherit = { .tag = AzLayoutPaddingLeftValueTag_Inherit } }
+#define AzLayoutPaddingLeftValue_Initial { .Initial = { .tag = AzLayoutPaddingLeftValueTag_Initial } }
+#define AzLayoutPaddingLeftValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingLeftValueTag_Exact, .payload = v } }
+#define AzLayoutPaddingRightValue_Auto { .Auto = { .tag = AzLayoutPaddingRightValueTag_Auto } }
+#define AzLayoutPaddingRightValue_None { .None = { .tag = AzLayoutPaddingRightValueTag_None } }
+#define AzLayoutPaddingRightValue_Inherit { .Inherit = { .tag = AzLayoutPaddingRightValueTag_Inherit } }
+#define AzLayoutPaddingRightValue_Initial { .Initial = { .tag = AzLayoutPaddingRightValueTag_Initial } }
+#define AzLayoutPaddingRightValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingRightValueTag_Exact, .payload = v } }
+#define AzLayoutPaddingTopValue_Auto { .Auto = { .tag = AzLayoutPaddingTopValueTag_Auto } }
+#define AzLayoutPaddingTopValue_None { .None = { .tag = AzLayoutPaddingTopValueTag_None } }
+#define AzLayoutPaddingTopValue_Inherit { .Inherit = { .tag = AzLayoutPaddingTopValueTag_Inherit } }
+#define AzLayoutPaddingTopValue_Initial { .Initial = { .tag = AzLayoutPaddingTopValueTag_Initial } }
+#define AzLayoutPaddingTopValue_Exact(v) { .Exact = { .tag = AzLayoutPaddingTopValueTag_Exact, .payload = v } }
+#define AzLayoutPositionValue_Auto { .Auto = { .tag = AzLayoutPositionValueTag_Auto } }
+#define AzLayoutPositionValue_None { .None = { .tag = AzLayoutPositionValueTag_None } }
+#define AzLayoutPositionValue_Inherit { .Inherit = { .tag = AzLayoutPositionValueTag_Inherit } }
+#define AzLayoutPositionValue_Initial { .Initial = { .tag = AzLayoutPositionValueTag_Initial } }
+#define AzLayoutPositionValue_Exact(v) { .Exact = { .tag = AzLayoutPositionValueTag_Exact, .payload = v } }
+#define AzLayoutRightValue_Auto { .Auto = { .tag = AzLayoutRightValueTag_Auto } }
+#define AzLayoutRightValue_None { .None = { .tag = AzLayoutRightValueTag_None } }
+#define AzLayoutRightValue_Inherit { .Inherit = { .tag = AzLayoutRightValueTag_Inherit } }
+#define AzLayoutRightValue_Initial { .Initial = { .tag = AzLayoutRightValueTag_Initial } }
+#define AzLayoutRightValue_Exact(v) { .Exact = { .tag = AzLayoutRightValueTag_Exact, .payload = v } }
+#define AzLayoutTopValue_Auto { .Auto = { .tag = AzLayoutTopValueTag_Auto } }
+#define AzLayoutTopValue_None { .None = { .tag = AzLayoutTopValueTag_None } }
+#define AzLayoutTopValue_Inherit { .Inherit = { .tag = AzLayoutTopValueTag_Inherit } }
+#define AzLayoutTopValue_Initial { .Initial = { .tag = AzLayoutTopValueTag_Initial } }
+#define AzLayoutTopValue_Exact(v) { .Exact = { .tag = AzLayoutTopValueTag_Exact, .payload = v } }
+#define AzLayoutWidthValue_Auto { .Auto = { .tag = AzLayoutWidthValueTag_Auto } }
+#define AzLayoutWidthValue_None { .None = { .tag = AzLayoutWidthValueTag_None } }
+#define AzLayoutWidthValue_Inherit { .Inherit = { .tag = AzLayoutWidthValueTag_Inherit } }
+#define AzLayoutWidthValue_Initial { .Initial = { .tag = AzLayoutWidthValueTag_Initial } }
+#define AzLayoutWidthValue_Exact(v) { .Exact = { .tag = AzLayoutWidthValueTag_Exact, .payload = v } }
+#define AzLayoutFlexWrapValue_Auto { .Auto = { .tag = AzLayoutFlexWrapValueTag_Auto } }
+#define AzLayoutFlexWrapValue_None { .None = { .tag = AzLayoutFlexWrapValueTag_None } }
+#define AzLayoutFlexWrapValue_Inherit { .Inherit = { .tag = AzLayoutFlexWrapValueTag_Inherit } }
+#define AzLayoutFlexWrapValue_Initial { .Initial = { .tag = AzLayoutFlexWrapValueTag_Initial } }
+#define AzLayoutFlexWrapValue_Exact(v) { .Exact = { .tag = AzLayoutFlexWrapValueTag_Exact, .payload = v } }
+#define AzLayoutOverflowValue_Auto { .Auto = { .tag = AzLayoutOverflowValueTag_Auto } }
+#define AzLayoutOverflowValue_None { .None = { .tag = AzLayoutOverflowValueTag_None } }
+#define AzLayoutOverflowValue_Inherit { .Inherit = { .tag = AzLayoutOverflowValueTag_Inherit } }
+#define AzLayoutOverflowValue_Initial { .Initial = { .tag = AzLayoutOverflowValueTag_Initial } }
+#define AzLayoutOverflowValue_Exact(v) { .Exact = { .tag = AzLayoutOverflowValueTag_Exact, .payload = v } }
+#define AzStyleBorderBottomColorValue_Auto { .Auto = { .tag = AzStyleBorderBottomColorValueTag_Auto } }
+#define AzStyleBorderBottomColorValue_None { .None = { .tag = AzStyleBorderBottomColorValueTag_None } }
+#define AzStyleBorderBottomColorValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomColorValueTag_Inherit } }
+#define AzStyleBorderBottomColorValue_Initial { .Initial = { .tag = AzStyleBorderBottomColorValueTag_Initial } }
+#define AzStyleBorderBottomColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomColorValueTag_Exact, .payload = v } }
+#define AzStyleBorderBottomLeftRadiusValue_Auto { .Auto = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Auto } }
+#define AzStyleBorderBottomLeftRadiusValue_None { .None = { .tag = AzStyleBorderBottomLeftRadiusValueTag_None } }
+#define AzStyleBorderBottomLeftRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Inherit } }
+#define AzStyleBorderBottomLeftRadiusValue_Initial { .Initial = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Initial } }
+#define AzStyleBorderBottomLeftRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomLeftRadiusValueTag_Exact, .payload = v } }
+#define AzStyleBorderBottomRightRadiusValue_Auto { .Auto = { .tag = AzStyleBorderBottomRightRadiusValueTag_Auto } }
+#define AzStyleBorderBottomRightRadiusValue_None { .None = { .tag = AzStyleBorderBottomRightRadiusValueTag_None } }
+#define AzStyleBorderBottomRightRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomRightRadiusValueTag_Inherit } }
+#define AzStyleBorderBottomRightRadiusValue_Initial { .Initial = { .tag = AzStyleBorderBottomRightRadiusValueTag_Initial } }
+#define AzStyleBorderBottomRightRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomRightRadiusValueTag_Exact, .payload = v } }
+#define AzStyleBorderBottomStyleValue_Auto { .Auto = { .tag = AzStyleBorderBottomStyleValueTag_Auto } }
+#define AzStyleBorderBottomStyleValue_None { .None = { .tag = AzStyleBorderBottomStyleValueTag_None } }
+#define AzStyleBorderBottomStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderBottomStyleValueTag_Inherit } }
+#define AzStyleBorderBottomStyleValue_Initial { .Initial = { .tag = AzStyleBorderBottomStyleValueTag_Initial } }
+#define AzStyleBorderBottomStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderBottomStyleValueTag_Exact, .payload = v } }
+#define AzLayoutBorderBottomWidthValue_Auto { .Auto = { .tag = AzLayoutBorderBottomWidthValueTag_Auto } }
+#define AzLayoutBorderBottomWidthValue_None { .None = { .tag = AzLayoutBorderBottomWidthValueTag_None } }
+#define AzLayoutBorderBottomWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderBottomWidthValueTag_Inherit } }
+#define AzLayoutBorderBottomWidthValue_Initial { .Initial = { .tag = AzLayoutBorderBottomWidthValueTag_Initial } }
+#define AzLayoutBorderBottomWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderBottomWidthValueTag_Exact, .payload = v } }
+#define AzStyleBorderLeftColorValue_Auto { .Auto = { .tag = AzStyleBorderLeftColorValueTag_Auto } }
+#define AzStyleBorderLeftColorValue_None { .None = { .tag = AzStyleBorderLeftColorValueTag_None } }
+#define AzStyleBorderLeftColorValue_Inherit { .Inherit = { .tag = AzStyleBorderLeftColorValueTag_Inherit } }
+#define AzStyleBorderLeftColorValue_Initial { .Initial = { .tag = AzStyleBorderLeftColorValueTag_Initial } }
+#define AzStyleBorderLeftColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderLeftColorValueTag_Exact, .payload = v } }
+#define AzStyleBorderLeftStyleValue_Auto { .Auto = { .tag = AzStyleBorderLeftStyleValueTag_Auto } }
+#define AzStyleBorderLeftStyleValue_None { .None = { .tag = AzStyleBorderLeftStyleValueTag_None } }
+#define AzStyleBorderLeftStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderLeftStyleValueTag_Inherit } }
+#define AzStyleBorderLeftStyleValue_Initial { .Initial = { .tag = AzStyleBorderLeftStyleValueTag_Initial } }
+#define AzStyleBorderLeftStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderLeftStyleValueTag_Exact, .payload = v } }
+#define AzLayoutBorderLeftWidthValue_Auto { .Auto = { .tag = AzLayoutBorderLeftWidthValueTag_Auto } }
+#define AzLayoutBorderLeftWidthValue_None { .None = { .tag = AzLayoutBorderLeftWidthValueTag_None } }
+#define AzLayoutBorderLeftWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderLeftWidthValueTag_Inherit } }
+#define AzLayoutBorderLeftWidthValue_Initial { .Initial = { .tag = AzLayoutBorderLeftWidthValueTag_Initial } }
+#define AzLayoutBorderLeftWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderLeftWidthValueTag_Exact, .payload = v } }
+#define AzStyleBorderRightColorValue_Auto { .Auto = { .tag = AzStyleBorderRightColorValueTag_Auto } }
+#define AzStyleBorderRightColorValue_None { .None = { .tag = AzStyleBorderRightColorValueTag_None } }
+#define AzStyleBorderRightColorValue_Inherit { .Inherit = { .tag = AzStyleBorderRightColorValueTag_Inherit } }
+#define AzStyleBorderRightColorValue_Initial { .Initial = { .tag = AzStyleBorderRightColorValueTag_Initial } }
+#define AzStyleBorderRightColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderRightColorValueTag_Exact, .payload = v } }
+#define AzStyleBorderRightStyleValue_Auto { .Auto = { .tag = AzStyleBorderRightStyleValueTag_Auto } }
+#define AzStyleBorderRightStyleValue_None { .None = { .tag = AzStyleBorderRightStyleValueTag_None } }
+#define AzStyleBorderRightStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderRightStyleValueTag_Inherit } }
+#define AzStyleBorderRightStyleValue_Initial { .Initial = { .tag = AzStyleBorderRightStyleValueTag_Initial } }
+#define AzStyleBorderRightStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderRightStyleValueTag_Exact, .payload = v } }
+#define AzLayoutBorderRightWidthValue_Auto { .Auto = { .tag = AzLayoutBorderRightWidthValueTag_Auto } }
+#define AzLayoutBorderRightWidthValue_None { .None = { .tag = AzLayoutBorderRightWidthValueTag_None } }
+#define AzLayoutBorderRightWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderRightWidthValueTag_Inherit } }
+#define AzLayoutBorderRightWidthValue_Initial { .Initial = { .tag = AzLayoutBorderRightWidthValueTag_Initial } }
+#define AzLayoutBorderRightWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderRightWidthValueTag_Exact, .payload = v } }
+#define AzStyleBorderTopColorValue_Auto { .Auto = { .tag = AzStyleBorderTopColorValueTag_Auto } }
+#define AzStyleBorderTopColorValue_None { .None = { .tag = AzStyleBorderTopColorValueTag_None } }
+#define AzStyleBorderTopColorValue_Inherit { .Inherit = { .tag = AzStyleBorderTopColorValueTag_Inherit } }
+#define AzStyleBorderTopColorValue_Initial { .Initial = { .tag = AzStyleBorderTopColorValueTag_Initial } }
+#define AzStyleBorderTopColorValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopColorValueTag_Exact, .payload = v } }
+#define AzStyleBorderTopLeftRadiusValue_Auto { .Auto = { .tag = AzStyleBorderTopLeftRadiusValueTag_Auto } }
+#define AzStyleBorderTopLeftRadiusValue_None { .None = { .tag = AzStyleBorderTopLeftRadiusValueTag_None } }
+#define AzStyleBorderTopLeftRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderTopLeftRadiusValueTag_Inherit } }
+#define AzStyleBorderTopLeftRadiusValue_Initial { .Initial = { .tag = AzStyleBorderTopLeftRadiusValueTag_Initial } }
+#define AzStyleBorderTopLeftRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopLeftRadiusValueTag_Exact, .payload = v } }
+#define AzStyleBorderTopRightRadiusValue_Auto { .Auto = { .tag = AzStyleBorderTopRightRadiusValueTag_Auto } }
+#define AzStyleBorderTopRightRadiusValue_None { .None = { .tag = AzStyleBorderTopRightRadiusValueTag_None } }
+#define AzStyleBorderTopRightRadiusValue_Inherit { .Inherit = { .tag = AzStyleBorderTopRightRadiusValueTag_Inherit } }
+#define AzStyleBorderTopRightRadiusValue_Initial { .Initial = { .tag = AzStyleBorderTopRightRadiusValueTag_Initial } }
+#define AzStyleBorderTopRightRadiusValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopRightRadiusValueTag_Exact, .payload = v } }
+#define AzStyleBorderTopStyleValue_Auto { .Auto = { .tag = AzStyleBorderTopStyleValueTag_Auto } }
+#define AzStyleBorderTopStyleValue_None { .None = { .tag = AzStyleBorderTopStyleValueTag_None } }
+#define AzStyleBorderTopStyleValue_Inherit { .Inherit = { .tag = AzStyleBorderTopStyleValueTag_Inherit } }
+#define AzStyleBorderTopStyleValue_Initial { .Initial = { .tag = AzStyleBorderTopStyleValueTag_Initial } }
+#define AzStyleBorderTopStyleValue_Exact(v) { .Exact = { .tag = AzStyleBorderTopStyleValueTag_Exact, .payload = v } }
+#define AzLayoutBorderTopWidthValue_Auto { .Auto = { .tag = AzLayoutBorderTopWidthValueTag_Auto } }
+#define AzLayoutBorderTopWidthValue_None { .None = { .tag = AzLayoutBorderTopWidthValueTag_None } }
+#define AzLayoutBorderTopWidthValue_Inherit { .Inherit = { .tag = AzLayoutBorderTopWidthValueTag_Inherit } }
+#define AzLayoutBorderTopWidthValue_Initial { .Initial = { .tag = AzLayoutBorderTopWidthValueTag_Initial } }
+#define AzLayoutBorderTopWidthValue_Exact(v) { .Exact = { .tag = AzLayoutBorderTopWidthValueTag_Exact, .payload = v } }
+#define AzStyleCursorValue_Auto { .Auto = { .tag = AzStyleCursorValueTag_Auto } }
+#define AzStyleCursorValue_None { .None = { .tag = AzStyleCursorValueTag_None } }
+#define AzStyleCursorValue_Inherit { .Inherit = { .tag = AzStyleCursorValueTag_Inherit } }
+#define AzStyleCursorValue_Initial { .Initial = { .tag = AzStyleCursorValueTag_Initial } }
+#define AzStyleCursorValue_Exact(v) { .Exact = { .tag = AzStyleCursorValueTag_Exact, .payload = v } }
+#define AzStyleFontSizeValue_Auto { .Auto = { .tag = AzStyleFontSizeValueTag_Auto } }
+#define AzStyleFontSizeValue_None { .None = { .tag = AzStyleFontSizeValueTag_None } }
+#define AzStyleFontSizeValue_Inherit { .Inherit = { .tag = AzStyleFontSizeValueTag_Inherit } }
+#define AzStyleFontSizeValue_Initial { .Initial = { .tag = AzStyleFontSizeValueTag_Initial } }
+#define AzStyleFontSizeValue_Exact(v) { .Exact = { .tag = AzStyleFontSizeValueTag_Exact, .payload = v } }
+#define AzStyleLetterSpacingValue_Auto { .Auto = { .tag = AzStyleLetterSpacingValueTag_Auto } }
+#define AzStyleLetterSpacingValue_None { .None = { .tag = AzStyleLetterSpacingValueTag_None } }
+#define AzStyleLetterSpacingValue_Inherit { .Inherit = { .tag = AzStyleLetterSpacingValueTag_Inherit } }
+#define AzStyleLetterSpacingValue_Initial { .Initial = { .tag = AzStyleLetterSpacingValueTag_Initial } }
+#define AzStyleLetterSpacingValue_Exact(v) { .Exact = { .tag = AzStyleLetterSpacingValueTag_Exact, .payload = v } }
+#define AzStyleLineHeightValue_Auto { .Auto = { .tag = AzStyleLineHeightValueTag_Auto } }
+#define AzStyleLineHeightValue_None { .None = { .tag = AzStyleLineHeightValueTag_None } }
+#define AzStyleLineHeightValue_Inherit { .Inherit = { .tag = AzStyleLineHeightValueTag_Inherit } }
+#define AzStyleLineHeightValue_Initial { .Initial = { .tag = AzStyleLineHeightValueTag_Initial } }
+#define AzStyleLineHeightValue_Exact(v) { .Exact = { .tag = AzStyleLineHeightValueTag_Exact, .payload = v } }
+#define AzStyleTabWidthValue_Auto { .Auto = { .tag = AzStyleTabWidthValueTag_Auto } }
+#define AzStyleTabWidthValue_None { .None = { .tag = AzStyleTabWidthValueTag_None } }
+#define AzStyleTabWidthValue_Inherit { .Inherit = { .tag = AzStyleTabWidthValueTag_Inherit } }
+#define AzStyleTabWidthValue_Initial { .Initial = { .tag = AzStyleTabWidthValueTag_Initial } }
+#define AzStyleTabWidthValue_Exact(v) { .Exact = { .tag = AzStyleTabWidthValueTag_Exact, .payload = v } }
+#define AzStyleTextAlignValue_Auto { .Auto = { .tag = AzStyleTextAlignValueTag_Auto } }
+#define AzStyleTextAlignValue_None { .None = { .tag = AzStyleTextAlignValueTag_None } }
+#define AzStyleTextAlignValue_Inherit { .Inherit = { .tag = AzStyleTextAlignValueTag_Inherit } }
+#define AzStyleTextAlignValue_Initial { .Initial = { .tag = AzStyleTextAlignValueTag_Initial } }
+#define AzStyleTextAlignValue_Exact(v) { .Exact = { .tag = AzStyleTextAlignValueTag_Exact, .payload = v } }
+#define AzStyleTextColorValue_Auto { .Auto = { .tag = AzStyleTextColorValueTag_Auto } }
+#define AzStyleTextColorValue_None { .None = { .tag = AzStyleTextColorValueTag_None } }
+#define AzStyleTextColorValue_Inherit { .Inherit = { .tag = AzStyleTextColorValueTag_Inherit } }
+#define AzStyleTextColorValue_Initial { .Initial = { .tag = AzStyleTextColorValueTag_Initial } }
+#define AzStyleTextColorValue_Exact(v) { .Exact = { .tag = AzStyleTextColorValueTag_Exact, .payload = v } }
+#define AzStyleWordSpacingValue_Auto { .Auto = { .tag = AzStyleWordSpacingValueTag_Auto } }
+#define AzStyleWordSpacingValue_None { .None = { .tag = AzStyleWordSpacingValueTag_None } }
+#define AzStyleWordSpacingValue_Inherit { .Inherit = { .tag = AzStyleWordSpacingValueTag_Inherit } }
+#define AzStyleWordSpacingValue_Initial { .Initial = { .tag = AzStyleWordSpacingValueTag_Initial } }
+#define AzStyleWordSpacingValue_Exact(v) { .Exact = { .tag = AzStyleWordSpacingValueTag_Exact, .payload = v } }
+#define AzStyleOpacityValue_Auto { .Auto = { .tag = AzStyleOpacityValueTag_Auto } }
+#define AzStyleOpacityValue_None { .None = { .tag = AzStyleOpacityValueTag_None } }
+#define AzStyleOpacityValue_Inherit { .Inherit = { .tag = AzStyleOpacityValueTag_Inherit } }
+#define AzStyleOpacityValue_Initial { .Initial = { .tag = AzStyleOpacityValueTag_Initial } }
+#define AzStyleOpacityValue_Exact(v) { .Exact = { .tag = AzStyleOpacityValueTag_Exact, .payload = v } }
+#define AzStyleTransformOriginValue_Auto { .Auto = { .tag = AzStyleTransformOriginValueTag_Auto } }
+#define AzStyleTransformOriginValue_None { .None = { .tag = AzStyleTransformOriginValueTag_None } }
+#define AzStyleTransformOriginValue_Inherit { .Inherit = { .tag = AzStyleTransformOriginValueTag_Inherit } }
+#define AzStyleTransformOriginValue_Initial { .Initial = { .tag = AzStyleTransformOriginValueTag_Initial } }
+#define AzStyleTransformOriginValue_Exact(v) { .Exact = { .tag = AzStyleTransformOriginValueTag_Exact, .payload = v } }
+#define AzStylePerspectiveOriginValue_Auto { .Auto = { .tag = AzStylePerspectiveOriginValueTag_Auto } }
+#define AzStylePerspectiveOriginValue_None { .None = { .tag = AzStylePerspectiveOriginValueTag_None } }
+#define AzStylePerspectiveOriginValue_Inherit { .Inherit = { .tag = AzStylePerspectiveOriginValueTag_Inherit } }
+#define AzStylePerspectiveOriginValue_Initial { .Initial = { .tag = AzStylePerspectiveOriginValueTag_Initial } }
+#define AzStylePerspectiveOriginValue_Exact(v) { .Exact = { .tag = AzStylePerspectiveOriginValueTag_Exact, .payload = v } }
+#define AzStyleBackfaceVisibilityValue_Auto { .Auto = { .tag = AzStyleBackfaceVisibilityValueTag_Auto } }
+#define AzStyleBackfaceVisibilityValue_None { .None = { .tag = AzStyleBackfaceVisibilityValueTag_None } }
+#define AzStyleBackfaceVisibilityValue_Inherit { .Inherit = { .tag = AzStyleBackfaceVisibilityValueTag_Inherit } }
+#define AzStyleBackfaceVisibilityValue_Initial { .Initial = { .tag = AzStyleBackfaceVisibilityValueTag_Initial } }
+#define AzStyleBackfaceVisibilityValue_Exact(v) { .Exact = { .tag = AzStyleBackfaceVisibilityValueTag_Exact, .payload = v } }
+#define AzTextInputSelection_All { .All = { .tag = AzTextInputSelectionTag_All } }
+#define AzTextInputSelection_FromTo(v) { .FromTo = { .tag = AzTextInputSelectionTag_FromTo, .payload = v } }
+#define AzDuration_System(v) { .System = { .tag = AzDurationTag_System, .payload = v } }
+#define AzDuration_Tick(v) { .Tick = { .tag = AzDurationTag_Tick, .payload = v } }
+#define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
+#define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
+#define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
+#define AzOptionColorInputOnValueChange_None { .None = { .tag = AzOptionColorInputOnValueChangeTag_None } }
+#define AzOptionColorInputOnValueChange_Some(v) { .Some = { .tag = AzOptionColorInputOnValueChangeTag_Some, .payload = v } }
+#define AzOptionButtonOnClick_None { .None = { .tag = AzOptionButtonOnClickTag_None } }
+#define AzOptionButtonOnClick_Some(v) { .Some = { .tag = AzOptionButtonOnClickTag_Some, .payload = v } }
+#define AzOptionCheckBoxOnToggle_None { .None = { .tag = AzOptionCheckBoxOnToggleTag_None } }
+#define AzOptionCheckBoxOnToggle_Some(v) { .Some = { .tag = AzOptionCheckBoxOnToggleTag_Some, .payload = v } }
+#define AzOptionTextInputOnTextInput_None { .None = { .tag = AzOptionTextInputOnTextInputTag_None } }
+#define AzOptionTextInputOnTextInput_Some(v) { .Some = { .tag = AzOptionTextInputOnTextInputTag_Some, .payload = v } }
+#define AzOptionTextInputOnVirtualKeyDown_None { .None = { .tag = AzOptionTextInputOnVirtualKeyDownTag_None } }
+#define AzOptionTextInputOnVirtualKeyDown_Some(v) { .Some = { .tag = AzOptionTextInputOnVirtualKeyDownTag_Some, .payload = v } }
+#define AzOptionTextInputOnFocusLost_None { .None = { .tag = AzOptionTextInputOnFocusLostTag_None } }
+#define AzOptionTextInputOnFocusLost_Some(v) { .Some = { .tag = AzOptionTextInputOnFocusLostTag_Some, .payload = v } }
+#define AzOptionTextInputSelection_None { .None = { .tag = AzOptionTextInputSelectionTag_None } }
+#define AzOptionTextInputSelection_Some(v) { .Some = { .tag = AzOptionTextInputSelectionTag_Some, .payload = v } }
+#define AzOptionNumberInputOnValueChange_None { .None = { .tag = AzOptionNumberInputOnValueChangeTag_None } }
+#define AzOptionNumberInputOnValueChange_Some(v) { .Some = { .tag = AzOptionNumberInputOnValueChangeTag_Some, .payload = v } }
+#define AzOptionMenuItemIcon_None { .None = { .tag = AzOptionMenuItemIconTag_None } }
+#define AzOptionMenuItemIcon_Some(v) { .Some = { .tag = AzOptionMenuItemIconTag_Some, .payload = v } }
+#define AzOptionMenuCallback_None { .None = { .tag = AzOptionMenuCallbackTag_None } }
+#define AzOptionMenuCallback_Some(v) { .Some = { .tag = AzOptionMenuCallbackTag_Some, .payload = v } }
+#define AzOptionPositionInfo_None { .None = { .tag = AzOptionPositionInfoTag_None } }
+#define AzOptionPositionInfo_Some(v) { .Some = { .tag = AzOptionPositionInfoTag_Some, .payload = v } }
+#define AzOptionTimerId_None { .None = { .tag = AzOptionTimerIdTag_None } }
+#define AzOptionTimerId_Some(v) { .Some = { .tag = AzOptionTimerIdTag_Some, .payload = v } }
+#define AzOptionThreadId_None { .None = { .tag = AzOptionThreadIdTag_None } }
+#define AzOptionThreadId_Some(v) { .Some = { .tag = AzOptionThreadIdTag_Some, .payload = v } }
+#define AzOptionImageRef_None { .None = { .tag = AzOptionImageRefTag_None } }
+#define AzOptionImageRef_Some(v) { .Some = { .tag = AzOptionImageRefTag_Some, .payload = v } }
+#define AzOptionFontRef_None { .None = { .tag = AzOptionFontRefTag_None } }
+#define AzOptionFontRef_Some(v) { .Some = { .tag = AzOptionFontRefTag_Some, .payload = v } }
+#define AzOptionSystemClipboard_None { .None = { .tag = AzOptionSystemClipboardTag_None } }
+#define AzOptionSystemClipboard_Some(v) { .Some = { .tag = AzOptionSystemClipboardTag_Some, .payload = v } }
+#define AzOptionGl_None { .None = { .tag = AzOptionGlTag_None } }
+#define AzOptionGl_Some(v) { .Some = { .tag = AzOptionGlTag_Some, .payload = v } }
+#define AzOptionPercentageValue_None { .None = { .tag = AzOptionPercentageValueTag_None } }
+#define AzOptionPercentageValue_Some(v) { .Some = { .tag = AzOptionPercentageValueTag_Some, .payload = v } }
+#define AzOptionAngleValue_None { .None = { .tag = AzOptionAngleValueTag_None } }
+#define AzOptionAngleValue_Some(v) { .Some = { .tag = AzOptionAngleValueTag_Some, .payload = v } }
+#define AzOptionRendererOptions_None { .None = { .tag = AzOptionRendererOptionsTag_None } }
+#define AzOptionRendererOptions_Some(v) { .Some = { .tag = AzOptionRendererOptionsTag_Some, .payload = v } }
+#define AzOptionCallback_None { .None = { .tag = AzOptionCallbackTag_None } }
+#define AzOptionCallback_Some(v) { .Some = { .tag = AzOptionCallbackTag_Some, .payload = v } }
+#define AzOptionThreadSendMsg_None { .None = { .tag = AzOptionThreadSendMsgTag_None } }
+#define AzOptionThreadSendMsg_Some(v) { .Some = { .tag = AzOptionThreadSendMsgTag_Some, .payload = v } }
+#define AzOptionLayoutRect_None { .None = { .tag = AzOptionLayoutRectTag_None } }
+#define AzOptionLayoutRect_Some(v) { .Some = { .tag = AzOptionLayoutRectTag_Some, .payload = v } }
+#define AzOptionRefAny_None { .None = { .tag = AzOptionRefAnyTag_None } }
+#define AzOptionRefAny_Some(v) { .Some = { .tag = AzOptionRefAnyTag_Some, .payload = v } }
+#define AzOptionLayoutPoint_None { .None = { .tag = AzOptionLayoutPointTag_None } }
+#define AzOptionLayoutPoint_Some(v) { .Some = { .tag = AzOptionLayoutPointTag_Some, .payload = v } }
+#define AzOptionLayoutSize_None { .None = { .tag = AzOptionLayoutSizeTag_None } }
+#define AzOptionLayoutSize_Some(v) { .Some = { .tag = AzOptionLayoutSizeTag_Some, .payload = v } }
+#define AzOptionWindowTheme_None { .None = { .tag = AzOptionWindowThemeTag_None } }
+#define AzOptionWindowTheme_Some(v) { .Some = { .tag = AzOptionWindowThemeTag_Some, .payload = v } }
+#define AzOptionNodeId_None { .None = { .tag = AzOptionNodeIdTag_None } }
+#define AzOptionNodeId_Some(v) { .Some = { .tag = AzOptionNodeIdTag_Some, .payload = v } }
+#define AzOptionDomNodeId_None { .None = { .tag = AzOptionDomNodeIdTag_None } }
+#define AzOptionDomNodeId_Some(v) { .Some = { .tag = AzOptionDomNodeIdTag_Some, .payload = v } }
+#define AzOptionColorU_None { .None = { .tag = AzOptionColorUTag_None } }
+#define AzOptionColorU_Some(v) { .Some = { .tag = AzOptionColorUTag_Some, .payload = v } }
+#define AzOptionSvgDashPattern_None { .None = { .tag = AzOptionSvgDashPatternTag_None } }
+#define AzOptionSvgDashPattern_Some(v) { .Some = { .tag = AzOptionSvgDashPatternTag_Some, .payload = v } }
+#define AzOptionLogicalPosition_None { .None = { .tag = AzOptionLogicalPositionTag_None } }
+#define AzOptionLogicalPosition_Some(v) { .Some = { .tag = AzOptionLogicalPositionTag_Some, .payload = v } }
+#define AzOptionPhysicalPositionI32_None { .None = { .tag = AzOptionPhysicalPositionI32Tag_None } }
+#define AzOptionPhysicalPositionI32_Some(v) { .Some = { .tag = AzOptionPhysicalPositionI32Tag_Some, .payload = v } }
+#define AzOptionMouseCursorType_None { .None = { .tag = AzOptionMouseCursorTypeTag_None } }
+#define AzOptionMouseCursorType_Some(v) { .Some = { .tag = AzOptionMouseCursorTypeTag_Some, .payload = v } }
+#define AzOptionLogicalSize_None { .None = { .tag = AzOptionLogicalSizeTag_None } }
+#define AzOptionLogicalSize_Some(v) { .Some = { .tag = AzOptionLogicalSizeTag_Some, .payload = v } }
+#define AzOptionVirtualKeyCode_None { .None = { .tag = AzOptionVirtualKeyCodeTag_None } }
+#define AzOptionVirtualKeyCode_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeTag_Some, .payload = v } }
+#define AzOptionImageMask_None { .None = { .tag = AzOptionImageMaskTag_None } }
+#define AzOptionImageMask_Some(v) { .Some = { .tag = AzOptionImageMaskTag_Some, .payload = v } }
+#define AzOptionTabIndex_None { .None = { .tag = AzOptionTabIndexTag_None } }
+#define AzOptionTabIndex_Some(v) { .Some = { .tag = AzOptionTabIndexTag_Some, .payload = v } }
+#define AzOptionTagId_None { .None = { .tag = AzOptionTagIdTag_None } }
+#define AzOptionTagId_Some(v) { .Some = { .tag = AzOptionTagIdTag_Some, .payload = v } }
+#define AzOptionDuration_None { .None = { .tag = AzOptionDurationTag_None } }
+#define AzOptionDuration_Some(v) { .Some = { .tag = AzOptionDurationTag_Some, .payload = v } }
+#define AzOptionU8Vec_None { .None = { .tag = AzOptionU8VecTag_None } }
+#define AzOptionU8Vec_Some(v) { .Some = { .tag = AzOptionU8VecTag_Some, .payload = v } }
+#define AzOptionU8VecRef_None { .None = { .tag = AzOptionU8VecRefTag_None } }
+#define AzOptionU8VecRef_Some(v) { .Some = { .tag = AzOptionU8VecRefTag_Some, .payload = v } }
+#define AzResultU8VecEncodeImageError_Ok(v) { .Ok = { .tag = AzResultU8VecEncodeImageErrorTag_Ok, .payload = v } }
+#define AzResultU8VecEncodeImageError_Err(v) { .Err = { .tag = AzResultU8VecEncodeImageErrorTag_Err, .payload = v } }
+#define AzWindowIcon_Small(v) { .Small = { .tag = AzWindowIconTag_Small, .payload = v } }
+#define AzWindowIcon_Large(v) { .Large = { .tag = AzWindowIconTag_Large, .payload = v } }
+#define AzAnimationEasing_Ease { .Ease = { .tag = AzAnimationEasingTag_Ease } }
+#define AzAnimationEasing_Linear { .Linear = { .tag = AzAnimationEasingTag_Linear } }
+#define AzAnimationEasing_EaseIn { .EaseIn = { .tag = AzAnimationEasingTag_EaseIn } }
+#define AzAnimationEasing_EaseOut { .EaseOut = { .tag = AzAnimationEasingTag_EaseOut } }
+#define AzAnimationEasing_EaseInOut { .EaseInOut = { .tag = AzAnimationEasingTag_EaseInOut } }
+#define AzAnimationEasing_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationEasingTag_CubicBezier, .payload = v } }
+#define AzEventFilter_Hover(v) { .Hover = { .tag = AzEventFilterTag_Hover, .payload = v } }
+#define AzEventFilter_Not(v) { .Not = { .tag = AzEventFilterTag_Not, .payload = v } }
+#define AzEventFilter_Focus(v) { .Focus = { .tag = AzEventFilterTag_Focus, .payload = v } }
+#define AzEventFilter_Window(v) { .Window = { .tag = AzEventFilterTag_Window, .payload = v } }
+#define AzEventFilter_Component(v) { .Component = { .tag = AzEventFilterTag_Component, .payload = v } }
+#define AzEventFilter_Application(v) { .Application = { .tag = AzEventFilterTag_Application, .payload = v } }
+#define AzCssPathPseudoSelector_First { .First = { .tag = AzCssPathPseudoSelectorTag_First } }
+#define AzCssPathPseudoSelector_Last { .Last = { .tag = AzCssPathPseudoSelectorTag_Last } }
+#define AzCssPathPseudoSelector_NthChild(v) { .NthChild = { .tag = AzCssPathPseudoSelectorTag_NthChild, .payload = v } }
+#define AzCssPathPseudoSelector_Hover { .Hover = { .tag = AzCssPathPseudoSelectorTag_Hover } }
+#define AzCssPathPseudoSelector_Active { .Active = { .tag = AzCssPathPseudoSelectorTag_Active } }
+#define AzCssPathPseudoSelector_Focus { .Focus = { .tag = AzCssPathPseudoSelectorTag_Focus } }
+#define AzAnimationInterpolationFunction_Ease { .Ease = { .tag = AzAnimationInterpolationFunctionTag_Ease } }
+#define AzAnimationInterpolationFunction_Linear { .Linear = { .tag = AzAnimationInterpolationFunctionTag_Linear } }
+#define AzAnimationInterpolationFunction_EaseIn { .EaseIn = { .tag = AzAnimationInterpolationFunctionTag_EaseIn } }
+#define AzAnimationInterpolationFunction_EaseOut { .EaseOut = { .tag = AzAnimationInterpolationFunctionTag_EaseOut } }
+#define AzAnimationInterpolationFunction_EaseInOut { .EaseInOut = { .tag = AzAnimationInterpolationFunctionTag_EaseInOut } }
+#define AzAnimationInterpolationFunction_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationInterpolationFunctionTag_CubicBezier, .payload = v } }
+#define AzStyleTransform_Matrix(v) { .Matrix = { .tag = AzStyleTransformTag_Matrix, .payload = v } }
+#define AzStyleTransform_Matrix3D(v) { .Matrix3D = { .tag = AzStyleTransformTag_Matrix3D, .payload = v } }
+#define AzStyleTransform_Translate(v) { .Translate = { .tag = AzStyleTransformTag_Translate, .payload = v } }
+#define AzStyleTransform_Translate3D(v) { .Translate3D = { .tag = AzStyleTransformTag_Translate3D, .payload = v } }
+#define AzStyleTransform_TranslateX(v) { .TranslateX = { .tag = AzStyleTransformTag_TranslateX, .payload = v } }
+#define AzStyleTransform_TranslateY(v) { .TranslateY = { .tag = AzStyleTransformTag_TranslateY, .payload = v } }
+#define AzStyleTransform_TranslateZ(v) { .TranslateZ = { .tag = AzStyleTransformTag_TranslateZ, .payload = v } }
+#define AzStyleTransform_Rotate(v) { .Rotate = { .tag = AzStyleTransformTag_Rotate, .payload = v } }
+#define AzStyleTransform_Rotate3D(v) { .Rotate3D = { .tag = AzStyleTransformTag_Rotate3D, .payload = v } }
+#define AzStyleTransform_RotateX(v) { .RotateX = { .tag = AzStyleTransformTag_RotateX, .payload = v } }
+#define AzStyleTransform_RotateY(v) { .RotateY = { .tag = AzStyleTransformTag_RotateY, .payload = v } }
+#define AzStyleTransform_RotateZ(v) { .RotateZ = { .tag = AzStyleTransformTag_RotateZ, .payload = v } }
+#define AzStyleTransform_Scale(v) { .Scale = { .tag = AzStyleTransformTag_Scale, .payload = v } }
+#define AzStyleTransform_Scale3D(v) { .Scale3D = { .tag = AzStyleTransformTag_Scale3D, .payload = v } }
+#define AzStyleTransform_ScaleX(v) { .ScaleX = { .tag = AzStyleTransformTag_ScaleX, .payload = v } }
+#define AzStyleTransform_ScaleY(v) { .ScaleY = { .tag = AzStyleTransformTag_ScaleY, .payload = v } }
+#define AzStyleTransform_ScaleZ(v) { .ScaleZ = { .tag = AzStyleTransformTag_ScaleZ, .payload = v } }
+#define AzStyleTransform_Skew(v) { .Skew = { .tag = AzStyleTransformTag_Skew, .payload = v } }
+#define AzStyleTransform_SkewX(v) { .SkewX = { .tag = AzStyleTransformTag_SkewX, .payload = v } }
+#define AzStyleTransform_SkewY(v) { .SkewY = { .tag = AzStyleTransformTag_SkewY, .payload = v } }
+#define AzStyleTransform_Perspective(v) { .Perspective = { .tag = AzStyleTransformTag_Perspective, .payload = v } }
+#define AzStyleBackgroundPositionVecValue_Auto { .Auto = { .tag = AzStyleBackgroundPositionVecValueTag_Auto } }
+#define AzStyleBackgroundPositionVecValue_None { .None = { .tag = AzStyleBackgroundPositionVecValueTag_None } }
+#define AzStyleBackgroundPositionVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundPositionVecValueTag_Inherit } }
+#define AzStyleBackgroundPositionVecValue_Initial { .Initial = { .tag = AzStyleBackgroundPositionVecValueTag_Initial } }
+#define AzStyleBackgroundPositionVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundPositionVecValueTag_Exact, .payload = v } }
+#define AzStyleBackgroundRepeatVecValue_Auto { .Auto = { .tag = AzStyleBackgroundRepeatVecValueTag_Auto } }
+#define AzStyleBackgroundRepeatVecValue_None { .None = { .tag = AzStyleBackgroundRepeatVecValueTag_None } }
+#define AzStyleBackgroundRepeatVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundRepeatVecValueTag_Inherit } }
+#define AzStyleBackgroundRepeatVecValue_Initial { .Initial = { .tag = AzStyleBackgroundRepeatVecValueTag_Initial } }
+#define AzStyleBackgroundRepeatVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundRepeatVecValueTag_Exact, .payload = v } }
+#define AzStyleBackgroundSizeVecValue_Auto { .Auto = { .tag = AzStyleBackgroundSizeVecValueTag_Auto } }
+#define AzStyleBackgroundSizeVecValue_None { .None = { .tag = AzStyleBackgroundSizeVecValueTag_None } }
+#define AzStyleBackgroundSizeVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundSizeVecValueTag_Inherit } }
+#define AzStyleBackgroundSizeVecValue_Initial { .Initial = { .tag = AzStyleBackgroundSizeVecValueTag_Initial } }
+#define AzStyleBackgroundSizeVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundSizeVecValueTag_Exact, .payload = v } }
+#define AzRawImageData_U8(v) { .U8 = { .tag = AzRawImageDataTag_U8, .payload = v } }
+#define AzRawImageData_U16(v) { .U16 = { .tag = AzRawImageDataTag_U16, .payload = v } }
+#define AzRawImageData_F32(v) { .F32 = { .tag = AzRawImageDataTag_F32, .payload = v } }
+#define AzSvgPathElement_Line(v) { .Line = { .tag = AzSvgPathElementTag_Line, .payload = v } }
+#define AzSvgPathElement_QuadraticCurve(v) { .QuadraticCurve = { .tag = AzSvgPathElementTag_QuadraticCurve, .payload = v } }
+#define AzSvgPathElement_CubicCurve(v) { .CubicCurve = { .tag = AzSvgPathElementTag_CubicCurve, .payload = v } }
+#define AzInstant_System(v) { .System = { .tag = AzInstantTag_System, .payload = v } }
+#define AzInstant_Tick(v) { .Tick = { .tag = AzInstantTag_Tick, .payload = v } }
+#define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
+#define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
+#define AzOptionVirtualKeyCodeCombo_None { .None = { .tag = AzOptionVirtualKeyCodeComboTag_None } }
+#define AzOptionVirtualKeyCodeCombo_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeComboTag_Some, .payload = v } }
+#define AzOptionMouseState_None { .None = { .tag = AzOptionMouseStateTag_None } }
+#define AzOptionMouseState_Some(v) { .Some = { .tag = AzOptionMouseStateTag_Some, .payload = v } }
+#define AzOptionKeyboardState_None { .None = { .tag = AzOptionKeyboardStateTag_None } }
+#define AzOptionKeyboardState_Some(v) { .Some = { .tag = AzOptionKeyboardStateTag_Some, .payload = v } }
+#define AzOptionStringVec_None { .None = { .tag = AzOptionStringVecTag_None } }
+#define AzOptionStringVec_Some(v) { .Some = { .tag = AzOptionStringVecTag_Some, .payload = v } }
+#define AzOptionThreadReceiveMsg_None { .None = { .tag = AzOptionThreadReceiveMsgTag_None } }
+#define AzOptionThreadReceiveMsg_Some(v) { .Some = { .tag = AzOptionThreadReceiveMsgTag_Some, .payload = v } }
+#define AzOptionTaskBarIcon_None { .None = { .tag = AzOptionTaskBarIconTag_None } }
+#define AzOptionTaskBarIcon_Some(v) { .Some = { .tag = AzOptionTaskBarIconTag_Some, .payload = v } }
+#define AzOptionWindowIcon_None { .None = { .tag = AzOptionWindowIconTag_None } }
+#define AzOptionWindowIcon_Some(v) { .Some = { .tag = AzOptionWindowIconTag_Some, .payload = v } }
+#define AzOptionString_None { .None = { .tag = AzOptionStringTag_None } }
+#define AzOptionString_Some(v) { .Some = { .tag = AzOptionStringTag_Some, .payload = v } }
+#define AzOptionTexture_None { .None = { .tag = AzOptionTextureTag_None } }
+#define AzOptionTexture_Some(v) { .Some = { .tag = AzOptionTextureTag_Some, .payload = v } }
+#define AzOptionInstant_None { .None = { .tag = AzOptionInstantTag_None } }
+#define AzOptionInstant_Some(v) { .Some = { .tag = AzOptionInstantTag_Some, .payload = v } }
+#define AzLayoutCallback_Raw(v) { .Raw = { .tag = AzLayoutCallbackTag_Raw, .payload = v } }
+#define AzLayoutCallback_Marshaled(v) { .Marshaled = { .tag = AzLayoutCallbackTag_Marshaled, .payload = v } }
+#define AzInlineWord_Tab { .Tab = { .tag = AzInlineWordTag_Tab } }
+#define AzInlineWord_Return { .Return = { .tag = AzInlineWordTag_Return } }
+#define AzInlineWord_Space { .Space = { .tag = AzInlineWordTag_Space } }
+#define AzInlineWord_Word(v) { .Word = { .tag = AzInlineWordTag_Word, .payload = v } }
+#define AzNodeType_Body { .Body = { .tag = AzNodeTypeTag_Body } }
+#define AzNodeType_Div { .Div = { .tag = AzNodeTypeTag_Div } }
+#define AzNodeType_Br { .Br = { .tag = AzNodeTypeTag_Br } }
+#define AzNodeType_Text(v) { .Text = { .tag = AzNodeTypeTag_Text, .payload = v } }
+#define AzNodeType_Image(v) { .Image = { .tag = AzNodeTypeTag_Image, .payload = v } }
+#define AzNodeType_IFrame(v) { .IFrame = { .tag = AzNodeTypeTag_IFrame, .payload = v } }
+#define AzIdOrClass_Id(v) { .Id = { .tag = AzIdOrClassTag_Id, .payload = v } }
+#define AzIdOrClass_Class(v) { .Class = { .tag = AzIdOrClassTag_Class, .payload = v } }
+#define AzCssPathSelector_Global { .Global = { .tag = AzCssPathSelectorTag_Global } }
+#define AzCssPathSelector_Type(v) { .Type = { .tag = AzCssPathSelectorTag_Type, .payload = v } }
+#define AzCssPathSelector_Class(v) { .Class = { .tag = AzCssPathSelectorTag_Class, .payload = v } }
+#define AzCssPathSelector_Id(v) { .Id = { .tag = AzCssPathSelectorTag_Id, .payload = v } }
+#define AzCssPathSelector_PseudoSelector(v) { .PseudoSelector = { .tag = AzCssPathSelectorTag_PseudoSelector, .payload = v } }
+#define AzCssPathSelector_DirectChildren { .DirectChildren = { .tag = AzCssPathSelectorTag_DirectChildren } }
+#define AzCssPathSelector_Children { .Children = { .tag = AzCssPathSelectorTag_Children } }
+#define AzStyleBackgroundContent_LinearGradient(v) { .LinearGradient = { .tag = AzStyleBackgroundContentTag_LinearGradient, .payload = v } }
+#define AzStyleBackgroundContent_RadialGradient(v) { .RadialGradient = { .tag = AzStyleBackgroundContentTag_RadialGradient, .payload = v } }
+#define AzStyleBackgroundContent_ConicGradient(v) { .ConicGradient = { .tag = AzStyleBackgroundContentTag_ConicGradient, .payload = v } }
+#define AzStyleBackgroundContent_Image(v) { .Image = { .tag = AzStyleBackgroundContentTag_Image, .payload = v } }
+#define AzStyleBackgroundContent_Color(v) { .Color = { .tag = AzStyleBackgroundContentTag_Color, .payload = v } }
+#define AzStyleFontFamily_System(v) { .System = { .tag = AzStyleFontFamilyTag_System, .payload = v } }
+#define AzStyleFontFamily_File(v) { .File = { .tag = AzStyleFontFamilyTag_File, .payload = v } }
+#define AzStyleFontFamily_Ref(v) { .Ref = { .tag = AzStyleFontFamilyTag_Ref, .payload = v } }
+#define AzScrollbarStyleValue_Auto { .Auto = { .tag = AzScrollbarStyleValueTag_Auto } }
+#define AzScrollbarStyleValue_None { .None = { .tag = AzScrollbarStyleValueTag_None } }
+#define AzScrollbarStyleValue_Inherit { .Inherit = { .tag = AzScrollbarStyleValueTag_Inherit } }
+#define AzScrollbarStyleValue_Initial { .Initial = { .tag = AzScrollbarStyleValueTag_Initial } }
+#define AzScrollbarStyleValue_Exact(v) { .Exact = { .tag = AzScrollbarStyleValueTag_Exact, .payload = v } }
+#define AzStyleTransformVecValue_Auto { .Auto = { .tag = AzStyleTransformVecValueTag_Auto } }
+#define AzStyleTransformVecValue_None { .None = { .tag = AzStyleTransformVecValueTag_None } }
+#define AzStyleTransformVecValue_Inherit { .Inherit = { .tag = AzStyleTransformVecValueTag_Inherit } }
+#define AzStyleTransformVecValue_Initial { .Initial = { .tag = AzStyleTransformVecValueTag_Initial } }
+#define AzStyleTransformVecValue_Exact(v) { .Exact = { .tag = AzStyleTransformVecValueTag_Exact, .payload = v } }
+#define AzSvgStyle_Fill(v) { .Fill = { .tag = AzSvgStyleTag_Fill, .payload = v } }
+#define AzSvgStyle_Stroke(v) { .Stroke = { .tag = AzSvgStyleTag_Stroke, .payload = v } }
+#define AzFmtValue_Bool(v) { .Bool = { .tag = AzFmtValueTag_Bool, .payload = v } }
+#define AzFmtValue_Uchar(v) { .Uchar = { .tag = AzFmtValueTag_Uchar, .payload = v } }
+#define AzFmtValue_Schar(v) { .Schar = { .tag = AzFmtValueTag_Schar, .payload = v } }
+#define AzFmtValue_Ushort(v) { .Ushort = { .tag = AzFmtValueTag_Ushort, .payload = v } }
+#define AzFmtValue_Sshort(v) { .Sshort = { .tag = AzFmtValueTag_Sshort, .payload = v } }
+#define AzFmtValue_Uint(v) { .Uint = { .tag = AzFmtValueTag_Uint, .payload = v } }
+#define AzFmtValue_Sint(v) { .Sint = { .tag = AzFmtValueTag_Sint, .payload = v } }
+#define AzFmtValue_Ulong(v) { .Ulong = { .tag = AzFmtValueTag_Ulong, .payload = v } }
+#define AzFmtValue_Slong(v) { .Slong = { .tag = AzFmtValueTag_Slong, .payload = v } }
+#define AzFmtValue_Isize(v) { .Isize = { .tag = AzFmtValueTag_Isize, .payload = v } }
+#define AzFmtValue_Usize(v) { .Usize = { .tag = AzFmtValueTag_Usize, .payload = v } }
+#define AzFmtValue_Float(v) { .Float = { .tag = AzFmtValueTag_Float, .payload = v } }
+#define AzFmtValue_Double(v) { .Double = { .tag = AzFmtValueTag_Double, .payload = v } }
+#define AzFmtValue_Str(v) { .Str = { .tag = AzFmtValueTag_Str, .payload = v } }
+#define AzFmtValue_StrVec(v) { .StrVec = { .tag = AzFmtValueTag_StrVec, .payload = v } }
+#define AzOptionFileTypeList_None { .None = { .tag = AzOptionFileTypeListTag_None } }
+#define AzOptionFileTypeList_Some(v) { .Some = { .tag = AzOptionFileTypeListTag_Some, .payload = v } }
+#define AzOptionFile_None { .None = { .tag = AzOptionFileTag_None } }
+#define AzOptionFile_Some(v) { .Some = { .tag = AzOptionFileTag_Some, .payload = v } }
+#define AzOptionRawImage_None { .None = { .tag = AzOptionRawImageTag_None } }
+#define AzOptionRawImage_Some(v) { .Some = { .tag = AzOptionRawImageTag_Some, .payload = v } }
+#define AzOptionWaylandTheme_None { .None = { .tag = AzOptionWaylandThemeTag_None } }
+#define AzOptionWaylandTheme_Some(v) { .Some = { .tag = AzOptionWaylandThemeTag_Some, .payload = v } }
+#define AzResultRawImageDecodeImageError_Ok(v) { .Ok = { .tag = AzResultRawImageDecodeImageErrorTag_Ok, .payload = v } }
+#define AzResultRawImageDecodeImageError_Err(v) { .Err = { .tag = AzResultRawImageDecodeImageErrorTag_Err, .payload = v } }
+#define AzXmlStreamError_UnexpectedEndOfStream { .UnexpectedEndOfStream = { .tag = AzXmlStreamErrorTag_UnexpectedEndOfStream } }
+#define AzXmlStreamError_InvalidName { .InvalidName = { .tag = AzXmlStreamErrorTag_InvalidName } }
+#define AzXmlStreamError_NonXmlChar(v) { .NonXmlChar = { .tag = AzXmlStreamErrorTag_NonXmlChar, .payload = v } }
+#define AzXmlStreamError_InvalidChar(v) { .InvalidChar = { .tag = AzXmlStreamErrorTag_InvalidChar, .payload = v } }
+#define AzXmlStreamError_InvalidCharMultiple(v) { .InvalidCharMultiple = { .tag = AzXmlStreamErrorTag_InvalidCharMultiple, .payload = v } }
+#define AzXmlStreamError_InvalidQuote(v) { .InvalidQuote = { .tag = AzXmlStreamErrorTag_InvalidQuote, .payload = v } }
+#define AzXmlStreamError_InvalidSpace(v) { .InvalidSpace = { .tag = AzXmlStreamErrorTag_InvalidSpace, .payload = v } }
+#define AzXmlStreamError_InvalidString(v) { .InvalidString = { .tag = AzXmlStreamErrorTag_InvalidString, .payload = v } }
+#define AzXmlStreamError_InvalidReference { .InvalidReference = { .tag = AzXmlStreamErrorTag_InvalidReference } }
+#define AzXmlStreamError_InvalidExternalID { .InvalidExternalID = { .tag = AzXmlStreamErrorTag_InvalidExternalID } }
+#define AzXmlStreamError_InvalidCommentData { .InvalidCommentData = { .tag = AzXmlStreamErrorTag_InvalidCommentData } }
+#define AzXmlStreamError_InvalidCommentEnd { .InvalidCommentEnd = { .tag = AzXmlStreamErrorTag_InvalidCommentEnd } }
+#define AzXmlStreamError_InvalidCharacterData { .InvalidCharacterData = { .tag = AzXmlStreamErrorTag_InvalidCharacterData } }
+#define AzMenuItem_Label(v) { .Label = { .tag = AzMenuItemTag_Label, .payload = v } }
+#define AzMenuItem_Separator { .Separator = { .tag = AzMenuItemTag_Separator } }
+#define AzMenuItem_BreakLine { .BreakLine = { .tag = AzMenuItemTag_BreakLine } }
+#define AzStyleBackgroundContentVecValue_Auto { .Auto = { .tag = AzStyleBackgroundContentVecValueTag_Auto } }
+#define AzStyleBackgroundContentVecValue_None { .None = { .tag = AzStyleBackgroundContentVecValueTag_None } }
+#define AzStyleBackgroundContentVecValue_Inherit { .Inherit = { .tag = AzStyleBackgroundContentVecValueTag_Inherit } }
+#define AzStyleBackgroundContentVecValue_Initial { .Initial = { .tag = AzStyleBackgroundContentVecValueTag_Initial } }
+#define AzStyleBackgroundContentVecValue_Exact(v) { .Exact = { .tag = AzStyleBackgroundContentVecValueTag_Exact, .payload = v } }
+#define AzStyleFontFamilyVecValue_Auto { .Auto = { .tag = AzStyleFontFamilyVecValueTag_Auto } }
+#define AzStyleFontFamilyVecValue_None { .None = { .tag = AzStyleFontFamilyVecValueTag_None } }
+#define AzStyleFontFamilyVecValue_Inherit { .Inherit = { .tag = AzStyleFontFamilyVecValueTag_Inherit } }
+#define AzStyleFontFamilyVecValue_Initial { .Initial = { .tag = AzStyleFontFamilyVecValueTag_Initial } }
+#define AzStyleFontFamilyVecValue_Exact(v) { .Exact = { .tag = AzStyleFontFamilyVecValueTag_Exact, .payload = v } }
+#define AzCssProperty_TextColor(v) { .TextColor = { .tag = AzCssPropertyTag_TextColor, .payload = v } }
+#define AzCssProperty_FontSize(v) { .FontSize = { .tag = AzCssPropertyTag_FontSize, .payload = v } }
+#define AzCssProperty_FontFamily(v) { .FontFamily = { .tag = AzCssPropertyTag_FontFamily, .payload = v } }
+#define AzCssProperty_TextAlign(v) { .TextAlign = { .tag = AzCssPropertyTag_TextAlign, .payload = v } }
+#define AzCssProperty_LetterSpacing(v) { .LetterSpacing = { .tag = AzCssPropertyTag_LetterSpacing, .payload = v } }
+#define AzCssProperty_LineHeight(v) { .LineHeight = { .tag = AzCssPropertyTag_LineHeight, .payload = v } }
+#define AzCssProperty_WordSpacing(v) { .WordSpacing = { .tag = AzCssPropertyTag_WordSpacing, .payload = v } }
+#define AzCssProperty_TabWidth(v) { .TabWidth = { .tag = AzCssPropertyTag_TabWidth, .payload = v } }
+#define AzCssProperty_Cursor(v) { .Cursor = { .tag = AzCssPropertyTag_Cursor, .payload = v } }
+#define AzCssProperty_Display(v) { .Display = { .tag = AzCssPropertyTag_Display, .payload = v } }
+#define AzCssProperty_Float(v) { .Float = { .tag = AzCssPropertyTag_Float, .payload = v } }
+#define AzCssProperty_BoxSizing(v) { .BoxSizing = { .tag = AzCssPropertyTag_BoxSizing, .payload = v } }
+#define AzCssProperty_Width(v) { .Width = { .tag = AzCssPropertyTag_Width, .payload = v } }
+#define AzCssProperty_Height(v) { .Height = { .tag = AzCssPropertyTag_Height, .payload = v } }
+#define AzCssProperty_MinWidth(v) { .MinWidth = { .tag = AzCssPropertyTag_MinWidth, .payload = v } }
+#define AzCssProperty_MinHeight(v) { .MinHeight = { .tag = AzCssPropertyTag_MinHeight, .payload = v } }
+#define AzCssProperty_MaxWidth(v) { .MaxWidth = { .tag = AzCssPropertyTag_MaxWidth, .payload = v } }
+#define AzCssProperty_MaxHeight(v) { .MaxHeight = { .tag = AzCssPropertyTag_MaxHeight, .payload = v } }
+#define AzCssProperty_Position(v) { .Position = { .tag = AzCssPropertyTag_Position, .payload = v } }
+#define AzCssProperty_Top(v) { .Top = { .tag = AzCssPropertyTag_Top, .payload = v } }
+#define AzCssProperty_Right(v) { .Right = { .tag = AzCssPropertyTag_Right, .payload = v } }
+#define AzCssProperty_Left(v) { .Left = { .tag = AzCssPropertyTag_Left, .payload = v } }
+#define AzCssProperty_Bottom(v) { .Bottom = { .tag = AzCssPropertyTag_Bottom, .payload = v } }
+#define AzCssProperty_FlexWrap(v) { .FlexWrap = { .tag = AzCssPropertyTag_FlexWrap, .payload = v } }
+#define AzCssProperty_FlexDirection(v) { .FlexDirection = { .tag = AzCssPropertyTag_FlexDirection, .payload = v } }
+#define AzCssProperty_FlexGrow(v) { .FlexGrow = { .tag = AzCssPropertyTag_FlexGrow, .payload = v } }
+#define AzCssProperty_FlexShrink(v) { .FlexShrink = { .tag = AzCssPropertyTag_FlexShrink, .payload = v } }
+#define AzCssProperty_JustifyContent(v) { .JustifyContent = { .tag = AzCssPropertyTag_JustifyContent, .payload = v } }
+#define AzCssProperty_AlignItems(v) { .AlignItems = { .tag = AzCssPropertyTag_AlignItems, .payload = v } }
+#define AzCssProperty_AlignContent(v) { .AlignContent = { .tag = AzCssPropertyTag_AlignContent, .payload = v } }
+#define AzCssProperty_BackgroundContent(v) { .BackgroundContent = { .tag = AzCssPropertyTag_BackgroundContent, .payload = v } }
+#define AzCssProperty_BackgroundPosition(v) { .BackgroundPosition = { .tag = AzCssPropertyTag_BackgroundPosition, .payload = v } }
+#define AzCssProperty_BackgroundSize(v) { .BackgroundSize = { .tag = AzCssPropertyTag_BackgroundSize, .payload = v } }
+#define AzCssProperty_BackgroundRepeat(v) { .BackgroundRepeat = { .tag = AzCssPropertyTag_BackgroundRepeat, .payload = v } }
+#define AzCssProperty_OverflowX(v) { .OverflowX = { .tag = AzCssPropertyTag_OverflowX, .payload = v } }
+#define AzCssProperty_OverflowY(v) { .OverflowY = { .tag = AzCssPropertyTag_OverflowY, .payload = v } }
+#define AzCssProperty_PaddingTop(v) { .PaddingTop = { .tag = AzCssPropertyTag_PaddingTop, .payload = v } }
+#define AzCssProperty_PaddingLeft(v) { .PaddingLeft = { .tag = AzCssPropertyTag_PaddingLeft, .payload = v } }
+#define AzCssProperty_PaddingRight(v) { .PaddingRight = { .tag = AzCssPropertyTag_PaddingRight, .payload = v } }
+#define AzCssProperty_PaddingBottom(v) { .PaddingBottom = { .tag = AzCssPropertyTag_PaddingBottom, .payload = v } }
+#define AzCssProperty_MarginTop(v) { .MarginTop = { .tag = AzCssPropertyTag_MarginTop, .payload = v } }
+#define AzCssProperty_MarginLeft(v) { .MarginLeft = { .tag = AzCssPropertyTag_MarginLeft, .payload = v } }
+#define AzCssProperty_MarginRight(v) { .MarginRight = { .tag = AzCssPropertyTag_MarginRight, .payload = v } }
+#define AzCssProperty_MarginBottom(v) { .MarginBottom = { .tag = AzCssPropertyTag_MarginBottom, .payload = v } }
+#define AzCssProperty_BorderTopLeftRadius(v) { .BorderTopLeftRadius = { .tag = AzCssPropertyTag_BorderTopLeftRadius, .payload = v } }
+#define AzCssProperty_BorderTopRightRadius(v) { .BorderTopRightRadius = { .tag = AzCssPropertyTag_BorderTopRightRadius, .payload = v } }
+#define AzCssProperty_BorderBottomLeftRadius(v) { .BorderBottomLeftRadius = { .tag = AzCssPropertyTag_BorderBottomLeftRadius, .payload = v } }
+#define AzCssProperty_BorderBottomRightRadius(v) { .BorderBottomRightRadius = { .tag = AzCssPropertyTag_BorderBottomRightRadius, .payload = v } }
+#define AzCssProperty_BorderTopColor(v) { .BorderTopColor = { .tag = AzCssPropertyTag_BorderTopColor, .payload = v } }
+#define AzCssProperty_BorderRightColor(v) { .BorderRightColor = { .tag = AzCssPropertyTag_BorderRightColor, .payload = v } }
+#define AzCssProperty_BorderLeftColor(v) { .BorderLeftColor = { .tag = AzCssPropertyTag_BorderLeftColor, .payload = v } }
+#define AzCssProperty_BorderBottomColor(v) { .BorderBottomColor = { .tag = AzCssPropertyTag_BorderBottomColor, .payload = v } }
+#define AzCssProperty_BorderTopStyle(v) { .BorderTopStyle = { .tag = AzCssPropertyTag_BorderTopStyle, .payload = v } }
+#define AzCssProperty_BorderRightStyle(v) { .BorderRightStyle = { .tag = AzCssPropertyTag_BorderRightStyle, .payload = v } }
+#define AzCssProperty_BorderLeftStyle(v) { .BorderLeftStyle = { .tag = AzCssPropertyTag_BorderLeftStyle, .payload = v } }
+#define AzCssProperty_BorderBottomStyle(v) { .BorderBottomStyle = { .tag = AzCssPropertyTag_BorderBottomStyle, .payload = v } }
+#define AzCssProperty_BorderTopWidth(v) { .BorderTopWidth = { .tag = AzCssPropertyTag_BorderTopWidth, .payload = v } }
+#define AzCssProperty_BorderRightWidth(v) { .BorderRightWidth = { .tag = AzCssPropertyTag_BorderRightWidth, .payload = v } }
+#define AzCssProperty_BorderLeftWidth(v) { .BorderLeftWidth = { .tag = AzCssPropertyTag_BorderLeftWidth, .payload = v } }
+#define AzCssProperty_BorderBottomWidth(v) { .BorderBottomWidth = { .tag = AzCssPropertyTag_BorderBottomWidth, .payload = v } }
+#define AzCssProperty_BoxShadowLeft(v) { .BoxShadowLeft = { .tag = AzCssPropertyTag_BoxShadowLeft, .payload = v } }
+#define AzCssProperty_BoxShadowRight(v) { .BoxShadowRight = { .tag = AzCssPropertyTag_BoxShadowRight, .payload = v } }
+#define AzCssProperty_BoxShadowTop(v) { .BoxShadowTop = { .tag = AzCssPropertyTag_BoxShadowTop, .payload = v } }
+#define AzCssProperty_BoxShadowBottom(v) { .BoxShadowBottom = { .tag = AzCssPropertyTag_BoxShadowBottom, .payload = v } }
+#define AzCssProperty_ScrollbarStyle(v) { .ScrollbarStyle = { .tag = AzCssPropertyTag_ScrollbarStyle, .payload = v } }
+#define AzCssProperty_Opacity(v) { .Opacity = { .tag = AzCssPropertyTag_Opacity, .payload = v } }
+#define AzCssProperty_Transform(v) { .Transform = { .tag = AzCssPropertyTag_Transform, .payload = v } }
+#define AzCssProperty_TransformOrigin(v) { .TransformOrigin = { .tag = AzCssPropertyTag_TransformOrigin, .payload = v } }
+#define AzCssProperty_PerspectiveOrigin(v) { .PerspectiveOrigin = { .tag = AzCssPropertyTag_PerspectiveOrigin, .payload = v } }
+#define AzCssProperty_BackfaceVisibility(v) { .BackfaceVisibility = { .tag = AzCssPropertyTag_BackfaceVisibility, .payload = v } }
+#define AzCssPropertySource_Css(v) { .Css = { .tag = AzCssPropertySourceTag_Css, .payload = v } }
+#define AzCssPropertySource_Inline { .Inline = { .tag = AzCssPropertySourceTag_Inline } }
+#define AzOptionCssProperty_None { .None = { .tag = AzOptionCssPropertyTag_None } }
+#define AzOptionCssProperty_Some(v) { .Some = { .tag = AzOptionCssPropertyTag_Some, .payload = v } }
+#define AzNodeDataInlineCssProperty_Normal(v) { .Normal = { .tag = AzNodeDataInlineCssPropertyTag_Normal, .payload = v } }
+#define AzNodeDataInlineCssProperty_Active(v) { .Active = { .tag = AzNodeDataInlineCssPropertyTag_Active, .payload = v } }
+#define AzNodeDataInlineCssProperty_Focus(v) { .Focus = { .tag = AzNodeDataInlineCssPropertyTag_Focus, .payload = v } }
+#define AzNodeDataInlineCssProperty_Hover(v) { .Hover = { .tag = AzNodeDataInlineCssPropertyTag_Hover, .payload = v } }
+#define AzSvgNode_MultiPolygonCollection(v) { .MultiPolygonCollection = { .tag = AzSvgNodeTag_MultiPolygonCollection, .payload = v } }
+#define AzSvgNode_MultiPolygon(v) { .MultiPolygon = { .tag = AzSvgNodeTag_MultiPolygon, .payload = v } }
+#define AzSvgNode_Path(v) { .Path = { .tag = AzSvgNodeTag_Path, .payload = v } }
+#define AzSvgNode_Circle(v) { .Circle = { .tag = AzSvgNodeTag_Circle, .payload = v } }
+#define AzSvgNode_Rect(v) { .Rect = { .tag = AzSvgNodeTag_Rect, .payload = v } }
+#define AzOptionWindowState_None { .None = { .tag = AzOptionWindowStateTag_None } }
+#define AzOptionWindowState_Some(v) { .Some = { .tag = AzOptionWindowStateTag_Some, .payload = v } }
+#define AzOptionInlineText_None { .None = { .tag = AzOptionInlineTextTag_None } }
+#define AzOptionInlineText_Some(v) { .Some = { .tag = AzOptionInlineTextTag_Some, .payload = v } }
+#define AzXmlParseError_InvalidDeclaration(v) { .InvalidDeclaration = { .tag = AzXmlParseErrorTag_InvalidDeclaration, .payload = v } }
+#define AzXmlParseError_InvalidComment(v) { .InvalidComment = { .tag = AzXmlParseErrorTag_InvalidComment, .payload = v } }
+#define AzXmlParseError_InvalidPI(v) { .InvalidPI = { .tag = AzXmlParseErrorTag_InvalidPI, .payload = v } }
+#define AzXmlParseError_InvalidDoctype(v) { .InvalidDoctype = { .tag = AzXmlParseErrorTag_InvalidDoctype, .payload = v } }
+#define AzXmlParseError_InvalidEntity(v) { .InvalidEntity = { .tag = AzXmlParseErrorTag_InvalidEntity, .payload = v } }
+#define AzXmlParseError_InvalidElement(v) { .InvalidElement = { .tag = AzXmlParseErrorTag_InvalidElement, .payload = v } }
+#define AzXmlParseError_InvalidAttribute(v) { .InvalidAttribute = { .tag = AzXmlParseErrorTag_InvalidAttribute, .payload = v } }
+#define AzXmlParseError_InvalidCdata(v) { .InvalidCdata = { .tag = AzXmlParseErrorTag_InvalidCdata, .payload = v } }
+#define AzXmlParseError_InvalidCharData(v) { .InvalidCharData = { .tag = AzXmlParseErrorTag_InvalidCharData, .payload = v } }
+#define AzXmlParseError_UnknownToken(v) { .UnknownToken = { .tag = AzXmlParseErrorTag_UnknownToken, .payload = v } }
+#define AzFocusTarget_Id(v) { .Id = { .tag = AzFocusTargetTag_Id, .payload = v } }
+#define AzFocusTarget_Path(v) { .Path = { .tag = AzFocusTargetTag_Path, .payload = v } }
+#define AzFocusTarget_Previous { .Previous = { .tag = AzFocusTargetTag_Previous } }
+#define AzFocusTarget_Next { .Next = { .tag = AzFocusTargetTag_Next } }
+#define AzFocusTarget_First { .First = { .tag = AzFocusTargetTag_First } }
+#define AzFocusTarget_Last { .Last = { .tag = AzFocusTargetTag_Last } }
+#define AzFocusTarget_NoFocus { .NoFocus = { .tag = AzFocusTargetTag_NoFocus } }
+#define AzCssDeclaration_Static(v) { .Static = { .tag = AzCssDeclarationTag_Static, .payload = v } }
+#define AzCssDeclaration_Dynamic(v) { .Dynamic = { .tag = AzCssDeclarationTag_Dynamic, .payload = v } }
+#define AzXmlError_InvalidXmlPrefixUri(v) { .InvalidXmlPrefixUri = { .tag = AzXmlErrorTag_InvalidXmlPrefixUri, .payload = v } }
+#define AzXmlError_UnexpectedXmlUri(v) { .UnexpectedXmlUri = { .tag = AzXmlErrorTag_UnexpectedXmlUri, .payload = v } }
+#define AzXmlError_UnexpectedXmlnsUri(v) { .UnexpectedXmlnsUri = { .tag = AzXmlErrorTag_UnexpectedXmlnsUri, .payload = v } }
+#define AzXmlError_InvalidElementNamePrefix(v) { .InvalidElementNamePrefix = { .tag = AzXmlErrorTag_InvalidElementNamePrefix, .payload = v } }
+#define AzXmlError_DuplicatedNamespace(v) { .DuplicatedNamespace = { .tag = AzXmlErrorTag_DuplicatedNamespace, .payload = v } }
+#define AzXmlError_UnknownNamespace(v) { .UnknownNamespace = { .tag = AzXmlErrorTag_UnknownNamespace, .payload = v } }
+#define AzXmlError_UnexpectedCloseTag(v) { .UnexpectedCloseTag = { .tag = AzXmlErrorTag_UnexpectedCloseTag, .payload = v } }
+#define AzXmlError_UnexpectedEntityCloseTag(v) { .UnexpectedEntityCloseTag = { .tag = AzXmlErrorTag_UnexpectedEntityCloseTag, .payload = v } }
+#define AzXmlError_UnknownEntityReference(v) { .UnknownEntityReference = { .tag = AzXmlErrorTag_UnknownEntityReference, .payload = v } }
+#define AzXmlError_MalformedEntityReference(v) { .MalformedEntityReference = { .tag = AzXmlErrorTag_MalformedEntityReference, .payload = v } }
+#define AzXmlError_EntityReferenceLoop(v) { .EntityReferenceLoop = { .tag = AzXmlErrorTag_EntityReferenceLoop, .payload = v } }
+#define AzXmlError_InvalidAttributeValue(v) { .InvalidAttributeValue = { .tag = AzXmlErrorTag_InvalidAttributeValue, .payload = v } }
+#define AzXmlError_DuplicatedAttribute(v) { .DuplicatedAttribute = { .tag = AzXmlErrorTag_DuplicatedAttribute, .payload = v } }
+#define AzXmlError_NoRootNode { .NoRootNode = { .tag = AzXmlErrorTag_NoRootNode } }
+#define AzXmlError_SizeLimit { .SizeLimit = { .tag = AzXmlErrorTag_SizeLimit } }
+#define AzXmlError_ParserError(v) { .ParserError = { .tag = AzXmlErrorTag_ParserError, .payload = v } }
+#define AzOptionDom_None { .None = { .tag = AzOptionDomTag_None } }
+#define AzOptionDom_Some(v) { .Some = { .tag = AzOptionDomTag_Some, .payload = v } }
+#define AzResultXmlXmlError_Ok(v) { .Ok = { .tag = AzResultXmlXmlErrorTag_Ok, .payload = v } }
+#define AzResultXmlXmlError_Err(v) { .Err = { .tag = AzResultXmlXmlErrorTag_Err, .payload = v } }
+#define AzSvgParseError_InvalidFileSuffix { .InvalidFileSuffix = { .tag = AzSvgParseErrorTag_InvalidFileSuffix } }
+#define AzSvgParseError_FileOpenFailed { .FileOpenFailed = { .tag = AzSvgParseErrorTag_FileOpenFailed } }
+#define AzSvgParseError_NotAnUtf8Str { .NotAnUtf8Str = { .tag = AzSvgParseErrorTag_NotAnUtf8Str } }
+#define AzSvgParseError_MalformedGZip { .MalformedGZip = { .tag = AzSvgParseErrorTag_MalformedGZip } }
+#define AzSvgParseError_InvalidSize { .InvalidSize = { .tag = AzSvgParseErrorTag_InvalidSize } }
+#define AzSvgParseError_ParsingFailed(v) { .ParsingFailed = { .tag = AzSvgParseErrorTag_ParsingFailed, .payload = v } }
+#define AzResultSvgXmlNodeSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Ok, .payload = v } }
+#define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
+#define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
+#define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
 AzAccessibilityState AzAccessibilityStateVecArray[] = {};
 #define AzAccessibilityStateVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzAccessibilityState), .cap = sizeof(v) / sizeof(AzAccessibilityState), .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }
 #define AzAccessibilityStateVec_empty { .ptr = &AzAccessibilityStateVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }

@@ -42,7 +42,6 @@ def read_api_file(path):
 html_root = "https://azul.rs"
 root_folder = os.path.abspath(os.path.join(__file__, os.pardir))
 prefix = "Az"
-fn_prefix = "az_"
 basic_types = [ # note: "char" is not a primitive type! - use u32 instead
     "bool", "f32", "f64", "fn", "i128", "i16",
     "i32", "i64", "i8", "isize", "slice", "u128", "u16",
@@ -2110,8 +2109,12 @@ def generate_rust_callback_fn_type(api_data, callback_typedef):
     return fn_string
 
 # Generate the C coded for the struct layout of the final API
-def generate_c_structs(api_data, structs_map, forward_declarations, extra_forward_delcarations):
+def generate_c_structs(api_data, structs_map, forward_declarations, extra_forward_delcarations, use_prefix=True, typedef_style="c"):
     code = ""
+
+    pfx = prefix
+    if not(use_prefix):
+        pfx = ""
 
     # Put all function pointers at the top and forward-declare all the structs
     # C does not allow (?) to forward declare function pointers
@@ -2121,7 +2124,10 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
         struct = structs_map[struct_name]
         class_is_callback_typedef = "callback_typedef" in struct.keys() and (len(struct["callback_typedef"].keys()) > 0)
         if class_is_callback_typedef:
-            function_pointers.append(tuple((struct["callback_typedef"], generate_c_callback_fn_type(api_data, struct["callback_typedef"], struct_name))))
+            if typedef_style == "c":
+                function_pointers.append(tuple((struct["callback_typedef"], generate_c_callback_fn_type(api_data, struct["callback_typedef"], struct_name, use_prefix))))
+            elif typedef_style == "cpp":
+                function_pointers.append(tuple((struct["callback_typedef"], generate_cpp_callback_fn_type(api_data, struct["callback_typedef"], struct_name, use_prefix))))
 
     function_pointer_string = ""
     already_forward_declared = []
@@ -2141,8 +2147,10 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                         arg_type_type = "enum"
                         if enum_is_union(c["enum_fields"]):
                             arg_type_type = "union"
-                    function_pointer_string += "\r\n" + arg_type_type + " " + prefix + arg_type + ";"
-                    function_pointer_string += "\r\ntypedef " + arg_type_type + " " + prefix + arg_type + " " + prefix + arg_type + ";"
+                    function_pointer_string += "\r\n" + arg_type_type + " " + pfx + arg_type + ";"
+                    if typedef_style == "c":
+                        function_pointer_string += "\r\ntypedef " + arg_type_type + " " + pfx + arg_type + " " + pfx + arg_type + ";"
+
                     already_forward_declared.append(arg_type)
 
         if "returns" in fnptr[0].keys():
@@ -2158,8 +2166,9 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                         arg_type_type = "enum"
                         if enum_is_union(c["enum_fields"]):
                             arg_type_type = "union"
-                    function_pointer_string += "\r\n" + arg_type_type + " " + prefix + return_type + ";"
-                    function_pointer_string += "\r\ntypedef " + arg_type_type + " " + prefix + return_type + " " + prefix + return_type + ";"
+                    function_pointer_string += "\r\n" + arg_type_type + " " + pfx + return_type + ";"
+                    if typedef_style == "c":
+                        function_pointer_string += "\r\ntypedef " + arg_type_type + " " + pfx + return_type + " " + pfx + return_type + ";"
                     already_forward_declared.append(return_type)
 
         function_pointer_string += "\r\n"
@@ -2184,7 +2193,8 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
         if struct_name in extra_forward_delcarations.keys():
             struct_forward_decl = extra_forward_delcarations[struct_name]
             code += "\r\n" + struct_forward_decl["type"] + " " + struct_forward_decl["name"] + ";"
-            code += "\r\ntypedef " + struct_forward_decl["type"] + " " + struct_forward_decl["name"] + " " + struct_forward_decl["name"] + ";"
+            if typedef_style == "c":
+                code += "\r\ntypedef " + struct_forward_decl["type"] + " " + struct_forward_decl["name"] + " " + struct_forward_decl["name"] + ";"
 
         if class_is_callback_typedef:
             # function_pointers += generate_c_callback_fn_type(api_data, struct["callback_typedef"], struct_name)
@@ -2222,35 +2232,57 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
 
                         found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
                         if is_array:
-                            code += "    " + prefix + field_type_class_path[1] + " " + field_name + replace_primitive_ctype(analyzed_arg_type[0]).strip() + analyzed_arg_type[2] + ";\r\n"
+                            code += "    " + pfx + field_type_class_path[1] + " " + field_name + replace_primitive_ctype(analyzed_arg_type[0]).strip() + analyzed_arg_type[2] + ";\r\n"
                         else:
-                            code += "    " + prefix + field_type_class_path[1] + replace_primitive_ctype(analyzed_arg_type[0]).strip()  + analyzed_arg_type[2]+ " " + field_name + ";\r\n"
+                            code += "    " + pfx + field_type_class_path[1] + replace_primitive_ctype(analyzed_arg_type[0]).strip()  + analyzed_arg_type[2]+ " " + field_name + ";\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
+
+            if typedef_style == "cpp":
+                code += "    " + struct_name + "& operator=(const " + struct_name + "&) = delete; /* disable assignment operator, use std::move (default) or .clone() */\r\n"
+                if not(class_can_be_copied):
+                    code += "    " + struct_name + "(const " + struct_name + "&) = delete; /* disable copy constructor, use explicit .clone() */\r\n"
+                code += "    " + struct_name + "() = delete; /* disable default constructor, use C++20 designated initializer instead */\r\n"
             code += "};\r\n"
+
             if not(struct_name in already_forward_declared):
-                code += "typedef struct " + struct_name + " " + struct_name + ";\r\n"
+                if typedef_style == "c":
+                    code += "typedef struct " + struct_name + " " + struct_name + ";\r\n"
 
         elif "enum" in struct.keys():
             enum = struct["enum"]
             if not(enum_is_union(enum)):
-                code += "\r\nenum " + struct_name + " {\r\n"
+                if typedef_style == "cpp":
+                    code += "\r\nenum class " + struct_name + " {\r\n"
+                else:
+                    code += "\r\nenum " + struct_name + " {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
                     variant_real = list(variant.values())[0]
-                    code += "   " + struct_name + "_" + variant_name + ",\r\n"
+                    if typedef_style == "cpp":
+                        code += "   " + variant_name + ",\r\n"
+                    else:
+                        code += "   " + struct_name + "_" + variant_name + ",\r\n"
                 code += "};\r\n"
                 if not(struct_name in already_forward_declared):
-                    code += "typedef enum " + struct_name + " " + struct_name + ";\r\n"
+                    if typedef_style == "c":
+                        code += "typedef enum " + struct_name + " " + struct_name + ";\r\n"
             else:
                 # generate union tag
-                code += "\r\nenum " + struct_name + "Tag {\r\n"
+                if typedef_style == "cpp":
+                    code += "\r\nenum class " + struct_name + "Tag {\r\n"
+                else:
+                    code += "\r\nenum " + struct_name + "Tag {\r\n"
                 for variant in enum:
                     variant_name = list(variant.keys())[0]
-                    code += "   " + struct_name + "Tag_" + variant_name + ",\r\n"
+                    if typedef_style == "cpp":
+                        code += "   " + variant_name + ",\r\n"
+                    else:
+                        code += "   " + struct_name + "Tag_" + variant_name + ",\r\n"
                 code += "};\r\n"
-                code += "typedef enum " + struct_name + "Tag " + struct_name + "Tag;\r\n"
+                if typedef_style == "c":
+                    code += "typedef enum " + struct_name + "Tag " + struct_name + "Tag;\r\n"
 
                 # generate union variants
                 for variant in enum:
@@ -2260,7 +2292,7 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                     if "type" in variant_real.keys():
                         variant_type = variant_real["type"]
                         analyzed_variant_type = analyze_type(variant_type)
-                        variant_prefix = prefix
+                        variant_prefix = pfx
                         if is_primitive_arg(analyzed_variant_type[1]):
                             variant_prefix = ""
 
@@ -2276,7 +2308,8 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                             c_type = " " + variant_prefix + replace_primitive_ctype(analyzed_variant_type[1]).strip() + replace_primitive_ctype(analyzed_variant_type[0]).strip() + analyzed_variant_type[2] + " payload;"
 
                     code += "\r\nstruct " + struct_name + "Variant_" + variant_name + " { " + struct_name + "Tag tag;" + c_type + " };"
-                    code += "\r\ntypedef struct " + struct_name + "Variant_" + variant_name + " " + struct_name + "Variant_" + variant_name + ";"
+                    if typedef_style == "c":
+                        code += "\r\ntypedef struct " + struct_name + "Variant_" + variant_name + " " + struct_name + "Variant_" + variant_name + ";"
 
                 # generate union
                 code += "\r\nunion " + struct_name + " {\r\n"
@@ -2285,27 +2318,46 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                     code += "    " + struct_name + "Variant_" + variant_name + " " + variant_name + ";\r\n"
                 code += "};\r\n"
                 if not(struct_name in already_forward_declared):
-                    code += "typedef union " + struct_name + " " + struct_name + ";"
-
-                # generate macros for creating variants
-                for variant in enum:
-                    variant_name = list(variant.keys())[0]
-                    if "type" in variant[variant_name]:
-                        code += "\r\n#define " + struct_name + "_" + variant_name + "(v) { ." + variant_name + " = { .tag = " + struct_name + "Tag_" + variant_name + ", .payload = v } }"
-                    else:
-                        code += "\r\n#define " + struct_name + "_" + variant_name + " { ." + variant_name + " = { .tag = " + struct_name + "Tag_" + variant_name + " } }"
+                    if typedef_style == "c":
+                        code += "typedef union " + struct_name + " " + struct_name + ";"
 
                 code += "\r\n"
 
+    return code
+
+# Generate BlahVec_fromConstArray() macros and BlahVec_empty() macros
+# NOTE: This is only in the C API, the C++ API uses consteval
+def generate_c_union_macros_and_vec_constructors(api_data, structs_map):
+    code = ""
+
     version = list(api_data.keys())[-1]
-    myapi_data = api_data
+    myapi_data = api_data[version]
+
+    for struct_name in structs_map.keys():
+        struct = structs_map[struct_name]
+
+        if not("enum" in struct.keys()):
+            continue
+
+        enum = struct["enum"]
+        if not(enum_is_union(enum)):
+            continue
+
+        # generate macros for creating variants
+        for variant in enum:
+            variant_name = list(variant.keys())[0]
+            if "type" in variant[variant_name]:
+                code += "\r\n#define " + struct_name + "_" + variant_name + "(v) { ." + variant_name + " = { .tag = " + struct_name + "Tag_" + variant_name + ", .payload = v } }"
+            else:
+                code += "\r\n#define " + struct_name + "_" + variant_name + " { ." + variant_name + " = { .tag = " + struct_name + "Tag_" + variant_name + " } }"
+
 
     # generate automatic "empty" constructor macros for all types in the "vec" module
     # for struct in api_data["0.1.0"]["classes"]["vec"]
-    if "vec" in api_data.keys():
-        for vec_name in api_data["vec"]["classes"].keys():
+    if "vec" in myapi_data.keys():
+        for vec_name in myapi_data["vec"]["classes"].keys():
             if vec_name.endswith("Vec"):
-                vec_type = analyze_type(api_data["vec"]["classes"][vec_name]["struct_fields"][0]["ptr"]["type"])[1]
+                vec_type = analyze_type(myapi_data["vec"]["classes"][vec_name]["struct_fields"][0]["ptr"]["type"])[1]
                 if is_primitive_arg(vec_type):
                     code += "\r\n" + replace_primitive_ctype(vec_type).strip() + " " +  prefix + vec_name + "Array[] = {};"
                     code += "\r\n#define " + prefix + vec_name + "_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(" + replace_primitive_ctype(vec_type).strip() + "), .cap = sizeof(v) / sizeof(" + replace_primitive_ctype(vec_type).strip() + "), .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
@@ -2314,6 +2366,7 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                     code += "\r\n#define " + prefix + vec_name + "_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(" + prefix + vec_name[:-3] + "), .cap = sizeof(v) / sizeof(" + prefix + vec_name[:-3] + "), .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
                 code += "\r\n#define " + prefix + vec_name + "_empty { .ptr = &" + prefix + vec_name + "Array, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = " + prefix + vec_name + "DestructorTag_NoDestructor, }, }, }"
                 code += "\r\n"
+
     return code
 
 # returns whether an enum is a union
@@ -2331,10 +2384,13 @@ def enum_is_union(enum):
 #
 # generate_c_callback_fn_type(api_data, {"fn_args": [{"type": "Blah", "ref": "value"}], "returns": {"type": "Foo"}}, "BlahCallback")
 # => "typedef Foo (*BlahCallback)(Blah);"
-def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
+def generate_c_callback_fn_type(api_data, callback_typedef, callback_name,use_prefix=True):
     # callback_typedef
 
     return_val = "void"
+    pfx = prefix
+    if not(use_prefix):
+        pfx = ""
 
     if "returns" in callback_typedef.keys():
         fn_arg_type = callback_typedef["returns"]["type"]
@@ -2348,7 +2404,7 @@ def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
             fn_arg_class = search_result[1]
 
         if not(is_primitive_arg(fn_arg_type)):
-            return_val = prefix + fn_arg_class
+            return_val = pfx + fn_arg_class
         else:
             return_val = fn_arg_class
 
@@ -2369,11 +2425,11 @@ def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
 
             if not(is_primitive_arg(fn_arg_type)):
                 if fn_arg_ref == "ref":
-                    fn_string += prefix + fn_arg_class + "* const"
+                    fn_string += pfx + fn_arg_class + "* const"
                 elif fn_arg_ref == "refmut":
-                    fn_string += prefix + fn_arg_class + "* restrict"
+                    fn_string += pfx + fn_arg_class + "* restrict"
                 elif fn_arg_ref == "value":
-                    fn_string += prefix + fn_arg_class
+                    fn_string += pfx + fn_arg_class
                 else:
                     raise Exception("wrong fn_arg_ref on " + fn_arg_type)
             else:
@@ -2388,6 +2444,81 @@ def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
 
             fn_string += " "
             fn_string += chr(fn_arg_idx + 65)
+            fn_string += ", "
+            fn_arg_idx += 1
+
+        if len(fn_args) > 0:
+            fn_string = fn_string[:-2] # trim last comma
+
+    fn_string += ");"
+
+    return fn_string
+
+# takes the api data and a function callback and returns
+# the C function pointer typedef, i.e.:
+#
+# generate_c_callback_fn_type(api_data, {"fn_args": [{"type": "Blah", "ref": "value"}], "returns": {"type": "Foo"}}, "BlahCallback")
+# => "using BlahCallback = Foo(*)(Blah);"
+def generate_cpp_callback_fn_type(api_data, callback_typedef, callback_name,use_prefix=True):
+    # callback_typedef
+
+    return_val = "void"
+    pfx = prefix
+    if not(use_prefix):
+        pfx = ""
+
+    if "returns" in callback_typedef.keys():
+        fn_arg_type = callback_typedef["returns"]["type"]
+        search_result = search_for_class_by_class_name(api_data, fn_arg_type)
+        fn_arg_class = fn_arg_type
+
+        if not(is_primitive_arg(fn_arg_type)):
+            if search_result is None:
+                print("fn_arg_type " + fn_arg_type + " not found!")
+                raise Exception("fn_arg_type " + fn_arg_type + " not found!")
+            fn_arg_class = search_result[1]
+
+        if not(is_primitive_arg(fn_arg_type)):
+            return_val = pfx + fn_arg_class
+        else:
+            return_val = fn_arg_class
+
+    fn_string = "using " + callback_name + " = " + return_val + "(*)("
+
+    if "fn_args" in callback_typedef.keys():
+        fn_args = callback_typedef["fn_args"]
+        fn_arg_idx = 0
+        for fn_arg in fn_args:
+            fn_arg_type = fn_arg["type"]
+            fn_arg_ref = fn_arg["ref"]
+            search_result = search_for_class_by_class_name(api_data, fn_arg_type)
+            fn_arg_class = fn_arg_type
+            if not(is_primitive_arg(fn_arg_type)):
+                if search_result is None:
+                    print("fn_arg_type " + fn_arg_type + " not found!")
+                fn_arg_class = search_result[1]
+
+            if not(is_primitive_arg(fn_arg_type)):
+                if fn_arg_ref == "ref":
+                    fn_string += pfx + fn_arg_class + "* const"
+                elif fn_arg_ref == "refmut":
+                    fn_string += pfx + fn_arg_class + "* restrict"
+                elif fn_arg_ref == "value":
+                    fn_string += pfx + fn_arg_class
+                else:
+                    raise Exception("wrong fn_arg_ref on " + fn_arg_type)
+            else:
+                if fn_arg_ref == "ref":
+                    fn_string += "const " + replace_primitive_ctype(fn_arg_class) + "*"
+                elif fn_arg_ref == "refmut":
+                    fn_string += replace_primitive_ctype(fn_arg_class) + "* restrict"
+                elif fn_arg_ref == "value":
+                    fn_string += replace_primitive_ctype(fn_arg_class)
+                else:
+                    raise Exception("wrong fn_arg_ref on " + fn_arg_type)
+
+            # fn_string += " "
+            # fn_string += chr(fn_arg_idx + 65)
             fn_string += ", "
             fn_arg_idx += 1
 
@@ -2425,9 +2556,17 @@ def replace_primitive_ctype(input):
 
 # Generates the functions to put in the C header file
 # assumes that all structs / data types have already been declared previously
-def generate_c_functions(api_data):
+def generate_c_functions(api_data,use_prefix=True,typedef_style="c"):
 
     code = ""
+
+    pfx = prefix
+    if not(use_prefix):
+        pfx = ""
+
+    function_prefix = "extern DLLIMPORT "
+    if typedef_style == "cpp":
+        function_prefix = ""
 
     version = list(api_data.keys())[-1]
     myapi_data = api_data[version]
@@ -2449,7 +2588,7 @@ def generate_c_functions(api_data):
             if "clone" in c.keys():
                 class_can_be_cloned = c["clone"]
 
-            class_ptr_name = prefix + class_name
+            class_ptr_name = pfx + class_name
             print_separator = False
 
             if "constructors" in c.keys():
@@ -2457,7 +2596,7 @@ def generate_c_functions(api_data):
                 for constructor_name in c["constructors"].keys():
                     const = c["constructors"][constructor_name]
                     fn_args = c_fn_args_c_api(const, class_name, class_ptr_name, False)
-                    code += "\r\nextern DLLIMPORT " + class_ptr_name + " " + class_ptr_name + "_" + snake_case_to_lower_camel(constructor_name) + "(" + fn_args + ");"
+                    code += "\r\n" + function_prefix + class_ptr_name + " " + class_ptr_name + "_" + snake_case_to_lower_camel(constructor_name) + "(" + fn_args + ");"
 
             if "functions" in c.keys():
                 print_separator = True
@@ -2471,9 +2610,9 @@ def generate_c_functions(api_data):
                         if is_primitive_arg(analyzed_return_type[1]):
                             return_val = replace_primitive_ctype(analyzed_return_type[1])
                         else:
-                            return_val = prefix + analyzed_return_type[1]
+                            return_val = pfx + analyzed_return_type[1]
 
-                    code += "\r\nextern DLLIMPORT " + return_val + " "+ class_ptr_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args + ");"
+                    code += "\r\n" + function_prefix + return_val + " "+ class_ptr_name + "_" + snake_case_to_lower_camel(function_name) + "(" + fn_args + ");"
 
             if c_is_stack_allocated:
                 if class_can_be_copied:
@@ -2481,11 +2620,11 @@ def generate_c_functions(api_data):
                     pass
                 elif class_has_custom_destructor or treat_external_as_ptr:
                     print_separator = True
-                    code += "\r\nextern DLLIMPORT void " + class_ptr_name + "_delete(" + class_ptr_name + "* restrict instance);"
+                    code += "\r\n" + function_prefix + "void " + class_ptr_name + "_delete(" + class_ptr_name + "* restrict instance);"
 
                 if treat_external_as_ptr and class_can_be_cloned:
                     print_separator = True
-                    code += "\r\nextern DLLIMPORT " + class_ptr_name + " " + class_ptr_name + "_deepCopy(" + class_ptr_name + "* const instance);"
+                    code += "\r\n" + function_prefix + class_ptr_name + " " + class_ptr_name + "_deepCopy(" + class_ptr_name + "* const instance);"
 
             # if print_separator:
             #   code += "\r\n"
@@ -2610,6 +2749,7 @@ def generate_c_api(api_data, structs_map):
     code += "\r\n"
 
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
+    code += generate_c_union_macros_and_vec_constructors(api_data, structs_map)
     code += generate_c_functions(api_data)
     code += generate_c_constants(api_data)
     code += generate_c_extra_functions(api_data)
@@ -2619,6 +2759,79 @@ def generate_c_api(api_data, structs_map):
     code += "\r\n"
     code += "\r\n#endif /* AZUL_H */\r\n"
     return code
+
+def generate_cpp_api(api_data, structs_map):
+    code = ""
+
+    version = list(api_data.keys())[-1]
+    myapi_data = api_data[version]
+
+    structs_map = sort_structs_map(myapi_data, structs_map)
+    extra_forward_delcarations = structs_map[2]
+    forward_delcarations = structs_map[1]
+    structs_map = structs_map[0]
+
+    code += "#ifndef AZUL_H\r\n"
+    code += "#define AZUL_H\r\n"
+    code += "\r\n"
+    code += "namespace dll {\r\n"
+    code += "\r\n"
+    code += "    #include <cstdint>\r\n" # uint8_t, ...
+    code += "    #include <cstddef>\r\n" # size_t
+
+    # strip the prefix from the struct entries
+    # (not necessary for the C++ API, only for function names)
+    # this could've been done cleaner
+    stripped = strip_all_prefixes(structs_map, forward_delcarations, extra_forward_delcarations)
+    structs_map = stripped[0]
+    forward_delcarations = stripped[1]
+    extra_forward_delcarations = stripped[2]
+
+    # add structs, no prefix, use C++ style function pointer typedefs
+    c_struct_code = generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations, use_prefix=False,typedef_style="cpp")
+    for line in c_struct_code.splitlines():
+        code += "    " + line + "\r\n"
+    code += "\r\n"
+
+    code += "    extern \"C\" {"
+    c_functions_code = generate_c_functions(api_data,use_prefix=False,typedef_style="cpp")
+    for line in c_functions_code.splitlines():
+        code += "        " + line + "\r\n"
+    code += "\r\n"
+    code += "    } /* extern \"C\" */\r\n"
+    code += "\r\n"
+
+    code += "} /* namespace */ \r\n"
+
+
+    code += "\r\n"
+    code += "\r\n#endif /* AZUL_H */\r\n"
+
+    return code
+
+def strip_all_prefixes(structs_map, forward_delcarations, extra_forward_delcarations):
+
+    # strip structs_map
+    new_structs_map = OrderedDict({})
+    for key in structs_map.keys():
+        value = structs_map[key]
+        key = key[len(prefix):]
+        new_structs_map[key] = value
+
+    # strip forward_delcarations
+    new_forward_delcarations = OrderedDict({})
+    for key in forward_delcarations.keys():
+        value = forward_delcarations[key]
+        key = key[len(prefix):]
+        new_forward_delcarations[key] = value
+
+    new_extra_forward_delcarations = OrderedDict({})
+    for key in extra_forward_delcarations.keys():
+        value = extra_forward_delcarations[key]
+        key = key[len(prefix):]
+        new_extra_forward_delcarations[key] = value
+
+    return [new_structs_map, new_forward_delcarations, new_extra_forward_delcarations]
 
 # generate a test function that asserts that the struct layout in the DLL
 # is the same as in the generated bindings
@@ -2692,7 +2905,7 @@ def generate_api():
     write_file(generate_rust_api(apiData, structs_map, functions_map.copy()), root_folder + "/api/rust/lib.rs")
     write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
     write_file(generate_python_api(apiData, structs_map, functions_map.copy()), root_folder + "/azul-dll/src/python.rs")
-    # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/cpp/azul.h")
+    write_file(generate_cpp_api(apiData, structs_map), root_folder + "/api/cpp/azul.hpp")
     # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/python/azul.py")
 
 # Build the library with release settings
