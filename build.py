@@ -219,7 +219,7 @@ def c_fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
         elif (self_val == "refmut"):
             fn_args += class_ptr_name + "* restrict " + class_name.lower() + ", "
         elif (self_val == "ref"):
-            fn_args += class_ptr_name + "* const " + class_name.lower() + ", "
+            fn_args += "const " + class_ptr_name + "* " + class_name.lower() + ", "
         else:
             raise Exception("wrong self value " + self_val)
 
@@ -235,7 +235,12 @@ def c_fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
             arg_type = analyzed_arg_type[1]
 
             if is_primitive_arg(arg_type):
-                fn_args += replace_primitive_ctype(arg_type) + replace_primitive_ctype(ptr_type).strip() + " " + arg_name + ", " # no pre, no postfix
+                if ptr_type == "*const":
+                    fn_args += "const" + replace_primitive_ctype(arg_type) + "* " + arg_name + ", " # no pre, no postfix
+                elif ptr_type == "*mut":
+                    fn_args += replace_primitive_ctype(arg_type) + "* restrict" + " " + arg_name + ", " # no pre, no postfix
+                else:
+                    fn_args += replace_primitive_ctype(arg_type) + pt + " " + arg_name + ", " # no pre, no postfix
             else:
                 fn_args += prefix + replace_primitive_ctype(arg_type) + replace_primitive_ctype(ptr_type).strip() + " " + arg_name + ", " # no postfix
 
@@ -2373,7 +2378,7 @@ def generate_c_callback_fn_type(api_data, callback_typedef, callback_name):
                     raise Exception("wrong fn_arg_ref on " + fn_arg_type)
             else:
                 if fn_arg_ref == "ref":
-                    fn_string += replace_primitive_ctype(fn_arg_class) + "* const"
+                    fn_string += "const " + replace_primitive_ctype(fn_arg_class) + "*"
                 elif fn_arg_ref == "refmut":
                     fn_string += replace_primitive_ctype(fn_arg_class) + "* restrict"
                 elif fn_arg_ref == "value":
