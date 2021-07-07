@@ -240,7 +240,7 @@ def c_fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
                 elif ptr_type == "*mut":
                     fn_args += replace_primitive_ctype(arg_type) + "* restrict" + " " + arg_name + ", " # no pre, no postfix
                 else:
-                    fn_args += replace_primitive_ctype(arg_type) + pt + " " + arg_name + ", " # no pre, no postfix
+                    fn_args += replace_primitive_ctype(arg_type) + " " + arg_name + ", " # no pre, no postfix
             else:
                 fn_args += prefix + replace_primitive_ctype(arg_type) + replace_primitive_ctype(ptr_type).strip() + " " + arg_name + ", " # no postfix
 
@@ -2517,6 +2517,49 @@ def generate_c_constants(api_data):
 
     return code
 
+# Generates extra functions for C to destructure tagged union enums
+def generate_c_extra_functions(api_data):
+
+    version = list(api_data.keys())[-1]
+    myapi_data = api_data[version]
+
+    code = ""
+
+    for module_name in myapi_data.keys():
+        module = myapi_data[module_name]["classes"]
+        for class_name in module.keys():
+            c = module[class_name]
+            e = False
+
+            if "enum_fields" in c.keys():
+                if enum_is_union(c["enum_fields"]):
+                    e = True
+
+            if not(e):
+                continue
+
+            # generate _matchRef and _matchMut functions for each variant in the enum
+            for variant in c["enum_fields"]:
+                variant_name = list(variant.keys())[0]
+                if "type" in variant[variant_name]:
+                    type_name = variant[variant_name]["type"]
+
+                    code += "bool " + prefix + class_name + "_matchRef(const " + prefix + class_name + "* value, const " + prefix + type_name + "** restrict out) {\r\n"
+                    code += "    const " + prefix + class_name + "Variant_" + variant_name + "* casted = (const " + prefix + class_name +"Variant_" + variant_name + "*)value;\r\n"
+                    code += "    bool valid = casted->tag == " + prefix + class_name + "Tag_" + variant_name + ";\r\n"
+                    code += "    if (valid) { *out = &casted->payload; } else { *out = 0; }\r\n"
+                    code += "    return valid;\r\n"
+                    code += "}\r\n\r\n"
+
+                    code += "bool " + prefix + class_name + "_matchMut(" + prefix + class_name + "* restrict value, " + prefix + type_name + "* restrict * restrict out) {\r\n"
+                    code += "    " + prefix + class_name + "Variant_" + variant_name + "* restrict casted = (" + prefix + class_name +"Variant_" + variant_name + "* restrict)value;\r\n"
+                    code += "    bool valid = casted->tag == " + prefix + class_name + "Tag_" + variant_name + ";\r\n"
+                    code += "    if (valid) { *out = &casted->payload; } else { *out = 0; }\r\n"
+                    code += "    return valid;\r\n"
+                    code += "}\r\n\r\n"
+
+    return code
+
 def generate_c_api(api_data, structs_map):
     code = ""
 
@@ -2569,6 +2612,7 @@ def generate_c_api(api_data, structs_map):
     code += generate_c_structs(myapi_data, structs_map, forward_delcarations, extra_forward_delcarations)
     code += generate_c_functions(api_data)
     code += generate_c_constants(api_data)
+    code += generate_c_extra_functions(api_data)
 
     code += "\r\n"
     code += read_file(root_folder + "/api/_patches/c/patch.h")

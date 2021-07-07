@@ -10726,7 +10726,7 @@ extern DLLIMPORT void AzRefCount_increaseRefmut(AzRefCount* restrict refcount);
 extern DLLIMPORT void AzRefCount_decreaseRefmut(AzRefCount* restrict refcount);
 extern DLLIMPORT void AzRefCount_delete(AzRefCount* restrict instance);
 extern DLLIMPORT AzRefCount AzRefCount_deepCopy(AzRefCount* const instance);
-extern DLLIMPORT AzRefAny AzRefAny_newC(void* ptr, size_t len, uint64_t type_id, AzString  type_name, AzRefAnyDestructorType  destructor);
+extern DLLIMPORT AzRefAny AzRefAny_newC(void ptr, size_t len, uint64_t type_id, AzString  type_name, AzRefAnyDestructorType  destructor);
 extern DLLIMPORT uint64_t AzRefAny_getTypeId(const AzRefAny* refany);
 extern DLLIMPORT AzString AzRefAny_getTypeName(const AzRefAny* refany);
 extern DLLIMPORT void AzRefAny_delete(AzRefAny* restrict instance);
@@ -11189,7 +11189,7 @@ extern DLLIMPORT AzOptionThreadSendMsg AzThreadReceiver_receive(AzThreadReceiver
 extern DLLIMPORT void AzThreadReceiver_delete(AzThreadReceiver* restrict instance);
 extern DLLIMPORT AzThreadReceiver AzThreadReceiver_deepCopy(AzThreadReceiver* const instance);
 extern DLLIMPORT AzString AzString_format(AzString  format, AzFmtArgVec  args);
-extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t* ptr, size_t start, size_t len);
+extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t ptr, size_t start, size_t len);
 extern DLLIMPORT AzString AzString_trim(const AzString* string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(const AzString* string);
 extern DLLIMPORT void AzAccessibilityStateVec_delete(AzAccessibilityStateVec* restrict instance);
@@ -11230,7 +11230,7 @@ extern DLLIMPORT void AzStylesheetVec_delete(AzStylesheetVec* restrict instance)
 extern DLLIMPORT void AzCssRuleBlockVec_delete(AzCssRuleBlockVec* restrict instance);
 extern DLLIMPORT void AzU16Vec_delete(AzU16Vec* restrict instance);
 extern DLLIMPORT void AzF32Vec_delete(AzF32Vec* restrict instance);
-extern DLLIMPORT AzU8Vec AzU8Vec_copyFromBytes(uint8_t* ptr, size_t start, size_t len);
+extern DLLIMPORT AzU8Vec AzU8Vec_copyFromBytes(uint8_t ptr, size_t start, size_t len);
 extern DLLIMPORT AzU8VecRef AzU8Vec_asRefVec(const AzU8Vec* u8vec);
 extern DLLIMPORT void AzU8Vec_delete(AzU8Vec* restrict instance);
 extern DLLIMPORT void AzCallbackDataVec_delete(AzCallbackDataVec* restrict instance);
@@ -12686,6 +12686,6012 @@ extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
 #define AzGl_ZERO 0
 #define AzGl_ZOOM_X 0x0D16
 #define AzGl_ZOOM_Y 0x0D17
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzIOSHandle** restrict out) {
+    const AzRawWindowHandleVariant_IOS* casted = (const AzRawWindowHandleVariant_IOS*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_IOS;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzIOSHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_IOS* restrict casted = (AzRawWindowHandleVariant_IOS* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_IOS;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzMacOSHandle** restrict out) {
+    const AzRawWindowHandleVariant_MacOS* casted = (const AzRawWindowHandleVariant_MacOS*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_MacOS;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzMacOSHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_MacOS* restrict casted = (AzRawWindowHandleVariant_MacOS* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_MacOS;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzXlibHandle** restrict out) {
+    const AzRawWindowHandleVariant_Xlib* casted = (const AzRawWindowHandleVariant_Xlib*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Xlib;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzXlibHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_Xlib* restrict casted = (AzRawWindowHandleVariant_Xlib* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Xlib;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzXcbHandle** restrict out) {
+    const AzRawWindowHandleVariant_Xcb* casted = (const AzRawWindowHandleVariant_Xcb*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Xcb;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzXcbHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_Xcb* restrict casted = (AzRawWindowHandleVariant_Xcb* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Xcb;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzWaylandHandle** restrict out) {
+    const AzRawWindowHandleVariant_Wayland* casted = (const AzRawWindowHandleVariant_Wayland*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Wayland;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzWaylandHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_Wayland* restrict casted = (AzRawWindowHandleVariant_Wayland* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Wayland;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzWindowsHandle** restrict out) {
+    const AzRawWindowHandleVariant_Windows* casted = (const AzRawWindowHandleVariant_Windows*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Windows;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzWindowsHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_Windows* restrict casted = (AzRawWindowHandleVariant_Windows* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Windows;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzWebHandle** restrict out) {
+    const AzRawWindowHandleVariant_Web* casted = (const AzRawWindowHandleVariant_Web*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Web;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzWebHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_Web* restrict casted = (AzRawWindowHandleVariant_Web* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Web;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchRef(const AzRawWindowHandle* value, const AzAndroidHandle** restrict out) {
+    const AzRawWindowHandleVariant_Android* casted = (const AzRawWindowHandleVariant_Android*)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Android;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawWindowHandle_matchMut(AzRawWindowHandle* restrict value, AzAndroidHandle* restrict * restrict out) {
+    AzRawWindowHandleVariant_Android* restrict casted = (AzRawWindowHandleVariant_Android* restrict)value;
+    bool valid = casted->tag == AzRawWindowHandleTag_Android;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzWindowIcon_matchRef(const AzWindowIcon* value, const AzSmallWindowIconBytes** restrict out) {
+    const AzWindowIconVariant_Small* casted = (const AzWindowIconVariant_Small*)value;
+    bool valid = casted->tag == AzWindowIconTag_Small;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzWindowIcon_matchMut(AzWindowIcon* restrict value, AzSmallWindowIconBytes* restrict * restrict out) {
+    AzWindowIconVariant_Small* restrict casted = (AzWindowIconVariant_Small* restrict)value;
+    bool valid = casted->tag == AzWindowIconTag_Small;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzWindowIcon_matchRef(const AzWindowIcon* value, const AzLargeWindowIconBytes** restrict out) {
+    const AzWindowIconVariant_Large* casted = (const AzWindowIconVariant_Large*)value;
+    bool valid = casted->tag == AzWindowIconTag_Large;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzWindowIcon_matchMut(AzWindowIcon* restrict value, AzLargeWindowIconBytes* restrict * restrict out) {
+    AzWindowIconVariant_Large* restrict casted = (AzWindowIconVariant_Large* restrict)value;
+    bool valid = casted->tag == AzWindowIconTag_Large;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAcceleratorKey_matchRef(const AzAcceleratorKey* value, const AzVirtualKeyCode** restrict out) {
+    const AzAcceleratorKeyVariant_Key* casted = (const AzAcceleratorKeyVariant_Key*)value;
+    bool valid = casted->tag == AzAcceleratorKeyTag_Key;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAcceleratorKey_matchMut(AzAcceleratorKey* restrict value, AzVirtualKeyCode* restrict * restrict out) {
+    AzAcceleratorKeyVariant_Key* restrict casted = (AzAcceleratorKeyVariant_Key* restrict)value;
+    bool valid = casted->tag == AzAcceleratorKeyTag_Key;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCursorPosition_matchRef(const AzCursorPosition* value, const AzLogicalPosition** restrict out) {
+    const AzCursorPositionVariant_InWindow* casted = (const AzCursorPositionVariant_InWindow*)value;
+    bool valid = casted->tag == AzCursorPositionTag_InWindow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCursorPosition_matchMut(AzCursorPosition* restrict value, AzLogicalPosition* restrict * restrict out) {
+    AzCursorPositionVariant_InWindow* restrict casted = (AzCursorPositionVariant_InWindow* restrict)value;
+    bool valid = casted->tag == AzCursorPositionTag_InWindow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzWindowPosition_matchRef(const AzWindowPosition* value, const AzPhysicalPositionI32** restrict out) {
+    const AzWindowPositionVariant_Initialized* casted = (const AzWindowPositionVariant_Initialized*)value;
+    bool valid = casted->tag == AzWindowPositionTag_Initialized;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzWindowPosition_matchMut(AzWindowPosition* restrict value, AzPhysicalPositionI32* restrict * restrict out) {
+    AzWindowPositionVariant_Initialized* restrict casted = (AzWindowPositionVariant_Initialized* restrict)value;
+    bool valid = casted->tag == AzWindowPositionTag_Initialized;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzImePosition_matchRef(const AzImePosition* value, const AzLogicalPosition** restrict out) {
+    const AzImePositionVariant_Initialized* casted = (const AzImePositionVariant_Initialized*)value;
+    bool valid = casted->tag == AzImePositionTag_Initialized;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzImePosition_matchMut(AzImePosition* restrict value, AzLogicalPosition* restrict * restrict out) {
+    AzImePositionVariant_Initialized* restrict casted = (AzImePositionVariant_Initialized* restrict)value;
+    bool valid = casted->tag == AzImePositionTag_Initialized;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutCallback_matchRef(const AzLayoutCallback* value, const AzLayoutCallbackInner** restrict out) {
+    const AzLayoutCallbackVariant_Raw* casted = (const AzLayoutCallbackVariant_Raw*)value;
+    bool valid = casted->tag == AzLayoutCallbackTag_Raw;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutCallback_matchMut(AzLayoutCallback* restrict value, AzLayoutCallbackInner* restrict * restrict out) {
+    AzLayoutCallbackVariant_Raw* restrict casted = (AzLayoutCallbackVariant_Raw* restrict)value;
+    bool valid = casted->tag == AzLayoutCallbackTag_Raw;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutCallback_matchRef(const AzLayoutCallback* value, const AzMarshaledLayoutCallback** restrict out) {
+    const AzLayoutCallbackVariant_Marshaled* casted = (const AzLayoutCallbackVariant_Marshaled*)value;
+    bool valid = casted->tag == AzLayoutCallbackTag_Marshaled;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutCallback_matchMut(AzLayoutCallback* restrict value, AzMarshaledLayoutCallback* restrict * restrict out) {
+    AzLayoutCallbackVariant_Marshaled* restrict casted = (AzLayoutCallbackVariant_Marshaled* restrict)value;
+    bool valid = casted->tag == AzLayoutCallbackTag_Marshaled;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchRef(const AzPositionInfo* value, const AzPositionInfoInner** restrict out) {
+    const AzPositionInfoVariant_Static* casted = (const AzPositionInfoVariant_Static*)value;
+    bool valid = casted->tag == AzPositionInfoTag_Static;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchMut(AzPositionInfo* restrict value, AzPositionInfoInner* restrict * restrict out) {
+    AzPositionInfoVariant_Static* restrict casted = (AzPositionInfoVariant_Static* restrict)value;
+    bool valid = casted->tag == AzPositionInfoTag_Static;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchRef(const AzPositionInfo* value, const AzPositionInfoInner** restrict out) {
+    const AzPositionInfoVariant_Fixed* casted = (const AzPositionInfoVariant_Fixed*)value;
+    bool valid = casted->tag == AzPositionInfoTag_Fixed;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchMut(AzPositionInfo* restrict value, AzPositionInfoInner* restrict * restrict out) {
+    AzPositionInfoVariant_Fixed* restrict casted = (AzPositionInfoVariant_Fixed* restrict)value;
+    bool valid = casted->tag == AzPositionInfoTag_Fixed;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchRef(const AzPositionInfo* value, const AzPositionInfoInner** restrict out) {
+    const AzPositionInfoVariant_Absolute* casted = (const AzPositionInfoVariant_Absolute*)value;
+    bool valid = casted->tag == AzPositionInfoTag_Absolute;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchMut(AzPositionInfo* restrict value, AzPositionInfoInner* restrict * restrict out) {
+    AzPositionInfoVariant_Absolute* restrict casted = (AzPositionInfoVariant_Absolute* restrict)value;
+    bool valid = casted->tag == AzPositionInfoTag_Absolute;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchRef(const AzPositionInfo* value, const AzPositionInfoInner** restrict out) {
+    const AzPositionInfoVariant_Relative* casted = (const AzPositionInfoVariant_Relative*)value;
+    bool valid = casted->tag == AzPositionInfoTag_Relative;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzPositionInfo_matchMut(AzPositionInfo* restrict value, AzPositionInfoInner* restrict * restrict out) {
+    AzPositionInfoVariant_Relative* restrict casted = (AzPositionInfoVariant_Relative* restrict)value;
+    bool valid = casted->tag == AzPositionInfoTag_Relative;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineWord_matchRef(const AzInlineWord* value, const AzInlineTextContents** restrict out) {
+    const AzInlineWordVariant_Word* casted = (const AzInlineWordVariant_Word*)value;
+    bool valid = casted->tag == AzInlineWordTag_Word;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineWord_matchMut(AzInlineWord* restrict value, AzInlineTextContents* restrict * restrict out) {
+    AzInlineWordVariant_Word* restrict casted = (AzInlineWordVariant_Word* restrict)value;
+    bool valid = casted->tag == AzInlineWordTag_Word;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFocusTarget_matchRef(const AzFocusTarget* value, const AzDomNodeId** restrict out) {
+    const AzFocusTargetVariant_Id* casted = (const AzFocusTargetVariant_Id*)value;
+    bool valid = casted->tag == AzFocusTargetTag_Id;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFocusTarget_matchMut(AzFocusTarget* restrict value, AzDomNodeId* restrict * restrict out) {
+    AzFocusTargetVariant_Id* restrict casted = (AzFocusTargetVariant_Id* restrict)value;
+    bool valid = casted->tag == AzFocusTargetTag_Id;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFocusTarget_matchRef(const AzFocusTarget* value, const AzFocusTargetPath** restrict out) {
+    const AzFocusTargetVariant_Path* casted = (const AzFocusTargetVariant_Path*)value;
+    bool valid = casted->tag == AzFocusTargetTag_Path;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFocusTarget_matchMut(AzFocusTarget* restrict value, AzFocusTargetPath* restrict * restrict out) {
+    AzFocusTargetVariant_Path* restrict casted = (AzFocusTargetVariant_Path* restrict)value;
+    bool valid = casted->tag == AzFocusTargetTag_Path;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAnimationRepeatCount_matchRef(const AzAnimationRepeatCount* value, const Azusize** restrict out) {
+    const AzAnimationRepeatCountVariant_Times* casted = (const AzAnimationRepeatCountVariant_Times*)value;
+    bool valid = casted->tag == AzAnimationRepeatCountTag_Times;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAnimationRepeatCount_matchMut(AzAnimationRepeatCount* restrict value, Azusize* restrict * restrict out) {
+    AzAnimationRepeatCountVariant_Times* restrict casted = (AzAnimationRepeatCountVariant_Times* restrict)value;
+    bool valid = casted->tag == AzAnimationRepeatCountTag_Times;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAnimationEasing_matchRef(const AzAnimationEasing* value, const AzSvgCubicCurve** restrict out) {
+    const AzAnimationEasingVariant_CubicBezier* casted = (const AzAnimationEasingVariant_CubicBezier*)value;
+    bool valid = casted->tag == AzAnimationEasingTag_CubicBezier;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAnimationEasing_matchMut(AzAnimationEasing* restrict value, AzSvgCubicCurve* restrict * restrict out) {
+    AzAnimationEasingVariant_CubicBezier* restrict casted = (AzAnimationEasingVariant_CubicBezier* restrict)value;
+    bool valid = casted->tag == AzAnimationEasingTag_CubicBezier;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeType_matchRef(const AzNodeType* value, const AzString** restrict out) {
+    const AzNodeTypeVariant_Text* casted = (const AzNodeTypeVariant_Text*)value;
+    bool valid = casted->tag == AzNodeTypeTag_Text;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeType_matchMut(AzNodeType* restrict value, AzString* restrict * restrict out) {
+    AzNodeTypeVariant_Text* restrict casted = (AzNodeTypeVariant_Text* restrict)value;
+    bool valid = casted->tag == AzNodeTypeTag_Text;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeType_matchRef(const AzNodeType* value, const AzImageRef** restrict out) {
+    const AzNodeTypeVariant_Image* casted = (const AzNodeTypeVariant_Image*)value;
+    bool valid = casted->tag == AzNodeTypeTag_Image;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeType_matchMut(AzNodeType* restrict value, AzImageRef* restrict * restrict out) {
+    AzNodeTypeVariant_Image* restrict casted = (AzNodeTypeVariant_Image* restrict)value;
+    bool valid = casted->tag == AzNodeTypeTag_Image;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeType_matchRef(const AzNodeType* value, const AzIFrameNode** restrict out) {
+    const AzNodeTypeVariant_IFrame* casted = (const AzNodeTypeVariant_IFrame*)value;
+    bool valid = casted->tag == AzNodeTypeTag_IFrame;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeType_matchMut(AzNodeType* restrict value, AzIFrameNode* restrict * restrict out) {
+    AzNodeTypeVariant_IFrame* restrict casted = (AzNodeTypeVariant_IFrame* restrict)value;
+    bool valid = casted->tag == AzNodeTypeTag_IFrame;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchRef(const AzEventFilter* value, const AzHoverEventFilter** restrict out) {
+    const AzEventFilterVariant_Hover* casted = (const AzEventFilterVariant_Hover*)value;
+    bool valid = casted->tag == AzEventFilterTag_Hover;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchMut(AzEventFilter* restrict value, AzHoverEventFilter* restrict * restrict out) {
+    AzEventFilterVariant_Hover* restrict casted = (AzEventFilterVariant_Hover* restrict)value;
+    bool valid = casted->tag == AzEventFilterTag_Hover;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchRef(const AzEventFilter* value, const AzNotEventFilter** restrict out) {
+    const AzEventFilterVariant_Not* casted = (const AzEventFilterVariant_Not*)value;
+    bool valid = casted->tag == AzEventFilterTag_Not;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchMut(AzEventFilter* restrict value, AzNotEventFilter* restrict * restrict out) {
+    AzEventFilterVariant_Not* restrict casted = (AzEventFilterVariant_Not* restrict)value;
+    bool valid = casted->tag == AzEventFilterTag_Not;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchRef(const AzEventFilter* value, const AzFocusEventFilter** restrict out) {
+    const AzEventFilterVariant_Focus* casted = (const AzEventFilterVariant_Focus*)value;
+    bool valid = casted->tag == AzEventFilterTag_Focus;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchMut(AzEventFilter* restrict value, AzFocusEventFilter* restrict * restrict out) {
+    AzEventFilterVariant_Focus* restrict casted = (AzEventFilterVariant_Focus* restrict)value;
+    bool valid = casted->tag == AzEventFilterTag_Focus;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchRef(const AzEventFilter* value, const AzWindowEventFilter** restrict out) {
+    const AzEventFilterVariant_Window* casted = (const AzEventFilterVariant_Window*)value;
+    bool valid = casted->tag == AzEventFilterTag_Window;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchMut(AzEventFilter* restrict value, AzWindowEventFilter* restrict * restrict out) {
+    AzEventFilterVariant_Window* restrict casted = (AzEventFilterVariant_Window* restrict)value;
+    bool valid = casted->tag == AzEventFilterTag_Window;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchRef(const AzEventFilter* value, const AzComponentEventFilter** restrict out) {
+    const AzEventFilterVariant_Component* casted = (const AzEventFilterVariant_Component*)value;
+    bool valid = casted->tag == AzEventFilterTag_Component;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchMut(AzEventFilter* restrict value, AzComponentEventFilter* restrict * restrict out) {
+    AzEventFilterVariant_Component* restrict casted = (AzEventFilterVariant_Component* restrict)value;
+    bool valid = casted->tag == AzEventFilterTag_Component;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchRef(const AzEventFilter* value, const AzApplicationEventFilter** restrict out) {
+    const AzEventFilterVariant_Application* casted = (const AzEventFilterVariant_Application*)value;
+    bool valid = casted->tag == AzEventFilterTag_Application;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzEventFilter_matchMut(AzEventFilter* restrict value, AzApplicationEventFilter* restrict * restrict out) {
+    AzEventFilterVariant_Application* restrict casted = (AzEventFilterVariant_Application* restrict)value;
+    bool valid = casted->tag == AzEventFilterTag_Application;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNotEventFilter_matchRef(const AzNotEventFilter* value, const AzHoverEventFilter** restrict out) {
+    const AzNotEventFilterVariant_Hover* casted = (const AzNotEventFilterVariant_Hover*)value;
+    bool valid = casted->tag == AzNotEventFilterTag_Hover;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNotEventFilter_matchMut(AzNotEventFilter* restrict value, AzHoverEventFilter* restrict * restrict out) {
+    AzNotEventFilterVariant_Hover* restrict casted = (AzNotEventFilterVariant_Hover* restrict)value;
+    bool valid = casted->tag == AzNotEventFilterTag_Hover;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNotEventFilter_matchRef(const AzNotEventFilter* value, const AzFocusEventFilter** restrict out) {
+    const AzNotEventFilterVariant_Focus* casted = (const AzNotEventFilterVariant_Focus*)value;
+    bool valid = casted->tag == AzNotEventFilterTag_Focus;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNotEventFilter_matchMut(AzNotEventFilter* restrict value, AzFocusEventFilter* restrict * restrict out) {
+    AzNotEventFilterVariant_Focus* restrict casted = (AzNotEventFilterVariant_Focus* restrict)value;
+    bool valid = casted->tag == AzNotEventFilterTag_Focus;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTabIndex_matchRef(const AzTabIndex* value, const Azu32** restrict out) {
+    const AzTabIndexVariant_OverrideInParent* casted = (const AzTabIndexVariant_OverrideInParent*)value;
+    bool valid = casted->tag == AzTabIndexTag_OverrideInParent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTabIndex_matchMut(AzTabIndex* restrict value, Azu32* restrict * restrict out) {
+    AzTabIndexVariant_OverrideInParent* restrict casted = (AzTabIndexVariant_OverrideInParent* restrict)value;
+    bool valid = casted->tag == AzTabIndexTag_OverrideInParent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIdOrClass_matchRef(const AzIdOrClass* value, const AzString** restrict out) {
+    const AzIdOrClassVariant_Id* casted = (const AzIdOrClassVariant_Id*)value;
+    bool valid = casted->tag == AzIdOrClassTag_Id;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIdOrClass_matchMut(AzIdOrClass* restrict value, AzString* restrict * restrict out) {
+    AzIdOrClassVariant_Id* restrict casted = (AzIdOrClassVariant_Id* restrict)value;
+    bool valid = casted->tag == AzIdOrClassTag_Id;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIdOrClass_matchRef(const AzIdOrClass* value, const AzString** restrict out) {
+    const AzIdOrClassVariant_Class* casted = (const AzIdOrClassVariant_Class*)value;
+    bool valid = casted->tag == AzIdOrClassTag_Class;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIdOrClass_matchMut(AzIdOrClass* restrict value, AzString* restrict * restrict out) {
+    AzIdOrClassVariant_Class* restrict casted = (AzIdOrClassVariant_Class* restrict)value;
+    bool valid = casted->tag == AzIdOrClassTag_Class;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchRef(const AzNodeDataInlineCssProperty* value, const AzCssProperty** restrict out) {
+    const AzNodeDataInlineCssPropertyVariant_Normal* casted = (const AzNodeDataInlineCssPropertyVariant_Normal*)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Normal;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchMut(AzNodeDataInlineCssProperty* restrict value, AzCssProperty* restrict * restrict out) {
+    AzNodeDataInlineCssPropertyVariant_Normal* restrict casted = (AzNodeDataInlineCssPropertyVariant_Normal* restrict)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Normal;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchRef(const AzNodeDataInlineCssProperty* value, const AzCssProperty** restrict out) {
+    const AzNodeDataInlineCssPropertyVariant_Active* casted = (const AzNodeDataInlineCssPropertyVariant_Active*)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Active;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchMut(AzNodeDataInlineCssProperty* restrict value, AzCssProperty* restrict * restrict out) {
+    AzNodeDataInlineCssPropertyVariant_Active* restrict casted = (AzNodeDataInlineCssPropertyVariant_Active* restrict)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Active;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchRef(const AzNodeDataInlineCssProperty* value, const AzCssProperty** restrict out) {
+    const AzNodeDataInlineCssPropertyVariant_Focus* casted = (const AzNodeDataInlineCssPropertyVariant_Focus*)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Focus;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchMut(AzNodeDataInlineCssProperty* restrict value, AzCssProperty* restrict * restrict out) {
+    AzNodeDataInlineCssPropertyVariant_Focus* restrict casted = (AzNodeDataInlineCssPropertyVariant_Focus* restrict)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Focus;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchRef(const AzNodeDataInlineCssProperty* value, const AzCssProperty** restrict out) {
+    const AzNodeDataInlineCssPropertyVariant_Hover* casted = (const AzNodeDataInlineCssPropertyVariant_Hover*)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Hover;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssProperty_matchMut(AzNodeDataInlineCssProperty* restrict value, AzCssProperty* restrict * restrict out) {
+    AzNodeDataInlineCssPropertyVariant_Hover* restrict casted = (AzNodeDataInlineCssPropertyVariant_Hover* restrict)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyTag_Hover;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItem_matchRef(const AzMenuItem* value, const AzStringMenuItem** restrict out) {
+    const AzMenuItemVariant_Label* casted = (const AzMenuItemVariant_Label*)value;
+    bool valid = casted->tag == AzMenuItemTag_Label;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItem_matchMut(AzMenuItem* restrict value, AzStringMenuItem* restrict * restrict out) {
+    AzMenuItemVariant_Label* restrict casted = (AzMenuItemVariant_Label* restrict)value;
+    bool valid = casted->tag == AzMenuItemTag_Label;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItemIcon_matchRef(const AzMenuItemIcon* value, const Azbool** restrict out) {
+    const AzMenuItemIconVariant_Checkbox* casted = (const AzMenuItemIconVariant_Checkbox*)value;
+    bool valid = casted->tag == AzMenuItemIconTag_Checkbox;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItemIcon_matchMut(AzMenuItemIcon* restrict value, Azbool* restrict * restrict out) {
+    AzMenuItemIconVariant_Checkbox* restrict casted = (AzMenuItemIconVariant_Checkbox* restrict)value;
+    bool valid = casted->tag == AzMenuItemIconTag_Checkbox;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItemIcon_matchRef(const AzMenuItemIcon* value, const AzImageRef** restrict out) {
+    const AzMenuItemIconVariant_Image* casted = (const AzMenuItemIconVariant_Image*)value;
+    bool valid = casted->tag == AzMenuItemIconTag_Image;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItemIcon_matchMut(AzMenuItemIcon* restrict value, AzImageRef* restrict * restrict out) {
+    AzMenuItemIconVariant_Image* restrict casted = (AzMenuItemIconVariant_Image* restrict)value;
+    bool valid = casted->tag == AzMenuItemIconTag_Image;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchRef(const AzCssDeclaration* value, const AzCssProperty** restrict out) {
+    const AzCssDeclarationVariant_Static* casted = (const AzCssDeclarationVariant_Static*)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Static;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchMut(AzCssDeclaration* restrict value, AzCssProperty* restrict * restrict out) {
+    AzCssDeclarationVariant_Static* restrict casted = (AzCssDeclarationVariant_Static* restrict)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Static;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchRef(const AzCssDeclaration* value, const AzDynamicCssProperty** restrict out) {
+    const AzCssDeclarationVariant_Dynamic* casted = (const AzCssDeclarationVariant_Dynamic*)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Dynamic;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclaration_matchMut(AzCssDeclaration* restrict value, AzDynamicCssProperty* restrict * restrict out) {
+    AzCssDeclarationVariant_Dynamic* restrict casted = (AzCssDeclarationVariant_Dynamic* restrict)value;
+    bool valid = casted->tag == AzCssDeclarationTag_Dynamic;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchRef(const AzCssPathSelector* value, const AzNodeTypeKey** restrict out) {
+    const AzCssPathSelectorVariant_Type* casted = (const AzCssPathSelectorVariant_Type*)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_Type;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchMut(AzCssPathSelector* restrict value, AzNodeTypeKey* restrict * restrict out) {
+    AzCssPathSelectorVariant_Type* restrict casted = (AzCssPathSelectorVariant_Type* restrict)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_Type;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchRef(const AzCssPathSelector* value, const AzString** restrict out) {
+    const AzCssPathSelectorVariant_Class* casted = (const AzCssPathSelectorVariant_Class*)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_Class;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchMut(AzCssPathSelector* restrict value, AzString* restrict * restrict out) {
+    AzCssPathSelectorVariant_Class* restrict casted = (AzCssPathSelectorVariant_Class* restrict)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_Class;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchRef(const AzCssPathSelector* value, const AzString** restrict out) {
+    const AzCssPathSelectorVariant_Id* casted = (const AzCssPathSelectorVariant_Id*)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_Id;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchMut(AzCssPathSelector* restrict value, AzString* restrict * restrict out) {
+    AzCssPathSelectorVariant_Id* restrict casted = (AzCssPathSelectorVariant_Id* restrict)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_Id;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchRef(const AzCssPathSelector* value, const AzCssPathPseudoSelector** restrict out) {
+    const AzCssPathSelectorVariant_PseudoSelector* casted = (const AzCssPathSelectorVariant_PseudoSelector*)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_PseudoSelector;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelector_matchMut(AzCssPathSelector* restrict value, AzCssPathPseudoSelector* restrict * restrict out) {
+    AzCssPathSelectorVariant_PseudoSelector* restrict casted = (AzCssPathSelectorVariant_PseudoSelector* restrict)value;
+    bool valid = casted->tag == AzCssPathSelectorTag_PseudoSelector;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathPseudoSelector_matchRef(const AzCssPathPseudoSelector* value, const AzCssNthChildSelector** restrict out) {
+    const AzCssPathPseudoSelectorVariant_NthChild* casted = (const AzCssPathPseudoSelectorVariant_NthChild*)value;
+    bool valid = casted->tag == AzCssPathPseudoSelectorTag_NthChild;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathPseudoSelector_matchMut(AzCssPathPseudoSelector* restrict value, AzCssNthChildSelector* restrict * restrict out) {
+    AzCssPathPseudoSelectorVariant_NthChild* restrict casted = (AzCssPathPseudoSelectorVariant_NthChild* restrict)value;
+    bool valid = casted->tag == AzCssPathPseudoSelectorTag_NthChild;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssNthChildSelector_matchRef(const AzCssNthChildSelector* value, const Azu32** restrict out) {
+    const AzCssNthChildSelectorVariant_Number* casted = (const AzCssNthChildSelectorVariant_Number*)value;
+    bool valid = casted->tag == AzCssNthChildSelectorTag_Number;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssNthChildSelector_matchMut(AzCssNthChildSelector* restrict value, Azu32* restrict * restrict out) {
+    AzCssNthChildSelectorVariant_Number* restrict casted = (AzCssNthChildSelectorVariant_Number* restrict)value;
+    bool valid = casted->tag == AzCssNthChildSelectorTag_Number;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssNthChildSelector_matchRef(const AzCssNthChildSelector* value, const AzCssNthChildPattern** restrict out) {
+    const AzCssNthChildSelectorVariant_Pattern* casted = (const AzCssNthChildSelectorVariant_Pattern*)value;
+    bool valid = casted->tag == AzCssNthChildSelectorTag_Pattern;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssNthChildSelector_matchMut(AzCssNthChildSelector* restrict value, AzCssNthChildPattern* restrict * restrict out) {
+    AzCssNthChildSelectorVariant_Pattern* restrict casted = (AzCssNthChildSelectorVariant_Pattern* restrict)value;
+    bool valid = casted->tag == AzCssNthChildSelectorTag_Pattern;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAnimationInterpolationFunction_matchRef(const AzAnimationInterpolationFunction* value, const AzSvgCubicCurve** restrict out) {
+    const AzAnimationInterpolationFunctionVariant_CubicBezier* casted = (const AzAnimationInterpolationFunctionVariant_CubicBezier*)value;
+    bool valid = casted->tag == AzAnimationInterpolationFunctionTag_CubicBezier;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAnimationInterpolationFunction_matchMut(AzAnimationInterpolationFunction* restrict value, AzSvgCubicCurve* restrict * restrict out) {
+    AzAnimationInterpolationFunctionVariant_CubicBezier* restrict casted = (AzAnimationInterpolationFunctionVariant_CubicBezier* restrict)value;
+    bool valid = casted->tag == AzAnimationInterpolationFunctionTag_CubicBezier;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDirection_matchRef(const AzDirection* value, const AzAngleValue** restrict out) {
+    const AzDirectionVariant_Angle* casted = (const AzDirectionVariant_Angle*)value;
+    bool valid = casted->tag == AzDirectionTag_Angle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDirection_matchMut(AzDirection* restrict value, AzAngleValue* restrict * restrict out) {
+    AzDirectionVariant_Angle* restrict casted = (AzDirectionVariant_Angle* restrict)value;
+    bool valid = casted->tag == AzDirectionTag_Angle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDirection_matchRef(const AzDirection* value, const AzDirectionCorners** restrict out) {
+    const AzDirectionVariant_FromTo* casted = (const AzDirectionVariant_FromTo*)value;
+    bool valid = casted->tag == AzDirectionTag_FromTo;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDirection_matchMut(AzDirection* restrict value, AzDirectionCorners* restrict * restrict out) {
+    AzDirectionVariant_FromTo* restrict casted = (AzDirectionVariant_FromTo* restrict)value;
+    bool valid = casted->tag == AzDirectionTag_FromTo;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchRef(const AzStyleBackgroundContent* value, const AzLinearGradient** restrict out) {
+    const AzStyleBackgroundContentVariant_LinearGradient* casted = (const AzStyleBackgroundContentVariant_LinearGradient*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_LinearGradient;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchMut(AzStyleBackgroundContent* restrict value, AzLinearGradient* restrict * restrict out) {
+    AzStyleBackgroundContentVariant_LinearGradient* restrict casted = (AzStyleBackgroundContentVariant_LinearGradient* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_LinearGradient;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchRef(const AzStyleBackgroundContent* value, const AzRadialGradient** restrict out) {
+    const AzStyleBackgroundContentVariant_RadialGradient* casted = (const AzStyleBackgroundContentVariant_RadialGradient*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_RadialGradient;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchMut(AzStyleBackgroundContent* restrict value, AzRadialGradient* restrict * restrict out) {
+    AzStyleBackgroundContentVariant_RadialGradient* restrict casted = (AzStyleBackgroundContentVariant_RadialGradient* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_RadialGradient;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchRef(const AzStyleBackgroundContent* value, const AzConicGradient** restrict out) {
+    const AzStyleBackgroundContentVariant_ConicGradient* casted = (const AzStyleBackgroundContentVariant_ConicGradient*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_ConicGradient;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchMut(AzStyleBackgroundContent* restrict value, AzConicGradient* restrict * restrict out) {
+    AzStyleBackgroundContentVariant_ConicGradient* restrict casted = (AzStyleBackgroundContentVariant_ConicGradient* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_ConicGradient;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchRef(const AzStyleBackgroundContent* value, const AzString** restrict out) {
+    const AzStyleBackgroundContentVariant_Image* casted = (const AzStyleBackgroundContentVariant_Image*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_Image;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchMut(AzStyleBackgroundContent* restrict value, AzString* restrict * restrict out) {
+    AzStyleBackgroundContentVariant_Image* restrict casted = (AzStyleBackgroundContentVariant_Image* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_Image;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchRef(const AzStyleBackgroundContent* value, const AzColorU** restrict out) {
+    const AzStyleBackgroundContentVariant_Color* casted = (const AzStyleBackgroundContentVariant_Color*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_Color;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContent_matchMut(AzStyleBackgroundContent* restrict value, AzColorU* restrict * restrict out) {
+    AzStyleBackgroundContentVariant_Color* restrict casted = (AzStyleBackgroundContentVariant_Color* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentTag_Color;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzBackgroundPositionHorizontal_matchRef(const AzBackgroundPositionHorizontal* value, const AzPixelValue** restrict out) {
+    const AzBackgroundPositionHorizontalVariant_Exact* casted = (const AzBackgroundPositionHorizontalVariant_Exact*)value;
+    bool valid = casted->tag == AzBackgroundPositionHorizontalTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzBackgroundPositionHorizontal_matchMut(AzBackgroundPositionHorizontal* restrict value, AzPixelValue* restrict * restrict out) {
+    AzBackgroundPositionHorizontalVariant_Exact* restrict casted = (AzBackgroundPositionHorizontalVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzBackgroundPositionHorizontalTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzBackgroundPositionVertical_matchRef(const AzBackgroundPositionVertical* value, const AzPixelValue** restrict out) {
+    const AzBackgroundPositionVerticalVariant_Exact* casted = (const AzBackgroundPositionVerticalVariant_Exact*)value;
+    bool valid = casted->tag == AzBackgroundPositionVerticalTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzBackgroundPositionVertical_matchMut(AzBackgroundPositionVertical* restrict value, AzPixelValue* restrict * restrict out) {
+    AzBackgroundPositionVerticalVariant_Exact* restrict casted = (AzBackgroundPositionVerticalVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzBackgroundPositionVerticalTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundSize_matchRef(const AzStyleBackgroundSize* value, const Az[PixelValue;2]** restrict out) {
+    const AzStyleBackgroundSizeVariant_ExactSize* casted = (const AzStyleBackgroundSizeVariant_ExactSize*)value;
+    bool valid = casted->tag == AzStyleBackgroundSizeTag_ExactSize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundSize_matchMut(AzStyleBackgroundSize* restrict value, Az[PixelValue;2]* restrict * restrict out) {
+    AzStyleBackgroundSizeVariant_ExactSize* restrict casted = (AzStyleBackgroundSizeVariant_ExactSize* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundSizeTag_ExactSize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamily_matchRef(const AzStyleFontFamily* value, const AzString** restrict out) {
+    const AzStyleFontFamilyVariant_System* casted = (const AzStyleFontFamilyVariant_System*)value;
+    bool valid = casted->tag == AzStyleFontFamilyTag_System;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamily_matchMut(AzStyleFontFamily* restrict value, AzString* restrict * restrict out) {
+    AzStyleFontFamilyVariant_System* restrict casted = (AzStyleFontFamilyVariant_System* restrict)value;
+    bool valid = casted->tag == AzStyleFontFamilyTag_System;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamily_matchRef(const AzStyleFontFamily* value, const AzString** restrict out) {
+    const AzStyleFontFamilyVariant_File* casted = (const AzStyleFontFamilyVariant_File*)value;
+    bool valid = casted->tag == AzStyleFontFamilyTag_File;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamily_matchMut(AzStyleFontFamily* restrict value, AzString* restrict * restrict out) {
+    AzStyleFontFamilyVariant_File* restrict casted = (AzStyleFontFamilyVariant_File* restrict)value;
+    bool valid = casted->tag == AzStyleFontFamilyTag_File;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamily_matchRef(const AzStyleFontFamily* value, const AzFontRef** restrict out) {
+    const AzStyleFontFamilyVariant_Ref* casted = (const AzStyleFontFamilyVariant_Ref*)value;
+    bool valid = casted->tag == AzStyleFontFamilyTag_Ref;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamily_matchMut(AzStyleFontFamily* restrict value, AzFontRef* restrict * restrict out) {
+    AzStyleFontFamilyVariant_Ref* restrict casted = (AzStyleFontFamilyVariant_Ref* restrict)value;
+    bool valid = casted->tag == AzStyleFontFamilyTag_Ref;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformMatrix2D** restrict out) {
+    const AzStyleTransformVariant_Matrix* casted = (const AzStyleTransformVariant_Matrix*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Matrix;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformMatrix2D* restrict * restrict out) {
+    AzStyleTransformVariant_Matrix* restrict casted = (AzStyleTransformVariant_Matrix* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Matrix;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformMatrix3D** restrict out) {
+    const AzStyleTransformVariant_Matrix3D* casted = (const AzStyleTransformVariant_Matrix3D*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Matrix3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformMatrix3D* restrict * restrict out) {
+    AzStyleTransformVariant_Matrix3D* restrict casted = (AzStyleTransformVariant_Matrix3D* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Matrix3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformTranslate2D** restrict out) {
+    const AzStyleTransformVariant_Translate* casted = (const AzStyleTransformVariant_Translate*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Translate;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformTranslate2D* restrict * restrict out) {
+    AzStyleTransformVariant_Translate* restrict casted = (AzStyleTransformVariant_Translate* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Translate;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformTranslate3D** restrict out) {
+    const AzStyleTransformVariant_Translate3D* casted = (const AzStyleTransformVariant_Translate3D*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Translate3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformTranslate3D* restrict * restrict out) {
+    AzStyleTransformVariant_Translate3D* restrict casted = (AzStyleTransformVariant_Translate3D* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Translate3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPixelValue** restrict out) {
+    const AzStyleTransformVariant_TranslateX* casted = (const AzStyleTransformVariant_TranslateX*)value;
+    bool valid = casted->tag == AzStyleTransformTag_TranslateX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPixelValue* restrict * restrict out) {
+    AzStyleTransformVariant_TranslateX* restrict casted = (AzStyleTransformVariant_TranslateX* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_TranslateX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPixelValue** restrict out) {
+    const AzStyleTransformVariant_TranslateY* casted = (const AzStyleTransformVariant_TranslateY*)value;
+    bool valid = casted->tag == AzStyleTransformTag_TranslateY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPixelValue* restrict * restrict out) {
+    AzStyleTransformVariant_TranslateY* restrict casted = (AzStyleTransformVariant_TranslateY* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_TranslateY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPixelValue** restrict out) {
+    const AzStyleTransformVariant_TranslateZ* casted = (const AzStyleTransformVariant_TranslateZ*)value;
+    bool valid = casted->tag == AzStyleTransformTag_TranslateZ;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPixelValue* restrict * restrict out) {
+    AzStyleTransformVariant_TranslateZ* restrict casted = (AzStyleTransformVariant_TranslateZ* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_TranslateZ;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzAngleValue** restrict out) {
+    const AzStyleTransformVariant_Rotate* casted = (const AzStyleTransformVariant_Rotate*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Rotate;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzAngleValue* restrict * restrict out) {
+    AzStyleTransformVariant_Rotate* restrict casted = (AzStyleTransformVariant_Rotate* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Rotate;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformRotate3D** restrict out) {
+    const AzStyleTransformVariant_Rotate3D* casted = (const AzStyleTransformVariant_Rotate3D*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Rotate3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformRotate3D* restrict * restrict out) {
+    AzStyleTransformVariant_Rotate3D* restrict casted = (AzStyleTransformVariant_Rotate3D* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Rotate3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzAngleValue** restrict out) {
+    const AzStyleTransformVariant_RotateX* casted = (const AzStyleTransformVariant_RotateX*)value;
+    bool valid = casted->tag == AzStyleTransformTag_RotateX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzAngleValue* restrict * restrict out) {
+    AzStyleTransformVariant_RotateX* restrict casted = (AzStyleTransformVariant_RotateX* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_RotateX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzAngleValue** restrict out) {
+    const AzStyleTransformVariant_RotateY* casted = (const AzStyleTransformVariant_RotateY*)value;
+    bool valid = casted->tag == AzStyleTransformTag_RotateY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzAngleValue* restrict * restrict out) {
+    AzStyleTransformVariant_RotateY* restrict casted = (AzStyleTransformVariant_RotateY* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_RotateY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzAngleValue** restrict out) {
+    const AzStyleTransformVariant_RotateZ* casted = (const AzStyleTransformVariant_RotateZ*)value;
+    bool valid = casted->tag == AzStyleTransformTag_RotateZ;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzAngleValue* restrict * restrict out) {
+    AzStyleTransformVariant_RotateZ* restrict casted = (AzStyleTransformVariant_RotateZ* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_RotateZ;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformScale2D** restrict out) {
+    const AzStyleTransformVariant_Scale* casted = (const AzStyleTransformVariant_Scale*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Scale;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformScale2D* restrict * restrict out) {
+    AzStyleTransformVariant_Scale* restrict casted = (AzStyleTransformVariant_Scale* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Scale;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformScale3D** restrict out) {
+    const AzStyleTransformVariant_Scale3D* casted = (const AzStyleTransformVariant_Scale3D*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Scale3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformScale3D* restrict * restrict out) {
+    AzStyleTransformVariant_Scale3D* restrict casted = (AzStyleTransformVariant_Scale3D* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Scale3D;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPercentageValue** restrict out) {
+    const AzStyleTransformVariant_ScaleX* casted = (const AzStyleTransformVariant_ScaleX*)value;
+    bool valid = casted->tag == AzStyleTransformTag_ScaleX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzStyleTransformVariant_ScaleX* restrict casted = (AzStyleTransformVariant_ScaleX* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_ScaleX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPercentageValue** restrict out) {
+    const AzStyleTransformVariant_ScaleY* casted = (const AzStyleTransformVariant_ScaleY*)value;
+    bool valid = casted->tag == AzStyleTransformTag_ScaleY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzStyleTransformVariant_ScaleY* restrict casted = (AzStyleTransformVariant_ScaleY* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_ScaleY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPercentageValue** restrict out) {
+    const AzStyleTransformVariant_ScaleZ* casted = (const AzStyleTransformVariant_ScaleZ*)value;
+    bool valid = casted->tag == AzStyleTransformTag_ScaleZ;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzStyleTransformVariant_ScaleZ* restrict casted = (AzStyleTransformVariant_ScaleZ* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_ScaleZ;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzStyleTransformSkew2D** restrict out) {
+    const AzStyleTransformVariant_Skew* casted = (const AzStyleTransformVariant_Skew*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Skew;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzStyleTransformSkew2D* restrict * restrict out) {
+    AzStyleTransformVariant_Skew* restrict casted = (AzStyleTransformVariant_Skew* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Skew;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPercentageValue** restrict out) {
+    const AzStyleTransformVariant_SkewX* casted = (const AzStyleTransformVariant_SkewX*)value;
+    bool valid = casted->tag == AzStyleTransformTag_SkewX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzStyleTransformVariant_SkewX* restrict casted = (AzStyleTransformVariant_SkewX* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_SkewX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPercentageValue** restrict out) {
+    const AzStyleTransformVariant_SkewY* casted = (const AzStyleTransformVariant_SkewY*)value;
+    bool valid = casted->tag == AzStyleTransformTag_SkewY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzStyleTransformVariant_SkewY* restrict casted = (AzStyleTransformVariant_SkewY* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_SkewY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchRef(const AzStyleTransform* value, const AzPixelValue** restrict out) {
+    const AzStyleTransformVariant_Perspective* casted = (const AzStyleTransformVariant_Perspective*)value;
+    bool valid = casted->tag == AzStyleTransformTag_Perspective;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransform_matchMut(AzStyleTransform* restrict value, AzPixelValue* restrict * restrict out) {
+    AzStyleTransformVariant_Perspective* restrict casted = (AzStyleTransformVariant_Perspective* restrict)value;
+    bool valid = casted->tag == AzStyleTransformTag_Perspective;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBoxShadowValue_matchRef(const AzStyleBoxShadowValue* value, const AzStyleBoxShadow** restrict out) {
+    const AzStyleBoxShadowValueVariant_Exact* casted = (const AzStyleBoxShadowValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBoxShadowValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBoxShadowValue_matchMut(AzStyleBoxShadowValue* restrict value, AzStyleBoxShadow* restrict * restrict out) {
+    AzStyleBoxShadowValueVariant_Exact* restrict casted = (AzStyleBoxShadowValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBoxShadowValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutAlignContentValue_matchRef(const AzLayoutAlignContentValue* value, const AzLayoutAlignContent** restrict out) {
+    const AzLayoutAlignContentValueVariant_Exact* casted = (const AzLayoutAlignContentValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutAlignContentValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutAlignContentValue_matchMut(AzLayoutAlignContentValue* restrict value, AzLayoutAlignContent* restrict * restrict out) {
+    AzLayoutAlignContentValueVariant_Exact* restrict casted = (AzLayoutAlignContentValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutAlignContentValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutAlignItemsValue_matchRef(const AzLayoutAlignItemsValue* value, const AzLayoutAlignItems** restrict out) {
+    const AzLayoutAlignItemsValueVariant_Exact* casted = (const AzLayoutAlignItemsValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutAlignItemsValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutAlignItemsValue_matchMut(AzLayoutAlignItemsValue* restrict value, AzLayoutAlignItems* restrict * restrict out) {
+    AzLayoutAlignItemsValueVariant_Exact* restrict casted = (AzLayoutAlignItemsValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutAlignItemsValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBottomValue_matchRef(const AzLayoutBottomValue* value, const AzLayoutBottom** restrict out) {
+    const AzLayoutBottomValueVariant_Exact* casted = (const AzLayoutBottomValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutBottomValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBottomValue_matchMut(AzLayoutBottomValue* restrict value, AzLayoutBottom* restrict * restrict out) {
+    AzLayoutBottomValueVariant_Exact* restrict casted = (AzLayoutBottomValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutBottomValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBoxSizingValue_matchRef(const AzLayoutBoxSizingValue* value, const AzLayoutBoxSizing** restrict out) {
+    const AzLayoutBoxSizingValueVariant_Exact* casted = (const AzLayoutBoxSizingValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutBoxSizingValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBoxSizingValue_matchMut(AzLayoutBoxSizingValue* restrict value, AzLayoutBoxSizing* restrict * restrict out) {
+    AzLayoutBoxSizingValueVariant_Exact* restrict casted = (AzLayoutBoxSizingValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutBoxSizingValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexDirectionValue_matchRef(const AzLayoutFlexDirectionValue* value, const AzLayoutFlexDirection** restrict out) {
+    const AzLayoutFlexDirectionValueVariant_Exact* casted = (const AzLayoutFlexDirectionValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutFlexDirectionValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexDirectionValue_matchMut(AzLayoutFlexDirectionValue* restrict value, AzLayoutFlexDirection* restrict * restrict out) {
+    AzLayoutFlexDirectionValueVariant_Exact* restrict casted = (AzLayoutFlexDirectionValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutFlexDirectionValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutDisplayValue_matchRef(const AzLayoutDisplayValue* value, const AzLayoutDisplay** restrict out) {
+    const AzLayoutDisplayValueVariant_Exact* casted = (const AzLayoutDisplayValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutDisplayValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutDisplayValue_matchMut(AzLayoutDisplayValue* restrict value, AzLayoutDisplay* restrict * restrict out) {
+    AzLayoutDisplayValueVariant_Exact* restrict casted = (AzLayoutDisplayValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutDisplayValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexGrowValue_matchRef(const AzLayoutFlexGrowValue* value, const AzLayoutFlexGrow** restrict out) {
+    const AzLayoutFlexGrowValueVariant_Exact* casted = (const AzLayoutFlexGrowValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutFlexGrowValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexGrowValue_matchMut(AzLayoutFlexGrowValue* restrict value, AzLayoutFlexGrow* restrict * restrict out) {
+    AzLayoutFlexGrowValueVariant_Exact* restrict casted = (AzLayoutFlexGrowValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutFlexGrowValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexShrinkValue_matchRef(const AzLayoutFlexShrinkValue* value, const AzLayoutFlexShrink** restrict out) {
+    const AzLayoutFlexShrinkValueVariant_Exact* casted = (const AzLayoutFlexShrinkValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutFlexShrinkValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexShrinkValue_matchMut(AzLayoutFlexShrinkValue* restrict value, AzLayoutFlexShrink* restrict * restrict out) {
+    AzLayoutFlexShrinkValueVariant_Exact* restrict casted = (AzLayoutFlexShrinkValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutFlexShrinkValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFloatValue_matchRef(const AzLayoutFloatValue* value, const AzLayoutFloat** restrict out) {
+    const AzLayoutFloatValueVariant_Exact* casted = (const AzLayoutFloatValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutFloatValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFloatValue_matchMut(AzLayoutFloatValue* restrict value, AzLayoutFloat* restrict * restrict out) {
+    AzLayoutFloatValueVariant_Exact* restrict casted = (AzLayoutFloatValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutFloatValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutHeightValue_matchRef(const AzLayoutHeightValue* value, const AzLayoutHeight** restrict out) {
+    const AzLayoutHeightValueVariant_Exact* casted = (const AzLayoutHeightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutHeightValue_matchMut(AzLayoutHeightValue* restrict value, AzLayoutHeight* restrict * restrict out) {
+    AzLayoutHeightValueVariant_Exact* restrict casted = (AzLayoutHeightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutJustifyContentValue_matchRef(const AzLayoutJustifyContentValue* value, const AzLayoutJustifyContent** restrict out) {
+    const AzLayoutJustifyContentValueVariant_Exact* casted = (const AzLayoutJustifyContentValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutJustifyContentValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutJustifyContentValue_matchMut(AzLayoutJustifyContentValue* restrict value, AzLayoutJustifyContent* restrict * restrict out) {
+    AzLayoutJustifyContentValueVariant_Exact* restrict casted = (AzLayoutJustifyContentValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutJustifyContentValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutLeftValue_matchRef(const AzLayoutLeftValue* value, const AzLayoutLeft** restrict out) {
+    const AzLayoutLeftValueVariant_Exact* casted = (const AzLayoutLeftValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutLeftValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutLeftValue_matchMut(AzLayoutLeftValue* restrict value, AzLayoutLeft* restrict * restrict out) {
+    AzLayoutLeftValueVariant_Exact* restrict casted = (AzLayoutLeftValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutLeftValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginBottomValue_matchRef(const AzLayoutMarginBottomValue* value, const AzLayoutMarginBottom** restrict out) {
+    const AzLayoutMarginBottomValueVariant_Exact* casted = (const AzLayoutMarginBottomValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMarginBottomValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginBottomValue_matchMut(AzLayoutMarginBottomValue* restrict value, AzLayoutMarginBottom* restrict * restrict out) {
+    AzLayoutMarginBottomValueVariant_Exact* restrict casted = (AzLayoutMarginBottomValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMarginBottomValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginLeftValue_matchRef(const AzLayoutMarginLeftValue* value, const AzLayoutMarginLeft** restrict out) {
+    const AzLayoutMarginLeftValueVariant_Exact* casted = (const AzLayoutMarginLeftValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMarginLeftValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginLeftValue_matchMut(AzLayoutMarginLeftValue* restrict value, AzLayoutMarginLeft* restrict * restrict out) {
+    AzLayoutMarginLeftValueVariant_Exact* restrict casted = (AzLayoutMarginLeftValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMarginLeftValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginRightValue_matchRef(const AzLayoutMarginRightValue* value, const AzLayoutMarginRight** restrict out) {
+    const AzLayoutMarginRightValueVariant_Exact* casted = (const AzLayoutMarginRightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMarginRightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginRightValue_matchMut(AzLayoutMarginRightValue* restrict value, AzLayoutMarginRight* restrict * restrict out) {
+    AzLayoutMarginRightValueVariant_Exact* restrict casted = (AzLayoutMarginRightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMarginRightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginTopValue_matchRef(const AzLayoutMarginTopValue* value, const AzLayoutMarginTop** restrict out) {
+    const AzLayoutMarginTopValueVariant_Exact* casted = (const AzLayoutMarginTopValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMarginTopValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMarginTopValue_matchMut(AzLayoutMarginTopValue* restrict value, AzLayoutMarginTop* restrict * restrict out) {
+    AzLayoutMarginTopValueVariant_Exact* restrict casted = (AzLayoutMarginTopValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMarginTopValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMaxHeightValue_matchRef(const AzLayoutMaxHeightValue* value, const AzLayoutMaxHeight** restrict out) {
+    const AzLayoutMaxHeightValueVariant_Exact* casted = (const AzLayoutMaxHeightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMaxHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMaxHeightValue_matchMut(AzLayoutMaxHeightValue* restrict value, AzLayoutMaxHeight* restrict * restrict out) {
+    AzLayoutMaxHeightValueVariant_Exact* restrict casted = (AzLayoutMaxHeightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMaxHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMaxWidthValue_matchRef(const AzLayoutMaxWidthValue* value, const AzLayoutMaxWidth** restrict out) {
+    const AzLayoutMaxWidthValueVariant_Exact* casted = (const AzLayoutMaxWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMaxWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMaxWidthValue_matchMut(AzLayoutMaxWidthValue* restrict value, AzLayoutMaxWidth* restrict * restrict out) {
+    AzLayoutMaxWidthValueVariant_Exact* restrict casted = (AzLayoutMaxWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMaxWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMinHeightValue_matchRef(const AzLayoutMinHeightValue* value, const AzLayoutMinHeight** restrict out) {
+    const AzLayoutMinHeightValueVariant_Exact* casted = (const AzLayoutMinHeightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMinHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMinHeightValue_matchMut(AzLayoutMinHeightValue* restrict value, AzLayoutMinHeight* restrict * restrict out) {
+    AzLayoutMinHeightValueVariant_Exact* restrict casted = (AzLayoutMinHeightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMinHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMinWidthValue_matchRef(const AzLayoutMinWidthValue* value, const AzLayoutMinWidth** restrict out) {
+    const AzLayoutMinWidthValueVariant_Exact* casted = (const AzLayoutMinWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutMinWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutMinWidthValue_matchMut(AzLayoutMinWidthValue* restrict value, AzLayoutMinWidth* restrict * restrict out) {
+    AzLayoutMinWidthValueVariant_Exact* restrict casted = (AzLayoutMinWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutMinWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingBottomValue_matchRef(const AzLayoutPaddingBottomValue* value, const AzLayoutPaddingBottom** restrict out) {
+    const AzLayoutPaddingBottomValueVariant_Exact* casted = (const AzLayoutPaddingBottomValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutPaddingBottomValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingBottomValue_matchMut(AzLayoutPaddingBottomValue* restrict value, AzLayoutPaddingBottom* restrict * restrict out) {
+    AzLayoutPaddingBottomValueVariant_Exact* restrict casted = (AzLayoutPaddingBottomValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutPaddingBottomValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingLeftValue_matchRef(const AzLayoutPaddingLeftValue* value, const AzLayoutPaddingLeft** restrict out) {
+    const AzLayoutPaddingLeftValueVariant_Exact* casted = (const AzLayoutPaddingLeftValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutPaddingLeftValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingLeftValue_matchMut(AzLayoutPaddingLeftValue* restrict value, AzLayoutPaddingLeft* restrict * restrict out) {
+    AzLayoutPaddingLeftValueVariant_Exact* restrict casted = (AzLayoutPaddingLeftValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutPaddingLeftValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingRightValue_matchRef(const AzLayoutPaddingRightValue* value, const AzLayoutPaddingRight** restrict out) {
+    const AzLayoutPaddingRightValueVariant_Exact* casted = (const AzLayoutPaddingRightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutPaddingRightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingRightValue_matchMut(AzLayoutPaddingRightValue* restrict value, AzLayoutPaddingRight* restrict * restrict out) {
+    AzLayoutPaddingRightValueVariant_Exact* restrict casted = (AzLayoutPaddingRightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutPaddingRightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingTopValue_matchRef(const AzLayoutPaddingTopValue* value, const AzLayoutPaddingTop** restrict out) {
+    const AzLayoutPaddingTopValueVariant_Exact* casted = (const AzLayoutPaddingTopValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutPaddingTopValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPaddingTopValue_matchMut(AzLayoutPaddingTopValue* restrict value, AzLayoutPaddingTop* restrict * restrict out) {
+    AzLayoutPaddingTopValueVariant_Exact* restrict casted = (AzLayoutPaddingTopValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutPaddingTopValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPositionValue_matchRef(const AzLayoutPositionValue* value, const AzLayoutPosition** restrict out) {
+    const AzLayoutPositionValueVariant_Exact* casted = (const AzLayoutPositionValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutPositionValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutPositionValue_matchMut(AzLayoutPositionValue* restrict value, AzLayoutPosition* restrict * restrict out) {
+    AzLayoutPositionValueVariant_Exact* restrict casted = (AzLayoutPositionValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutPositionValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutRightValue_matchRef(const AzLayoutRightValue* value, const AzLayoutRight** restrict out) {
+    const AzLayoutRightValueVariant_Exact* casted = (const AzLayoutRightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutRightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutRightValue_matchMut(AzLayoutRightValue* restrict value, AzLayoutRight* restrict * restrict out) {
+    AzLayoutRightValueVariant_Exact* restrict casted = (AzLayoutRightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutRightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutTopValue_matchRef(const AzLayoutTopValue* value, const AzLayoutTop** restrict out) {
+    const AzLayoutTopValueVariant_Exact* casted = (const AzLayoutTopValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutTopValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutTopValue_matchMut(AzLayoutTopValue* restrict value, AzLayoutTop* restrict * restrict out) {
+    AzLayoutTopValueVariant_Exact* restrict casted = (AzLayoutTopValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutTopValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutWidthValue_matchRef(const AzLayoutWidthValue* value, const AzLayoutWidth** restrict out) {
+    const AzLayoutWidthValueVariant_Exact* casted = (const AzLayoutWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutWidthValue_matchMut(AzLayoutWidthValue* restrict value, AzLayoutWidth* restrict * restrict out) {
+    AzLayoutWidthValueVariant_Exact* restrict casted = (AzLayoutWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexWrapValue_matchRef(const AzLayoutFlexWrapValue* value, const AzLayoutFlexWrap** restrict out) {
+    const AzLayoutFlexWrapValueVariant_Exact* casted = (const AzLayoutFlexWrapValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutFlexWrapValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutFlexWrapValue_matchMut(AzLayoutFlexWrapValue* restrict value, AzLayoutFlexWrap* restrict * restrict out) {
+    AzLayoutFlexWrapValueVariant_Exact* restrict casted = (AzLayoutFlexWrapValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutFlexWrapValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutOverflowValue_matchRef(const AzLayoutOverflowValue* value, const AzLayoutOverflow** restrict out) {
+    const AzLayoutOverflowValueVariant_Exact* casted = (const AzLayoutOverflowValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutOverflowValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutOverflowValue_matchMut(AzLayoutOverflowValue* restrict value, AzLayoutOverflow* restrict * restrict out) {
+    AzLayoutOverflowValueVariant_Exact* restrict casted = (AzLayoutOverflowValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutOverflowValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzScrollbarStyleValue_matchRef(const AzScrollbarStyleValue* value, const AzScrollbarStyle** restrict out) {
+    const AzScrollbarStyleValueVariant_Exact* casted = (const AzScrollbarStyleValueVariant_Exact*)value;
+    bool valid = casted->tag == AzScrollbarStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzScrollbarStyleValue_matchMut(AzScrollbarStyleValue* restrict value, AzScrollbarStyle* restrict * restrict out) {
+    AzScrollbarStyleValueVariant_Exact* restrict casted = (AzScrollbarStyleValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzScrollbarStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContentVecValue_matchRef(const AzStyleBackgroundContentVecValue* value, const AzStyleBackgroundContentVec** restrict out) {
+    const AzStyleBackgroundContentVecValueVariant_Exact* casted = (const AzStyleBackgroundContentVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContentVecValue_matchMut(AzStyleBackgroundContentVecValue* restrict value, AzStyleBackgroundContentVec* restrict * restrict out) {
+    AzStyleBackgroundContentVecValueVariant_Exact* restrict casted = (AzStyleBackgroundContentVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundPositionVecValue_matchRef(const AzStyleBackgroundPositionVecValue* value, const AzStyleBackgroundPositionVec** restrict out) {
+    const AzStyleBackgroundPositionVecValueVariant_Exact* casted = (const AzStyleBackgroundPositionVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBackgroundPositionVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundPositionVecValue_matchMut(AzStyleBackgroundPositionVecValue* restrict value, AzStyleBackgroundPositionVec* restrict * restrict out) {
+    AzStyleBackgroundPositionVecValueVariant_Exact* restrict casted = (AzStyleBackgroundPositionVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundPositionVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundRepeatVecValue_matchRef(const AzStyleBackgroundRepeatVecValue* value, const AzStyleBackgroundRepeatVec** restrict out) {
+    const AzStyleBackgroundRepeatVecValueVariant_Exact* casted = (const AzStyleBackgroundRepeatVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBackgroundRepeatVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundRepeatVecValue_matchMut(AzStyleBackgroundRepeatVecValue* restrict value, AzStyleBackgroundRepeatVec* restrict * restrict out) {
+    AzStyleBackgroundRepeatVecValueVariant_Exact* restrict casted = (AzStyleBackgroundRepeatVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundRepeatVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundSizeVecValue_matchRef(const AzStyleBackgroundSizeVecValue* value, const AzStyleBackgroundSizeVec** restrict out) {
+    const AzStyleBackgroundSizeVecValueVariant_Exact* casted = (const AzStyleBackgroundSizeVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBackgroundSizeVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundSizeVecValue_matchMut(AzStyleBackgroundSizeVecValue* restrict value, AzStyleBackgroundSizeVec* restrict * restrict out) {
+    AzStyleBackgroundSizeVecValueVariant_Exact* restrict casted = (AzStyleBackgroundSizeVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundSizeVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomColorValue_matchRef(const AzStyleBorderBottomColorValue* value, const AzStyleBorderBottomColor** restrict out) {
+    const AzStyleBorderBottomColorValueVariant_Exact* casted = (const AzStyleBorderBottomColorValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderBottomColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomColorValue_matchMut(AzStyleBorderBottomColorValue* restrict value, AzStyleBorderBottomColor* restrict * restrict out) {
+    AzStyleBorderBottomColorValueVariant_Exact* restrict casted = (AzStyleBorderBottomColorValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderBottomColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomLeftRadiusValue_matchRef(const AzStyleBorderBottomLeftRadiusValue* value, const AzStyleBorderBottomLeftRadius** restrict out) {
+    const AzStyleBorderBottomLeftRadiusValueVariant_Exact* casted = (const AzStyleBorderBottomLeftRadiusValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderBottomLeftRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomLeftRadiusValue_matchMut(AzStyleBorderBottomLeftRadiusValue* restrict value, AzStyleBorderBottomLeftRadius* restrict * restrict out) {
+    AzStyleBorderBottomLeftRadiusValueVariant_Exact* restrict casted = (AzStyleBorderBottomLeftRadiusValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderBottomLeftRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomRightRadiusValue_matchRef(const AzStyleBorderBottomRightRadiusValue* value, const AzStyleBorderBottomRightRadius** restrict out) {
+    const AzStyleBorderBottomRightRadiusValueVariant_Exact* casted = (const AzStyleBorderBottomRightRadiusValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderBottomRightRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomRightRadiusValue_matchMut(AzStyleBorderBottomRightRadiusValue* restrict value, AzStyleBorderBottomRightRadius* restrict * restrict out) {
+    AzStyleBorderBottomRightRadiusValueVariant_Exact* restrict casted = (AzStyleBorderBottomRightRadiusValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderBottomRightRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomStyleValue_matchRef(const AzStyleBorderBottomStyleValue* value, const AzStyleBorderBottomStyle** restrict out) {
+    const AzStyleBorderBottomStyleValueVariant_Exact* casted = (const AzStyleBorderBottomStyleValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderBottomStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderBottomStyleValue_matchMut(AzStyleBorderBottomStyleValue* restrict value, AzStyleBorderBottomStyle* restrict * restrict out) {
+    AzStyleBorderBottomStyleValueVariant_Exact* restrict casted = (AzStyleBorderBottomStyleValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderBottomStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderBottomWidthValue_matchRef(const AzLayoutBorderBottomWidthValue* value, const AzLayoutBorderBottomWidth** restrict out) {
+    const AzLayoutBorderBottomWidthValueVariant_Exact* casted = (const AzLayoutBorderBottomWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutBorderBottomWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderBottomWidthValue_matchMut(AzLayoutBorderBottomWidthValue* restrict value, AzLayoutBorderBottomWidth* restrict * restrict out) {
+    AzLayoutBorderBottomWidthValueVariant_Exact* restrict casted = (AzLayoutBorderBottomWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutBorderBottomWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderLeftColorValue_matchRef(const AzStyleBorderLeftColorValue* value, const AzStyleBorderLeftColor** restrict out) {
+    const AzStyleBorderLeftColorValueVariant_Exact* casted = (const AzStyleBorderLeftColorValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderLeftColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderLeftColorValue_matchMut(AzStyleBorderLeftColorValue* restrict value, AzStyleBorderLeftColor* restrict * restrict out) {
+    AzStyleBorderLeftColorValueVariant_Exact* restrict casted = (AzStyleBorderLeftColorValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderLeftColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderLeftStyleValue_matchRef(const AzStyleBorderLeftStyleValue* value, const AzStyleBorderLeftStyle** restrict out) {
+    const AzStyleBorderLeftStyleValueVariant_Exact* casted = (const AzStyleBorderLeftStyleValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderLeftStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderLeftStyleValue_matchMut(AzStyleBorderLeftStyleValue* restrict value, AzStyleBorderLeftStyle* restrict * restrict out) {
+    AzStyleBorderLeftStyleValueVariant_Exact* restrict casted = (AzStyleBorderLeftStyleValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderLeftStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderLeftWidthValue_matchRef(const AzLayoutBorderLeftWidthValue* value, const AzLayoutBorderLeftWidth** restrict out) {
+    const AzLayoutBorderLeftWidthValueVariant_Exact* casted = (const AzLayoutBorderLeftWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutBorderLeftWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderLeftWidthValue_matchMut(AzLayoutBorderLeftWidthValue* restrict value, AzLayoutBorderLeftWidth* restrict * restrict out) {
+    AzLayoutBorderLeftWidthValueVariant_Exact* restrict casted = (AzLayoutBorderLeftWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutBorderLeftWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderRightColorValue_matchRef(const AzStyleBorderRightColorValue* value, const AzStyleBorderRightColor** restrict out) {
+    const AzStyleBorderRightColorValueVariant_Exact* casted = (const AzStyleBorderRightColorValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderRightColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderRightColorValue_matchMut(AzStyleBorderRightColorValue* restrict value, AzStyleBorderRightColor* restrict * restrict out) {
+    AzStyleBorderRightColorValueVariant_Exact* restrict casted = (AzStyleBorderRightColorValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderRightColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderRightStyleValue_matchRef(const AzStyleBorderRightStyleValue* value, const AzStyleBorderRightStyle** restrict out) {
+    const AzStyleBorderRightStyleValueVariant_Exact* casted = (const AzStyleBorderRightStyleValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderRightStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderRightStyleValue_matchMut(AzStyleBorderRightStyleValue* restrict value, AzStyleBorderRightStyle* restrict * restrict out) {
+    AzStyleBorderRightStyleValueVariant_Exact* restrict casted = (AzStyleBorderRightStyleValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderRightStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderRightWidthValue_matchRef(const AzLayoutBorderRightWidthValue* value, const AzLayoutBorderRightWidth** restrict out) {
+    const AzLayoutBorderRightWidthValueVariant_Exact* casted = (const AzLayoutBorderRightWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutBorderRightWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderRightWidthValue_matchMut(AzLayoutBorderRightWidthValue* restrict value, AzLayoutBorderRightWidth* restrict * restrict out) {
+    AzLayoutBorderRightWidthValueVariant_Exact* restrict casted = (AzLayoutBorderRightWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutBorderRightWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopColorValue_matchRef(const AzStyleBorderTopColorValue* value, const AzStyleBorderTopColor** restrict out) {
+    const AzStyleBorderTopColorValueVariant_Exact* casted = (const AzStyleBorderTopColorValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderTopColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopColorValue_matchMut(AzStyleBorderTopColorValue* restrict value, AzStyleBorderTopColor* restrict * restrict out) {
+    AzStyleBorderTopColorValueVariant_Exact* restrict casted = (AzStyleBorderTopColorValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderTopColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopLeftRadiusValue_matchRef(const AzStyleBorderTopLeftRadiusValue* value, const AzStyleBorderTopLeftRadius** restrict out) {
+    const AzStyleBorderTopLeftRadiusValueVariant_Exact* casted = (const AzStyleBorderTopLeftRadiusValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderTopLeftRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopLeftRadiusValue_matchMut(AzStyleBorderTopLeftRadiusValue* restrict value, AzStyleBorderTopLeftRadius* restrict * restrict out) {
+    AzStyleBorderTopLeftRadiusValueVariant_Exact* restrict casted = (AzStyleBorderTopLeftRadiusValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderTopLeftRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopRightRadiusValue_matchRef(const AzStyleBorderTopRightRadiusValue* value, const AzStyleBorderTopRightRadius** restrict out) {
+    const AzStyleBorderTopRightRadiusValueVariant_Exact* casted = (const AzStyleBorderTopRightRadiusValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderTopRightRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopRightRadiusValue_matchMut(AzStyleBorderTopRightRadiusValue* restrict value, AzStyleBorderTopRightRadius* restrict * restrict out) {
+    AzStyleBorderTopRightRadiusValueVariant_Exact* restrict casted = (AzStyleBorderTopRightRadiusValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderTopRightRadiusValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopStyleValue_matchRef(const AzStyleBorderTopStyleValue* value, const AzStyleBorderTopStyle** restrict out) {
+    const AzStyleBorderTopStyleValueVariant_Exact* casted = (const AzStyleBorderTopStyleValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBorderTopStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBorderTopStyleValue_matchMut(AzStyleBorderTopStyleValue* restrict value, AzStyleBorderTopStyle* restrict * restrict out) {
+    AzStyleBorderTopStyleValueVariant_Exact* restrict casted = (AzStyleBorderTopStyleValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBorderTopStyleValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderTopWidthValue_matchRef(const AzLayoutBorderTopWidthValue* value, const AzLayoutBorderTopWidth** restrict out) {
+    const AzLayoutBorderTopWidthValueVariant_Exact* casted = (const AzLayoutBorderTopWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzLayoutBorderTopWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLayoutBorderTopWidthValue_matchMut(AzLayoutBorderTopWidthValue* restrict value, AzLayoutBorderTopWidth* restrict * restrict out) {
+    AzLayoutBorderTopWidthValueVariant_Exact* restrict casted = (AzLayoutBorderTopWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzLayoutBorderTopWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleCursorValue_matchRef(const AzStyleCursorValue* value, const AzStyleCursor** restrict out) {
+    const AzStyleCursorValueVariant_Exact* casted = (const AzStyleCursorValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleCursorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleCursorValue_matchMut(AzStyleCursorValue* restrict value, AzStyleCursor* restrict * restrict out) {
+    AzStyleCursorValueVariant_Exact* restrict casted = (AzStyleCursorValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleCursorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamilyVecValue_matchRef(const AzStyleFontFamilyVecValue* value, const AzStyleFontFamilyVec** restrict out) {
+    const AzStyleFontFamilyVecValueVariant_Exact* casted = (const AzStyleFontFamilyVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleFontFamilyVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamilyVecValue_matchMut(AzStyleFontFamilyVecValue* restrict value, AzStyleFontFamilyVec* restrict * restrict out) {
+    AzStyleFontFamilyVecValueVariant_Exact* restrict casted = (AzStyleFontFamilyVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleFontFamilyVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontSizeValue_matchRef(const AzStyleFontSizeValue* value, const AzStyleFontSize** restrict out) {
+    const AzStyleFontSizeValueVariant_Exact* casted = (const AzStyleFontSizeValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleFontSizeValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontSizeValue_matchMut(AzStyleFontSizeValue* restrict value, AzStyleFontSize* restrict * restrict out) {
+    AzStyleFontSizeValueVariant_Exact* restrict casted = (AzStyleFontSizeValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleFontSizeValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleLetterSpacingValue_matchRef(const AzStyleLetterSpacingValue* value, const AzStyleLetterSpacing** restrict out) {
+    const AzStyleLetterSpacingValueVariant_Exact* casted = (const AzStyleLetterSpacingValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleLetterSpacingValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleLetterSpacingValue_matchMut(AzStyleLetterSpacingValue* restrict value, AzStyleLetterSpacing* restrict * restrict out) {
+    AzStyleLetterSpacingValueVariant_Exact* restrict casted = (AzStyleLetterSpacingValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleLetterSpacingValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleLineHeightValue_matchRef(const AzStyleLineHeightValue* value, const AzStyleLineHeight** restrict out) {
+    const AzStyleLineHeightValueVariant_Exact* casted = (const AzStyleLineHeightValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleLineHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleLineHeightValue_matchMut(AzStyleLineHeightValue* restrict value, AzStyleLineHeight* restrict * restrict out) {
+    AzStyleLineHeightValueVariant_Exact* restrict casted = (AzStyleLineHeightValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleLineHeightValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTabWidthValue_matchRef(const AzStyleTabWidthValue* value, const AzStyleTabWidth** restrict out) {
+    const AzStyleTabWidthValueVariant_Exact* casted = (const AzStyleTabWidthValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleTabWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTabWidthValue_matchMut(AzStyleTabWidthValue* restrict value, AzStyleTabWidth* restrict * restrict out) {
+    AzStyleTabWidthValueVariant_Exact* restrict casted = (AzStyleTabWidthValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleTabWidthValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTextAlignValue_matchRef(const AzStyleTextAlignValue* value, const AzStyleTextAlign** restrict out) {
+    const AzStyleTextAlignValueVariant_Exact* casted = (const AzStyleTextAlignValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleTextAlignValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTextAlignValue_matchMut(AzStyleTextAlignValue* restrict value, AzStyleTextAlign* restrict * restrict out) {
+    AzStyleTextAlignValueVariant_Exact* restrict casted = (AzStyleTextAlignValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleTextAlignValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTextColorValue_matchRef(const AzStyleTextColorValue* value, const AzStyleTextColor** restrict out) {
+    const AzStyleTextColorValueVariant_Exact* casted = (const AzStyleTextColorValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleTextColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTextColorValue_matchMut(AzStyleTextColorValue* restrict value, AzStyleTextColor* restrict * restrict out) {
+    AzStyleTextColorValueVariant_Exact* restrict casted = (AzStyleTextColorValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleTextColorValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleWordSpacingValue_matchRef(const AzStyleWordSpacingValue* value, const AzStyleWordSpacing** restrict out) {
+    const AzStyleWordSpacingValueVariant_Exact* casted = (const AzStyleWordSpacingValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleWordSpacingValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleWordSpacingValue_matchMut(AzStyleWordSpacingValue* restrict value, AzStyleWordSpacing* restrict * restrict out) {
+    AzStyleWordSpacingValueVariant_Exact* restrict casted = (AzStyleWordSpacingValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleWordSpacingValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleOpacityValue_matchRef(const AzStyleOpacityValue* value, const AzStyleOpacity** restrict out) {
+    const AzStyleOpacityValueVariant_Exact* casted = (const AzStyleOpacityValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleOpacityValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleOpacityValue_matchMut(AzStyleOpacityValue* restrict value, AzStyleOpacity* restrict * restrict out) {
+    AzStyleOpacityValueVariant_Exact* restrict casted = (AzStyleOpacityValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleOpacityValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransformVecValue_matchRef(const AzStyleTransformVecValue* value, const AzStyleTransformVec** restrict out) {
+    const AzStyleTransformVecValueVariant_Exact* casted = (const AzStyleTransformVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleTransformVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransformVecValue_matchMut(AzStyleTransformVecValue* restrict value, AzStyleTransformVec* restrict * restrict out) {
+    AzStyleTransformVecValueVariant_Exact* restrict casted = (AzStyleTransformVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleTransformVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransformOriginValue_matchRef(const AzStyleTransformOriginValue* value, const AzStyleTransformOrigin** restrict out) {
+    const AzStyleTransformOriginValueVariant_Exact* casted = (const AzStyleTransformOriginValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleTransformOriginValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransformOriginValue_matchMut(AzStyleTransformOriginValue* restrict value, AzStyleTransformOrigin* restrict * restrict out) {
+    AzStyleTransformOriginValueVariant_Exact* restrict casted = (AzStyleTransformOriginValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleTransformOriginValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStylePerspectiveOriginValue_matchRef(const AzStylePerspectiveOriginValue* value, const AzStylePerspectiveOrigin** restrict out) {
+    const AzStylePerspectiveOriginValueVariant_Exact* casted = (const AzStylePerspectiveOriginValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStylePerspectiveOriginValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStylePerspectiveOriginValue_matchMut(AzStylePerspectiveOriginValue* restrict value, AzStylePerspectiveOrigin* restrict * restrict out) {
+    AzStylePerspectiveOriginValueVariant_Exact* restrict casted = (AzStylePerspectiveOriginValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStylePerspectiveOriginValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackfaceVisibilityValue_matchRef(const AzStyleBackfaceVisibilityValue* value, const AzStyleBackfaceVisibility** restrict out) {
+    const AzStyleBackfaceVisibilityValueVariant_Exact* casted = (const AzStyleBackfaceVisibilityValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleBackfaceVisibilityValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackfaceVisibilityValue_matchMut(AzStyleBackfaceVisibilityValue* restrict value, AzStyleBackfaceVisibility* restrict * restrict out) {
+    AzStyleBackfaceVisibilityValueVariant_Exact* restrict casted = (AzStyleBackfaceVisibilityValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleBackfaceVisibilityValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleTextColorValue** restrict out) {
+    const AzCssPropertyVariant_TextColor* casted = (const AzCssPropertyVariant_TextColor*)value;
+    bool valid = casted->tag == AzCssPropertyTag_TextColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleTextColorValue* restrict * restrict out) {
+    AzCssPropertyVariant_TextColor* restrict casted = (AzCssPropertyVariant_TextColor* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_TextColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleFontSizeValue** restrict out) {
+    const AzCssPropertyVariant_FontSize* casted = (const AzCssPropertyVariant_FontSize*)value;
+    bool valid = casted->tag == AzCssPropertyTag_FontSize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleFontSizeValue* restrict * restrict out) {
+    AzCssPropertyVariant_FontSize* restrict casted = (AzCssPropertyVariant_FontSize* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_FontSize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleFontFamilyVecValue** restrict out) {
+    const AzCssPropertyVariant_FontFamily* casted = (const AzCssPropertyVariant_FontFamily*)value;
+    bool valid = casted->tag == AzCssPropertyTag_FontFamily;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleFontFamilyVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_FontFamily* restrict casted = (AzCssPropertyVariant_FontFamily* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_FontFamily;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleTextAlignValue** restrict out) {
+    const AzCssPropertyVariant_TextAlign* casted = (const AzCssPropertyVariant_TextAlign*)value;
+    bool valid = casted->tag == AzCssPropertyTag_TextAlign;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleTextAlignValue* restrict * restrict out) {
+    AzCssPropertyVariant_TextAlign* restrict casted = (AzCssPropertyVariant_TextAlign* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_TextAlign;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleLetterSpacingValue** restrict out) {
+    const AzCssPropertyVariant_LetterSpacing* casted = (const AzCssPropertyVariant_LetterSpacing*)value;
+    bool valid = casted->tag == AzCssPropertyTag_LetterSpacing;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleLetterSpacingValue* restrict * restrict out) {
+    AzCssPropertyVariant_LetterSpacing* restrict casted = (AzCssPropertyVariant_LetterSpacing* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_LetterSpacing;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleLineHeightValue** restrict out) {
+    const AzCssPropertyVariant_LineHeight* casted = (const AzCssPropertyVariant_LineHeight*)value;
+    bool valid = casted->tag == AzCssPropertyTag_LineHeight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleLineHeightValue* restrict * restrict out) {
+    AzCssPropertyVariant_LineHeight* restrict casted = (AzCssPropertyVariant_LineHeight* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_LineHeight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleWordSpacingValue** restrict out) {
+    const AzCssPropertyVariant_WordSpacing* casted = (const AzCssPropertyVariant_WordSpacing*)value;
+    bool valid = casted->tag == AzCssPropertyTag_WordSpacing;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleWordSpacingValue* restrict * restrict out) {
+    AzCssPropertyVariant_WordSpacing* restrict casted = (AzCssPropertyVariant_WordSpacing* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_WordSpacing;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleTabWidthValue** restrict out) {
+    const AzCssPropertyVariant_TabWidth* casted = (const AzCssPropertyVariant_TabWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_TabWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleTabWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_TabWidth* restrict casted = (AzCssPropertyVariant_TabWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_TabWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleCursorValue** restrict out) {
+    const AzCssPropertyVariant_Cursor* casted = (const AzCssPropertyVariant_Cursor*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Cursor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleCursorValue* restrict * restrict out) {
+    AzCssPropertyVariant_Cursor* restrict casted = (AzCssPropertyVariant_Cursor* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Cursor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutDisplayValue** restrict out) {
+    const AzCssPropertyVariant_Display* casted = (const AzCssPropertyVariant_Display*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Display;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutDisplayValue* restrict * restrict out) {
+    AzCssPropertyVariant_Display* restrict casted = (AzCssPropertyVariant_Display* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Display;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutFloatValue** restrict out) {
+    const AzCssPropertyVariant_Float* casted = (const AzCssPropertyVariant_Float*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Float;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutFloatValue* restrict * restrict out) {
+    AzCssPropertyVariant_Float* restrict casted = (AzCssPropertyVariant_Float* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Float;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutBoxSizingValue** restrict out) {
+    const AzCssPropertyVariant_BoxSizing* casted = (const AzCssPropertyVariant_BoxSizing*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxSizing;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutBoxSizingValue* restrict * restrict out) {
+    AzCssPropertyVariant_BoxSizing* restrict casted = (AzCssPropertyVariant_BoxSizing* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxSizing;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutWidthValue** restrict out) {
+    const AzCssPropertyVariant_Width* casted = (const AzCssPropertyVariant_Width*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Width;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_Width* restrict casted = (AzCssPropertyVariant_Width* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Width;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutHeightValue** restrict out) {
+    const AzCssPropertyVariant_Height* casted = (const AzCssPropertyVariant_Height*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Height;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutHeightValue* restrict * restrict out) {
+    AzCssPropertyVariant_Height* restrict casted = (AzCssPropertyVariant_Height* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Height;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMinWidthValue** restrict out) {
+    const AzCssPropertyVariant_MinWidth* casted = (const AzCssPropertyVariant_MinWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MinWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMinWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_MinWidth* restrict casted = (AzCssPropertyVariant_MinWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MinWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMinHeightValue** restrict out) {
+    const AzCssPropertyVariant_MinHeight* casted = (const AzCssPropertyVariant_MinHeight*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MinHeight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMinHeightValue* restrict * restrict out) {
+    AzCssPropertyVariant_MinHeight* restrict casted = (AzCssPropertyVariant_MinHeight* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MinHeight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMaxWidthValue** restrict out) {
+    const AzCssPropertyVariant_MaxWidth* casted = (const AzCssPropertyVariant_MaxWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MaxWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMaxWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_MaxWidth* restrict casted = (AzCssPropertyVariant_MaxWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MaxWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMaxHeightValue** restrict out) {
+    const AzCssPropertyVariant_MaxHeight* casted = (const AzCssPropertyVariant_MaxHeight*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MaxHeight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMaxHeightValue* restrict * restrict out) {
+    AzCssPropertyVariant_MaxHeight* restrict casted = (AzCssPropertyVariant_MaxHeight* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MaxHeight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutPositionValue** restrict out) {
+    const AzCssPropertyVariant_Position* casted = (const AzCssPropertyVariant_Position*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Position;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutPositionValue* restrict * restrict out) {
+    AzCssPropertyVariant_Position* restrict casted = (AzCssPropertyVariant_Position* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Position;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutTopValue** restrict out) {
+    const AzCssPropertyVariant_Top* casted = (const AzCssPropertyVariant_Top*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Top;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutTopValue* restrict * restrict out) {
+    AzCssPropertyVariant_Top* restrict casted = (AzCssPropertyVariant_Top* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Top;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutRightValue** restrict out) {
+    const AzCssPropertyVariant_Right* casted = (const AzCssPropertyVariant_Right*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Right;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutRightValue* restrict * restrict out) {
+    AzCssPropertyVariant_Right* restrict casted = (AzCssPropertyVariant_Right* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Right;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutLeftValue** restrict out) {
+    const AzCssPropertyVariant_Left* casted = (const AzCssPropertyVariant_Left*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Left;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutLeftValue* restrict * restrict out) {
+    AzCssPropertyVariant_Left* restrict casted = (AzCssPropertyVariant_Left* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Left;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutBottomValue** restrict out) {
+    const AzCssPropertyVariant_Bottom* casted = (const AzCssPropertyVariant_Bottom*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Bottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutBottomValue* restrict * restrict out) {
+    AzCssPropertyVariant_Bottom* restrict casted = (AzCssPropertyVariant_Bottom* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Bottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutFlexWrapValue** restrict out) {
+    const AzCssPropertyVariant_FlexWrap* casted = (const AzCssPropertyVariant_FlexWrap*)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexWrap;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutFlexWrapValue* restrict * restrict out) {
+    AzCssPropertyVariant_FlexWrap* restrict casted = (AzCssPropertyVariant_FlexWrap* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexWrap;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutFlexDirectionValue** restrict out) {
+    const AzCssPropertyVariant_FlexDirection* casted = (const AzCssPropertyVariant_FlexDirection*)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexDirection;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutFlexDirectionValue* restrict * restrict out) {
+    AzCssPropertyVariant_FlexDirection* restrict casted = (AzCssPropertyVariant_FlexDirection* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexDirection;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutFlexGrowValue** restrict out) {
+    const AzCssPropertyVariant_FlexGrow* casted = (const AzCssPropertyVariant_FlexGrow*)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexGrow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutFlexGrowValue* restrict * restrict out) {
+    AzCssPropertyVariant_FlexGrow* restrict casted = (AzCssPropertyVariant_FlexGrow* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexGrow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutFlexShrinkValue** restrict out) {
+    const AzCssPropertyVariant_FlexShrink* casted = (const AzCssPropertyVariant_FlexShrink*)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexShrink;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutFlexShrinkValue* restrict * restrict out) {
+    AzCssPropertyVariant_FlexShrink* restrict casted = (AzCssPropertyVariant_FlexShrink* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_FlexShrink;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutJustifyContentValue** restrict out) {
+    const AzCssPropertyVariant_JustifyContent* casted = (const AzCssPropertyVariant_JustifyContent*)value;
+    bool valid = casted->tag == AzCssPropertyTag_JustifyContent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutJustifyContentValue* restrict * restrict out) {
+    AzCssPropertyVariant_JustifyContent* restrict casted = (AzCssPropertyVariant_JustifyContent* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_JustifyContent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutAlignItemsValue** restrict out) {
+    const AzCssPropertyVariant_AlignItems* casted = (const AzCssPropertyVariant_AlignItems*)value;
+    bool valid = casted->tag == AzCssPropertyTag_AlignItems;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutAlignItemsValue* restrict * restrict out) {
+    AzCssPropertyVariant_AlignItems* restrict casted = (AzCssPropertyVariant_AlignItems* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_AlignItems;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutAlignContentValue** restrict out) {
+    const AzCssPropertyVariant_AlignContent* casted = (const AzCssPropertyVariant_AlignContent*)value;
+    bool valid = casted->tag == AzCssPropertyTag_AlignContent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutAlignContentValue* restrict * restrict out) {
+    AzCssPropertyVariant_AlignContent* restrict casted = (AzCssPropertyVariant_AlignContent* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_AlignContent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBackgroundContentVecValue** restrict out) {
+    const AzCssPropertyVariant_BackgroundContent* casted = (const AzCssPropertyVariant_BackgroundContent*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundContent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBackgroundContentVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_BackgroundContent* restrict casted = (AzCssPropertyVariant_BackgroundContent* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundContent;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBackgroundPositionVecValue** restrict out) {
+    const AzCssPropertyVariant_BackgroundPosition* casted = (const AzCssPropertyVariant_BackgroundPosition*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundPosition;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBackgroundPositionVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_BackgroundPosition* restrict casted = (AzCssPropertyVariant_BackgroundPosition* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundPosition;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBackgroundSizeVecValue** restrict out) {
+    const AzCssPropertyVariant_BackgroundSize* casted = (const AzCssPropertyVariant_BackgroundSize*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundSize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBackgroundSizeVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_BackgroundSize* restrict casted = (AzCssPropertyVariant_BackgroundSize* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundSize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBackgroundRepeatVecValue** restrict out) {
+    const AzCssPropertyVariant_BackgroundRepeat* casted = (const AzCssPropertyVariant_BackgroundRepeat*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundRepeat;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBackgroundRepeatVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_BackgroundRepeat* restrict casted = (AzCssPropertyVariant_BackgroundRepeat* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackgroundRepeat;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutOverflowValue** restrict out) {
+    const AzCssPropertyVariant_OverflowX* casted = (const AzCssPropertyVariant_OverflowX*)value;
+    bool valid = casted->tag == AzCssPropertyTag_OverflowX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutOverflowValue* restrict * restrict out) {
+    AzCssPropertyVariant_OverflowX* restrict casted = (AzCssPropertyVariant_OverflowX* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_OverflowX;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutOverflowValue** restrict out) {
+    const AzCssPropertyVariant_OverflowY* casted = (const AzCssPropertyVariant_OverflowY*)value;
+    bool valid = casted->tag == AzCssPropertyTag_OverflowY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutOverflowValue* restrict * restrict out) {
+    AzCssPropertyVariant_OverflowY* restrict casted = (AzCssPropertyVariant_OverflowY* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_OverflowY;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutPaddingTopValue** restrict out) {
+    const AzCssPropertyVariant_PaddingTop* casted = (const AzCssPropertyVariant_PaddingTop*)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingTop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutPaddingTopValue* restrict * restrict out) {
+    AzCssPropertyVariant_PaddingTop* restrict casted = (AzCssPropertyVariant_PaddingTop* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingTop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutPaddingLeftValue** restrict out) {
+    const AzCssPropertyVariant_PaddingLeft* casted = (const AzCssPropertyVariant_PaddingLeft*)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingLeft;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutPaddingLeftValue* restrict * restrict out) {
+    AzCssPropertyVariant_PaddingLeft* restrict casted = (AzCssPropertyVariant_PaddingLeft* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingLeft;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutPaddingRightValue** restrict out) {
+    const AzCssPropertyVariant_PaddingRight* casted = (const AzCssPropertyVariant_PaddingRight*)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingRight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutPaddingRightValue* restrict * restrict out) {
+    AzCssPropertyVariant_PaddingRight* restrict casted = (AzCssPropertyVariant_PaddingRight* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingRight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutPaddingBottomValue** restrict out) {
+    const AzCssPropertyVariant_PaddingBottom* casted = (const AzCssPropertyVariant_PaddingBottom*)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingBottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutPaddingBottomValue* restrict * restrict out) {
+    AzCssPropertyVariant_PaddingBottom* restrict casted = (AzCssPropertyVariant_PaddingBottom* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_PaddingBottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMarginTopValue** restrict out) {
+    const AzCssPropertyVariant_MarginTop* casted = (const AzCssPropertyVariant_MarginTop*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginTop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMarginTopValue* restrict * restrict out) {
+    AzCssPropertyVariant_MarginTop* restrict casted = (AzCssPropertyVariant_MarginTop* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginTop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMarginLeftValue** restrict out) {
+    const AzCssPropertyVariant_MarginLeft* casted = (const AzCssPropertyVariant_MarginLeft*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginLeft;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMarginLeftValue* restrict * restrict out) {
+    AzCssPropertyVariant_MarginLeft* restrict casted = (AzCssPropertyVariant_MarginLeft* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginLeft;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMarginRightValue** restrict out) {
+    const AzCssPropertyVariant_MarginRight* casted = (const AzCssPropertyVariant_MarginRight*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginRight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMarginRightValue* restrict * restrict out) {
+    AzCssPropertyVariant_MarginRight* restrict casted = (AzCssPropertyVariant_MarginRight* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginRight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutMarginBottomValue** restrict out) {
+    const AzCssPropertyVariant_MarginBottom* casted = (const AzCssPropertyVariant_MarginBottom*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginBottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutMarginBottomValue* restrict * restrict out) {
+    AzCssPropertyVariant_MarginBottom* restrict casted = (AzCssPropertyVariant_MarginBottom* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MarginBottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderTopLeftRadiusValue** restrict out) {
+    const AzCssPropertyVariant_BorderTopLeftRadius* casted = (const AzCssPropertyVariant_BorderTopLeftRadius*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopLeftRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderTopLeftRadiusValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderTopLeftRadius* restrict casted = (AzCssPropertyVariant_BorderTopLeftRadius* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopLeftRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderTopRightRadiusValue** restrict out) {
+    const AzCssPropertyVariant_BorderTopRightRadius* casted = (const AzCssPropertyVariant_BorderTopRightRadius*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopRightRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderTopRightRadiusValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderTopRightRadius* restrict casted = (AzCssPropertyVariant_BorderTopRightRadius* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopRightRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderBottomLeftRadiusValue** restrict out) {
+    const AzCssPropertyVariant_BorderBottomLeftRadius* casted = (const AzCssPropertyVariant_BorderBottomLeftRadius*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomLeftRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderBottomLeftRadiusValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderBottomLeftRadius* restrict casted = (AzCssPropertyVariant_BorderBottomLeftRadius* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomLeftRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderBottomRightRadiusValue** restrict out) {
+    const AzCssPropertyVariant_BorderBottomRightRadius* casted = (const AzCssPropertyVariant_BorderBottomRightRadius*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomRightRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderBottomRightRadiusValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderBottomRightRadius* restrict casted = (AzCssPropertyVariant_BorderBottomRightRadius* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomRightRadius;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderTopColorValue** restrict out) {
+    const AzCssPropertyVariant_BorderTopColor* casted = (const AzCssPropertyVariant_BorderTopColor*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderTopColorValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderTopColor* restrict casted = (AzCssPropertyVariant_BorderTopColor* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderRightColorValue** restrict out) {
+    const AzCssPropertyVariant_BorderRightColor* casted = (const AzCssPropertyVariant_BorderRightColor*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderRightColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderRightColorValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderRightColor* restrict casted = (AzCssPropertyVariant_BorderRightColor* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderRightColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderLeftColorValue** restrict out) {
+    const AzCssPropertyVariant_BorderLeftColor* casted = (const AzCssPropertyVariant_BorderLeftColor*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderLeftColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderLeftColorValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderLeftColor* restrict casted = (AzCssPropertyVariant_BorderLeftColor* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderLeftColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderBottomColorValue** restrict out) {
+    const AzCssPropertyVariant_BorderBottomColor* casted = (const AzCssPropertyVariant_BorderBottomColor*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderBottomColorValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderBottomColor* restrict casted = (AzCssPropertyVariant_BorderBottomColor* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomColor;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderTopStyleValue** restrict out) {
+    const AzCssPropertyVariant_BorderTopStyle* casted = (const AzCssPropertyVariant_BorderTopStyle*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderTopStyleValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderTopStyle* restrict casted = (AzCssPropertyVariant_BorderTopStyle* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderRightStyleValue** restrict out) {
+    const AzCssPropertyVariant_BorderRightStyle* casted = (const AzCssPropertyVariant_BorderRightStyle*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderRightStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderRightStyleValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderRightStyle* restrict casted = (AzCssPropertyVariant_BorderRightStyle* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderRightStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderLeftStyleValue** restrict out) {
+    const AzCssPropertyVariant_BorderLeftStyle* casted = (const AzCssPropertyVariant_BorderLeftStyle*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderLeftStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderLeftStyleValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderLeftStyle* restrict casted = (AzCssPropertyVariant_BorderLeftStyle* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderLeftStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBorderBottomStyleValue** restrict out) {
+    const AzCssPropertyVariant_BorderBottomStyle* casted = (const AzCssPropertyVariant_BorderBottomStyle*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBorderBottomStyleValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderBottomStyle* restrict casted = (AzCssPropertyVariant_BorderBottomStyle* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutBorderTopWidthValue** restrict out) {
+    const AzCssPropertyVariant_BorderTopWidth* casted = (const AzCssPropertyVariant_BorderTopWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutBorderTopWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderTopWidth* restrict casted = (AzCssPropertyVariant_BorderTopWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderTopWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutBorderRightWidthValue** restrict out) {
+    const AzCssPropertyVariant_BorderRightWidth* casted = (const AzCssPropertyVariant_BorderRightWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderRightWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutBorderRightWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderRightWidth* restrict casted = (AzCssPropertyVariant_BorderRightWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderRightWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutBorderLeftWidthValue** restrict out) {
+    const AzCssPropertyVariant_BorderLeftWidth* casted = (const AzCssPropertyVariant_BorderLeftWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderLeftWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutBorderLeftWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderLeftWidth* restrict casted = (AzCssPropertyVariant_BorderLeftWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderLeftWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzLayoutBorderBottomWidthValue** restrict out) {
+    const AzCssPropertyVariant_BorderBottomWidth* casted = (const AzCssPropertyVariant_BorderBottomWidth*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzLayoutBorderBottomWidthValue* restrict * restrict out) {
+    AzCssPropertyVariant_BorderBottomWidth* restrict casted = (AzCssPropertyVariant_BorderBottomWidth* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BorderBottomWidth;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBoxShadowValue** restrict out) {
+    const AzCssPropertyVariant_BoxShadowLeft* casted = (const AzCssPropertyVariant_BoxShadowLeft*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowLeft;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBoxShadowValue* restrict * restrict out) {
+    AzCssPropertyVariant_BoxShadowLeft* restrict casted = (AzCssPropertyVariant_BoxShadowLeft* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowLeft;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBoxShadowValue** restrict out) {
+    const AzCssPropertyVariant_BoxShadowRight* casted = (const AzCssPropertyVariant_BoxShadowRight*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowRight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBoxShadowValue* restrict * restrict out) {
+    AzCssPropertyVariant_BoxShadowRight* restrict casted = (AzCssPropertyVariant_BoxShadowRight* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowRight;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBoxShadowValue** restrict out) {
+    const AzCssPropertyVariant_BoxShadowTop* casted = (const AzCssPropertyVariant_BoxShadowTop*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowTop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBoxShadowValue* restrict * restrict out) {
+    AzCssPropertyVariant_BoxShadowTop* restrict casted = (AzCssPropertyVariant_BoxShadowTop* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowTop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBoxShadowValue** restrict out) {
+    const AzCssPropertyVariant_BoxShadowBottom* casted = (const AzCssPropertyVariant_BoxShadowBottom*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowBottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBoxShadowValue* restrict * restrict out) {
+    AzCssPropertyVariant_BoxShadowBottom* restrict casted = (AzCssPropertyVariant_BoxShadowBottom* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BoxShadowBottom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzScrollbarStyleValue** restrict out) {
+    const AzCssPropertyVariant_ScrollbarStyle* casted = (const AzCssPropertyVariant_ScrollbarStyle*)value;
+    bool valid = casted->tag == AzCssPropertyTag_ScrollbarStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzScrollbarStyleValue* restrict * restrict out) {
+    AzCssPropertyVariant_ScrollbarStyle* restrict casted = (AzCssPropertyVariant_ScrollbarStyle* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_ScrollbarStyle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleOpacityValue** restrict out) {
+    const AzCssPropertyVariant_Opacity* casted = (const AzCssPropertyVariant_Opacity*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Opacity;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleOpacityValue* restrict * restrict out) {
+    AzCssPropertyVariant_Opacity* restrict casted = (AzCssPropertyVariant_Opacity* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Opacity;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleTransformVecValue** restrict out) {
+    const AzCssPropertyVariant_Transform* casted = (const AzCssPropertyVariant_Transform*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Transform;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleTransformVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_Transform* restrict casted = (AzCssPropertyVariant_Transform* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Transform;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleTransformOriginValue** restrict out) {
+    const AzCssPropertyVariant_TransformOrigin* casted = (const AzCssPropertyVariant_TransformOrigin*)value;
+    bool valid = casted->tag == AzCssPropertyTag_TransformOrigin;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleTransformOriginValue* restrict * restrict out) {
+    AzCssPropertyVariant_TransformOrigin* restrict casted = (AzCssPropertyVariant_TransformOrigin* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_TransformOrigin;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStylePerspectiveOriginValue** restrict out) {
+    const AzCssPropertyVariant_PerspectiveOrigin* casted = (const AzCssPropertyVariant_PerspectiveOrigin*)value;
+    bool valid = casted->tag == AzCssPropertyTag_PerspectiveOrigin;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStylePerspectiveOriginValue* restrict * restrict out) {
+    AzCssPropertyVariant_PerspectiveOrigin* restrict casted = (AzCssPropertyVariant_PerspectiveOrigin* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_PerspectiveOrigin;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRef(const AzCssProperty* value, const AzStyleBackfaceVisibilityValue** restrict out) {
+    const AzCssPropertyVariant_BackfaceVisibility* casted = (const AzCssPropertyVariant_BackfaceVisibility*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackfaceVisibility;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMut(AzCssProperty* restrict value, AzStyleBackfaceVisibilityValue* restrict * restrict out) {
+    AzCssPropertyVariant_BackfaceVisibility* restrict casted = (AzCssPropertyVariant_BackfaceVisibility* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackfaceVisibility;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTextInputSelection_matchRef(const AzTextInputSelection* value, const AzTextInputSelectionRange** restrict out) {
+    const AzTextInputSelectionVariant_FromTo* casted = (const AzTextInputSelectionVariant_FromTo*)value;
+    bool valid = casted->tag == AzTextInputSelectionTag_FromTo;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTextInputSelection_matchMut(AzTextInputSelection* restrict value, AzTextInputSelectionRange* restrict * restrict out) {
+    AzTextInputSelectionVariant_FromTo* restrict casted = (AzTextInputSelectionVariant_FromTo* restrict)value;
+    bool valid = casted->tag == AzTextInputSelectionTag_FromTo;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPropertySource_matchRef(const AzCssPropertySource* value, const AzCssPath** restrict out) {
+    const AzCssPropertySourceVariant_Css* casted = (const AzCssPropertySourceVariant_Css*)value;
+    bool valid = casted->tag == AzCssPropertySourceTag_Css;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPropertySource_matchMut(AzCssPropertySource* restrict value, AzCssPath* restrict * restrict out) {
+    AzCssPropertySourceVariant_Css* restrict casted = (AzCssPropertySourceVariant_Css* restrict)value;
+    bool valid = casted->tag == AzCssPropertySourceTag_Css;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawImageData_matchRef(const AzRawImageData* value, const AzU8Vec** restrict out) {
+    const AzRawImageDataVariant_U8* casted = (const AzRawImageDataVariant_U8*)value;
+    bool valid = casted->tag == AzRawImageDataTag_U8;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawImageData_matchMut(AzRawImageData* restrict value, AzU8Vec* restrict * restrict out) {
+    AzRawImageDataVariant_U8* restrict casted = (AzRawImageDataVariant_U8* restrict)value;
+    bool valid = casted->tag == AzRawImageDataTag_U8;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawImageData_matchRef(const AzRawImageData* value, const AzU16Vec** restrict out) {
+    const AzRawImageDataVariant_U16* casted = (const AzRawImageDataVariant_U16*)value;
+    bool valid = casted->tag == AzRawImageDataTag_U16;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawImageData_matchMut(AzRawImageData* restrict value, AzU16Vec* restrict * restrict out) {
+    AzRawImageDataVariant_U16* restrict casted = (AzRawImageDataVariant_U16* restrict)value;
+    bool valid = casted->tag == AzRawImageDataTag_U16;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawImageData_matchRef(const AzRawImageData* value, const AzF32Vec** restrict out) {
+    const AzRawImageDataVariant_F32* casted = (const AzRawImageDataVariant_F32*)value;
+    bool valid = casted->tag == AzRawImageDataTag_F32;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzRawImageData_matchMut(AzRawImageData* restrict value, AzF32Vec* restrict * restrict out) {
+    AzRawImageDataVariant_F32* restrict casted = (AzRawImageDataVariant_F32* restrict)value;
+    bool valid = casted->tag == AzRawImageDataTag_F32;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchRef(const AzSvgNode* value, const AzSvgMultiPolygonVec** restrict out) {
+    const AzSvgNodeVariant_MultiPolygonCollection* casted = (const AzSvgNodeVariant_MultiPolygonCollection*)value;
+    bool valid = casted->tag == AzSvgNodeTag_MultiPolygonCollection;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchMut(AzSvgNode* restrict value, AzSvgMultiPolygonVec* restrict * restrict out) {
+    AzSvgNodeVariant_MultiPolygonCollection* restrict casted = (AzSvgNodeVariant_MultiPolygonCollection* restrict)value;
+    bool valid = casted->tag == AzSvgNodeTag_MultiPolygonCollection;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchRef(const AzSvgNode* value, const AzSvgMultiPolygon** restrict out) {
+    const AzSvgNodeVariant_MultiPolygon* casted = (const AzSvgNodeVariant_MultiPolygon*)value;
+    bool valid = casted->tag == AzSvgNodeTag_MultiPolygon;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchMut(AzSvgNode* restrict value, AzSvgMultiPolygon* restrict * restrict out) {
+    AzSvgNodeVariant_MultiPolygon* restrict casted = (AzSvgNodeVariant_MultiPolygon* restrict)value;
+    bool valid = casted->tag == AzSvgNodeTag_MultiPolygon;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchRef(const AzSvgNode* value, const AzSvgPath** restrict out) {
+    const AzSvgNodeVariant_Path* casted = (const AzSvgNodeVariant_Path*)value;
+    bool valid = casted->tag == AzSvgNodeTag_Path;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchMut(AzSvgNode* restrict value, AzSvgPath* restrict * restrict out) {
+    AzSvgNodeVariant_Path* restrict casted = (AzSvgNodeVariant_Path* restrict)value;
+    bool valid = casted->tag == AzSvgNodeTag_Path;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchRef(const AzSvgNode* value, const AzSvgCircle** restrict out) {
+    const AzSvgNodeVariant_Circle* casted = (const AzSvgNodeVariant_Circle*)value;
+    bool valid = casted->tag == AzSvgNodeTag_Circle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchMut(AzSvgNode* restrict value, AzSvgCircle* restrict * restrict out) {
+    AzSvgNodeVariant_Circle* restrict casted = (AzSvgNodeVariant_Circle* restrict)value;
+    bool valid = casted->tag == AzSvgNodeTag_Circle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchRef(const AzSvgNode* value, const AzSvgRect** restrict out) {
+    const AzSvgNodeVariant_Rect* casted = (const AzSvgNodeVariant_Rect*)value;
+    bool valid = casted->tag == AzSvgNodeTag_Rect;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchMut(AzSvgNode* restrict value, AzSvgRect* restrict * restrict out) {
+    AzSvgNodeVariant_Rect* restrict casted = (AzSvgNodeVariant_Rect* restrict)value;
+    bool valid = casted->tag == AzSvgNodeTag_Rect;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElement_matchRef(const AzSvgPathElement* value, const AzSvgLine** restrict out) {
+    const AzSvgPathElementVariant_Line* casted = (const AzSvgPathElementVariant_Line*)value;
+    bool valid = casted->tag == AzSvgPathElementTag_Line;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElement_matchMut(AzSvgPathElement* restrict value, AzSvgLine* restrict * restrict out) {
+    AzSvgPathElementVariant_Line* restrict casted = (AzSvgPathElementVariant_Line* restrict)value;
+    bool valid = casted->tag == AzSvgPathElementTag_Line;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElement_matchRef(const AzSvgPathElement* value, const AzSvgQuadraticCurve** restrict out) {
+    const AzSvgPathElementVariant_QuadraticCurve* casted = (const AzSvgPathElementVariant_QuadraticCurve*)value;
+    bool valid = casted->tag == AzSvgPathElementTag_QuadraticCurve;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElement_matchMut(AzSvgPathElement* restrict value, AzSvgQuadraticCurve* restrict * restrict out) {
+    AzSvgPathElementVariant_QuadraticCurve* restrict casted = (AzSvgPathElementVariant_QuadraticCurve* restrict)value;
+    bool valid = casted->tag == AzSvgPathElementTag_QuadraticCurve;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElement_matchRef(const AzSvgPathElement* value, const AzSvgCubicCurve** restrict out) {
+    const AzSvgPathElementVariant_CubicCurve* casted = (const AzSvgPathElementVariant_CubicCurve*)value;
+    bool valid = casted->tag == AzSvgPathElementTag_CubicCurve;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElement_matchMut(AzSvgPathElement* restrict value, AzSvgCubicCurve* restrict * restrict out) {
+    AzSvgPathElementVariant_CubicCurve* restrict casted = (AzSvgPathElementVariant_CubicCurve* restrict)value;
+    bool valid = casted->tag == AzSvgPathElementTag_CubicCurve;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIndent_matchRef(const AzIndent* value, const Azu8** restrict out) {
+    const AzIndentVariant_Spaces* casted = (const AzIndentVariant_Spaces*)value;
+    bool valid = casted->tag == AzIndentTag_Spaces;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIndent_matchMut(AzIndent* restrict value, Azu8* restrict * restrict out) {
+    AzIndentVariant_Spaces* restrict casted = (AzIndentVariant_Spaces* restrict)value;
+    bool valid = casted->tag == AzIndentTag_Spaces;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgFitTo_matchRef(const AzSvgFitTo* value, const Azu32** restrict out) {
+    const AzSvgFitToVariant_Width* casted = (const AzSvgFitToVariant_Width*)value;
+    bool valid = casted->tag == AzSvgFitToTag_Width;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgFitTo_matchMut(AzSvgFitTo* restrict value, Azu32* restrict * restrict out) {
+    AzSvgFitToVariant_Width* restrict casted = (AzSvgFitToVariant_Width* restrict)value;
+    bool valid = casted->tag == AzSvgFitToTag_Width;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgFitTo_matchRef(const AzSvgFitTo* value, const Azu32** restrict out) {
+    const AzSvgFitToVariant_Height* casted = (const AzSvgFitToVariant_Height*)value;
+    bool valid = casted->tag == AzSvgFitToTag_Height;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgFitTo_matchMut(AzSvgFitTo* restrict value, Azu32* restrict * restrict out) {
+    AzSvgFitToVariant_Height* restrict casted = (AzSvgFitToVariant_Height* restrict)value;
+    bool valid = casted->tag == AzSvgFitToTag_Height;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgFitTo_matchRef(const AzSvgFitTo* value, const Azf32** restrict out) {
+    const AzSvgFitToVariant_Zoom* casted = (const AzSvgFitToVariant_Zoom*)value;
+    bool valid = casted->tag == AzSvgFitToTag_Zoom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgFitTo_matchMut(AzSvgFitTo* restrict value, Azf32* restrict * restrict out) {
+    AzSvgFitToVariant_Zoom* restrict casted = (AzSvgFitToVariant_Zoom* restrict)value;
+    bool valid = casted->tag == AzSvgFitToTag_Zoom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgStyle_matchRef(const AzSvgStyle* value, const AzSvgFillStyle** restrict out) {
+    const AzSvgStyleVariant_Fill* casted = (const AzSvgStyleVariant_Fill*)value;
+    bool valid = casted->tag == AzSvgStyleTag_Fill;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgStyle_matchMut(AzSvgStyle* restrict value, AzSvgFillStyle* restrict * restrict out) {
+    AzSvgStyleVariant_Fill* restrict casted = (AzSvgStyleVariant_Fill* restrict)value;
+    bool valid = casted->tag == AzSvgStyleTag_Fill;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgStyle_matchRef(const AzSvgStyle* value, const AzSvgStrokeStyle** restrict out) {
+    const AzSvgStyleVariant_Stroke* casted = (const AzSvgStyleVariant_Stroke*)value;
+    bool valid = casted->tag == AzSvgStyleTag_Stroke;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgStyle_matchMut(AzSvgStyle* restrict value, AzSvgStrokeStyle* restrict * restrict out) {
+    AzSvgStyleVariant_Stroke* restrict casted = (AzSvgStyleVariant_Stroke* restrict)value;
+    bool valid = casted->tag == AzSvgStyleTag_Stroke;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInstant_matchRef(const AzInstant* value, const AzInstantPtr** restrict out) {
+    const AzInstantVariant_System* casted = (const AzInstantVariant_System*)value;
+    bool valid = casted->tag == AzInstantTag_System;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInstant_matchMut(AzInstant* restrict value, AzInstantPtr* restrict * restrict out) {
+    AzInstantVariant_System* restrict casted = (AzInstantVariant_System* restrict)value;
+    bool valid = casted->tag == AzInstantTag_System;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInstant_matchRef(const AzInstant* value, const AzSystemTick** restrict out) {
+    const AzInstantVariant_Tick* casted = (const AzInstantVariant_Tick*)value;
+    bool valid = casted->tag == AzInstantTag_Tick;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInstant_matchMut(AzInstant* restrict value, AzSystemTick* restrict * restrict out) {
+    AzInstantVariant_Tick* restrict casted = (AzInstantVariant_Tick* restrict)value;
+    bool valid = casted->tag == AzInstantTag_Tick;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDuration_matchRef(const AzDuration* value, const AzSystemTimeDiff** restrict out) {
+    const AzDurationVariant_System* casted = (const AzDurationVariant_System*)value;
+    bool valid = casted->tag == AzDurationTag_System;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDuration_matchMut(AzDuration* restrict value, AzSystemTimeDiff* restrict * restrict out) {
+    AzDurationVariant_System* restrict casted = (AzDurationVariant_System* restrict)value;
+    bool valid = casted->tag == AzDurationTag_System;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDuration_matchRef(const AzDuration* value, const AzSystemTickDiff** restrict out) {
+    const AzDurationVariant_Tick* casted = (const AzDurationVariant_Tick*)value;
+    bool valid = casted->tag == AzDurationTag_Tick;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDuration_matchMut(AzDuration* restrict value, AzSystemTickDiff* restrict * restrict out) {
+    AzDurationVariant_Tick* restrict casted = (AzDurationVariant_Tick* restrict)value;
+    bool valid = casted->tag == AzDurationTag_Tick;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzThreadSendMsg_matchRef(const AzThreadSendMsg* value, const AzRefAny** restrict out) {
+    const AzThreadSendMsgVariant_Custom* casted = (const AzThreadSendMsgVariant_Custom*)value;
+    bool valid = casted->tag == AzThreadSendMsgTag_Custom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzThreadSendMsg_matchMut(AzThreadSendMsg* restrict value, AzRefAny* restrict * restrict out) {
+    AzThreadSendMsgVariant_Custom* restrict casted = (AzThreadSendMsgVariant_Custom* restrict)value;
+    bool valid = casted->tag == AzThreadSendMsgTag_Custom;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzThreadReceiveMsg_matchRef(const AzThreadReceiveMsg* value, const AzThreadWriteBackMsg** restrict out) {
+    const AzThreadReceiveMsgVariant_WriteBack* casted = (const AzThreadReceiveMsgVariant_WriteBack*)value;
+    bool valid = casted->tag == AzThreadReceiveMsgTag_WriteBack;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzThreadReceiveMsg_matchMut(AzThreadReceiveMsg* restrict value, AzThreadWriteBackMsg* restrict * restrict out) {
+    AzThreadReceiveMsgVariant_WriteBack* restrict casted = (AzThreadReceiveMsgVariant_WriteBack* restrict)value;
+    bool valid = casted->tag == AzThreadReceiveMsgTag_WriteBack;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzThreadReceiveMsg_matchRef(const AzThreadReceiveMsg* value, const AzUpdate** restrict out) {
+    const AzThreadReceiveMsgVariant_Update* casted = (const AzThreadReceiveMsgVariant_Update*)value;
+    bool valid = casted->tag == AzThreadReceiveMsgTag_Update;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzThreadReceiveMsg_matchMut(AzThreadReceiveMsg* restrict value, AzUpdate* restrict * restrict out) {
+    AzThreadReceiveMsgVariant_Update* restrict casted = (AzThreadReceiveMsgVariant_Update* restrict)value;
+    bool valid = casted->tag == AzThreadReceiveMsgTag_Update;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azbool** restrict out) {
+    const AzFmtValueVariant_Bool* casted = (const AzFmtValueVariant_Bool*)value;
+    bool valid = casted->tag == AzFmtValueTag_Bool;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azbool* restrict * restrict out) {
+    AzFmtValueVariant_Bool* restrict casted = (AzFmtValueVariant_Bool* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Bool;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azu8** restrict out) {
+    const AzFmtValueVariant_Uchar* casted = (const AzFmtValueVariant_Uchar*)value;
+    bool valid = casted->tag == AzFmtValueTag_Uchar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azu8* restrict * restrict out) {
+    AzFmtValueVariant_Uchar* restrict casted = (AzFmtValueVariant_Uchar* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Uchar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azi8** restrict out) {
+    const AzFmtValueVariant_Schar* casted = (const AzFmtValueVariant_Schar*)value;
+    bool valid = casted->tag == AzFmtValueTag_Schar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azi8* restrict * restrict out) {
+    AzFmtValueVariant_Schar* restrict casted = (AzFmtValueVariant_Schar* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Schar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azu16** restrict out) {
+    const AzFmtValueVariant_Ushort* casted = (const AzFmtValueVariant_Ushort*)value;
+    bool valid = casted->tag == AzFmtValueTag_Ushort;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azu16* restrict * restrict out) {
+    AzFmtValueVariant_Ushort* restrict casted = (AzFmtValueVariant_Ushort* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Ushort;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azi16** restrict out) {
+    const AzFmtValueVariant_Sshort* casted = (const AzFmtValueVariant_Sshort*)value;
+    bool valid = casted->tag == AzFmtValueTag_Sshort;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azi16* restrict * restrict out) {
+    AzFmtValueVariant_Sshort* restrict casted = (AzFmtValueVariant_Sshort* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Sshort;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azu32** restrict out) {
+    const AzFmtValueVariant_Uint* casted = (const AzFmtValueVariant_Uint*)value;
+    bool valid = casted->tag == AzFmtValueTag_Uint;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azu32* restrict * restrict out) {
+    AzFmtValueVariant_Uint* restrict casted = (AzFmtValueVariant_Uint* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Uint;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azi32** restrict out) {
+    const AzFmtValueVariant_Sint* casted = (const AzFmtValueVariant_Sint*)value;
+    bool valid = casted->tag == AzFmtValueTag_Sint;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azi32* restrict * restrict out) {
+    AzFmtValueVariant_Sint* restrict casted = (AzFmtValueVariant_Sint* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Sint;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azu64** restrict out) {
+    const AzFmtValueVariant_Ulong* casted = (const AzFmtValueVariant_Ulong*)value;
+    bool valid = casted->tag == AzFmtValueTag_Ulong;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azu64* restrict * restrict out) {
+    AzFmtValueVariant_Ulong* restrict casted = (AzFmtValueVariant_Ulong* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Ulong;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azi64** restrict out) {
+    const AzFmtValueVariant_Slong* casted = (const AzFmtValueVariant_Slong*)value;
+    bool valid = casted->tag == AzFmtValueTag_Slong;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azi64* restrict * restrict out) {
+    AzFmtValueVariant_Slong* restrict casted = (AzFmtValueVariant_Slong* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Slong;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azisize** restrict out) {
+    const AzFmtValueVariant_Isize* casted = (const AzFmtValueVariant_Isize*)value;
+    bool valid = casted->tag == AzFmtValueTag_Isize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azisize* restrict * restrict out) {
+    AzFmtValueVariant_Isize* restrict casted = (AzFmtValueVariant_Isize* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Isize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azusize** restrict out) {
+    const AzFmtValueVariant_Usize* casted = (const AzFmtValueVariant_Usize*)value;
+    bool valid = casted->tag == AzFmtValueTag_Usize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azusize* restrict * restrict out) {
+    AzFmtValueVariant_Usize* restrict casted = (AzFmtValueVariant_Usize* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Usize;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azf32** restrict out) {
+    const AzFmtValueVariant_Float* casted = (const AzFmtValueVariant_Float*)value;
+    bool valid = casted->tag == AzFmtValueTag_Float;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azf32* restrict * restrict out) {
+    AzFmtValueVariant_Float* restrict casted = (AzFmtValueVariant_Float* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Float;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const Azf64** restrict out) {
+    const AzFmtValueVariant_Double* casted = (const AzFmtValueVariant_Double*)value;
+    bool valid = casted->tag == AzFmtValueTag_Double;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, Azf64* restrict * restrict out) {
+    AzFmtValueVariant_Double* restrict casted = (AzFmtValueVariant_Double* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Double;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const AzString** restrict out) {
+    const AzFmtValueVariant_Str* casted = (const AzFmtValueVariant_Str*)value;
+    bool valid = casted->tag == AzFmtValueTag_Str;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, AzString* restrict * restrict out) {
+    AzFmtValueVariant_Str* restrict casted = (AzFmtValueVariant_Str* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_Str;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchRef(const AzFmtValue* value, const AzStringVec** restrict out) {
+    const AzFmtValueVariant_StrVec* casted = (const AzFmtValueVariant_StrVec*)value;
+    bool valid = casted->tag == AzFmtValueTag_StrVec;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtValue_matchMut(AzFmtValue* restrict value, AzStringVec* restrict * restrict out) {
+    AzFmtValueVariant_StrVec* restrict casted = (AzFmtValueVariant_StrVec* restrict)value;
+    bool valid = casted->tag == AzFmtValueTag_StrVec;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamilyVecDestructor_matchRef(const AzStyleFontFamilyVecDestructor* value, const AzStyleFontFamilyVecDestructorType** restrict out) {
+    const AzStyleFontFamilyVecDestructorVariant_External* casted = (const AzStyleFontFamilyVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleFontFamilyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFontFamilyVecDestructor_matchMut(AzStyleFontFamilyVecDestructor* restrict value, AzStyleFontFamilyVecDestructorType* restrict * restrict out) {
+    AzStyleFontFamilyVecDestructorVariant_External* restrict casted = (AzStyleFontFamilyVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleFontFamilyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAccessibilityStateVecDestructor_matchRef(const AzAccessibilityStateVecDestructor* value, const AzAccessibilityStateVecDestructorType** restrict out) {
+    const AzAccessibilityStateVecDestructorVariant_External* casted = (const AzAccessibilityStateVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzAccessibilityStateVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzAccessibilityStateVecDestructor_matchMut(AzAccessibilityStateVecDestructor* restrict value, AzAccessibilityStateVecDestructorType* restrict * restrict out) {
+    AzAccessibilityStateVecDestructorVariant_External* restrict casted = (AzAccessibilityStateVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzAccessibilityStateVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItemVecDestructor_matchRef(const AzMenuItemVecDestructor* value, const AzMenuItemVecDestructorType** restrict out) {
+    const AzMenuItemVecDestructorVariant_External* casted = (const AzMenuItemVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzMenuItemVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMenuItemVecDestructor_matchMut(AzMenuItemVecDestructor* restrict value, AzMenuItemVecDestructorType* restrict * restrict out) {
+    AzMenuItemVecDestructorVariant_External* restrict casted = (AzMenuItemVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzMenuItemVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTesselatedSvgNodeVecDestructor_matchRef(const AzTesselatedSvgNodeVecDestructor* value, const AzTesselatedSvgNodeVecDestructorType** restrict out) {
+    const AzTesselatedSvgNodeVecDestructorVariant_External* casted = (const AzTesselatedSvgNodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzTesselatedSvgNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTesselatedSvgNodeVecDestructor_matchMut(AzTesselatedSvgNodeVecDestructor* restrict value, AzTesselatedSvgNodeVecDestructorType* restrict * restrict out) {
+    AzTesselatedSvgNodeVecDestructorVariant_External* restrict casted = (AzTesselatedSvgNodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzTesselatedSvgNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlNodeVecDestructor_matchRef(const AzXmlNodeVecDestructor* value, const AzXmlNodeVecDestructorType** restrict out) {
+    const AzXmlNodeVecDestructorVariant_External* casted = (const AzXmlNodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzXmlNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlNodeVecDestructor_matchMut(AzXmlNodeVecDestructor* restrict value, AzXmlNodeVecDestructorType* restrict * restrict out) {
+    AzXmlNodeVecDestructorVariant_External* restrict casted = (AzXmlNodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzXmlNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtArgVecDestructor_matchRef(const AzFmtArgVecDestructor* value, const AzFmtArgVecDestructorType** restrict out) {
+    const AzFmtArgVecDestructorVariant_External* casted = (const AzFmtArgVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzFmtArgVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzFmtArgVecDestructor_matchMut(AzFmtArgVecDestructor* restrict value, AzFmtArgVecDestructorType* restrict * restrict out) {
+    AzFmtArgVecDestructorVariant_External* restrict casted = (AzFmtArgVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzFmtArgVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineLineVecDestructor_matchRef(const AzInlineLineVecDestructor* value, const AzInlineLineVecDestructorType** restrict out) {
+    const AzInlineLineVecDestructorVariant_External* casted = (const AzInlineLineVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInlineLineVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineLineVecDestructor_matchMut(AzInlineLineVecDestructor* restrict value, AzInlineLineVecDestructorType* restrict * restrict out) {
+    AzInlineLineVecDestructorVariant_External* restrict casted = (AzInlineLineVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInlineLineVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineWordVecDestructor_matchRef(const AzInlineWordVecDestructor* value, const AzInlineWordVecDestructorType** restrict out) {
+    const AzInlineWordVecDestructorVariant_External* casted = (const AzInlineWordVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInlineWordVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineWordVecDestructor_matchMut(AzInlineWordVecDestructor* restrict value, AzInlineWordVecDestructorType* restrict * restrict out) {
+    AzInlineWordVecDestructorVariant_External* restrict casted = (AzInlineWordVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInlineWordVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineGlyphVecDestructor_matchRef(const AzInlineGlyphVecDestructor* value, const AzInlineGlyphVecDestructorType** restrict out) {
+    const AzInlineGlyphVecDestructorVariant_External* casted = (const AzInlineGlyphVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInlineGlyphVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineGlyphVecDestructor_matchMut(AzInlineGlyphVecDestructor* restrict value, AzInlineGlyphVecDestructorType* restrict * restrict out) {
+    AzInlineGlyphVecDestructorVariant_External* restrict casted = (AzInlineGlyphVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInlineGlyphVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineTextHitVecDestructor_matchRef(const AzInlineTextHitVecDestructor* value, const AzInlineTextHitVecDestructorType** restrict out) {
+    const AzInlineTextHitVecDestructorVariant_External* casted = (const AzInlineTextHitVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInlineTextHitVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInlineTextHitVecDestructor_matchMut(AzInlineTextHitVecDestructor* restrict value, AzInlineTextHitVecDestructorType* restrict * restrict out) {
+    AzInlineTextHitVecDestructorVariant_External* restrict casted = (AzInlineTextHitVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInlineTextHitVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMonitorVecDestructor_matchRef(const AzMonitorVecDestructor* value, const AzMonitorVecDestructorType** restrict out) {
+    const AzMonitorVecDestructorVariant_External* casted = (const AzMonitorVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzMonitorVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzMonitorVecDestructor_matchMut(AzMonitorVecDestructor* restrict value, AzMonitorVecDestructorType* restrict * restrict out) {
+    AzMonitorVecDestructorVariant_External* restrict casted = (AzMonitorVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzMonitorVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzVideoModeVecDestructor_matchRef(const AzVideoModeVecDestructor* value, const AzVideoModeVecDestructorType** restrict out) {
+    const AzVideoModeVecDestructorVariant_External* casted = (const AzVideoModeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzVideoModeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzVideoModeVecDestructor_matchMut(AzVideoModeVecDestructor* restrict value, AzVideoModeVecDestructorType* restrict * restrict out) {
+    AzVideoModeVecDestructorVariant_External* restrict casted = (AzVideoModeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzVideoModeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDomVecDestructor_matchRef(const AzDomVecDestructor* value, const AzDomVecDestructorType** restrict out) {
+    const AzDomVecDestructorVariant_External* casted = (const AzDomVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzDomVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDomVecDestructor_matchMut(AzDomVecDestructor* restrict value, AzDomVecDestructorType* restrict * restrict out) {
+    AzDomVecDestructorVariant_External* restrict casted = (AzDomVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzDomVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIdOrClassVecDestructor_matchRef(const AzIdOrClassVecDestructor* value, const AzIdOrClassVecDestructorType** restrict out) {
+    const AzIdOrClassVecDestructorVariant_External* casted = (const AzIdOrClassVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzIdOrClassVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzIdOrClassVecDestructor_matchMut(AzIdOrClassVecDestructor* restrict value, AzIdOrClassVecDestructorType* restrict * restrict out) {
+    AzIdOrClassVecDestructorVariant_External* restrict casted = (AzIdOrClassVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzIdOrClassVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssPropertyVecDestructor_matchRef(const AzNodeDataInlineCssPropertyVecDestructor* value, const AzNodeDataInlineCssPropertyVecDestructorType** restrict out) {
+    const AzNodeDataInlineCssPropertyVecDestructorVariant_External* casted = (const AzNodeDataInlineCssPropertyVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataInlineCssPropertyVecDestructor_matchMut(AzNodeDataInlineCssPropertyVecDestructor* restrict value, AzNodeDataInlineCssPropertyVecDestructorType* restrict * restrict out) {
+    AzNodeDataInlineCssPropertyVecDestructorVariant_External* restrict casted = (AzNodeDataInlineCssPropertyVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeDataInlineCssPropertyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContentVecDestructor_matchRef(const AzStyleBackgroundContentVecDestructor* value, const AzStyleBackgroundContentVecDestructorType** restrict out) {
+    const AzStyleBackgroundContentVecDestructorVariant_External* casted = (const AzStyleBackgroundContentVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleBackgroundContentVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundContentVecDestructor_matchMut(AzStyleBackgroundContentVecDestructor* restrict value, AzStyleBackgroundContentVecDestructorType* restrict * restrict out) {
+    AzStyleBackgroundContentVecDestructorVariant_External* restrict casted = (AzStyleBackgroundContentVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundContentVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundPositionVecDestructor_matchRef(const AzStyleBackgroundPositionVecDestructor* value, const AzStyleBackgroundPositionVecDestructorType** restrict out) {
+    const AzStyleBackgroundPositionVecDestructorVariant_External* casted = (const AzStyleBackgroundPositionVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleBackgroundPositionVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundPositionVecDestructor_matchMut(AzStyleBackgroundPositionVecDestructor* restrict value, AzStyleBackgroundPositionVecDestructorType* restrict * restrict out) {
+    AzStyleBackgroundPositionVecDestructorVariant_External* restrict casted = (AzStyleBackgroundPositionVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundPositionVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundRepeatVecDestructor_matchRef(const AzStyleBackgroundRepeatVecDestructor* value, const AzStyleBackgroundRepeatVecDestructorType** restrict out) {
+    const AzStyleBackgroundRepeatVecDestructorVariant_External* casted = (const AzStyleBackgroundRepeatVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleBackgroundRepeatVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundRepeatVecDestructor_matchMut(AzStyleBackgroundRepeatVecDestructor* restrict value, AzStyleBackgroundRepeatVecDestructorType* restrict * restrict out) {
+    AzStyleBackgroundRepeatVecDestructorVariant_External* restrict casted = (AzStyleBackgroundRepeatVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundRepeatVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundSizeVecDestructor_matchRef(const AzStyleBackgroundSizeVecDestructor* value, const AzStyleBackgroundSizeVecDestructorType** restrict out) {
+    const AzStyleBackgroundSizeVecDestructorVariant_External* casted = (const AzStyleBackgroundSizeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleBackgroundSizeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleBackgroundSizeVecDestructor_matchMut(AzStyleBackgroundSizeVecDestructor* restrict value, AzStyleBackgroundSizeVecDestructorType* restrict * restrict out) {
+    AzStyleBackgroundSizeVecDestructorVariant_External* restrict casted = (AzStyleBackgroundSizeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleBackgroundSizeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransformVecDestructor_matchRef(const AzStyleTransformVecDestructor* value, const AzStyleTransformVecDestructorType** restrict out) {
+    const AzStyleTransformVecDestructorVariant_External* casted = (const AzStyleTransformVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleTransformVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleTransformVecDestructor_matchMut(AzStyleTransformVecDestructor* restrict value, AzStyleTransformVecDestructorType* restrict * restrict out) {
+    AzStyleTransformVecDestructorVariant_External* restrict casted = (AzStyleTransformVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleTransformVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPropertyVecDestructor_matchRef(const AzCssPropertyVecDestructor* value, const AzCssPropertyVecDestructorType** restrict out) {
+    const AzCssPropertyVecDestructorVariant_External* casted = (const AzCssPropertyVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzCssPropertyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPropertyVecDestructor_matchMut(AzCssPropertyVecDestructor* restrict value, AzCssPropertyVecDestructorType* restrict * restrict out) {
+    AzCssPropertyVecDestructorVariant_External* restrict casted = (AzCssPropertyVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzCssPropertyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgMultiPolygonVecDestructor_matchRef(const AzSvgMultiPolygonVecDestructor* value, const AzSvgMultiPolygonVecDestructorType** restrict out) {
+    const AzSvgMultiPolygonVecDestructorVariant_External* casted = (const AzSvgMultiPolygonVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzSvgMultiPolygonVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgMultiPolygonVecDestructor_matchMut(AzSvgMultiPolygonVecDestructor* restrict value, AzSvgMultiPolygonVecDestructorType* restrict * restrict out) {
+    AzSvgMultiPolygonVecDestructorVariant_External* restrict casted = (AzSvgMultiPolygonVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzSvgMultiPolygonVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathVecDestructor_matchRef(const AzSvgPathVecDestructor* value, const AzSvgPathVecDestructorType** restrict out) {
+    const AzSvgPathVecDestructorVariant_External* casted = (const AzSvgPathVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzSvgPathVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathVecDestructor_matchMut(AzSvgPathVecDestructor* restrict value, AzSvgPathVecDestructorType* restrict * restrict out) {
+    AzSvgPathVecDestructorVariant_External* restrict casted = (AzSvgPathVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzSvgPathVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzVertexAttributeVecDestructor_matchRef(const AzVertexAttributeVecDestructor* value, const AzVertexAttributeVecDestructorType** restrict out) {
+    const AzVertexAttributeVecDestructorVariant_External* casted = (const AzVertexAttributeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzVertexAttributeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzVertexAttributeVecDestructor_matchMut(AzVertexAttributeVecDestructor* restrict value, AzVertexAttributeVecDestructorType* restrict * restrict out) {
+    AzVertexAttributeVecDestructorVariant_External* restrict casted = (AzVertexAttributeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzVertexAttributeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElementVecDestructor_matchRef(const AzSvgPathElementVecDestructor* value, const AzSvgPathElementVecDestructorType** restrict out) {
+    const AzSvgPathElementVecDestructorVariant_External* casted = (const AzSvgPathElementVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzSvgPathElementVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgPathElementVecDestructor_matchMut(AzSvgPathElementVecDestructor* restrict value, AzSvgPathElementVecDestructorType* restrict * restrict out) {
+    AzSvgPathElementVecDestructorVariant_External* restrict casted = (AzSvgPathElementVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzSvgPathElementVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgVertexVecDestructor_matchRef(const AzSvgVertexVecDestructor* value, const AzSvgVertexVecDestructorType** restrict out) {
+    const AzSvgVertexVecDestructorVariant_External* casted = (const AzSvgVertexVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzSvgVertexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgVertexVecDestructor_matchMut(AzSvgVertexVecDestructor* restrict value, AzSvgVertexVecDestructorType* restrict * restrict out) {
+    AzSvgVertexVecDestructorVariant_External* restrict casted = (AzSvgVertexVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzSvgVertexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzU32VecDestructor_matchRef(const AzU32VecDestructor* value, const AzU32VecDestructorType** restrict out) {
+    const AzU32VecDestructorVariant_External* casted = (const AzU32VecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzU32VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzU32VecDestructor_matchMut(AzU32VecDestructor* restrict value, AzU32VecDestructorType* restrict * restrict out) {
+    AzU32VecDestructorVariant_External* restrict casted = (AzU32VecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzU32VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXWindowTypeVecDestructor_matchRef(const AzXWindowTypeVecDestructor* value, const AzXWindowTypeVecDestructorType** restrict out) {
+    const AzXWindowTypeVecDestructorVariant_External* casted = (const AzXWindowTypeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzXWindowTypeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXWindowTypeVecDestructor_matchMut(AzXWindowTypeVecDestructor* restrict value, AzXWindowTypeVecDestructorType* restrict * restrict out) {
+    AzXWindowTypeVecDestructorVariant_External* restrict casted = (AzXWindowTypeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzXWindowTypeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzVirtualKeyCodeVecDestructor_matchRef(const AzVirtualKeyCodeVecDestructor* value, const AzVirtualKeyCodeVecDestructorType** restrict out) {
+    const AzVirtualKeyCodeVecDestructorVariant_External* casted = (const AzVirtualKeyCodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzVirtualKeyCodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzVirtualKeyCodeVecDestructor_matchMut(AzVirtualKeyCodeVecDestructor* restrict value, AzVirtualKeyCodeVecDestructorType* restrict * restrict out) {
+    AzVirtualKeyCodeVecDestructorVariant_External* restrict casted = (AzVirtualKeyCodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzVirtualKeyCodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCascadeInfoVecDestructor_matchRef(const AzCascadeInfoVecDestructor* value, const AzCascadeInfoVecDestructorType** restrict out) {
+    const AzCascadeInfoVecDestructorVariant_External* casted = (const AzCascadeInfoVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzCascadeInfoVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCascadeInfoVecDestructor_matchMut(AzCascadeInfoVecDestructor* restrict value, AzCascadeInfoVecDestructorType* restrict * restrict out) {
+    AzCascadeInfoVecDestructorVariant_External* restrict casted = (AzCascadeInfoVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzCascadeInfoVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzScanCodeVecDestructor_matchRef(const AzScanCodeVecDestructor* value, const AzScanCodeVecDestructorType** restrict out) {
+    const AzScanCodeVecDestructorVariant_External* casted = (const AzScanCodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzScanCodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzScanCodeVecDestructor_matchMut(AzScanCodeVecDestructor* restrict value, AzScanCodeVecDestructorType* restrict * restrict out) {
+    AzScanCodeVecDestructorVariant_External* restrict casted = (AzScanCodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzScanCodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclarationVecDestructor_matchRef(const AzCssDeclarationVecDestructor* value, const AzCssDeclarationVecDestructorType** restrict out) {
+    const AzCssDeclarationVecDestructorVariant_External* casted = (const AzCssDeclarationVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzCssDeclarationVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssDeclarationVecDestructor_matchMut(AzCssDeclarationVecDestructor* restrict value, AzCssDeclarationVecDestructorType* restrict * restrict out) {
+    AzCssDeclarationVecDestructorVariant_External* restrict casted = (AzCssDeclarationVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzCssDeclarationVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelectorVecDestructor_matchRef(const AzCssPathSelectorVecDestructor* value, const AzCssPathSelectorVecDestructorType** restrict out) {
+    const AzCssPathSelectorVecDestructorVariant_External* casted = (const AzCssPathSelectorVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzCssPathSelectorVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssPathSelectorVecDestructor_matchMut(AzCssPathSelectorVecDestructor* restrict value, AzCssPathSelectorVecDestructorType* restrict * restrict out) {
+    AzCssPathSelectorVecDestructorVariant_External* restrict casted = (AzCssPathSelectorVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzCssPathSelectorVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStylesheetVecDestructor_matchRef(const AzStylesheetVecDestructor* value, const AzStylesheetVecDestructorType** restrict out) {
+    const AzStylesheetVecDestructorVariant_External* casted = (const AzStylesheetVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStylesheetVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStylesheetVecDestructor_matchMut(AzStylesheetVecDestructor* restrict value, AzStylesheetVecDestructorType* restrict * restrict out) {
+    AzStylesheetVecDestructorVariant_External* restrict casted = (AzStylesheetVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStylesheetVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssRuleBlockVecDestructor_matchRef(const AzCssRuleBlockVecDestructor* value, const AzCssRuleBlockVecDestructorType** restrict out) {
+    const AzCssRuleBlockVecDestructorVariant_External* casted = (const AzCssRuleBlockVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzCssRuleBlockVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssRuleBlockVecDestructor_matchMut(AzCssRuleBlockVecDestructor* restrict value, AzCssRuleBlockVecDestructorType* restrict * restrict out) {
+    AzCssRuleBlockVecDestructorVariant_External* restrict casted = (AzCssRuleBlockVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzCssRuleBlockVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzF32VecDestructor_matchRef(const AzF32VecDestructor* value, const AzF32VecDestructorType** restrict out) {
+    const AzF32VecDestructorVariant_External* casted = (const AzF32VecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzF32VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzF32VecDestructor_matchMut(AzF32VecDestructor* restrict value, AzF32VecDestructorType* restrict * restrict out) {
+    AzF32VecDestructorVariant_External* restrict casted = (AzF32VecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzF32VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzU16VecDestructor_matchRef(const AzU16VecDestructor* value, const AzU16VecDestructorType** restrict out) {
+    const AzU16VecDestructorVariant_External* casted = (const AzU16VecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzU16VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzU16VecDestructor_matchMut(AzU16VecDestructor* restrict value, AzU16VecDestructorType* restrict * restrict out) {
+    AzU16VecDestructorVariant_External* restrict casted = (AzU16VecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzU16VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzU8VecDestructor_matchRef(const AzU8VecDestructor* value, const AzU8VecDestructorType** restrict out) {
+    const AzU8VecDestructorVariant_External* casted = (const AzU8VecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzU8VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzU8VecDestructor_matchMut(AzU8VecDestructor* restrict value, AzU8VecDestructorType* restrict * restrict out) {
+    AzU8VecDestructorVariant_External* restrict casted = (AzU8VecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzU8VecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCallbackDataVecDestructor_matchRef(const AzCallbackDataVecDestructor* value, const AzCallbackDataVecDestructorType** restrict out) {
+    const AzCallbackDataVecDestructorVariant_External* casted = (const AzCallbackDataVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzCallbackDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCallbackDataVecDestructor_matchMut(AzCallbackDataVecDestructor* restrict value, AzCallbackDataVecDestructorType* restrict * restrict out) {
+    AzCallbackDataVecDestructorVariant_External* restrict casted = (AzCallbackDataVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzCallbackDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDebugMessageVecDestructor_matchRef(const AzDebugMessageVecDestructor* value, const AzDebugMessageVecDestructorType** restrict out) {
+    const AzDebugMessageVecDestructorVariant_External* casted = (const AzDebugMessageVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzDebugMessageVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzDebugMessageVecDestructor_matchMut(AzDebugMessageVecDestructor* restrict value, AzDebugMessageVecDestructorType* restrict * restrict out) {
+    AzDebugMessageVecDestructorVariant_External* restrict casted = (AzDebugMessageVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzDebugMessageVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzGLuintVecDestructor_matchRef(const AzGLuintVecDestructor* value, const AzGLuintVecDestructorType** restrict out) {
+    const AzGLuintVecDestructorVariant_External* casted = (const AzGLuintVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzGLuintVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzGLuintVecDestructor_matchMut(AzGLuintVecDestructor* restrict value, AzGLuintVecDestructorType* restrict * restrict out) {
+    AzGLuintVecDestructorVariant_External* restrict casted = (AzGLuintVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzGLuintVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzGLintVecDestructor_matchRef(const AzGLintVecDestructor* value, const AzGLintVecDestructorType** restrict out) {
+    const AzGLintVecDestructorVariant_External* casted = (const AzGLintVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzGLintVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzGLintVecDestructor_matchMut(AzGLintVecDestructor* restrict value, AzGLintVecDestructorType* restrict * restrict out) {
+    AzGLintVecDestructorVariant_External* restrict casted = (AzGLintVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzGLintVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStringVecDestructor_matchRef(const AzStringVecDestructor* value, const AzStringVecDestructorType** restrict out) {
+    const AzStringVecDestructorVariant_External* casted = (const AzStringVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStringVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStringVecDestructor_matchMut(AzStringVecDestructor* restrict value, AzStringVecDestructorType* restrict * restrict out) {
+    AzStringVecDestructorVariant_External* restrict casted = (AzStringVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStringVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStringPairVecDestructor_matchRef(const AzStringPairVecDestructor* value, const AzStringPairVecDestructorType** restrict out) {
+    const AzStringPairVecDestructorVariant_External* casted = (const AzStringPairVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStringPairVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStringPairVecDestructor_matchMut(AzStringPairVecDestructor* restrict value, AzStringPairVecDestructorType* restrict * restrict out) {
+    AzStringPairVecDestructorVariant_External* restrict casted = (AzStringPairVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStringPairVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNormalizedLinearColorStopVecDestructor_matchRef(const AzNormalizedLinearColorStopVecDestructor* value, const AzNormalizedLinearColorStopVecDestructorType** restrict out) {
+    const AzNormalizedLinearColorStopVecDestructorVariant_External* casted = (const AzNormalizedLinearColorStopVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNormalizedLinearColorStopVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNormalizedLinearColorStopVecDestructor_matchMut(AzNormalizedLinearColorStopVecDestructor* restrict value, AzNormalizedLinearColorStopVecDestructorType* restrict * restrict out) {
+    AzNormalizedLinearColorStopVecDestructorVariant_External* restrict casted = (AzNormalizedLinearColorStopVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNormalizedLinearColorStopVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNormalizedRadialColorStopVecDestructor_matchRef(const AzNormalizedRadialColorStopVecDestructor* value, const AzNormalizedRadialColorStopVecDestructorType** restrict out) {
+    const AzNormalizedRadialColorStopVecDestructorVariant_External* casted = (const AzNormalizedRadialColorStopVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNormalizedRadialColorStopVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNormalizedRadialColorStopVecDestructor_matchMut(AzNormalizedRadialColorStopVecDestructor* restrict value, AzNormalizedRadialColorStopVecDestructorType* restrict * restrict out) {
+    AzNormalizedRadialColorStopVecDestructorVariant_External* restrict casted = (AzNormalizedRadialColorStopVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNormalizedRadialColorStopVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeIdVecDestructor_matchRef(const AzNodeIdVecDestructor* value, const AzNodeIdVecDestructorType** restrict out) {
+    const AzNodeIdVecDestructorVariant_External* casted = (const AzNodeIdVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeIdVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeIdVecDestructor_matchMut(AzNodeIdVecDestructor* restrict value, AzNodeIdVecDestructorType* restrict * restrict out) {
+    AzNodeIdVecDestructorVariant_External* restrict casted = (AzNodeIdVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeIdVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeVecDestructor_matchRef(const AzNodeVecDestructor* value, const AzNodeVecDestructorType** restrict out) {
+    const AzNodeVecDestructorVariant_External* casted = (const AzNodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeVecDestructor_matchMut(AzNodeVecDestructor* restrict value, AzNodeVecDestructorType* restrict * restrict out) {
+    AzNodeVecDestructorVariant_External* restrict casted = (AzNodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyledNodeVecDestructor_matchRef(const AzStyledNodeVecDestructor* value, const AzStyledNodeVecDestructorType** restrict out) {
+    const AzStyledNodeVecDestructorVariant_External* casted = (const AzStyledNodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyledNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyledNodeVecDestructor_matchMut(AzStyledNodeVecDestructor* restrict value, AzStyledNodeVecDestructorType* restrict * restrict out) {
+    AzStyledNodeVecDestructorVariant_External* restrict casted = (AzStyledNodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyledNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTagIdToNodeIdMappingVecDestructor_matchRef(const AzTagIdToNodeIdMappingVecDestructor* value, const AzTagIdToNodeIdMappingVecDestructorType** restrict out) {
+    const AzTagIdToNodeIdMappingVecDestructorVariant_External* casted = (const AzTagIdToNodeIdMappingVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzTagIdToNodeIdMappingVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTagIdToNodeIdMappingVecDestructor_matchMut(AzTagIdToNodeIdMappingVecDestructor* restrict value, AzTagIdToNodeIdMappingVecDestructorType* restrict * restrict out) {
+    AzTagIdToNodeIdMappingVecDestructorVariant_External* restrict casted = (AzTagIdToNodeIdMappingVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzTagIdToNodeIdMappingVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzParentWithNodeDepthVecDestructor_matchRef(const AzParentWithNodeDepthVecDestructor* value, const AzParentWithNodeDepthVecDestructorType** restrict out) {
+    const AzParentWithNodeDepthVecDestructorVariant_External* casted = (const AzParentWithNodeDepthVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzParentWithNodeDepthVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzParentWithNodeDepthVecDestructor_matchMut(AzParentWithNodeDepthVecDestructor* restrict value, AzParentWithNodeDepthVecDestructorType* restrict * restrict out) {
+    AzParentWithNodeDepthVecDestructorVariant_External* restrict casted = (AzParentWithNodeDepthVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzParentWithNodeDepthVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataVecDestructor_matchRef(const AzNodeDataVecDestructor* value, const AzNodeDataVecDestructorType** restrict out) {
+    const AzNodeDataVecDestructorVariant_External* casted = (const AzNodeDataVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeDataVecDestructor_matchMut(AzNodeDataVecDestructor* restrict value, AzNodeDataVecDestructorType* restrict * restrict out) {
+    AzNodeDataVecDestructorVariant_External* restrict casted = (AzNodeDataVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionColorInputOnValueChange_matchRef(const AzOptionColorInputOnValueChange* value, const AzColorInputOnValueChange** restrict out) {
+    const AzOptionColorInputOnValueChangeVariant_Some* casted = (const AzOptionColorInputOnValueChangeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionColorInputOnValueChangeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionColorInputOnValueChange_matchMut(AzOptionColorInputOnValueChange* restrict value, AzColorInputOnValueChange* restrict * restrict out) {
+    AzOptionColorInputOnValueChangeVariant_Some* restrict casted = (AzOptionColorInputOnValueChangeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionColorInputOnValueChangeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionButtonOnClick_matchRef(const AzOptionButtonOnClick* value, const AzButtonOnClick** restrict out) {
+    const AzOptionButtonOnClickVariant_Some* casted = (const AzOptionButtonOnClickVariant_Some*)value;
+    bool valid = casted->tag == AzOptionButtonOnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionButtonOnClick_matchMut(AzOptionButtonOnClick* restrict value, AzButtonOnClick* restrict * restrict out) {
+    AzOptionButtonOnClickVariant_Some* restrict casted = (AzOptionButtonOnClickVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionButtonOnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionCheckBoxOnToggle_matchRef(const AzOptionCheckBoxOnToggle* value, const AzCheckBoxOnToggle** restrict out) {
+    const AzOptionCheckBoxOnToggleVariant_Some* casted = (const AzOptionCheckBoxOnToggleVariant_Some*)value;
+    bool valid = casted->tag == AzOptionCheckBoxOnToggleTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionCheckBoxOnToggle_matchMut(AzOptionCheckBoxOnToggle* restrict value, AzCheckBoxOnToggle* restrict * restrict out) {
+    AzOptionCheckBoxOnToggleVariant_Some* restrict casted = (AzOptionCheckBoxOnToggleVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionCheckBoxOnToggleTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputOnTextInput_matchRef(const AzOptionTextInputOnTextInput* value, const AzTextInputOnTextInput** restrict out) {
+    const AzOptionTextInputOnTextInputVariant_Some* casted = (const AzOptionTextInputOnTextInputVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTextInputOnTextInputTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputOnTextInput_matchMut(AzOptionTextInputOnTextInput* restrict value, AzTextInputOnTextInput* restrict * restrict out) {
+    AzOptionTextInputOnTextInputVariant_Some* restrict casted = (AzOptionTextInputOnTextInputVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTextInputOnTextInputTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputOnVirtualKeyDown_matchRef(const AzOptionTextInputOnVirtualKeyDown* value, const AzTextInputOnVirtualKeyDown** restrict out) {
+    const AzOptionTextInputOnVirtualKeyDownVariant_Some* casted = (const AzOptionTextInputOnVirtualKeyDownVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTextInputOnVirtualKeyDownTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputOnVirtualKeyDown_matchMut(AzOptionTextInputOnVirtualKeyDown* restrict value, AzTextInputOnVirtualKeyDown* restrict * restrict out) {
+    AzOptionTextInputOnVirtualKeyDownVariant_Some* restrict casted = (AzOptionTextInputOnVirtualKeyDownVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTextInputOnVirtualKeyDownTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputOnFocusLost_matchRef(const AzOptionTextInputOnFocusLost* value, const AzTextInputOnFocusLost** restrict out) {
+    const AzOptionTextInputOnFocusLostVariant_Some* casted = (const AzOptionTextInputOnFocusLostVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTextInputOnFocusLostTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputOnFocusLost_matchMut(AzOptionTextInputOnFocusLost* restrict value, AzTextInputOnFocusLost* restrict * restrict out) {
+    AzOptionTextInputOnFocusLostVariant_Some* restrict casted = (AzOptionTextInputOnFocusLostVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTextInputOnFocusLostTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputSelection_matchRef(const AzOptionTextInputSelection* value, const AzTextInputSelection** restrict out) {
+    const AzOptionTextInputSelectionVariant_Some* casted = (const AzOptionTextInputSelectionVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTextInputSelectionTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTextInputSelection_matchMut(AzOptionTextInputSelection* restrict value, AzTextInputSelection* restrict * restrict out) {
+    AzOptionTextInputSelectionVariant_Some* restrict casted = (AzOptionTextInputSelectionVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTextInputSelectionTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNumberInputOnValueChange_matchRef(const AzOptionNumberInputOnValueChange* value, const AzNumberInputOnValueChange** restrict out) {
+    const AzOptionNumberInputOnValueChangeVariant_Some* casted = (const AzOptionNumberInputOnValueChangeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNumberInputOnValueChangeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNumberInputOnValueChange_matchMut(AzOptionNumberInputOnValueChange* restrict value, AzNumberInputOnValueChange* restrict * restrict out) {
+    AzOptionNumberInputOnValueChangeVariant_Some* restrict casted = (AzOptionNumberInputOnValueChangeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNumberInputOnValueChangeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMenuItemIcon_matchRef(const AzOptionMenuItemIcon* value, const AzMenuItemIcon** restrict out) {
+    const AzOptionMenuItemIconVariant_Some* casted = (const AzOptionMenuItemIconVariant_Some*)value;
+    bool valid = casted->tag == AzOptionMenuItemIconTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMenuItemIcon_matchMut(AzOptionMenuItemIcon* restrict value, AzMenuItemIcon* restrict * restrict out) {
+    AzOptionMenuItemIconVariant_Some* restrict casted = (AzOptionMenuItemIconVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionMenuItemIconTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMenuCallback_matchRef(const AzOptionMenuCallback* value, const AzMenuCallback** restrict out) {
+    const AzOptionMenuCallbackVariant_Some* casted = (const AzOptionMenuCallbackVariant_Some*)value;
+    bool valid = casted->tag == AzOptionMenuCallbackTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMenuCallback_matchMut(AzOptionMenuCallback* restrict value, AzMenuCallback* restrict * restrict out) {
+    AzOptionMenuCallbackVariant_Some* restrict casted = (AzOptionMenuCallbackVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionMenuCallbackTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionVirtualKeyCodeCombo_matchRef(const AzOptionVirtualKeyCodeCombo* value, const AzVirtualKeyCodeCombo** restrict out) {
+    const AzOptionVirtualKeyCodeComboVariant_Some* casted = (const AzOptionVirtualKeyCodeComboVariant_Some*)value;
+    bool valid = casted->tag == AzOptionVirtualKeyCodeComboTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionVirtualKeyCodeCombo_matchMut(AzOptionVirtualKeyCodeCombo* restrict value, AzVirtualKeyCodeCombo* restrict * restrict out) {
+    AzOptionVirtualKeyCodeComboVariant_Some* restrict casted = (AzOptionVirtualKeyCodeComboVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionVirtualKeyCodeComboTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionCssProperty_matchRef(const AzOptionCssProperty* value, const AzCssProperty** restrict out) {
+    const AzOptionCssPropertyVariant_Some* casted = (const AzOptionCssPropertyVariant_Some*)value;
+    bool valid = casted->tag == AzOptionCssPropertyTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionCssProperty_matchMut(AzOptionCssProperty* restrict value, AzCssProperty* restrict * restrict out) {
+    AzOptionCssPropertyVariant_Some* restrict casted = (AzOptionCssPropertyVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionCssPropertyTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPositionInfo_matchRef(const AzOptionPositionInfo* value, const AzPositionInfo** restrict out) {
+    const AzOptionPositionInfoVariant_Some* casted = (const AzOptionPositionInfoVariant_Some*)value;
+    bool valid = casted->tag == AzOptionPositionInfoTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPositionInfo_matchMut(AzOptionPositionInfo* restrict value, AzPositionInfo* restrict * restrict out) {
+    AzOptionPositionInfoVariant_Some* restrict casted = (AzOptionPositionInfoVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionPositionInfoTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTimerId_matchRef(const AzOptionTimerId* value, const AzTimerId** restrict out) {
+    const AzOptionTimerIdVariant_Some* casted = (const AzOptionTimerIdVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTimerIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTimerId_matchMut(AzOptionTimerId* restrict value, AzTimerId* restrict * restrict out) {
+    AzOptionTimerIdVariant_Some* restrict casted = (AzOptionTimerIdVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTimerIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionThreadId_matchRef(const AzOptionThreadId* value, const AzThreadId** restrict out) {
+    const AzOptionThreadIdVariant_Some* casted = (const AzOptionThreadIdVariant_Some*)value;
+    bool valid = casted->tag == AzOptionThreadIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionThreadId_matchMut(AzOptionThreadId* restrict value, AzThreadId* restrict * restrict out) {
+    AzOptionThreadIdVariant_Some* restrict casted = (AzOptionThreadIdVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionThreadIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionI16_matchRef(const AzOptionI16* value, const Azi16** restrict out) {
+    const AzOptionI16Variant_Some* casted = (const AzOptionI16Variant_Some*)value;
+    bool valid = casted->tag == AzOptionI16Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionI16_matchMut(AzOptionI16* restrict value, Azi16* restrict * restrict out) {
+    AzOptionI16Variant_Some* restrict casted = (AzOptionI16Variant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionI16Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU16_matchRef(const AzOptionU16* value, const Azu16** restrict out) {
+    const AzOptionU16Variant_Some* casted = (const AzOptionU16Variant_Some*)value;
+    bool valid = casted->tag == AzOptionU16Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU16_matchMut(AzOptionU16* restrict value, Azu16* restrict * restrict out) {
+    AzOptionU16Variant_Some* restrict casted = (AzOptionU16Variant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionU16Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU32_matchRef(const AzOptionU32* value, const Azu32** restrict out) {
+    const AzOptionU32Variant_Some* casted = (const AzOptionU32Variant_Some*)value;
+    bool valid = casted->tag == AzOptionU32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU32_matchMut(AzOptionU32* restrict value, Azu32* restrict * restrict out) {
+    AzOptionU32Variant_Some* restrict casted = (AzOptionU32Variant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionU32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionImageRef_matchRef(const AzOptionImageRef* value, const AzImageRef** restrict out) {
+    const AzOptionImageRefVariant_Some* casted = (const AzOptionImageRefVariant_Some*)value;
+    bool valid = casted->tag == AzOptionImageRefTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionImageRef_matchMut(AzOptionImageRef* restrict value, AzImageRef* restrict * restrict out) {
+    AzOptionImageRefVariant_Some* restrict casted = (AzOptionImageRefVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionImageRefTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFontRef_matchRef(const AzOptionFontRef* value, const AzFontRef** restrict out) {
+    const AzOptionFontRefVariant_Some* casted = (const AzOptionFontRefVariant_Some*)value;
+    bool valid = casted->tag == AzOptionFontRefTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFontRef_matchMut(AzOptionFontRef* restrict value, AzFontRef* restrict * restrict out) {
+    AzOptionFontRefVariant_Some* restrict casted = (AzOptionFontRefVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionFontRefTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionSystemClipboard_matchRef(const AzOptionSystemClipboard* value, const AzSystemClipboard** restrict out) {
+    const AzOptionSystemClipboardVariant_Some* casted = (const AzOptionSystemClipboardVariant_Some*)value;
+    bool valid = casted->tag == AzOptionSystemClipboardTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionSystemClipboard_matchMut(AzOptionSystemClipboard* restrict value, AzSystemClipboard* restrict * restrict out) {
+    AzOptionSystemClipboardVariant_Some* restrict casted = (AzOptionSystemClipboardVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionSystemClipboardTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFileTypeList_matchRef(const AzOptionFileTypeList* value, const AzFileTypeList** restrict out) {
+    const AzOptionFileTypeListVariant_Some* casted = (const AzOptionFileTypeListVariant_Some*)value;
+    bool valid = casted->tag == AzOptionFileTypeListTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFileTypeList_matchMut(AzOptionFileTypeList* restrict value, AzFileTypeList* restrict * restrict out) {
+    AzOptionFileTypeListVariant_Some* restrict casted = (AzOptionFileTypeListVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionFileTypeListTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWindowState_matchRef(const AzOptionWindowState* value, const AzWindowState** restrict out) {
+    const AzOptionWindowStateVariant_Some* casted = (const AzOptionWindowStateVariant_Some*)value;
+    bool valid = casted->tag == AzOptionWindowStateTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWindowState_matchMut(AzOptionWindowState* restrict value, AzWindowState* restrict * restrict out) {
+    AzOptionWindowStateVariant_Some* restrict casted = (AzOptionWindowStateVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionWindowStateTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMouseState_matchRef(const AzOptionMouseState* value, const AzMouseState** restrict out) {
+    const AzOptionMouseStateVariant_Some* casted = (const AzOptionMouseStateVariant_Some*)value;
+    bool valid = casted->tag == AzOptionMouseStateTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMouseState_matchMut(AzOptionMouseState* restrict value, AzMouseState* restrict * restrict out) {
+    AzOptionMouseStateVariant_Some* restrict casted = (AzOptionMouseStateVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionMouseStateTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionKeyboardState_matchRef(const AzOptionKeyboardState* value, const AzKeyboardState** restrict out) {
+    const AzOptionKeyboardStateVariant_Some* casted = (const AzOptionKeyboardStateVariant_Some*)value;
+    bool valid = casted->tag == AzOptionKeyboardStateTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionKeyboardState_matchMut(AzOptionKeyboardState* restrict value, AzKeyboardState* restrict * restrict out) {
+    AzOptionKeyboardStateVariant_Some* restrict casted = (AzOptionKeyboardStateVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionKeyboardStateTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionStringVec_matchRef(const AzOptionStringVec* value, const AzStringVec** restrict out) {
+    const AzOptionStringVecVariant_Some* casted = (const AzOptionStringVecVariant_Some*)value;
+    bool valid = casted->tag == AzOptionStringVecTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionStringVec_matchMut(AzOptionStringVec* restrict value, AzStringVec* restrict * restrict out) {
+    AzOptionStringVecVariant_Some* restrict casted = (AzOptionStringVecVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionStringVecTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFile_matchRef(const AzOptionFile* value, const AzFile** restrict out) {
+    const AzOptionFileVariant_Some* casted = (const AzOptionFileVariant_Some*)value;
+    bool valid = casted->tag == AzOptionFileTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFile_matchMut(AzOptionFile* restrict value, AzFile* restrict * restrict out) {
+    AzOptionFileVariant_Some* restrict casted = (AzOptionFileVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionFileTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionGl_matchRef(const AzOptionGl* value, const AzGl** restrict out) {
+    const AzOptionGlVariant_Some* casted = (const AzOptionGlVariant_Some*)value;
+    bool valid = casted->tag == AzOptionGlTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionGl_matchMut(AzOptionGl* restrict value, AzGl* restrict * restrict out) {
+    AzOptionGlVariant_Some* restrict casted = (AzOptionGlVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionGlTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionThreadReceiveMsg_matchRef(const AzOptionThreadReceiveMsg* value, const AzThreadReceiveMsg** restrict out) {
+    const AzOptionThreadReceiveMsgVariant_Some* casted = (const AzOptionThreadReceiveMsgVariant_Some*)value;
+    bool valid = casted->tag == AzOptionThreadReceiveMsgTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionThreadReceiveMsg_matchMut(AzOptionThreadReceiveMsg* restrict value, AzThreadReceiveMsg* restrict * restrict out) {
+    AzOptionThreadReceiveMsgVariant_Some* restrict casted = (AzOptionThreadReceiveMsgVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionThreadReceiveMsgTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPercentageValue_matchRef(const AzOptionPercentageValue* value, const AzPercentageValue** restrict out) {
+    const AzOptionPercentageValueVariant_Some* casted = (const AzOptionPercentageValueVariant_Some*)value;
+    bool valid = casted->tag == AzOptionPercentageValueTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPercentageValue_matchMut(AzOptionPercentageValue* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzOptionPercentageValueVariant_Some* restrict casted = (AzOptionPercentageValueVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionPercentageValueTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionAngleValue_matchRef(const AzOptionAngleValue* value, const AzAngleValue** restrict out) {
+    const AzOptionAngleValueVariant_Some* casted = (const AzOptionAngleValueVariant_Some*)value;
+    bool valid = casted->tag == AzOptionAngleValueTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionAngleValue_matchMut(AzOptionAngleValue* restrict value, AzAngleValue* restrict * restrict out) {
+    AzOptionAngleValueVariant_Some* restrict casted = (AzOptionAngleValueVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionAngleValueTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionRendererOptions_matchRef(const AzOptionRendererOptions* value, const AzRendererOptions** restrict out) {
+    const AzOptionRendererOptionsVariant_Some* casted = (const AzOptionRendererOptionsVariant_Some*)value;
+    bool valid = casted->tag == AzOptionRendererOptionsTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionRendererOptions_matchMut(AzOptionRendererOptions* restrict value, AzRendererOptions* restrict * restrict out) {
+    AzOptionRendererOptionsVariant_Some* restrict casted = (AzOptionRendererOptionsVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionRendererOptionsTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionCallback_matchRef(const AzOptionCallback* value, const AzCallback** restrict out) {
+    const AzOptionCallbackVariant_Some* casted = (const AzOptionCallbackVariant_Some*)value;
+    bool valid = casted->tag == AzOptionCallbackTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionCallback_matchMut(AzOptionCallback* restrict value, AzCallback* restrict * restrict out) {
+    AzOptionCallbackVariant_Some* restrict casted = (AzOptionCallbackVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionCallbackTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionThreadSendMsg_matchRef(const AzOptionThreadSendMsg* value, const AzThreadSendMsg** restrict out) {
+    const AzOptionThreadSendMsgVariant_Some* casted = (const AzOptionThreadSendMsgVariant_Some*)value;
+    bool valid = casted->tag == AzOptionThreadSendMsgTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionThreadSendMsg_matchMut(AzOptionThreadSendMsg* restrict value, AzThreadSendMsg* restrict * restrict out) {
+    AzOptionThreadSendMsgVariant_Some* restrict casted = (AzOptionThreadSendMsgVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionThreadSendMsgTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLayoutRect_matchRef(const AzOptionLayoutRect* value, const AzLayoutRect** restrict out) {
+    const AzOptionLayoutRectVariant_Some* casted = (const AzOptionLayoutRectVariant_Some*)value;
+    bool valid = casted->tag == AzOptionLayoutRectTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLayoutRect_matchMut(AzOptionLayoutRect* restrict value, AzLayoutRect* restrict * restrict out) {
+    AzOptionLayoutRectVariant_Some* restrict casted = (AzOptionLayoutRectVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionLayoutRectTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionRefAny_matchRef(const AzOptionRefAny* value, const AzRefAny** restrict out) {
+    const AzOptionRefAnyVariant_Some* casted = (const AzOptionRefAnyVariant_Some*)value;
+    bool valid = casted->tag == AzOptionRefAnyTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionRefAny_matchMut(AzOptionRefAny* restrict value, AzRefAny* restrict * restrict out) {
+    AzOptionRefAnyVariant_Some* restrict casted = (AzOptionRefAnyVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionRefAnyTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionInlineText_matchRef(const AzOptionInlineText* value, const AzInlineText** restrict out) {
+    const AzOptionInlineTextVariant_Some* casted = (const AzOptionInlineTextVariant_Some*)value;
+    bool valid = casted->tag == AzOptionInlineTextTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionInlineText_matchMut(AzOptionInlineText* restrict value, AzInlineText* restrict * restrict out) {
+    AzOptionInlineTextVariant_Some* restrict casted = (AzOptionInlineTextVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionInlineTextTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLayoutPoint_matchRef(const AzOptionLayoutPoint* value, const AzLayoutPoint** restrict out) {
+    const AzOptionLayoutPointVariant_Some* casted = (const AzOptionLayoutPointVariant_Some*)value;
+    bool valid = casted->tag == AzOptionLayoutPointTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLayoutPoint_matchMut(AzOptionLayoutPoint* restrict value, AzLayoutPoint* restrict * restrict out) {
+    AzOptionLayoutPointVariant_Some* restrict casted = (AzOptionLayoutPointVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionLayoutPointTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLayoutSize_matchRef(const AzOptionLayoutSize* value, const AzLayoutSize** restrict out) {
+    const AzOptionLayoutSizeVariant_Some* casted = (const AzOptionLayoutSizeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionLayoutSizeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLayoutSize_matchMut(AzOptionLayoutSize* restrict value, AzLayoutSize* restrict * restrict out) {
+    AzOptionLayoutSizeVariant_Some* restrict casted = (AzOptionLayoutSizeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionLayoutSizeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWindowTheme_matchRef(const AzOptionWindowTheme* value, const AzWindowTheme** restrict out) {
+    const AzOptionWindowThemeVariant_Some* casted = (const AzOptionWindowThemeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionWindowThemeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWindowTheme_matchMut(AzOptionWindowTheme* restrict value, AzWindowTheme* restrict * restrict out) {
+    AzOptionWindowThemeVariant_Some* restrict casted = (AzOptionWindowThemeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionWindowThemeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeId_matchRef(const AzOptionNodeId* value, const AzNodeId** restrict out) {
+    const AzOptionNodeIdVariant_Some* casted = (const AzOptionNodeIdVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeId_matchMut(AzOptionNodeId* restrict value, AzNodeId* restrict * restrict out) {
+    AzOptionNodeIdVariant_Some* restrict casted = (AzOptionNodeIdVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDomNodeId_matchRef(const AzOptionDomNodeId* value, const AzDomNodeId** restrict out) {
+    const AzOptionDomNodeIdVariant_Some* casted = (const AzOptionDomNodeIdVariant_Some*)value;
+    bool valid = casted->tag == AzOptionDomNodeIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDomNodeId_matchMut(AzOptionDomNodeId* restrict value, AzDomNodeId* restrict * restrict out) {
+    AzOptionDomNodeIdVariant_Some* restrict casted = (AzOptionDomNodeIdVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionDomNodeIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionColorU_matchRef(const AzOptionColorU* value, const AzColorU** restrict out) {
+    const AzOptionColorUVariant_Some* casted = (const AzOptionColorUVariant_Some*)value;
+    bool valid = casted->tag == AzOptionColorUTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionColorU_matchMut(AzOptionColorU* restrict value, AzColorU* restrict * restrict out) {
+    AzOptionColorUVariant_Some* restrict casted = (AzOptionColorUVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionColorUTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionRawImage_matchRef(const AzOptionRawImage* value, const AzRawImage** restrict out) {
+    const AzOptionRawImageVariant_Some* casted = (const AzOptionRawImageVariant_Some*)value;
+    bool valid = casted->tag == AzOptionRawImageTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionRawImage_matchMut(AzOptionRawImage* restrict value, AzRawImage* restrict * restrict out) {
+    AzOptionRawImageVariant_Some* restrict casted = (AzOptionRawImageVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionRawImageTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionSvgDashPattern_matchRef(const AzOptionSvgDashPattern* value, const AzSvgDashPattern** restrict out) {
+    const AzOptionSvgDashPatternVariant_Some* casted = (const AzOptionSvgDashPatternVariant_Some*)value;
+    bool valid = casted->tag == AzOptionSvgDashPatternTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionSvgDashPattern_matchMut(AzOptionSvgDashPattern* restrict value, AzSvgDashPattern* restrict * restrict out) {
+    AzOptionSvgDashPatternVariant_Some* restrict casted = (AzOptionSvgDashPatternVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionSvgDashPatternTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWaylandTheme_matchRef(const AzOptionWaylandTheme* value, const AzWaylandTheme** restrict out) {
+    const AzOptionWaylandThemeVariant_Some* casted = (const AzOptionWaylandThemeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionWaylandThemeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWaylandTheme_matchMut(AzOptionWaylandTheme* restrict value, AzWaylandTheme* restrict * restrict out) {
+    AzOptionWaylandThemeVariant_Some* restrict casted = (AzOptionWaylandThemeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionWaylandThemeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTaskBarIcon_matchRef(const AzOptionTaskBarIcon* value, const AzTaskBarIcon** restrict out) {
+    const AzOptionTaskBarIconVariant_Some* casted = (const AzOptionTaskBarIconVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTaskBarIconTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTaskBarIcon_matchMut(AzOptionTaskBarIcon* restrict value, AzTaskBarIcon* restrict * restrict out) {
+    AzOptionTaskBarIconVariant_Some* restrict casted = (AzOptionTaskBarIconVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTaskBarIconTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionHwndHandle_matchRef(const AzOptionHwndHandle* value, const Az*mut c_void** restrict out) {
+    const AzOptionHwndHandleVariant_Some* casted = (const AzOptionHwndHandleVariant_Some*)value;
+    bool valid = casted->tag == AzOptionHwndHandleTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionHwndHandle_matchMut(AzOptionHwndHandle* restrict value, Az*mut c_void* restrict * restrict out) {
+    AzOptionHwndHandleVariant_Some* restrict casted = (AzOptionHwndHandleVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionHwndHandleTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLogicalPosition_matchRef(const AzOptionLogicalPosition* value, const AzLogicalPosition** restrict out) {
+    const AzOptionLogicalPositionVariant_Some* casted = (const AzOptionLogicalPositionVariant_Some*)value;
+    bool valid = casted->tag == AzOptionLogicalPositionTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLogicalPosition_matchMut(AzOptionLogicalPosition* restrict value, AzLogicalPosition* restrict * restrict out) {
+    AzOptionLogicalPositionVariant_Some* restrict casted = (AzOptionLogicalPositionVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionLogicalPositionTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPhysicalPositionI32_matchRef(const AzOptionPhysicalPositionI32* value, const AzPhysicalPositionI32** restrict out) {
+    const AzOptionPhysicalPositionI32Variant_Some* casted = (const AzOptionPhysicalPositionI32Variant_Some*)value;
+    bool valid = casted->tag == AzOptionPhysicalPositionI32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPhysicalPositionI32_matchMut(AzOptionPhysicalPositionI32* restrict value, AzPhysicalPositionI32* restrict * restrict out) {
+    AzOptionPhysicalPositionI32Variant_Some* restrict casted = (AzOptionPhysicalPositionI32Variant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionPhysicalPositionI32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWindowIcon_matchRef(const AzOptionWindowIcon* value, const AzWindowIcon** restrict out) {
+    const AzOptionWindowIconVariant_Some* casted = (const AzOptionWindowIconVariant_Some*)value;
+    bool valid = casted->tag == AzOptionWindowIconTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionWindowIcon_matchMut(AzOptionWindowIcon* restrict value, AzWindowIcon* restrict * restrict out) {
+    AzOptionWindowIconVariant_Some* restrict casted = (AzOptionWindowIconVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionWindowIconTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionString_matchRef(const AzOptionString* value, const AzString** restrict out) {
+    const AzOptionStringVariant_Some* casted = (const AzOptionStringVariant_Some*)value;
+    bool valid = casted->tag == AzOptionStringTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionString_matchMut(AzOptionString* restrict value, AzString* restrict * restrict out) {
+    AzOptionStringVariant_Some* restrict casted = (AzOptionStringVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionStringTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionX11Visual_matchRef(const AzOptionX11Visual* value, const Az*const c_void** restrict out) {
+    const AzOptionX11VisualVariant_Some* casted = (const AzOptionX11VisualVariant_Some*)value;
+    bool valid = casted->tag == AzOptionX11VisualTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionX11Visual_matchMut(AzOptionX11Visual* restrict value, Az*const c_void* restrict * restrict out) {
+    AzOptionX11VisualVariant_Some* restrict casted = (AzOptionX11VisualVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionX11VisualTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionI32_matchRef(const AzOptionI32* value, const Azi32** restrict out) {
+    const AzOptionI32Variant_Some* casted = (const AzOptionI32Variant_Some*)value;
+    bool valid = casted->tag == AzOptionI32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionI32_matchMut(AzOptionI32* restrict value, Azi32* restrict * restrict out) {
+    AzOptionI32Variant_Some* restrict casted = (AzOptionI32Variant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionI32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionF32_matchRef(const AzOptionF32* value, const Azf32** restrict out) {
+    const AzOptionF32Variant_Some* casted = (const AzOptionF32Variant_Some*)value;
+    bool valid = casted->tag == AzOptionF32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionF32_matchMut(AzOptionF32* restrict value, Azf32* restrict * restrict out) {
+    AzOptionF32Variant_Some* restrict casted = (AzOptionF32Variant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionF32Tag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMouseCursorType_matchRef(const AzOptionMouseCursorType* value, const AzMouseCursorType** restrict out) {
+    const AzOptionMouseCursorTypeVariant_Some* casted = (const AzOptionMouseCursorTypeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionMouseCursorTypeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMouseCursorType_matchMut(AzOptionMouseCursorType* restrict value, AzMouseCursorType* restrict * restrict out) {
+    AzOptionMouseCursorTypeVariant_Some* restrict casted = (AzOptionMouseCursorTypeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionMouseCursorTypeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLogicalSize_matchRef(const AzOptionLogicalSize* value, const AzLogicalSize** restrict out) {
+    const AzOptionLogicalSizeVariant_Some* casted = (const AzOptionLogicalSizeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionLogicalSizeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionLogicalSize_matchMut(AzOptionLogicalSize* restrict value, AzLogicalSize* restrict * restrict out) {
+    AzOptionLogicalSizeVariant_Some* restrict casted = (AzOptionLogicalSizeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionLogicalSizeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionChar_matchRef(const AzOptionChar* value, const Azu32** restrict out) {
+    const AzOptionCharVariant_Some* casted = (const AzOptionCharVariant_Some*)value;
+    bool valid = casted->tag == AzOptionCharTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionChar_matchMut(AzOptionChar* restrict value, Azu32* restrict * restrict out) {
+    AzOptionCharVariant_Some* restrict casted = (AzOptionCharVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionCharTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionVirtualKeyCode_matchRef(const AzOptionVirtualKeyCode* value, const AzVirtualKeyCode** restrict out) {
+    const AzOptionVirtualKeyCodeVariant_Some* casted = (const AzOptionVirtualKeyCodeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionVirtualKeyCodeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionVirtualKeyCode_matchMut(AzOptionVirtualKeyCode* restrict value, AzVirtualKeyCode* restrict * restrict out) {
+    AzOptionVirtualKeyCodeVariant_Some* restrict casted = (AzOptionVirtualKeyCodeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionVirtualKeyCodeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDom_matchRef(const AzOptionDom* value, const AzDom** restrict out) {
+    const AzOptionDomVariant_Some* casted = (const AzOptionDomVariant_Some*)value;
+    bool valid = casted->tag == AzOptionDomTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDom_matchMut(AzOptionDom* restrict value, AzDom* restrict * restrict out) {
+    AzOptionDomVariant_Some* restrict casted = (AzOptionDomVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionDomTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTexture_matchRef(const AzOptionTexture* value, const AzTexture** restrict out) {
+    const AzOptionTextureVariant_Some* casted = (const AzOptionTextureVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTextureTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTexture_matchMut(AzOptionTexture* restrict value, AzTexture* restrict * restrict out) {
+    AzOptionTextureVariant_Some* restrict casted = (AzOptionTextureVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTextureTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionImageMask_matchRef(const AzOptionImageMask* value, const AzImageMask** restrict out) {
+    const AzOptionImageMaskVariant_Some* casted = (const AzOptionImageMaskVariant_Some*)value;
+    bool valid = casted->tag == AzOptionImageMaskTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionImageMask_matchMut(AzOptionImageMask* restrict value, AzImageMask* restrict * restrict out) {
+    AzOptionImageMaskVariant_Some* restrict casted = (AzOptionImageMaskVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionImageMaskTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTabIndex_matchRef(const AzOptionTabIndex* value, const AzTabIndex** restrict out) {
+    const AzOptionTabIndexVariant_Some* casted = (const AzOptionTabIndexVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTabIndexTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTabIndex_matchMut(AzOptionTabIndex* restrict value, AzTabIndex* restrict * restrict out) {
+    AzOptionTabIndexVariant_Some* restrict casted = (AzOptionTabIndexVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTabIndexTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTagId_matchRef(const AzOptionTagId* value, const AzTagId** restrict out) {
+    const AzOptionTagIdVariant_Some* casted = (const AzOptionTagIdVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTagIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTagId_matchMut(AzOptionTagId* restrict value, AzTagId* restrict * restrict out) {
+    AzOptionTagIdVariant_Some* restrict casted = (AzOptionTagIdVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTagIdTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDuration_matchRef(const AzOptionDuration* value, const AzDuration** restrict out) {
+    const AzOptionDurationVariant_Some* casted = (const AzOptionDurationVariant_Some*)value;
+    bool valid = casted->tag == AzOptionDurationTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDuration_matchMut(AzOptionDuration* restrict value, AzDuration* restrict * restrict out) {
+    AzOptionDurationVariant_Some* restrict casted = (AzOptionDurationVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionDurationTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionInstant_matchRef(const AzOptionInstant* value, const AzInstant** restrict out) {
+    const AzOptionInstantVariant_Some* casted = (const AzOptionInstantVariant_Some*)value;
+    bool valid = casted->tag == AzOptionInstantTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionInstant_matchMut(AzOptionInstant* restrict value, AzInstant* restrict * restrict out) {
+    AzOptionInstantVariant_Some* restrict casted = (AzOptionInstantVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionInstantTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionUsize_matchRef(const AzOptionUsize* value, const Azusize** restrict out) {
+    const AzOptionUsizeVariant_Some* casted = (const AzOptionUsizeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionUsizeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionUsize_matchMut(AzOptionUsize* restrict value, Azusize* restrict * restrict out) {
+    AzOptionUsizeVariant_Some* restrict casted = (AzOptionUsizeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionUsizeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU8Vec_matchRef(const AzOptionU8Vec* value, const AzU8Vec** restrict out) {
+    const AzOptionU8VecVariant_Some* casted = (const AzOptionU8VecVariant_Some*)value;
+    bool valid = casted->tag == AzOptionU8VecTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU8Vec_matchMut(AzOptionU8Vec* restrict value, AzU8Vec* restrict * restrict out) {
+    AzOptionU8VecVariant_Some* restrict casted = (AzOptionU8VecVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionU8VecTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU8VecRef_matchRef(const AzOptionU8VecRef* value, const AzU8VecRef** restrict out) {
+    const AzOptionU8VecRefVariant_Some* casted = (const AzOptionU8VecRefVariant_Some*)value;
+    bool valid = casted->tag == AzOptionU8VecRefTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionU8VecRef_matchMut(AzOptionU8VecRef* restrict value, AzU8VecRef* restrict * restrict out) {
+    AzOptionU8VecRefVariant_Some* restrict casted = (AzOptionU8VecRefVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionU8VecRefTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultXmlXmlError_matchRef(const AzResultXmlXmlError* value, const AzXml** restrict out) {
+    const AzResultXmlXmlErrorVariant_Ok* casted = (const AzResultXmlXmlErrorVariant_Ok*)value;
+    bool valid = casted->tag == AzResultXmlXmlErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultXmlXmlError_matchMut(AzResultXmlXmlError* restrict value, AzXml* restrict * restrict out) {
+    AzResultXmlXmlErrorVariant_Ok* restrict casted = (AzResultXmlXmlErrorVariant_Ok* restrict)value;
+    bool valid = casted->tag == AzResultXmlXmlErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultXmlXmlError_matchRef(const AzResultXmlXmlError* value, const AzXmlError** restrict out) {
+    const AzResultXmlXmlErrorVariant_Err* casted = (const AzResultXmlXmlErrorVariant_Err*)value;
+    bool valid = casted->tag == AzResultXmlXmlErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultXmlXmlError_matchMut(AzResultXmlXmlError* restrict value, AzXmlError* restrict * restrict out) {
+    AzResultXmlXmlErrorVariant_Err* restrict casted = (AzResultXmlXmlErrorVariant_Err* restrict)value;
+    bool valid = casted->tag == AzResultXmlXmlErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultRawImageDecodeImageError_matchRef(const AzResultRawImageDecodeImageError* value, const AzRawImage** restrict out) {
+    const AzResultRawImageDecodeImageErrorVariant_Ok* casted = (const AzResultRawImageDecodeImageErrorVariant_Ok*)value;
+    bool valid = casted->tag == AzResultRawImageDecodeImageErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultRawImageDecodeImageError_matchMut(AzResultRawImageDecodeImageError* restrict value, AzRawImage* restrict * restrict out) {
+    AzResultRawImageDecodeImageErrorVariant_Ok* restrict casted = (AzResultRawImageDecodeImageErrorVariant_Ok* restrict)value;
+    bool valid = casted->tag == AzResultRawImageDecodeImageErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultRawImageDecodeImageError_matchRef(const AzResultRawImageDecodeImageError* value, const AzDecodeImageError** restrict out) {
+    const AzResultRawImageDecodeImageErrorVariant_Err* casted = (const AzResultRawImageDecodeImageErrorVariant_Err*)value;
+    bool valid = casted->tag == AzResultRawImageDecodeImageErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultRawImageDecodeImageError_matchMut(AzResultRawImageDecodeImageError* restrict value, AzDecodeImageError* restrict * restrict out) {
+    AzResultRawImageDecodeImageErrorVariant_Err* restrict casted = (AzResultRawImageDecodeImageErrorVariant_Err* restrict)value;
+    bool valid = casted->tag == AzResultRawImageDecodeImageErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultU8VecEncodeImageError_matchRef(const AzResultU8VecEncodeImageError* value, const AzU8Vec** restrict out) {
+    const AzResultU8VecEncodeImageErrorVariant_Ok* casted = (const AzResultU8VecEncodeImageErrorVariant_Ok*)value;
+    bool valid = casted->tag == AzResultU8VecEncodeImageErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultU8VecEncodeImageError_matchMut(AzResultU8VecEncodeImageError* restrict value, AzU8Vec* restrict * restrict out) {
+    AzResultU8VecEncodeImageErrorVariant_Ok* restrict casted = (AzResultU8VecEncodeImageErrorVariant_Ok* restrict)value;
+    bool valid = casted->tag == AzResultU8VecEncodeImageErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultU8VecEncodeImageError_matchRef(const AzResultU8VecEncodeImageError* value, const AzEncodeImageError** restrict out) {
+    const AzResultU8VecEncodeImageErrorVariant_Err* casted = (const AzResultU8VecEncodeImageErrorVariant_Err*)value;
+    bool valid = casted->tag == AzResultU8VecEncodeImageErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultU8VecEncodeImageError_matchMut(AzResultU8VecEncodeImageError* restrict value, AzEncodeImageError* restrict * restrict out) {
+    AzResultU8VecEncodeImageErrorVariant_Err* restrict casted = (AzResultU8VecEncodeImageErrorVariant_Err* restrict)value;
+    bool valid = casted->tag == AzResultU8VecEncodeImageErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgXmlNodeSvgParseError_matchRef(const AzResultSvgXmlNodeSvgParseError* value, const AzSvgXmlNode** restrict out) {
+    const AzResultSvgXmlNodeSvgParseErrorVariant_Ok* casted = (const AzResultSvgXmlNodeSvgParseErrorVariant_Ok*)value;
+    bool valid = casted->tag == AzResultSvgXmlNodeSvgParseErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgXmlNodeSvgParseError_matchMut(AzResultSvgXmlNodeSvgParseError* restrict value, AzSvgXmlNode* restrict * restrict out) {
+    AzResultSvgXmlNodeSvgParseErrorVariant_Ok* restrict casted = (AzResultSvgXmlNodeSvgParseErrorVariant_Ok* restrict)value;
+    bool valid = casted->tag == AzResultSvgXmlNodeSvgParseErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgXmlNodeSvgParseError_matchRef(const AzResultSvgXmlNodeSvgParseError* value, const AzSvgParseError** restrict out) {
+    const AzResultSvgXmlNodeSvgParseErrorVariant_Err* casted = (const AzResultSvgXmlNodeSvgParseErrorVariant_Err*)value;
+    bool valid = casted->tag == AzResultSvgXmlNodeSvgParseErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgXmlNodeSvgParseError_matchMut(AzResultSvgXmlNodeSvgParseError* restrict value, AzSvgParseError* restrict * restrict out) {
+    AzResultSvgXmlNodeSvgParseErrorVariant_Err* restrict casted = (AzResultSvgXmlNodeSvgParseErrorVariant_Err* restrict)value;
+    bool valid = casted->tag == AzResultSvgXmlNodeSvgParseErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgSvgParseError_matchRef(const AzResultSvgSvgParseError* value, const AzSvg** restrict out) {
+    const AzResultSvgSvgParseErrorVariant_Ok* casted = (const AzResultSvgSvgParseErrorVariant_Ok*)value;
+    bool valid = casted->tag == AzResultSvgSvgParseErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgSvgParseError_matchMut(AzResultSvgSvgParseError* restrict value, AzSvg* restrict * restrict out) {
+    AzResultSvgSvgParseErrorVariant_Ok* restrict casted = (AzResultSvgSvgParseErrorVariant_Ok* restrict)value;
+    bool valid = casted->tag == AzResultSvgSvgParseErrorTag_Ok;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgSvgParseError_matchRef(const AzResultSvgSvgParseError* value, const AzSvgParseError** restrict out) {
+    const AzResultSvgSvgParseErrorVariant_Err* casted = (const AzResultSvgSvgParseErrorVariant_Err*)value;
+    bool valid = casted->tag == AzResultSvgSvgParseErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzResultSvgSvgParseError_matchMut(AzResultSvgSvgParseError* restrict value, AzSvgParseError* restrict * restrict out) {
+    AzResultSvgSvgParseErrorVariant_Err* restrict casted = (AzResultSvgSvgParseErrorVariant_Err* restrict)value;
+    bool valid = casted->tag == AzResultSvgSvgParseErrorTag_Err;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgParseError_matchRef(const AzSvgParseError* value, const AzXmlError** restrict out) {
+    const AzSvgParseErrorVariant_ParsingFailed* casted = (const AzSvgParseErrorVariant_ParsingFailed*)value;
+    bool valid = casted->tag == AzSvgParseErrorTag_ParsingFailed;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgParseError_matchMut(AzSvgParseError* restrict value, AzXmlError* restrict * restrict out) {
+    AzSvgParseErrorVariant_ParsingFailed* restrict casted = (AzSvgParseErrorVariant_ParsingFailed* restrict)value;
+    bool valid = casted->tag == AzSvgParseErrorTag_ParsingFailed;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_InvalidXmlPrefixUri* casted = (const AzXmlErrorVariant_InvalidXmlPrefixUri*)value;
+    bool valid = casted->tag == AzXmlErrorTag_InvalidXmlPrefixUri;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_InvalidXmlPrefixUri* restrict casted = (AzXmlErrorVariant_InvalidXmlPrefixUri* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_InvalidXmlPrefixUri;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_UnexpectedXmlUri* casted = (const AzXmlErrorVariant_UnexpectedXmlUri*)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedXmlUri;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_UnexpectedXmlUri* restrict casted = (AzXmlErrorVariant_UnexpectedXmlUri* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedXmlUri;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_UnexpectedXmlnsUri* casted = (const AzXmlErrorVariant_UnexpectedXmlnsUri*)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedXmlnsUri;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_UnexpectedXmlnsUri* restrict casted = (AzXmlErrorVariant_UnexpectedXmlnsUri* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedXmlnsUri;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_InvalidElementNamePrefix* casted = (const AzXmlErrorVariant_InvalidElementNamePrefix*)value;
+    bool valid = casted->tag == AzXmlErrorTag_InvalidElementNamePrefix;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_InvalidElementNamePrefix* restrict casted = (AzXmlErrorVariant_InvalidElementNamePrefix* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_InvalidElementNamePrefix;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzDuplicatedNamespaceError** restrict out) {
+    const AzXmlErrorVariant_DuplicatedNamespace* casted = (const AzXmlErrorVariant_DuplicatedNamespace*)value;
+    bool valid = casted->tag == AzXmlErrorTag_DuplicatedNamespace;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzDuplicatedNamespaceError* restrict * restrict out) {
+    AzXmlErrorVariant_DuplicatedNamespace* restrict casted = (AzXmlErrorVariant_DuplicatedNamespace* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_DuplicatedNamespace;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzUnknownNamespaceError** restrict out) {
+    const AzXmlErrorVariant_UnknownNamespace* casted = (const AzXmlErrorVariant_UnknownNamespace*)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnknownNamespace;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzUnknownNamespaceError* restrict * restrict out) {
+    AzXmlErrorVariant_UnknownNamespace* restrict casted = (AzXmlErrorVariant_UnknownNamespace* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnknownNamespace;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzUnexpectedCloseTagError** restrict out) {
+    const AzXmlErrorVariant_UnexpectedCloseTag* casted = (const AzXmlErrorVariant_UnexpectedCloseTag*)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedCloseTag;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzUnexpectedCloseTagError* restrict * restrict out) {
+    AzXmlErrorVariant_UnexpectedCloseTag* restrict casted = (AzXmlErrorVariant_UnexpectedCloseTag* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedCloseTag;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_UnexpectedEntityCloseTag* casted = (const AzXmlErrorVariant_UnexpectedEntityCloseTag*)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedEntityCloseTag;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_UnexpectedEntityCloseTag* restrict casted = (AzXmlErrorVariant_UnexpectedEntityCloseTag* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnexpectedEntityCloseTag;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzUnknownEntityReferenceError** restrict out) {
+    const AzXmlErrorVariant_UnknownEntityReference* casted = (const AzXmlErrorVariant_UnknownEntityReference*)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnknownEntityReference;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzUnknownEntityReferenceError* restrict * restrict out) {
+    AzXmlErrorVariant_UnknownEntityReference* restrict casted = (AzXmlErrorVariant_UnknownEntityReference* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_UnknownEntityReference;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_MalformedEntityReference* casted = (const AzXmlErrorVariant_MalformedEntityReference*)value;
+    bool valid = casted->tag == AzXmlErrorTag_MalformedEntityReference;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_MalformedEntityReference* restrict casted = (AzXmlErrorVariant_MalformedEntityReference* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_MalformedEntityReference;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_EntityReferenceLoop* casted = (const AzXmlErrorVariant_EntityReferenceLoop*)value;
+    bool valid = casted->tag == AzXmlErrorTag_EntityReferenceLoop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_EntityReferenceLoop* restrict casted = (AzXmlErrorVariant_EntityReferenceLoop* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_EntityReferenceLoop;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlErrorVariant_InvalidAttributeValue* casted = (const AzXmlErrorVariant_InvalidAttributeValue*)value;
+    bool valid = casted->tag == AzXmlErrorTag_InvalidAttributeValue;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlErrorVariant_InvalidAttributeValue* restrict casted = (AzXmlErrorVariant_InvalidAttributeValue* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_InvalidAttributeValue;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzDuplicatedAttributeError** restrict out) {
+    const AzXmlErrorVariant_DuplicatedAttribute* casted = (const AzXmlErrorVariant_DuplicatedAttribute*)value;
+    bool valid = casted->tag == AzXmlErrorTag_DuplicatedAttribute;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzDuplicatedAttributeError* restrict * restrict out) {
+    AzXmlErrorVariant_DuplicatedAttribute* restrict casted = (AzXmlErrorVariant_DuplicatedAttribute* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_DuplicatedAttribute;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchRef(const AzXmlError* value, const AzXmlParseError** restrict out) {
+    const AzXmlErrorVariant_ParserError* casted = (const AzXmlErrorVariant_ParserError*)value;
+    bool valid = casted->tag == AzXmlErrorTag_ParserError;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlError_matchMut(AzXmlError* restrict value, AzXmlParseError* restrict * restrict out) {
+    AzXmlErrorVariant_ParserError* restrict casted = (AzXmlErrorVariant_ParserError* restrict)value;
+    bool valid = casted->tag == AzXmlErrorTag_ParserError;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidDeclaration* casted = (const AzXmlParseErrorVariant_InvalidDeclaration*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidDeclaration;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidDeclaration* restrict casted = (AzXmlParseErrorVariant_InvalidDeclaration* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidDeclaration;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidComment* casted = (const AzXmlParseErrorVariant_InvalidComment*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidComment;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidComment* restrict casted = (AzXmlParseErrorVariant_InvalidComment* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidComment;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidPI* casted = (const AzXmlParseErrorVariant_InvalidPI*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidPI;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidPI* restrict casted = (AzXmlParseErrorVariant_InvalidPI* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidPI;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidDoctype* casted = (const AzXmlParseErrorVariant_InvalidDoctype*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidDoctype;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidDoctype* restrict casted = (AzXmlParseErrorVariant_InvalidDoctype* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidDoctype;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidEntity* casted = (const AzXmlParseErrorVariant_InvalidEntity*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidEntity;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidEntity* restrict casted = (AzXmlParseErrorVariant_InvalidEntity* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidEntity;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidElement* casted = (const AzXmlParseErrorVariant_InvalidElement*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidElement;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidElement* restrict casted = (AzXmlParseErrorVariant_InvalidElement* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidElement;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidAttribute* casted = (const AzXmlParseErrorVariant_InvalidAttribute*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidAttribute;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidAttribute* restrict casted = (AzXmlParseErrorVariant_InvalidAttribute* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidAttribute;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidCdata* casted = (const AzXmlParseErrorVariant_InvalidCdata*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidCdata;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidCdata* restrict casted = (AzXmlParseErrorVariant_InvalidCdata* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidCdata;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzXmlTextError** restrict out) {
+    const AzXmlParseErrorVariant_InvalidCharData* casted = (const AzXmlParseErrorVariant_InvalidCharData*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidCharData;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzXmlTextError* restrict * restrict out) {
+    AzXmlParseErrorVariant_InvalidCharData* restrict casted = (AzXmlParseErrorVariant_InvalidCharData* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_InvalidCharData;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchRef(const AzXmlParseError* value, const AzSvgParseErrorPosition** restrict out) {
+    const AzXmlParseErrorVariant_UnknownToken* casted = (const AzXmlParseErrorVariant_UnknownToken*)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_UnknownToken;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlParseError_matchMut(AzXmlParseError* restrict value, AzSvgParseErrorPosition* restrict * restrict out) {
+    AzXmlParseErrorVariant_UnknownToken* restrict casted = (AzXmlParseErrorVariant_UnknownToken* restrict)value;
+    bool valid = casted->tag == AzXmlParseErrorTag_UnknownToken;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchRef(const AzXmlStreamError* value, const AzNonXmlCharError** restrict out) {
+    const AzXmlStreamErrorVariant_NonXmlChar* casted = (const AzXmlStreamErrorVariant_NonXmlChar*)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_NonXmlChar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchMut(AzXmlStreamError* restrict value, AzNonXmlCharError* restrict * restrict out) {
+    AzXmlStreamErrorVariant_NonXmlChar* restrict casted = (AzXmlStreamErrorVariant_NonXmlChar* restrict)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_NonXmlChar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchRef(const AzXmlStreamError* value, const AzInvalidCharError** restrict out) {
+    const AzXmlStreamErrorVariant_InvalidChar* casted = (const AzXmlStreamErrorVariant_InvalidChar*)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidChar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchMut(AzXmlStreamError* restrict value, AzInvalidCharError* restrict * restrict out) {
+    AzXmlStreamErrorVariant_InvalidChar* restrict casted = (AzXmlStreamErrorVariant_InvalidChar* restrict)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidChar;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchRef(const AzXmlStreamError* value, const AzInvalidCharMultipleError** restrict out) {
+    const AzXmlStreamErrorVariant_InvalidCharMultiple* casted = (const AzXmlStreamErrorVariant_InvalidCharMultiple*)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidCharMultiple;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchMut(AzXmlStreamError* restrict value, AzInvalidCharMultipleError* restrict * restrict out) {
+    AzXmlStreamErrorVariant_InvalidCharMultiple* restrict casted = (AzXmlStreamErrorVariant_InvalidCharMultiple* restrict)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidCharMultiple;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchRef(const AzXmlStreamError* value, const AzInvalidQuoteError** restrict out) {
+    const AzXmlStreamErrorVariant_InvalidQuote* casted = (const AzXmlStreamErrorVariant_InvalidQuote*)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidQuote;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchMut(AzXmlStreamError* restrict value, AzInvalidQuoteError* restrict * restrict out) {
+    AzXmlStreamErrorVariant_InvalidQuote* restrict casted = (AzXmlStreamErrorVariant_InvalidQuote* restrict)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidQuote;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchRef(const AzXmlStreamError* value, const AzInvalidSpaceError** restrict out) {
+    const AzXmlStreamErrorVariant_InvalidSpace* casted = (const AzXmlStreamErrorVariant_InvalidSpace*)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidSpace;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchMut(AzXmlStreamError* restrict value, AzInvalidSpaceError* restrict * restrict out) {
+    AzXmlStreamErrorVariant_InvalidSpace* restrict casted = (AzXmlStreamErrorVariant_InvalidSpace* restrict)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidSpace;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchRef(const AzXmlStreamError* value, const AzInvalidStringError** restrict out) {
+    const AzXmlStreamErrorVariant_InvalidString* casted = (const AzXmlStreamErrorVariant_InvalidString*)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidString;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzXmlStreamError_matchMut(AzXmlStreamError* restrict value, AzInvalidStringError* restrict * restrict out) {
+    AzXmlStreamErrorVariant_InvalidString* restrict casted = (AzXmlStreamErrorVariant_InvalidString* restrict)value;
+    bool valid = casted->tag == AzXmlStreamErrorTag_InvalidString;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
 
 
 
