@@ -17,6 +17,7 @@ use azul_core::{
     },
 };
 use core::{
+    fmt,
     cell::{BorrowError, BorrowMutError, RefCell},
     ffi::c_void,
     mem, ptr,
@@ -65,18 +66,28 @@ impl RectTrait for RECT {
         (self.bottom - self.top).max(0) as u32
     }
 }
+
 pub fn get_monitors(app: &App) -> MonitorVec {
     MonitorVec::from_const_slice(&[]) // TODO
 }
 
 /// Main function that starts when app.run() is invoked
-pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsStartupError> {
-    use winapi::um::{
-        libloaderapi::GetModuleHandleW,
-        wingdi::wglMakeCurrent,
-        winuser::{
-            DispatchMessageW, GetDC, GetMessageW, RegisterClassW, ReleaseDC, SetProcessDPIAware,
-            TranslateMessage, CS_HREDRAW, CS_OWNDC, CS_VREDRAW, MSG, WNDCLASSW,
+pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsStartupError> {
+
+    use winapi::{
+        shared::minwindef::FALSE,
+        um::{
+            libloaderapi::GetModuleHandleW,
+            wingdi::wglMakeCurrent,
+            winbase::{INFINITE, WAIT_FAILED},
+            winuser::{
+                DispatchMessageW, GetDC, GetMessageW,
+                RegisterClassW, ReleaseDC, SetProcessDPIAware,
+                TranslateMessage, MsgWaitForMultipleObjects,
+                PeekMessageW, GetForegroundWindow,
+                CS_HREDRAW, CS_OWNDC, QS_ALLEVENTS,
+                CS_VREDRAW, MSG, WNDCLASSW, PM_NOREMOVE, PM_NOYIELD
+            }
         },
     };
 
@@ -114,6 +125,7 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
         image_cache,
         fc_cache,
     } = app;
+
     let app_data_inner = Rc::new(RefCell::new(ApplicationData {
         hinstance,
         data,
@@ -125,12 +137,9 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
         timers: BTreeMap::new(),
         dwm,
     }));
-    let application_data = SharedApplicationData {
-        inner: app_data_inner.clone(),
-    };
 
     for opts in windows {
-        if let Ok(w) = Window::create(hinstance, opts, application_data.clone()) {
+        if let Ok(w) = Window::create(hinstance, opts, SharedApplicationData { inner: app_data_inner.clone() }) {
             app_data_inner
                 .try_borrow_mut()?
                 .windows
@@ -138,7 +147,7 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
         }
     }
 
-    if let Ok(w) = Window::create(hinstance, root_window, application_data.clone()) {
+    if let Ok(w) = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() }) {
         app_data_inner
             .try_borrow_mut()?
             .windows
@@ -158,6 +167,7 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
     let mut hwnds = Vec::new();
 
     'main: loop {
+
         {
             let app = match app_data_inner.try_borrow().ok() {
                 Some(s) => s,
@@ -169,11 +179,54 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
             }
         }
 
-        for hwnd in hwnds.iter() {
-            unsafe {
-                results.push(GetMessageW(&mut msg, *hwnd, 0, 0));
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+        // For single-window apps, GetMessageW will block until
+        // the next event comes in. For multi-window apps we have
+        // to use PeekMessage in order to not block in case that
+        // there are no messages for that window
+
+        let is_multiwindow = match hwnds.len() {
+            0 | 1 => false,
+            _ => true,
+        };
+
+        if is_multiwindow {
+
+            for hwnd in hwnds.iter() {
+                unsafe {
+                    let r = PeekMessageW(&mut msg, *hwnd, 0, 0, PM_NOREMOVE);
+
+                    if r > 0 {
+                        // new message available
+                        let r = GetMessageW(&mut msg, *hwnd, 0, 0);
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                        results.push(r);
+                    }
+                }
+            }
+
+            // It would be great if there was a function like
+            // MsgWaitForMultipleObjects([hwnd]), so that you could
+            // wait on one of many input events
+            //
+            // The best workaround is to get the foreground window
+            // (that the user is interacting with) and then
+            // wait until some event happens to that foreground window
+            let mut dump_msg: MSG = unsafe { mem::zeroed() };
+            while !hwnds.iter().any(|hwnd| unsafe { PeekMessageW(&mut dump_msg, *hwnd, 0, 0, PM_NOREMOVE) > 0 }) {
+                // reduce CPU load for multi-window apps
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        } else {
+            for hwnd in hwnds.iter() {
+                unsafe {
+                    let r = GetMessageW(&mut msg, *hwnd, 0, 0);
+                    if r > 0 {
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                    results.push(r);
+                }
             }
         }
 
@@ -183,7 +236,7 @@ pub fn run(mut app: App, root_window: WindowCreateOptions) -> Result<isize, Wind
             }
         }
 
-        if results.is_empty() || hwnds.is_empty() {
+        if hwnds.is_empty() {
             break 'main;
         }
 
@@ -291,12 +344,13 @@ impl WrRenderNotifier for Notifier {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct SharedApplicationData {
     inner: Rc<RefCell<ApplicationData>>,
 }
 
 // ApplicationData struct that is shared across
+#[derive(Debug)]
 struct ApplicationData {
     hinstance: HINSTANCE,
     data: RefAny,
@@ -315,6 +369,16 @@ struct DwmFunctions {
     DwmEnableBlurBehindWindow: Option<extern "system" fn(HWND, &DWM_BLURBEHIND) -> HRESULT>,
     DwmExtendFrameIntoClientArea: Option<extern "system" fn(HWND, &MARGINS) -> HRESULT>,
     DwmDefWindowProc: Option<extern "system" fn(HWND, UINT, WPARAM, LPARAM, *mut LRESULT)>,
+}
+
+impl fmt::Debug for DwmFunctions {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (self._dwmapi_dll_handle as usize).fmt(f)?;
+        (self.DwmEnableBlurBehindWindow.map(|f| f as usize)).fmt(f)?;
+        (self.DwmExtendFrameIntoClientArea.map(|f| f as usize)).fmt(f)?;
+        (self.DwmExtendFrameIntoClientArea.map(|f| f as usize)).fmt(f)?;
+        Ok(())
+    }
 }
 
 impl DwmFunctions {
@@ -365,9 +429,7 @@ impl DwmFunctions {
 impl Drop for DwmFunctions {
     fn drop(&mut self) {
         use winapi::um::libloaderapi::FreeLibrary;
-        unsafe {
-            FreeLibrary(self._dwmapi_dll_handle);
-        }
+        unsafe { FreeLibrary(self._dwmapi_dll_handle); }
     }
 }
 
@@ -375,6 +437,13 @@ impl Drop for DwmFunctions {
 struct GlFunctions {
     _opengl32_dll_handle: Option<HINSTANCE>,
     functions: Rc<GenericGlContext>, // implements Rc<dyn gleam::Gl>!
+}
+
+impl fmt::Debug for GlFunctions {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self._opengl32_dll_handle.map(|f| f as usize).fmt(f)?;
+        Ok(())
+    }
 }
 
 impl GlFunctions {
@@ -1315,8 +1384,16 @@ impl Drop for GlFunctions {
 struct ExtraWglFunctions {
     wglCreateContextAttribsARB: Option<extern "system" fn(HDC, HGLRC, *const [i32]) -> HGLRC>,
     wglSwapIntervalEXT: Option<extern "system" fn(i32) -> i32>,
-    wglChoosePixelFormatARB:
-        Option<extern "system" fn(HDC, *const [i32], *const f32, u32, *mut i32, *mut u32) -> BOOL>,
+    wglChoosePixelFormatARB: Option<extern "system" fn(HDC, *const [i32], *const f32, u32, *mut i32, *mut u32) -> BOOL>,
+}
+
+impl fmt::Debug for ExtraWglFunctions {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.wglCreateContextAttribsARB.map(|f| f as usize).fmt(f)?;
+        self.wglSwapIntervalEXT.map(|f| f as usize).fmt(f)?;
+        self.wglChoosePixelFormatARB.map(|f| f as usize).fmt(f)?;
+        Ok(())
+    }
 }
 
 impl ExtraWglFunctions {
@@ -1387,7 +1464,31 @@ struct Window {
     menu_callbacks: BTreeMap<u16, MenuCallback>,
 }
 
+impl fmt::Debug for Window {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.hwnd.fmt(f)?;
+        self.state.fmt(f)?;
+        self.internal.fmt(f)?;
+        self.gl_context.fmt(f)?;
+        self.gl_context_ptr.fmt(f)?;
+        self.renderer.is_some().fmt(f)?;
+        self.menu_callbacks.fmt(f)?;
+        Ok(())
+    }
+}
+
+impl Drop for Window {
+    fn drop(&mut self) {
+        use winapi::um::wingdi::wglMakeCurrent;
+        unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+        if let Some(renderer) = self.renderer.take() {
+            renderer.deinit();
+        }
+    }
+}
+
 impl Window {
+
     fn get_id(&self) -> usize {
         self.hwnd as usize
     }
@@ -1428,7 +1529,6 @@ impl Window {
             },
         };
 
-        let window_data = Box::new(data.clone());
         let parent_window = match options
             .state
             .platform_specific_options
@@ -1442,6 +1542,9 @@ impl Window {
 
         let mut class_name = encode_wide(CLASS_NAME);
         let mut window_title = encode_wide(options.state.title.as_str());
+
+        let data_ptr = Box::into_raw(Box::new(data.clone())) as *mut SharedApplicationData as *mut c_void;
+
 
         // Create the window
         let hwnd = unsafe {
@@ -1460,12 +1563,12 @@ impl Window {
                 // Size and position: set later, after DPI factor has been queried
                 CW_USEDEFAULT, // x
                 CW_USEDEFAULT, // y
-                CW_USEDEFAULT, // width
-                CW_USEDEFAULT, // height
+                if options.size_to_content { 0 } else { libm::roundf(options.state.size.dimensions.width) as i32 }, // width
+                if options.size_to_content { 0 } else { libm::roundf(options.state.size.dimensions.height) as i32 }, // height
                 parent_window,
                 ptr::null_mut(), // Menu
                 hinstance,
-                Box::leak(window_data) as *mut SharedApplicationData as *mut c_void,
+                data_ptr,
             )
         };
 
@@ -1535,20 +1638,17 @@ impl Window {
             })
             .into();
 
-        println!("{:?}", gl_context_ptr);
 
         // WindowInternal::new() may dispatch OpenGL calls,
         // need to make context current before invoking
         let hdc = unsafe { GetDC(hwnd) };
         if let Some(hrc) = opengl_context.as_mut() {
-            println!("making context current");
             unsafe { wglMakeCurrent(hdc, *hrc) };
         }
 
         // Invoke callback to initialize UI for the first time
         let mut initial_resource_updates = Vec::new();
 
-        println!("WrRenderer::new...");
 
         let (mut renderer, sender) = match WrRenderer::new(
             gl.functions.clone(),
@@ -1574,7 +1674,6 @@ impl Window {
         ) {
             Ok(o) => o,
             Err(e) => unsafe {
-                println!("error: {:?}", e);
                 if let Some(hrc) = opengl_context.as_mut() {
                     unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
                     unsafe { wglDeleteContext(*hrc) };
@@ -1585,7 +1684,6 @@ impl Window {
             },
         };
 
-        println!("WrRenderer::new ok!");
 
         renderer.set_external_image_handler(Box::new(Compositor::default()));
 
@@ -1608,7 +1706,6 @@ impl Window {
 
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
 
-        println!("physical_size: {:?}", physical_size);
 
         let framebuffer_size =
             WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
@@ -1637,10 +1734,9 @@ impl Window {
             },
         };
 
-        println!("appdata locked!");
 
         let mut internal = {
-            let mut appdata_lock = &mut *appdata_lock;
+            let appdata_lock = &mut *appdata_lock;
             let fc_cache = &mut appdata_lock.fc_cache;
             let image_cache = &appdata_lock.image_cache;
             let data = &mut appdata_lock.data;
@@ -1673,17 +1769,12 @@ impl Window {
             })
         };
 
-        println!("window internal ok!");
 
         if let Some(hrc) = opengl_context.as_ref() {
             unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
         }
 
-        unsafe {
-            ReleaseDC(hwnd, hdc);
-        }
-
-        println!("adding menus...");
+        unsafe { ReleaseDC(hwnd, hdc); }
 
         // Since the menu bar affects the window size, set it first,
         // before querying the window size again
@@ -1698,10 +1789,6 @@ impl Window {
             }
             menu_callbacks = callbacks;
         }
-
-        println!("ok!");
-
-        println!("size to content...");
 
         // If size_to_content is set, query the content size and adjust!
         if options.size_to_content {
@@ -1722,7 +1809,6 @@ impl Window {
             }
         }
 
-        println!("ok!");
 
         // Query the client area from Win32 (not DPI adjusted) and adjust framebuffer
         let mut rect: RECT = unsafe { mem::zeroed() };
@@ -1742,12 +1828,11 @@ impl Window {
         render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
 
-        println!("client area: {:?}", physical_size);
 
         // re-layout the window content for the first frame
         // (since the width / height might have changed)
         {
-            let mut appdata_lock = &mut *appdata_lock;
+            let appdata_lock = &mut *appdata_lock;
             let fc_cache = &mut appdata_lock.fc_cache;
             let image_cache = &appdata_lock.image_cache;
 
@@ -1764,10 +1849,6 @@ impl Window {
             });
         }
 
-        println!("resize ok!");
-
-        println!("building display list...");
-
         // Build the display list and send it to webrender for the first time
         rebuild_display_list(
             &mut internal,
@@ -1775,8 +1856,6 @@ impl Window {
             &appdata_lock.image_cache,
             initial_resource_updates,
         );
-
-        println!("ok!");
 
         // Unlock the SharedApplicationData
         mem::drop(appdata_lock);
@@ -1787,7 +1866,7 @@ impl Window {
             GetCursorPos(&mut cursor_pos);
         }
         unsafe { ScreenToClient(hwnd, &mut cursor_pos) };
-        let mut cursor_pos_logical = LogicalPosition {
+        let cursor_pos_logical = LogicalPosition {
             x: cursor_pos.x as f32 / dpi_factor,
             y: cursor_pos.y as f32 / dpi_factor,
         };
@@ -1797,7 +1876,6 @@ impl Window {
             CursorPosition::InWindow(cursor_pos_logical)
         };
 
-        println!("cursor pos: {:?}", cursor_pos_logical);
 
         // Update the hit-tester to account for the new hit-testing functionality
         let hit_tester = render_api
@@ -1807,6 +1885,7 @@ impl Window {
         // Done! Window is now created properly, display list has been built by
         // WebRender (window is ready to render), menu bar is visible and hit-tester
         // now contains the newest UI tree.
+
 
         // NOTE: The window is NOT stored yet
         Ok(Window {
@@ -1827,16 +1906,18 @@ impl Window {
     fn show(&mut self) {
         use azul_core::window::WindowFrame;
         use winapi::um::winuser::{
-            ShowWindow, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_SHOWDEFAULT,
+            ShowWindow, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_SHOWNORMAL,
         };
 
         let mut sw_options = SW_HIDE; // 0 = default
         if self.state.flags.is_visible {
-            sw_options |= SW_SHOWDEFAULT;
+            sw_options |= SW_SHOWNORMAL;
         }
 
         match self.state.flags.frame {
-            WindowFrame::Normal => sw_options |= SW_NORMAL,
+            WindowFrame::Normal => sw_options |= {
+                SW_NORMAL
+            },
             WindowFrame::Minimized => sw_options |= SW_MINIMIZE,
             WindowFrame::Maximized => sw_options |= SW_MAXIMIZE,
             WindowFrame::Fullscreen => sw_options |= SW_MAXIMIZE,
@@ -2287,26 +2368,220 @@ unsafe extern "system" fn WindowProc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    use winapi::um::winuser::DefWindowProcW;
 
-    /*
-        WM_CREATE => {
-            window.rebuild_display_list(&mut txn, image_cache, initial_resource_updates);
-            window.force_synchronize_hit_tester_initial(image_cache);
-        },
-        WM_DPICHANGED => {
+    use winapi::um::winuser::{
+        DefWindowProcW, SetWindowLongPtrW,
+        GetWindowLongPtrW, PostQuitMessage,
+        WM_NCCREATE, WM_TIMER, WM_COMMAND,
+        WM_CREATE, WM_NCMOUSELEAVE, WM_ERASEBKGND,
+        WM_MOUSEMOVE, WM_DESTROY, WM_PAINT, WM_ACTIVATE,
+        WM_MOUSEWHEEL, WM_SIZE, WM_NCHITTEST,
+        WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
+        WM_LBUTTONUP, WM_RBUTTONUP,
 
-        },
-        WM_PAINT => {
-            window.render_async(txn, true);
-        },
-        WM_DPICHANGED => {
+        CREATESTRUCTW, GWLP_USERDATA,
+    };
+    use winapi::um::wingdi::wglMakeCurrent;
 
-        },
-        WM_COMMAND => {
 
-        },
-    */
+    return if msg == WM_NCCREATE {
+        let createstruct: *mut CREATESTRUCTW = mem::transmute(lparam);
+        let data_ptr = (*createstruct).lpCreateParams;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, mem::transmute(data_ptr));
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    } else {
 
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+        let shared_application_data: *mut SharedApplicationData = mem::transmute(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if shared_application_data == ptr::null_mut() {
+            // message fired before WM_NCCREATE: ignore
+            return DefWindowProcW(hwnd, msg, wparam, lparam);
+        }
+        let shared_application_data: &mut SharedApplicationData = &mut *shared_application_data;
+
+        let mut app_borrow = match shared_application_data.inner.try_borrow_mut() {
+            Ok(b) => b,
+            Err(e) => { return DefWindowProcW(hwnd, msg, wparam, lparam); },
+        };
+
+        let hwnd_key = hwnd as usize;
+
+        match msg {
+            WM_CREATE => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_ACTIVATE => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_ERASEBKGND => {
+                mem::drop(app_borrow);
+                1
+            },
+            WM_MOUSEMOVE => {
+                // if( cursor_needs_setting ) {
+                //     SetClassLongPtr(hwnd, GCLP_HCURSOR, (LONG_PTR)LoadCursor(NULL, IDC_ARROW));
+                //     cursor_needs_setting = FALSE;
+                // }
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_NCMOUSELEAVE => {
+                // cursor_needs_setting = TRUE;
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_RBUTTONDOWN => {
+                /*
+                use winapi::um::winuser::{
+                    CreatePopupMenu, InsertMenuW, TrackPopupMenu, SetForegroundWindow,
+                    GetCursorPos,
+                    MF_BYPOSITION, MF_STRING, TPM_TOPALIGN, TPM_LEFTALIGN
+                };
+                use winapi::shared::windef::POINT;
+                let mut pos: POINT = POINT { x: 0, y: 0 };
+                GetCursorPos(&mut pos);
+                let hPopupMenu = CreatePopupMenu();
+                let mut a = encode_wide("Exit");
+                let mut b = encode_wide("Play");
+                InsertMenuW(hPopupMenu, 0, MF_BYPOSITION | MF_STRING, 0, a.as_mut_ptr());
+                InsertMenuW(hPopupMenu, 0, MF_BYPOSITION | MF_STRING, 0, b.as_mut_ptr());
+                SetForegroundWindow(hwnd);
+                TrackPopupMenu(hPopupMenu, TPM_TOPALIGN | TPM_LEFTALIGN, pos.x, pos.y, 0, hwnd, ptr::null_mut())
+                */
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_RBUTTONUP => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_LBUTTONDOWN => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_LBUTTONUP => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_MOUSEWHEEL => {
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_DPICHANGED => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_SIZE => {
+                // update display list, relayout + update hit-tester
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_NCHITTEST => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_PAINT => {
+
+                use winapi::um::{
+                    wingdi::SwapBuffers,
+                    winuser::{GetDC, ReleaseDC, GetClientRect},
+                };
+                use gleam::gl::{Gl, COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT};
+
+                /*
+                    app_borrow.hinstance: HINSTANCE,
+                    app_borrow.data: RefAny,
+                    app_borrow.config: AppConfig,
+                    app_borrow.image_cache: ImageCache,
+                    app_borrow.fc_cache: LazyFcCache,
+                    app_borrow.windows: BTreeMap<usize, Window>,
+                    app_borrow.threads: BTreeMap<ThreadId, Thread>,
+                    app_borrow.timers: BTreeMap<TimerId, Timer>,
+                    app_borrow.dwm: Option<DwmFunctions>,
+
+                    current_window.hwnd: HWND,
+                    current_window.state: WindowState,
+                    current_window.internal: WindowInternal,
+                    current_window.gl_context: Option<HGLRC>,
+                    current_window.gl_functions: GlFunctions,
+                    current_window.gl_context_ptr: OptionGlContextPtr,
+                    current_window.render_api: WrRenderApi,
+                    current_window.renderer: Option<WrRenderer>,
+                    current_window.hit_tester: Arc<dyn WrApiHitTester>,
+                    current_window.menu_callbacks: BTreeMap<u16, MenuCallback>,
+                */
+
+                let hDC = GetDC(hwnd);
+                if hDC.is_null() {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
+
+                let mut app = &mut *app_borrow;
+                let mut current_window = match app.windows.get_mut(&hwnd_key) {
+                    Some(s) => s,
+                    None => {
+                        // message fired before window was created: ignore
+                        mem::drop(app_borrow);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam)
+                    },
+                };
+
+                let gl_context = match current_window.gl_context {
+                    Some(s) => s,
+                    None => {
+                        // TODO: software rendering
+                        mem::drop(app_borrow);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    },
+                };
+
+                wglMakeCurrent(hDC, gl_context);
+
+                let mut rect: RECT = mem::zeroed();
+                GetClientRect(hwnd, &mut rect);
+
+                let mut gl = &mut current_window.gl_functions.functions;
+                gl.viewport(0, 0, rect.right, rect.bottom);
+                gl.clear_color(0.0, 0.0, 1.0, 0.0);
+                gl.clear_depth(1.0);
+                gl.clear(COLOR_BUFFER_BIT | DEPTH_BUFFER_BIT);
+                gl.flush();
+
+                SwapBuffers(hDC);
+                wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                ReleaseDC(hwnd, hDC);
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_TIMER => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_COMMAND => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_DESTROY => {
+                let windows_is_emtpy = {
+                    let mut app = &mut *app_borrow;
+                    let _ = app.windows.remove(&(hwnd as usize));
+                    app.windows.is_empty()
+                };
+
+                // destruct the window data
+                let mut window_data = Box::from_raw(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SharedApplicationData);
+                mem::drop(window_data);
+                mem::drop(app_borrow);
+                if windows_is_emtpy {
+                    PostQuitMessage(0);
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            _ => {
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
+        }
+    };
 }

@@ -32,8 +32,6 @@ use rust_fontconfig::FcFontCache;
 use crate::gl::OptionGlContextPtr;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
-pub const DEFAULT_WIDTH: f32 = 800.0;
-pub const DEFAULT_HEIGHT: f32 = 600.0;
 
 static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 

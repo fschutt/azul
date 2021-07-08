@@ -27,13 +27,13 @@ backtrace               = { version = "0.3.43", default-features = false, option
 rust-fontconfig         = { version = "0.1.5", default-features = false, features = ["std"] }
 strfmt                  = { version = "0.1.6", default-features = false }
 libm                    = { version = "0.2.1", default-features = false }
+gleam                   = { version = "0.13.1", default-features = false }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi                  = { version = "0.3.9", default-features = false, features = ["libloaderapi", "errhandlingapi", "winuser", "uxtheme", "dwmapi", "wingdi"] }
 gl-context-loader       = { version = "0.1.1", features = ["std"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-gleam                   = { version = "0.13.1", default-features = false }
 glutin                  = { version = "0.26.0", default-features = false, package = "azul-glutin", features = ["x11", "wayland"] } # NOTE: wayland currently has dependency issues, but works!
 coarsetime              = { version = "0.1.19", default-features = false }
 
