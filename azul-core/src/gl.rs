@@ -693,7 +693,7 @@ impl core::fmt::Debug for GlContextPtr {
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, gl_context: Rc<dyn Gl>) -> Self {
 
-        const SVG_VERTEX_SHADER: &[u8] = b"
+        static SVG_VERTEX_SHADER: &[u8] = b"
             #version 130
 
             precision mediump float;
@@ -707,7 +707,7 @@ impl GlContextPtr {
             }
         ";
 
-        const SVG_FRAGMENT_SHADER: &[u8] = b"
+        static SVG_FRAGMENT_SHADER: &[u8] = b"
             #version 130
 
             precision mediump float;
@@ -720,7 +720,7 @@ impl GlContextPtr {
             }
         ";
 
-        const FXAA_VERTEX_SHADER: &[u8] = b"
+        static FXAA_VERTEX_SHADER: &[u8] = b"
             #version 130
 
             /*
@@ -777,7 +777,7 @@ impl GlContextPtr {
             }
         ";
 
-        const FXAA_FRAGMENT_SHADER: &[u8] = b"
+        static FXAA_FRAGMENT_SHADER: &[u8] = b"
             #version 130
 
             /**
@@ -892,7 +892,6 @@ impl GlContextPtr {
         ";
 
         // compile SVG shader
-
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);

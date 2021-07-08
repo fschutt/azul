@@ -1107,8 +1107,9 @@ dependencies = [
 
 [[package]]
 name = "gl-context-loader"
-version = "0.1.0"
-source = "git+https://github.com/fschutt/gl-context-loader?rev=409638365232c28e04c9d8d012a92edd6f794844#409638365232c28e04c9d8d012a92edd6f794844"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a251c188852eb9dba97ddc82adc02ca5d54d4b685a3dd1ee795c08b22767497"
 dependencies = [
  "gleam",
 ]
