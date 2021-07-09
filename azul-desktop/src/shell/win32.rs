@@ -38,6 +38,7 @@ use webrender::{
             DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
             DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
         },
+        HitTesterRequest as WrHitTesterRequest,
         ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
         RenderNotifier as WrRenderNotifier,
     },
@@ -1467,7 +1468,7 @@ struct Window {
     /// WebRender renderer implementation (software or hardware)
     renderer: Option<WrRenderer>,
     /// Hit-tester, lazily initialized and updated every time the display list changes layout
-    hit_tester: Arc<dyn WrApiHitTester>,
+    hit_tester: AsyncHitTester,
     /// ID -> Callback map for the window menu (default: empty map)
     menu_callbacks: BTreeMap<u16, MenuCallback>,
 }
@@ -1487,8 +1488,11 @@ impl fmt::Debug for Window {
 
 impl Drop for Window {
     fn drop(&mut self) {
-        use winapi::um::wingdi::wglMakeCurrent;
+        use winapi::um::wingdi::{wglMakeCurrent, wglDeleteContext};
         unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+        if let Some(context) = self.gl_context.as_mut() {
+            unsafe { wglDeleteContext(*context); }
+        }
         if let Some(renderer) = self.renderer.take() {
             renderer.deinit();
         }
@@ -1750,8 +1754,8 @@ impl Window {
             Ok(o) => o,
             Err(e) => unsafe {
                 if let Some(hrc) = opengl_context.as_mut() {
-                    unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
-                    unsafe { wglDeleteContext(*hrc) };
+                    wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                    wglDeleteContext(*hrc);
                 }
                 ReleaseDC(hwnd, hdc);
                 DestroyWindow(hwnd);
@@ -1927,7 +1931,7 @@ impl Window {
             gl_context_ptr,
             render_api,
             renderer: Some(renderer),
-            hit_tester,
+            hit_tester: AsyncHitTester::Resolved(hit_tester),
             menu_callbacks,
         })
     }
@@ -2238,6 +2242,7 @@ struct WindowsMenuBar {
 static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1); // 0 = no command
 
 impl WindowsMenuBar {
+
     fn new(new: &Menu) -> Self {
         use winapi::um::winuser::CreateMenu;
 
@@ -2327,6 +2332,27 @@ impl WindowsMenuBar {
     }
 }
 
+enum AsyncHitTester {
+    Requested(WrHitTesterRequest),
+    Resolved(Arc<dyn WrApiHitTester>),
+}
+
+impl AsyncHitTester {
+    pub fn resolve(&mut self) -> Arc<dyn WrApiHitTester> {
+        let mut _swap: Self = unsafe { mem::zeroed() };
+        mem::swap(self, &mut _swap);
+        let mut new = match _swap {
+            AsyncHitTester::Requested(r) => r.resolve(),
+            AsyncHitTester::Resolved(r) => r.clone(),
+        };
+        let r = new.clone();
+        let mut swap_back = AsyncHitTester::Resolved(new.clone());
+        mem::swap(self, &mut swap_back);
+        mem::forget(swap_back);
+        return r;
+    }
+}
+
 unsafe extern "system" fn WindowProc(
     hwnd: HWND,
     msg: u32,
@@ -2384,6 +2410,18 @@ unsafe extern "system" fn WindowProc(
                 1
             },
             WM_MOUSEMOVE => {
+                use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
+
+                let x = GET_X_LPARAM(lparam);
+                let y = GET_Y_LPARAM(lparam);
+
+                // update window state
+                // do hit test
+                // invoke callbacks
+                // if callbacks need re-render, regenerate display list (?) + generate frame
+                // if frame generated, send WM_PAINT
+
+                println!("mouse move to {} {}", x, y);
                 // if( cursor_needs_setting ) {
                 //     SetClassLongPtr(hwnd, GCLP_HCURSOR, (LONG_PTR)LoadCursor(NULL, IDC_ARROW));
                 //     cursor_needs_setting = FALSE;
