@@ -1432,65 +1432,6 @@ pub struct WindowsContextMenu {
     pub hash: u64,
 }
 
-/// Scroll all nodes in the ScrollStates to their correct position and insert
-/// the positions into the transaction
-///
-/// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
-/// indicate whether it was used during the current frame or not.
-fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
-    println!("scrolling nodes to position: {:#?}", scroll_states);
-    use webrender::api::ScrollClamping;
-    use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
-    for (key, value) in scroll_states.0.iter() {
-        txn.scroll_node_with_id(
-            wr_translate_logical_position(value.get()),
-            wr_translate_external_scroll_id(*key),
-            ScrollClamping::ToContentBounds
-        );
-    }
-}
-
-/// Synchronize transform / opacity keys
-fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransaction) {
-
-    use webrender::api::{
-        PropertyBindingKey as WrPropertyBindingKey,
-        PropertyValue as WrPropertyValue,
-        DynamicProperties as WrDynamicProperties,
-    };
-    use crate::wr_translate::wr_translate_layout_transform;
-
-    let transforms = layout_results.iter().flat_map(|lr| {
-        lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
-            let value = lr.gpu_value_cache.current_transform_values.get(nid)?;
-            Some((key, value.clone()))
-        }).collect::<Vec<_>>().into_iter()
-    })
-    .map(|(k, v)| WrPropertyValue {
-        key: WrPropertyBindingKey::new(k.id as u64),
-        value: wr_translate_layout_transform(&v),
-    })
-    .collect::<Vec<_>>();
-
-    let floats = layout_results.iter().flat_map(|lr| {
-        lr.gpu_value_cache.opacity_keys.iter().filter_map(|(nid, key)| {
-            let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
-            Some((key, *value))
-        }).collect::<Vec<_>>().into_iter()
-    })
-    .map(|(k, v)| WrPropertyValue {
-        key: WrPropertyBindingKey::new(k.id as u64),
-        value: v,
-    })
-    .collect::<Vec<_>>();
-
-    txn.update_dynamic_properties(WrDynamicProperties {
-        transforms,
-        floats,
-        colors: Vec::new(), // TODO: animate colors?
-    });
-}
-
 fn synchronize_os_window_platform_extensions(
     old_state: &PlatformSpecificOptions,
     new_state: &PlatformSpecificOptions,

@@ -4,7 +4,15 @@
 //! Win32 implementation of the window shell containing all functions
 //! related to running the application
 
-use crate::app::{App, LazyFcCache};
+use crate::{
+    app::{App, LazyFcCache},
+    wr_translate::{
+        rebuild_display_list,
+        generate_frame,
+        synchronize_gpu_values,
+        scroll_all_nodes,
+    }
+};
 use alloc::{collections::BTreeMap, rc::Rc, sync::Arc};
 use azul_core::{
     app_resources::{AppConfig, ImageCache, ResourceUpdate},
@@ -1632,6 +1640,23 @@ impl Window {
                 gl.load();
                 // compiles SVG and FXAA shader programs...
                 let ptr = GlContextPtr::new(rt, gl.functions.clone());
+
+                /*
+                match options.renderer.as_ref().map(|v| v.vsync) {
+                    Some(VSync::Enabled) => {
+                        if let Some(wglSwapIntervalEXT) = extra_functions.wglSwapIntervalEXT {
+                            unsafe { (wglSwapIntervalEXT)(1) };
+                        }
+                    },
+                    Some(VSync::Disabled) => {
+                        if let Some(wglSwapIntervalEXT) = extra_functions.wglSwapIntervalEXT {
+                            unsafe { (wglSwapIntervalEXT)(0) };
+                        }
+                    },
+                    _ => { },
+                }
+                */
+
                 unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
                 ReleaseDC(hwnd, hdc);
                 ptr
@@ -1857,6 +1882,12 @@ impl Window {
             initial_resource_updates,
         );
 
+        generate_frame(
+            &mut internal,
+            &mut render_api,
+            true,
+        );
+
         // Unlock the SharedApplicationData
         mem::drop(appdata_lock);
 
@@ -1875,7 +1906,6 @@ impl Window {
         } else {
             CursorPosition::InWindow(cursor_pos_logical)
         };
-
 
         // Update the hit-tester to account for the new hit-testing functionality
         let hit_tester = render_api
@@ -1927,68 +1957,6 @@ impl Window {
             ShowWindow(self.hwnd, sw_options);
         }
     }
-}
-
-/// Returns the size fo the built display list
-#[cfg(not(test))]
-pub fn rebuild_display_list(
-    internal: &mut WindowInternal,
-    render_api: &mut WrRenderApi,
-    image_cache: &ImageCache,
-    resources: Vec<ResourceUpdate>,
-) {
-    use crate::wr_translate::{
-        wr_translate_display_list, wr_translate_document_id, wr_translate_epoch,
-        wr_translate_pipeline_id, wr_translate_resource_update,
-    };
-    use azul_core::callbacks::PipelineId;
-    use azul_core::styled_dom::DomId;
-    use azul_core::ui_solver::LayoutResult;
-
-    let mut txn = WrTransaction::new();
-
-    // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    let root_id = DomId { inner: 0 };
-    let cached_display_list = LayoutResult::get_cached_display_list(
-        &internal.document_id,
-        root_id,
-        internal.epoch,
-        &internal.layout_results,
-        &internal.current_window_state,
-        &internal.gl_texture_cache,
-        &internal.renderer_resources,
-        image_cache,
-    );
-
-    let root_pipeline_id = PipelineId(0, internal.document_id.id);
-    let display_list = wr_translate_display_list(
-        internal.document_id,
-        render_api,
-        cached_display_list,
-        root_pipeline_id,
-        internal.current_window_state.size.hidpi_factor,
-    );
-
-    let logical_size = WrLayoutSize::new(
-        internal.current_window_state.size.dimensions.width,
-        internal.current_window_state.size.dimensions.height,
-    );
-
-    txn.update_resources(
-        resources
-            .into_iter()
-            .map(wr_translate_resource_update)
-            .collect(),
-    );
-    txn.set_display_list(
-        wr_translate_epoch(internal.epoch),
-        None,
-        logical_size.clone(),
-        (wr_translate_pipeline_id(root_pipeline_id), display_list),
-        true,
-    );
-
-    render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
 }
 
 // function can fail: creates an OpenGL context on the HWND, stores the context on the window-associated data
@@ -2208,9 +2176,6 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
     } else {
         None
     };
-
-    // TODO: set vsync
-    // let wglSwapIntervalEXT = extra_functions.wglSwapIntervalEXT;
 
     let hRC = match CreateContextAttribsARB {
         Some(func) => unsafe { (func)(hDC, ptr::null_mut(), &context_attribs[..]) },
@@ -2488,6 +2453,10 @@ unsafe extern "system" fn WindowProc(
                 };
                 use gleam::gl::{Gl, COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT};
 
+                // Assuming that the display list has been submitted and the
+                // scene on the background thread has been rebuilt, now tell
+                // webrender to pain the scene
+
                 /*
                     app_borrow.hinstance: HINSTANCE,
                     app_borrow.data: RefAny,
@@ -2541,14 +2510,51 @@ unsafe extern "system" fn WindowProc(
                 let mut rect: RECT = mem::zeroed();
                 GetClientRect(hwnd, &mut rect);
 
+                // Block until all transactions (display list build)
+                // have finished processing
+                //
+                // Usually this shouldn't take too long, since DL building
+                // happens asynchronously between WM_SIZE and WM_PAINT
+                current_window.render_api.flush_scene_builder();
+
                 let mut gl = &mut current_window.gl_functions.functions;
-                gl.viewport(0, 0, rect.right, rect.bottom);
-                gl.clear_color(0.0, 0.0, 1.0, 0.0);
-                gl.clear_depth(1.0);
-                gl.clear(COLOR_BUFFER_BIT | DEPTH_BUFFER_BIT);
-                gl.flush();
+
+                gl.bind_framebuffer(gleam::gl::FRAMEBUFFER, 0);
+                gl.disable(gleam::gl::FRAMEBUFFER_SRGB);
+                gl.disable(gleam::gl::MULTISAMPLE);
+                gl.viewport(0, 0, rect.width() as i32, rect.height() as i32);
+
+                let mut current_program = [0_i32];
+                gl.get_integer_v(gleam::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+
+                let framebuffer_size = WrDeviceIntSize::new(
+                    rect.width() as i32,
+                    rect.height() as i32
+                );
+
+                // Render
+                if let Some(r) = current_window.renderer.as_mut() {
+                    r.update();
+                    let _ = r.render(framebuffer_size, 0);
+                    let pipeline_info = r.flush_pipeline_info();
+                    if !pipeline_info.epochs.is_empty() {
+                        // delete unused external OpenGL texture
+                        use crate::wr_translate::translate_epoch_wr;
+
+                        let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
+                        azul_core::gl::gl_textures_remove_epochs_from_pipeline(
+                            &current_window.internal.document_id,
+                            translate_epoch_wr(*oldest_to_remove_epoch)
+                        );
+                    }
+                }
 
                 SwapBuffers(hDC);
+
+                gl.bind_framebuffer(gleam::gl::FRAMEBUFFER, 0);
+                gl.bind_texture(gleam::gl::TEXTURE_2D, 0);
+                gl.use_program(current_program[0] as u32);
+
                 wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
                 ReleaseDC(hwnd, hDC);
                 mem::drop(app_borrow);

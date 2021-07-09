@@ -22,6 +22,9 @@ use webrender::api::{
         ImageDirtyRect as WrImageDirtyRect,
         LayoutVector2D as WrLayoutVector2D,
         LayoutTransform as WrLayoutTransform,
+        DeviceIntPoint as WrDeviceIntPoint,
+        DeviceIntSize as WrDeviceIntSize,
+        DeviceIntRect as WrDeviceIntRect,
     },
     ApiHitTester as WrApiHitTester,
     DebugFlags as WrDebugFlags,
@@ -79,7 +82,7 @@ use webrender::api::{
 use azul_core::{
     callbacks::{PipelineId, DocumentId, DomNodeId},
     app_resources::{
-        FontKey, Au, FontInstanceKey, ImageKey,
+        FontKey, Au, FontInstanceKey, ImageKey, ImageCache,
         IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor, ImageDescriptorFlags,
         FontInstanceFlags, FontRenderMode, GlyphOptions, ResourceUpdate,
         AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
@@ -96,7 +99,11 @@ use azul_core::{
     dom::TagId,
     display_list::DisplayListImageMask,
     ui_solver::{LayoutResult, ExternalScrollId, PositionInfo, ComputedTransform3D},
-    window::{LogicalSize, CursorPosition, LogicalPosition, FullHitTest, LogicalRect, DebugState},
+    window::{
+        LogicalSize, CursorPosition, LogicalPosition,
+        FullHitTest, LogicalRect, DebugState,
+        ScrollStates, WindowInternal,
+    },
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use azul_core::app_resources::{FontLCDFilter, FontHinting};
@@ -795,6 +802,167 @@ pub(crate) fn fullhittest_new_webrender(
     }
 
     ret
+}
+
+/// Scroll all nodes in the ScrollStates to their correct position and insert
+/// the positions into the transaction
+///
+/// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
+/// indicate whether it was used during the current frame or not.
+pub(crate) fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
+    use webrender::api::ScrollClamping;
+    use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
+    for (key, value) in scroll_states.0.iter() {
+        txn.scroll_node_with_id(
+            wr_translate_logical_position(value.get()),
+            wr_translate_external_scroll_id(*key),
+            ScrollClamping::ToContentBounds
+        );
+    }
+}
+
+/// Synchronize transform / opacity keys
+pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransaction) {
+
+    use webrender::api::{
+        PropertyBindingKey as WrPropertyBindingKey,
+        PropertyValue as WrPropertyValue,
+        DynamicProperties as WrDynamicProperties,
+    };
+    use crate::wr_translate::wr_translate_layout_transform;
+
+    let transforms = layout_results.iter().flat_map(|lr| {
+        lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
+            let value = lr.gpu_value_cache.current_transform_values.get(nid)?;
+            Some((key, value.clone()))
+        }).collect::<Vec<_>>().into_iter()
+    })
+    .map(|(k, v)| WrPropertyValue {
+        key: WrPropertyBindingKey::new(k.id as u64),
+        value: wr_translate_layout_transform(&v),
+    })
+    .collect::<Vec<_>>();
+
+    let floats = layout_results.iter().flat_map(|lr| {
+        lr.gpu_value_cache.opacity_keys.iter().filter_map(|(nid, key)| {
+            let value = lr.gpu_value_cache.current_opacity_values.get(nid)?;
+            Some((key, *value))
+        }).collect::<Vec<_>>().into_iter()
+    })
+    .map(|(k, v)| WrPropertyValue {
+        key: WrPropertyBindingKey::new(k.id as u64),
+        value: v,
+    })
+    .collect::<Vec<_>>();
+
+    txn.update_dynamic_properties(WrDynamicProperties {
+        transforms,
+        floats,
+        colors: Vec::new(), // TODO: animate colors?
+    });
+}
+
+/// Returns the size fo the built display list
+#[cfg(not(test))]
+pub(crate) fn rebuild_display_list(
+    internal: &mut WindowInternal,
+    render_api: &mut WrRenderApi,
+    image_cache: &ImageCache,
+    resources: Vec<ResourceUpdate>,
+) {
+    use crate::wr_translate::{
+        wr_translate_display_list, wr_translate_document_id, wr_translate_epoch,
+        wr_translate_pipeline_id, wr_translate_resource_update,
+    };
+    use azul_core::callbacks::PipelineId;
+    use azul_core::styled_dom::DomId;
+    use azul_core::ui_solver::LayoutResult;
+
+    let mut txn = WrTransaction::new();
+
+    // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
+    let root_id = DomId { inner: 0 };
+    let cached_display_list = LayoutResult::get_cached_display_list(
+        &internal.document_id,
+        root_id,
+        internal.epoch,
+        &internal.layout_results,
+        &internal.current_window_state,
+        &internal.gl_texture_cache,
+        &internal.renderer_resources,
+        image_cache,
+    );
+
+    let root_pipeline_id = PipelineId(0, internal.document_id.id);
+    let display_list = wr_translate_display_list(
+        internal.document_id,
+        render_api,
+        cached_display_list,
+        root_pipeline_id,
+        internal.current_window_state.size.hidpi_factor,
+    );
+
+    let logical_size = WrLayoutSize::new(
+        internal.current_window_state.size.dimensions.width,
+        internal.current_window_state.size.dimensions.height,
+    );
+
+    txn.update_resources(
+        resources
+            .into_iter()
+            .map(wr_translate_resource_update)
+            .collect(),
+    );
+    txn.set_display_list(
+        wr_translate_epoch(internal.epoch),
+        None,
+        logical_size.clone(),
+        (wr_translate_pipeline_id(root_pipeline_id), display_list),
+        true,
+    );
+
+    render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+}
+
+/// Generates a new frame for webrender
+#[cfg(not(test))]
+pub(crate) fn generate_frame(
+    internal: &mut WindowInternal,
+    render_api: &mut WrRenderApi,
+    display_list_was_rebuilt: bool
+) {
+    use crate::wr_translate::{
+        wr_translate_pipeline_id,
+        wr_translate_document_id,
+    };
+    use azul_core::callbacks::PipelineId;
+
+    let mut txn = WrTransaction::new();
+
+    let physical_size = internal.current_window_state.size.get_physical_size();
+    let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+
+    // Especially during minimization / maximization of a window, it can happen that the window
+    // width or height is zero. In that case, no rendering is necessary (doing so would crash
+    // the application, since glTexImage2D may never have a 0 as the width or height.
+    if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
+        return;
+    }
+
+    internal.epoch.increment();
+
+    txn.set_root_pipeline(wr_translate_pipeline_id(PipelineId(0, internal.document_id.id)));
+    txn.set_document_view(WrDeviceIntRect::new(WrDeviceIntPoint::new(0, 0), framebuffer_size), internal.current_window_state.size.hidpi_factor);
+    scroll_all_nodes(&mut internal.scroll_states, &mut txn);
+    synchronize_gpu_values(&internal.layout_results, &mut txn);
+
+    if !display_list_was_rebuilt {
+        txn.skip_scene_builder(); // avoid rebuilding the scene if DL hasn't changed
+    }
+
+    txn.generate_frame(0);
+
+    render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
 }
 
 
