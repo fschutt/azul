@@ -1006,6 +1006,19 @@ namespace dll {
     };
     
     
+    enum class MenuPopupPosition {
+       BottomLeftOfCursor,
+       BottomRightOfCursor,
+       TopLeftOfCursor,
+       TopRightOfCursor,
+       BottomOfHitRect,
+       LeftOfHitRect,
+       TopOfHitRect,
+       RightOfHitRect,
+       AutoCursor,
+       AutoHitRect,
+    };
+    
     enum class MenuItemState {
        Normal,
        Greyed,
@@ -6281,6 +6294,7 @@ namespace dll {
     
     struct Menu {
         MenuItemVec items;
+        MenuPopupPosition position;
         Menu& operator=(const Menu&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Menu(const Menu&) = delete; /* disable copy constructor, use explicit .clone() */
         Menu() = delete; /* disable default constructor, use C++20 designated initializer instead */

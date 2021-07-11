@@ -2536,6 +2536,32 @@ impl Hash for TaskBarIcon {
 #[repr(C)]
 pub struct Menu {
     pub items: MenuItemVec,
+    pub position: MenuPopupPosition,
+}
+
+/// Position of where the menu should popup on the screen
+///
+/// Ignored for application-level menus
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub enum MenuPopupPosition {
+    // relative to cursor
+    BottomLeftOfCursor,
+    BottomRightOfCursor,
+    TopLeftOfCursor,
+    TopRightOfCursor,
+
+    // relative to the rect that was clicked on
+    BottomOfHitRect,
+    LeftOfHitRect,
+    TopOfHitRect,
+    RightOfHitRect,
+
+    // calculate the position based on how much space
+    // is available for the context menu to either side
+    // of the screen
+    AutoCursor,
+    AutoHitRect,
 }
 
 impl Menu {

@@ -1105,6 +1105,20 @@ union AzTabIndex {
 };
 typedef union AzTabIndex AzTabIndex;
 
+enum AzMenuPopupPosition {
+   AzMenuPopupPosition_BottomLeftOfCursor,
+   AzMenuPopupPosition_BottomRightOfCursor,
+   AzMenuPopupPosition_TopLeftOfCursor,
+   AzMenuPopupPosition_TopRightOfCursor,
+   AzMenuPopupPosition_BottomOfHitRect,
+   AzMenuPopupPosition_LeftOfHitRect,
+   AzMenuPopupPosition_TopOfHitRect,
+   AzMenuPopupPosition_RightOfHitRect,
+   AzMenuPopupPosition_AutoCursor,
+   AzMenuPopupPosition_AutoHitRect,
+};
+typedef enum AzMenuPopupPosition AzMenuPopupPosition;
+
 enum AzMenuItemState {
    AzMenuItemState_Normal,
    AzMenuItemState_Greyed,
@@ -6923,6 +6937,7 @@ typedef union AzEventFilter AzEventFilter;
 
 struct AzMenu {
     AzMenuItemVec items;
+    AzMenuPopupPosition position;
 };
 typedef struct AzMenu AzMenu;
 

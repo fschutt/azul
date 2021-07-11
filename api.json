@@ -2975,7 +2975,24 @@
                     "doc": "Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API",
                     "external": "azul_core::window::Menu",
                     "struct_fields": [
-                        {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}}
+                        {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}},
+                        {"position": {"type": "MenuPopupPosition", "doc": "Position of where the context menu should pop up. Ignored for application menus."}}
+                    ]
+                },
+                "MenuPopupPosition": {
+                    "doc": "Position of where the context menu should pop up",
+                    "external": "azul_core::window::MenuPopupPosition",
+                    "enum_fields": [
+                        {"BottomLeftOfCursor": {}},
+                        {"BottomRightOfCursor": {}},
+                        {"TopLeftOfCursor": {}},
+                        {"TopRightOfCursor": {}},
+                        {"BottomOfHitRect": {}},
+                        {"LeftOfHitRect": {}},
+                        {"TopOfHitRect": {}},
+                        {"RightOfHitRect": {}},
+                        {"AutoCursor": {}},
+                        {"AutoHitRect": {}}
                     ]
                 },
                 "MenuItem": {

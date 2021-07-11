@@ -833,6 +833,10 @@ pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 pub type AzMenuTT = azul_core::window::Menu;
 pub use AzMenuTT as AzMenu;
 
+/// Position of where the context menu should pop up
+pub type AzMenuPopupPositionTT = azul_core::window::MenuPopupPosition;
+pub use AzMenuPopupPositionTT as AzMenuPopupPosition;
+
 /// Item entry in a menu or menu bar
 pub type AzMenuItemTT = azul_core::window::MenuItem;
 pub use AzMenuItemTT as AzMenuItem;
@@ -4824,6 +4828,21 @@ mod test_sizes {
         NoKeyboardFocus,
     }
 
+    /// Position of where the context menu should pop up
+    #[repr(C)]
+    pub enum AzMenuPopupPosition {
+        BottomLeftOfCursor,
+        BottomRightOfCursor,
+        TopLeftOfCursor,
+        TopRightOfCursor,
+        BottomOfHitRect,
+        LeftOfHitRect,
+        TopOfHitRect,
+        RightOfHitRect,
+        AutoCursor,
+        AutoHitRect,
+    }
+
     /// Describes the state of a menu item
     #[repr(C)]
     pub enum AzMenuItemState {
@@ -8666,6 +8685,7 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzMenu {
         pub items: AzMenuItemVec,
+        pub position: AzMenuPopupPosition,
     }
 
     /// Combination of virtual key codes that have to be pressed together
@@ -10324,6 +10344,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityRole>(), "AzAccessibilityRole"), (Layout::new::<AzAccessibilityRole>(), "AzAccessibilityRole"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityState>(), "AzAccessibilityState"), (Layout::new::<AzAccessibilityState>(), "AzAccessibilityState"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
+        assert_eq!((Layout::new::<azul_core::window::MenuPopupPosition>(), "AzMenuPopupPosition"), (Layout::new::<AzMenuPopupPosition>(), "AzMenuPopupPosition"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
         assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeKey"), (Layout::new::<AzNodeTypeKey>(), "AzNodeTypeKey"));
         assert_eq!((Layout::new::<azul_impl::css::CssNthChildPattern>(), "AzCssNthChildPattern"), (Layout::new::<AzCssNthChildPattern>(), "AzCssNthChildPattern"));

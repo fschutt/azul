@@ -1654,6 +1654,24 @@ mod dll {
         NoKeyboardFocus,
     }
 
+    /// Position of where the context menu should pop up
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzMenuPopupPosition {
+        BottomLeftOfCursor,
+        BottomRightOfCursor,
+        TopLeftOfCursor,
+        TopRightOfCursor,
+        BottomOfHitRect,
+        LeftOfHitRect,
+        TopOfHitRect,
+        RightOfHitRect,
+        AutoCursor,
+        AutoHitRect,
+    }
+
     /// Describes the state of a menu item
     #[repr(C)]
     #[derive(Debug)]
@@ -6858,6 +6876,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzMenu {
         pub items: AzMenuItemVec,
+        pub position: AzMenuPopupPosition,
     }
 
     /// Combination of virtual key codes that have to be pressed together
@@ -10551,6 +10570,9 @@ pub mod menu {
     /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
     
 #[doc(inline)] pub use crate::dll::AzMenu as Menu;
+    /// Position of where the context menu should pop up
+    
+#[doc(inline)] pub use crate::dll::AzMenuPopupPosition as MenuPopupPosition;
     /// Item entry in a menu or menu bar
     
 #[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
