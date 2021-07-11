@@ -13,8 +13,7 @@ extern crate libm;
 extern crate rayon;
 #[macro_use]
 extern crate azul_css;
-#[cfg(feature = "opengl")]
-extern crate gleam;
+extern crate gl_context_loader;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
 #[cfg(feature = "svg")]
@@ -41,7 +40,6 @@ pub mod dom;
 // Algorithms to create git-like diffs between two doms in linear time
 // pub mod diff;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
-#[cfg(feature = "opengl")]
 pub mod gl;
 /// Internal, arena-based storage for Dom nodes
 pub mod id_tree;

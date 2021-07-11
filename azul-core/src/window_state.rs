@@ -64,6 +64,7 @@
 //! ```rust
 
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::btree_set::BTreeSet;
 use crate::{
@@ -777,7 +778,6 @@ impl CallbacksOfHitTest {
     }
 
     /// The actual function that calls the callbacks in their proper hierarchy and order
-    #[cfg(feature = "opengl")]
     pub fn call(
         &mut self,
         previous_window_state: &Option<FullWindowState>,

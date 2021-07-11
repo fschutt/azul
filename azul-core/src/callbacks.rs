@@ -543,12 +543,7 @@ macro_rules! impl_callback {($callback_value:ident) => (
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
     pub fn get_gl_context(&self) -> OptionGlContextPtr {
-        #[cfg(feature = "opengl")] {
-            Some(self.gl_context.clone())
-        }
-        #[cfg(not(feature = "opengl"))] {
-            OptionGlContextPtr::None
-        }
+        Some(self.gl_context.clone())
     }
 };}
 
@@ -1019,7 +1014,6 @@ impl CallbackInfo {
     // this function is necessary to get rid of the lifetimes and to make CallbackInfo C-compatible
     //
     // since the call_callbacks() function is the only function
-    #[cfg(feature = "opengl")]
     #[inline]
     pub fn new<'a, 'b>(
        css_property_cache: &'a CssPropertyCache,
@@ -1137,7 +1131,6 @@ impl CallbackInfo {
 
     pub fn get_current_time(&self) -> Instant { (self.internal_get_extern_system_callbacks().get_system_time_fn.cb)() }
 
-    #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> OptionGlContextPtr { self.internal_get_gl_context().clone() }
 
     pub fn get_scroll_amount(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
@@ -1704,7 +1697,6 @@ impl Clone for RenderImageCallbackInfo {
 
 impl RenderImageCallbackInfo {
 
-    #[cfg(feature = "opengl")]
     pub fn new<'a>(
        gl_context: &'a OptionGlContextPtr,
        image_cache: &'a ImageCache,
@@ -1743,7 +1735,6 @@ impl RenderImageCallbackInfo {
     fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
     fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
 
-    #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> OptionGlContextPtr { self.internal_get_gl_context().clone() }
     pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
     pub fn get_callback_node_id(&self) -> DomNodeId { self.callback_node_id }

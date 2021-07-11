@@ -2,13 +2,18 @@
 use core::{
     fmt,
     hash::{Hasher, Hash},
-    ffi::c_void,
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
-use gleam::gl::{self, Gl, GlType, DebugMessage};
+use gl_context_loader::{
+    GenericGlContext, GlType, gl, GLbitfield,
+    GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES,
+    GLenum, GLfloat, GLint, GLint64, GLintptr, GLsizei,
+    GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid,
+    ctypes::*
+};
 use crate::{
     FastHashMap,
     window::{PhysicalSizeU32, RendererType},
@@ -18,57 +23,12 @@ use crate::{
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
 
-#[allow(non_camel_case_types)]
-pub mod ctypes {
-    // pub enum c_void {}
-    pub type c_char = i8;
-    pub type c_schar = i8;
-    pub type c_uchar = u8;
-    pub type c_short = i16;
-    pub type c_ushort = u16;
-    pub type c_int = i32;
-    pub type c_uint = u32;
-    pub type c_long = i32;
-    pub type c_ulong = u32;
-    pub type c_longlong = i64;
-    pub type c_ulonglong = u64;
-    pub type c_float = f32;
-    pub type c_double = f64;
-    pub type __int8 = i8;
-    pub type __uint8 = u8;
-    pub type __int16 = i16;
-    pub type __uint16 = u16;
-    pub type __int32 = i32;
-    pub type __uint32 = u32;
-    pub type __int64 = i64;
-    pub type __uint64 = u64;
-    pub type wchar_t = u16;
-}
-
-pub use self::ctypes::*;
-
-/// Typedef for an OpenGL handle
-pub type GLuint = u32;
-pub type GLint = i32;
-pub type GLint64 = i64;
-pub type GLuint64 = u64;
-pub type GLenum = u32;
-pub type GLintptr = isize;
-pub type GLboolean = u8;
-pub type GLsizeiptr = isize;
-pub type GLvoid = c_void;
-pub type GLbitfield = u32;
-pub type GLsizei = i32;
-pub type GLclampf = f32;
-pub type GLfloat = f32;
-pub type GLeglImageOES = *const c_void;
-
 /// Passing *const c_void is not easily possible when generating APIs,
 /// so this wrapper struct is for easier API generation
 #[repr(C)]
 #[derive(Debug)]
 pub struct GlVoidPtrConst {
-    pub ptr: *const c_void,
+    pub ptr: *const GLvoid,
 }
 
 impl Clone for GlVoidPtrConst {
@@ -86,7 +46,7 @@ impl Clone for GlVoidPtrConst {
 #[repr(C)]
 #[derive(Debug)]
 pub struct GlVoidPtrMut {
-    pub ptr: *mut c_void,
+    pub ptr: *mut GLvoid,
 }
 
 impl Clone for GlVoidPtrMut {
@@ -475,12 +435,11 @@ pub enum AzGlType {
     Gles,
 }
 
-#[cfg(feature = "opengl")]
 impl From<GlType> for AzGlType {
     fn from(a: GlType) -> AzGlType {
         match a {
             GlType::Gl => AzGlType::Gl,
-            GlType::Gles => AzGlType::Gles,
+            GlType::GlEs => AzGlType::Gles,
         }
     }
 }
@@ -531,8 +490,8 @@ impl core::fmt::Debug for GLsyncPtr {
 }
 
 impl GLsyncPtr {
-    pub fn new(p: gleam::gl::GLsync) -> Self { Self { ptr: p as *const c_void } }
-    pub fn get(self) -> gleam::gl::GLsync { self.ptr as gleam::gl::GLsync }
+    pub fn new(p: GLsync) -> Self { Self { ptr: p as *const c_void } }
+    pub fn get(self) -> GLsync { self.ptr as GLsync }
 }
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
@@ -648,7 +607,6 @@ pub struct GlShaderPrecisionFormatReturn {
     pub _2: GLint,
 }
 
-#[cfg(feature = "opengl")]
 #[repr(C)]
 #[derive(Clone)]
 pub struct GlContextPtr {
@@ -662,10 +620,9 @@ impl GlContextPtr {
     pub fn get_fxaa_shader(&self) -> GLuint { self.ptr.fxaa_shader }
 }
 
-#[cfg(feature = "opengl")]
 #[repr(C)]
 pub struct GlContextPtrInner {
-    pub ptr: Rc<dyn Gl>,
+    pub ptr: Rc<GenericGlContext>,
     /// SVG shader program (library-internal use)
     pub svg_shader: GLuint,
     /// FXAA shader program (library-internal use)
@@ -679,19 +636,16 @@ impl Drop for GlContextPtrInner {
     }
 }
 
-#[cfg(feature = "opengl")]
 impl_option!(GlContextPtr, OptionGlContextPtr, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord]);
 
-#[cfg(feature = "opengl")]
 impl core::fmt::Debug for GlContextPtr {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "0x{:0x}", self.as_usize())
     }
 }
 
-#[cfg(feature = "opengl")]
 impl GlContextPtr {
-    pub fn new(renderer_type: RendererType, gl_context: Rc<dyn Gl>) -> Self {
+    pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
 
         static SVG_VERTEX_SHADER: &[u8] = b"
             #version 130
@@ -936,14 +890,13 @@ impl GlContextPtr {
         }
     }
 
-    pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { &self.ptr.ptr }
+    pub fn get<'a>(&'a self) -> &'a Rc<GenericGlContext> { &self.ptr.ptr }
     fn as_usize(&self) -> usize { (Rc::as_ptr(&self.ptr.ptr) as *const c_void) as usize }
 }
 
-#[cfg(feature = "opengl")]
 impl GlContextPtr {
     pub fn get_type(&self) -> AzGlType { self.get().get_type().into() }
-    pub fn buffer_data_untyped(&self, target: GLenum, size: GLsizeiptr, data: GlVoidPtrConst, usage: GLenum) { self.get().buffer_data_untyped(target, size, data.ptr, usage, ) }
+    pub fn buffer_data_untyped(&self, target: GLenum, size: GLsizeiptr, data: GlVoidPtrConst, usage: GLenum) { self.get().buffer_data_untyped(target, size, data.ptr, usage) }
     pub fn buffer_sub_data_untyped(&self, target: GLenum, offset: isize, size: GLsizeiptr, data: GlVoidPtrConst) { self.get().buffer_sub_data_untyped(target, offset, size, data.ptr) }
     pub fn map_buffer(&self, target: GLenum, access: GLbitfield) -> GlVoidPtrMut { GlVoidPtrMut { ptr: self.get().map_buffer(target, access) } }
     pub fn map_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr, access: GLbitfield) -> GlVoidPtrMut { GlVoidPtrMut { ptr: self.get().map_buffer_range(target, offset, length, access) } }
@@ -1133,7 +1086,7 @@ impl GlContextPtr {
     pub fn stencil_func_separate(&self, face: GLenum, func: GLenum, ref_: GLint, mask: GLuint) { self.get().stencil_func_separate(face, func, ref_, mask) }
     pub fn stencil_op(&self, sfail: GLenum, dpfail: GLenum, dppass: GLenum) { self.get().stencil_op(sfail, dpfail, dppass) }
     pub fn stencil_op_separate(&self, face: GLenum, sfail: GLenum, dpfail: GLenum, dppass: GLenum) { self.get().stencil_op_separate(face, sfail, dpfail, dppass) }
-    pub fn egl_image_target_texture2d_oes(&self, target: GLenum, image: GlVoidPtrConst) { self.get().egl_image_target_texture2d_oes(target, image.ptr) }
+    pub fn egl_image_target_texture2d_oes(&self, target: GLenum, image: GlVoidPtrConst) { self.get().egl_image_target_texture2d_oes(target, image.ptr as *const gl_context_loader::c_void) }
     pub fn generate_mipmap(&self, target: GLenum) { self.get().generate_mipmap(target) }
     pub fn insert_event_marker_ext(&self, message: Refstr) { self.get().insert_event_marker_ext(message.as_str()) }
     pub fn push_group_marker_ext(&self, message: Refstr) { self.get().push_group_marker_ext(message.as_str()) }
@@ -1163,31 +1116,27 @@ impl GlContextPtr {
     pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef) { self.get().delete_vertex_arrays_apple(vertex_arrays.as_slice()) }
     pub fn copy_texture_chromium(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
     pub fn copy_sub_texture_chromium(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, x: GLint, y: GLint, width: GLsizei, height: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
-    pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: GlVoidPtrConst) { self.get().egl_image_target_renderbuffer_storage_oes(target, image.ptr) }
+    pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: GlVoidPtrConst) { self.get().egl_image_target_renderbuffer_storage_oes(target, image.ptr as *const gl_context_loader::c_void) }
     pub fn copy_texture_3d_angle( &self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
     pub fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
     pub fn buffer_storage(&self, target: GLenum, size: GLsizeiptr, data: GlVoidPtrConst, flags: GLbitfield) { self.get().buffer_storage(target, size, data.ptr, flags) }
     pub fn flush_mapped_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr) { self.get().flush_mapped_buffer_range(target, offset, length) }
 }
 
-#[cfg(feature = "opengl")]
 impl PartialEq for GlContextPtr {
     fn eq(&self, rhs: &Self) -> bool {
         self.as_usize().eq(&rhs.as_usize())
     }
 }
 
-#[cfg(feature = "opengl")]
 impl Eq for GlContextPtr { }
 
-#[cfg(feature = "opengl")]
 impl PartialOrd for GlContextPtr {
     fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
         self.as_usize().partial_cmp(&rhs.as_usize())
     }
 }
 
-#[cfg(feature = "opengl")]
 impl Ord for GlContextPtr {
     fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
         self.as_usize().cmp(&rhs.as_usize())
@@ -1568,7 +1517,7 @@ impl VertexBuffer {
         gl_context.buffer_data_untyped(
             gl::ARRAY_BUFFER,
             (mem::size_of::<T>() * vertices.len()) as isize,
-            GlVoidPtrConst { ptr: vertices.as_ptr() as *const c_void },
+            GlVoidPtrConst { ptr: vertices.as_ptr() as *const std::ffi::c_void },
             gl::STATIC_DRAW
         );
 
@@ -1577,7 +1526,7 @@ impl VertexBuffer {
         gl_context.buffer_data_untyped(
             gl::ELEMENT_ARRAY_BUFFER,
             (mem::size_of::<u32>() * indices.len()) as isize,
-            GlVoidPtrConst { ptr: indices.as_ptr() as *const c_void },
+            GlVoidPtrConst { ptr: indices.as_ptr() as *const std::ffi::c_void },
             gl::STATIC_DRAW
         );
 
@@ -1683,7 +1632,7 @@ pub enum UniformType {
 
 impl UniformType {
     /// Set a specific uniform
-    pub fn set(self, gl_context: &Rc<dyn Gl>, location: GLint) {
+    pub fn set(self, gl_context: &Rc<GenericGlContext>, location: GLint) {
         use self::UniformType::*;
         match self {
             Float(r) => gl_context.uniform_1f(location, r),
@@ -1824,9 +1773,9 @@ impl GlShader {
     pub fn new(gl_context: &GlContextPtr, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
 
         // Check whether the OpenGL implementation supports a shader compiler...
-        let mut shader_compiler_supported = [gl::FALSE];
+        let mut shader_compiler_supported = [gl::FALSE as u8];
         gl_context.get_boolean_v(gl::SHADER_COMPILER, (&mut shader_compiler_supported[..]).into());
-        if shader_compiler_supported[0] == gl::FALSE {
+        if u32::from(shader_compiler_supported[0]) == gl::FALSE {
             // Implementation only supports binary shaders
             return Err(GlShaderCreateError::NoShaderCompiler);
         }
@@ -1989,7 +1938,7 @@ impl GlShader {
         }
 
         // Reset the OpenGL state to what it was before
-        if current_multisample[0] == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
+        if u32::from(current_multisample[0]) == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
         gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
         gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);

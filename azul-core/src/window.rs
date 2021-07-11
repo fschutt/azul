@@ -6,6 +6,7 @@ use core::{
     ffi::c_void,
 };
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     CssProperty, LayoutSize, U8Vec, ColorU, OptionF32,
@@ -657,7 +658,7 @@ pub struct WindowInternalInit {
 impl WindowInternal {
 
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
-    #[cfg(all(feature = "opengl", feature = "multithreading", feature = "std"))]
+    #[cfg(all(feature = "multithreading", feature = "std"))]
     pub fn new<F>(
         mut init: WindowInternalInit,
         data: &mut RefAny,
@@ -768,7 +769,7 @@ impl WindowInternal {
     }
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
-    #[cfg(all(feature = "opengl", feature = "multithreading"))]
+    #[cfg(all(feature = "multithreading"))]
     pub fn regenerate_styled_dom<F>(
         &mut self,
         data: &mut RefAny,

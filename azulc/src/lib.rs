@@ -10,7 +10,7 @@
 extern crate core;
 #[macro_use]
 extern crate alloc;
-extern crate gleam;
+extern crate gl_context_loader;
 extern crate xmlparser;
 #[macro_use(impl_display)]
 extern crate azul_core;

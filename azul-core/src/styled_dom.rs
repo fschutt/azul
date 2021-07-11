@@ -2066,7 +2066,7 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for OpenGL callbacks
-    #[cfg(all(feature = "opengl", feature = "multithreading"))]
+    #[cfg(all(feature = "multithreading"))]
     pub(crate) fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
         use rayon::prelude::*;
         use crate::dom::NodeType;
@@ -2283,7 +2283,6 @@ extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> Upda
         None => return Update::DoNothing,
     };
 
-    println!("tab index! {:?}", data);
     Update::DoNothing
 }
 
@@ -2293,7 +2292,6 @@ extern "C" fn default_on_scroll(data: &mut RefAny, info: CallbackInfo) -> Update
         Some(s) => s,
         None => return Update::DoNothing,
     };
-    println!("scrolling! {:?}", data);
     Update::DoNothing
 }
 

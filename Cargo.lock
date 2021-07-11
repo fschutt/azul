@@ -116,7 +116,7 @@ dependencies = [
  "ahash",
  "azul-css",
  "azul-css-parser",
- "gleam",
+ "gl-context-loader",
  "libm",
  "rayon",
  "rust-fontconfig",
@@ -328,7 +328,7 @@ dependencies = [
  "azul-css",
  "azul-css-parser",
  "azul-layout",
- "gleam",
+ "gl-context-loader",
  "image",
  "lyon",
  "owned_ttf_parser",
@@ -853,26 +853,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baf0c0a4354974e2e7b8ca71793a26da24e9bd9b392e69f47b7be70cb8f8c68"
 
 [[package]]
-name = "gl_generator"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
-dependencies = [
- "khronos_api",
- "log",
- "xml-rs",
-]
-
-[[package]]
-name = "gleam"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "992c40589d382354958af7c60910026ed4cc3c58751355db21a4c2fbef15727a"
-dependencies = [
- "gl_generator",
-]
-
-[[package]]
 name = "glslopt"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -995,12 +975,6 @@ checksum = "229d53d58899083193af11e15917b5640cd40b29ff475a1fe4ef725deb02d0f2"
 dependencies = [
  "rayon",
 ]
-
-[[package]]
-name = "khronos_api"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "kurbo"
@@ -1984,12 +1958,6 @@ dependencies = [
  "libc",
  "log",
 ]
-
-[[package]]
-name = "xml-rs"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b07db065a5cf61a7e4ba64f29e67db906fb1787316516c4e6e5ff0fea1efcd8a"
 
 [[package]]
 name = "xmlparser"

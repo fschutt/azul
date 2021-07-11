@@ -1,6 +1,5 @@
 //! SVG rendering module
 
-#[cfg(feature = "opengl")]
 use crate::gl::{
     VertexLayout,
     VertexLayoutDescription, VertexAttribute,
@@ -170,7 +169,6 @@ impl SvgRect {
     }
 }
 
-#[cfg(feature = "opengl")]
 impl VertexLayoutDescription for SvgVertex {
     fn get_description() -> VertexLayout {
         VertexLayout {
@@ -249,7 +247,6 @@ impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 
-#[cfg(feature = "opengl")]
 #[derive(Debug, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct TesselatedGPUSvgNode {

@@ -4,10 +4,8 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use alloc::vec::Vec;
-#[cfg(feature = "std")]
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-#[cfg(feature = "std")]
 use alloc::sync::{Arc, Weak};
 
 #[cfg(feature = "std")]
@@ -704,7 +702,10 @@ impl ThreadWriteBackMsg {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ThreadSender {
+    #[cfg(feature = "std")]
     pub ptr: Box<Arc<Mutex<ThreadSenderInner>>>,
+    #[cfg(not(feature = "std"))]
+    pub ptr: *const c_void,
 }
 
 impl ThreadSender {
@@ -918,7 +919,10 @@ impl_callback!(ThreadSenderDestructorCallback);
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Thread {
+    #[cfg(feature = "std")]
     pub ptr: Box<Arc<Mutex<ThreadInner>>>,
+    #[cfg(not(feature = "std"))]
+    pub ptr: *const c_void,
 }
 
 impl Thread {
@@ -1081,7 +1085,6 @@ extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) { }
 
 /// Run all currently registered timers
 #[must_use = "the Update result of running timers should not be ignored"]
-#[cfg(feature = "opengl")]
 pub fn run_all_timers<'a, 'b>(
     data: &mut RefAny,
     current_timers: &mut FastHashMap<TimerId, Timer>,
@@ -1184,7 +1187,6 @@ pub fn run_all_timers<'a, 'b>(
 
 /// Remove all Threads that have finished executing
 #[must_use = "the Update result of running Threads should not be ignored"]
-#[cfg(feature = "opengl")]
 pub fn clean_up_finished_threads<'a, 'b>(
     cleanup_threads: &mut FastHashMap<ThreadId, Thread>,
 

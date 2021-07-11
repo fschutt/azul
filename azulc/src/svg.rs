@@ -475,7 +475,7 @@ pub fn render_tesselated_node_gpu(
 ) -> Option<()> {
 
     use std::mem;
-    use gleam::gl;
+    use gl_context_loader::gl;
     use azul_core::gl::{GLuint, GlVoidPtrConst, VertexAttributeType};
 
     const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;

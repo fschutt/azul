@@ -28,7 +28,6 @@ use crate::{
     id_tree::NodeId,
     dom::{TagId, ScrollTagId},
 };
-#[cfg(feature = "opengl")]
 use crate::gl::{Texture, OptionGlContextPtr};
 use rust_fontconfig::FcFontCache;
 
@@ -567,7 +566,6 @@ unsafe impl Send for GlTextureCache { } // necessary so the display list can be 
 
 // todo: very unclean
 pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut RendererResources, &mut Vec<ResourceUpdate>, IdNamespace, &DocumentId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
-#[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Debug, Default)]
@@ -615,7 +613,7 @@ impl GlTextureCache {
             callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds},
             dom::NodeType,
         };
-        use gleam::gl;
+        use gl_context_loader::gl;
 
         let mut solved_image_callbacks = BTreeMap::new();
 

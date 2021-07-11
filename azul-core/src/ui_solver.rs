@@ -5,6 +5,7 @@ use core::sync::atomic::Ordering as AtomicOrdering;
 use core::sync::atomic::AtomicBool;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use azul_css::{
     LayoutRect, LayoutRectVec, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
     StyleTextColor, ColorU as StyleColorU, OptionF32, LayoutOverflow, LayoutDisplay,

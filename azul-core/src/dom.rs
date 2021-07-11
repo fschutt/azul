@@ -4,6 +4,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
 };
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
