@@ -655,11 +655,13 @@ fn run_inner(app: App) {
                     });
 
 
+                    // user callback scroll event
                     let cur_should_callback_render = callback_results.should_scroll_render;
                     if cur_should_callback_render {
                         should_callback_render = true;
                     }
 
+                    // system scroll event
                     let cur_should_scroll_render = window.internal.current_window_state
                     .get_scroll_amount().as_ref().map(|se| {
                         window.internal.scroll_states.should_scroll_render(se, &hit_test)

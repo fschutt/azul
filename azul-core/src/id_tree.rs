@@ -155,17 +155,19 @@ pub struct NodeHierarchy {
 
 impl NodeHierarchy {
 
-    #[inline]
+    #[inline(always)]
     pub const fn new(data: Vec<Node>) -> Self {
         Self {
             internal: data,
         }
     }
 
+    #[inline(always)]
     pub fn as_ref<'a>(&'a self) -> NodeHierarchyRef<'a> {
         NodeHierarchyRef { internal: &self.internal[..] }
     }
 
+    #[inline(always)]
     pub fn as_ref_mut<'a>(&'a mut self) -> NodeHierarchyRefMut<'a> {
         NodeHierarchyRefMut { internal: &mut self.internal[..] }
     }
@@ -186,21 +188,22 @@ pub struct NodeHierarchyRefMut<'a> {
 
 impl<'a> NodeHierarchyRef<'a> {
 
+    #[inline(always)]
     pub fn from_slice(data: &'a [Node]) -> NodeHierarchyRef<'a> {
         NodeHierarchyRef { internal: data }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.internal.len()
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn get(&self, id: NodeId) -> Option<&Node> {
         self.internal.get(id.index())
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.len(),
@@ -296,7 +299,7 @@ impl<T> Default for NodeDataContainer<T> {
 impl<'a> Index<NodeId> for NodeHierarchyRef<'a> {
     type Output = Node;
 
-    #[inline]
+    #[inline(always)]
     fn index(&self, node_id: NodeId) -> &Node {
         &self.internal[node_id.index()]
     }
@@ -305,50 +308,54 @@ impl<'a> Index<NodeId> for NodeHierarchyRef<'a> {
 impl<'a> Index<NodeId> for NodeHierarchyRefMut<'a> {
     type Output = Node;
 
-    #[inline]
+    #[inline(always)]
     fn index(&self, node_id: NodeId) -> &Node {
         &self.internal[node_id.index()]
     }
 }
 
 impl<'a> IndexMut<NodeId> for NodeHierarchyRefMut<'a> {
-    #[inline]
+    #[inline(always)]
     fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
         &mut self.internal[node_id.index()]
     }
 }
 
 impl<T> NodeDataContainer<T> {
-    #[inline]
+    #[inline(always)]
     pub const fn new(data: Vec<T>) -> Self {
         Self { internal: data }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn as_ref<'a>(&'a self) -> NodeDataContainerRef<'a, T> {
         NodeDataContainerRef { internal: &self.internal[..] }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn as_ref_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, T> {
         NodeDataContainerRefMut { internal: &mut self.internal[..] }
     }
 
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.internal.len()
     }
 }
 
 impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
+    #[inline(always)]
     pub fn from_slice(data: &'a mut [T]) -> NodeDataContainerRefMut<'a, T> {
         NodeDataContainerRefMut { internal: data }
     }
 }
 
 impl<'a, T: 'a> NodeDataContainerRefMut<'a, T> {
+    #[inline(always)]
     pub fn get_mut(&mut self, id: NodeId) -> Option<&mut T> {
         self.internal.get_mut(id.index())
     }
+    #[inline(always)]
     pub fn get_mut_extended_lifetime(&'a mut self, id: NodeId) -> Option<&'a mut T> {
         self.internal.get_mut(id.index())
     }
@@ -397,14 +404,17 @@ impl<'a, T: Send + 'a> NodeDataContainerRef<'a, T> {
 
 impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
 
+    #[inline(always)]
     pub fn get_extended_lifetime(&self, id: NodeId) -> Option<&'a T> {
         self.internal.get(id.index())
     }
 
+    #[inline(always)]
     pub fn from_slice(data: &'a [T]) -> NodeDataContainerRef<'a, T> {
         NodeDataContainerRef { internal: data }
     }
 
+    #[inline(always)]
     pub fn len(&self) -> usize { self.internal.len() }
 
     pub fn transform_singlethread<U, F>(&self, mut closure: F) -> NodeDataContainer<U> where F: FnMut(&T, NodeId) -> U {
@@ -414,14 +424,17 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
         }
     }
 
+    #[inline(always)]
     pub fn get(&self, id: NodeId) -> Option<&T> {
         self.internal.get(id.index())
     }
 
+    #[inline(always)]
     pub fn iter(&self) -> Iter<T> {
         self.internal.iter()
     }
 
+    #[inline(always)]
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
             arena_len: self.len(),
@@ -433,7 +446,7 @@ impl<'a, T: 'a> NodeDataContainerRef<'a, T> {
 impl<'a, T> Index<NodeId> for NodeDataContainerRef<'a, T> {
     type Output = T;
 
-    #[inline]
+    #[inline(always)]
     fn index(&self, node_id: NodeId) -> &T {
         &self.internal[node_id.index()]
     }
@@ -442,7 +455,7 @@ impl<'a, T> Index<NodeId> for NodeDataContainerRef<'a, T> {
 impl<'a, T> Index<NodeId> for NodeDataContainerRefMut<'a, T> {
     type Output = T;
 
-    #[inline]
+    #[inline(always)]
     fn index(&self, node_id: NodeId) -> &T {
         &self.internal[node_id.index()]
     }
@@ -450,7 +463,7 @@ impl<'a, T> Index<NodeId> for NodeDataContainerRefMut<'a, T> {
 
 impl<'a, T> IndexMut<NodeId> for NodeDataContainerRefMut<'a, T> {
 
-    #[inline]
+    #[inline(always)]
     fn index_mut(&mut self, node_id: NodeId) -> &mut T {
         &mut self.internal[node_id.index()]
     }

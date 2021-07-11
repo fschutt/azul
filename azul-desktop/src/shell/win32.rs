@@ -2410,18 +2410,68 @@ unsafe extern "system" fn WindowProc(
                 1
             },
             WM_MOUSEMOVE => {
+
                 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
 
                 let x = GET_X_LPARAM(lparam);
                 let y = GET_Y_LPARAM(lparam);
 
+                let previous_state = current_window.state.clone();
+
                 // update window state
+                let pos = LogicalPosition::new(
+                    x as f32 / current_window.state.size.hidpi_factor,
+                    y as f32 / current_window.state.size.hidpi_factor,
+                );
+                current_window.state.mouse_state.cursor_position = CursorPosition::InWindow(pos);
+                println!("mouse moved to {}", pos);
+
                 // do hit test
+                let events = Events::new(&current_window.state, &previous_state);
+                println!("events: {:#?}", events);
+
+                // TODO: delete state from window, use internal.current_window_state instead
+                let hit_test = {
+                    let hit_tester = window.hit_tester.resolve();
+                    let ht = crate::wr_translate::fullhittest_new_webrender(
+                        &hit_tester,
+                        current_window.internal.document_id,
+                        current_window.internal.current_window_state.focused_node,
+                        &current_window.internal.layout_results,
+                        &current_window.state.mouse_state.cursor_position,
+                        current_window.state.size.hidpi_factor,
+                    );
+                    current_window.state.hovered_nodes = ht.hovered_nodes.clone();
+                    ht
+                };
+                println!("hit test: {:#?}", hit_test);
+
+                let nodes_to_check = NodesToCheck::new(&hit_test, &events);
+                println!("nodes to check: {:#?}", nodes_to_check);
+
                 // invoke callbacks
+                let mut callback_results = fc_cache.apply_closure(|fc_cache| {
+                    window.call_callbacks(
+                        &nodes_to_check,
+                        &events,
+                        &mut image_cache,
+                        fc_cache,
+                        &config.system_callbacks
+                    )
+                });
+
+                println!("callback results: {:#?}", callback_results);
+
+                let cur_should_callback_render = callback_results.should_scroll_render;
+                if cur_should_callback_render {
+                    should_callback_render = true;
+                }
+
+                // if layout_callback_changed(previous_state, current_state)
+
                 // if callbacks need re-render, regenerate display list (?) + generate frame
                 // if frame generated, send WM_PAINT
 
-                println!("mouse move to {} {}", x, y);
                 // if( cursor_needs_setting ) {
                 //     SetClassLongPtr(hwnd, GCLP_HCURSOR, (LONG_PTR)LoadCursor(NULL, IDC_ARROW));
                 //     cursor_needs_setting = FALSE;
@@ -2429,6 +2479,8 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
+            // AZ_REGENERATE_DOM => { }
+            // AZ_CALCULATE_CSS_CHANGES => { }
             WM_NCMOUSELEAVE => {
                 // cursor_needs_setting = TRUE;
                 mem::drop(app_borrow);
