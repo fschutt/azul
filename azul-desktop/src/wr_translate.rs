@@ -72,6 +72,7 @@ use webrender::api::{
     FontInstancePlatformOptions as WrFontInstancePlatformOptions,
     SyntheticItalics as WrSyntheticItalics,
     ImageMask as WrImageMask,
+    HitTesterRequest as WrHitTesterRequest,
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use webrender::api::{
@@ -122,6 +123,7 @@ use azul_css::{
 };
 use webrender::Renderer;
 use alloc::sync::Arc;
+use core::mem;
 
 #[cfg(not(target_os = "windows"))]
 pub(crate) mod winit_translate {
@@ -685,6 +687,27 @@ pub(crate) mod winit_translate {
             WinitVirtualKeyCode::Paste => VirtualKeyCode::Paste,
             WinitVirtualKeyCode::Cut => VirtualKeyCode::Cut,
         }
+    }
+}
+
+pub enum AsyncHitTester {
+    Requested(WrHitTesterRequest),
+    Resolved(Arc<dyn WrApiHitTester>),
+}
+
+impl AsyncHitTester {
+    pub fn resolve(&mut self) -> Arc<dyn WrApiHitTester> {
+        let mut _swap: Self = unsafe { mem::zeroed() };
+        mem::swap(self, &mut _swap);
+        let mut new = match _swap {
+            AsyncHitTester::Requested(r) => r.resolve(),
+            AsyncHitTester::Resolved(r) => r.clone(),
+        };
+        let r = new.clone();
+        let mut swap_back = AsyncHitTester::Resolved(new.clone());
+        mem::swap(self, &mut swap_back);
+        mem::forget(swap_back);
+        return r;
     }
 }
 

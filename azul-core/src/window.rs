@@ -14,7 +14,7 @@ use azul_css::{
     CssPath, OptionI32,
 };
 use crate::{
-    FastHashMap,
+    FastHashMap, FastBTreeSet,
     callbacks::Callback,
     window_state::RelayoutFn,
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
@@ -383,6 +383,12 @@ impl MouseState {
     }
 }
 
+// TODO: returned by process_system_scroll
+#[derive(Debug)]
+pub struct ScrollResult {
+
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum CursorPosition {
@@ -458,6 +464,7 @@ impl ScrollStates {
             for scroll_hit_test_item in hit_test.scroll_hit_test_nodes.values() {
                 self.scroll_node(&scroll_hit_test_item.scroll_node, *scroll_x, *scroll_y);
                 should_scroll_render = true;
+                break; // only scroll first node that was hit
             }
         }
 
@@ -701,7 +708,13 @@ impl WindowInternal {
 
         };
 
-        let mut current_window_state: FullWindowState = init.window_create_options.state.into();
+        let mut current_window_state = FullWindowState::from_window_state(
+            /*window_state: */ &init.window_create_options.state,
+            /*dropped_file: */ None,
+            /*hovered_file: */ None,
+            /*focused_node: */ None,
+            /*last_hit_test: */ FullHitTest::empty(/*current_focus*/ None),
+        );
 
         let SolvedLayout { mut layout_results } = SolvedLayout::new(
             styled_dom,
@@ -718,15 +731,17 @@ impl WindowInternal {
 
         let scroll_states = ScrollStates::default();
 
-        // apply the changes for the first frame
+        // apply the changes for the first frame:
+        // simulate an event as if the cursor has moved over the hovered elements
         let ht = hit_test_func(&current_window_state, &scroll_states, &layout_results);
-        current_window_state.hovered_nodes = ht.hovered_nodes.clone();
+        current_window_state.last_hit_test = ht.clone();
 
         let nodes_to_check = NodesToCheck::simulated_mouse_move(
             &ht,
-            current_window_state.focused_node,
+            None, // focused_node
             current_window_state.mouse_state.mouse_down()
         );
+
         let _ = StyleAndLayoutChanges::new(
             &nodes_to_check,
             &mut layout_results,
@@ -831,7 +846,7 @@ impl WindowInternal {
 
         // apply the changes for the first frame
         let ht = hit_test_func(&self.current_window_state, &self.scroll_states, &layout_results);
-        self.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
+        self.current_window_state.last_hit_test = ht.clone();
 
         // hit_test
         let nodes_to_check = NodesToCheck::simulated_mouse_move(
@@ -1210,9 +1225,10 @@ pub struct FullWindowState {
     /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
     /// as well as styling `:focus` elements
     pub focused_node: Option<DomNodeId>,
-    /// Currently hovered nodes, default to an empty Vec. Important for
-    /// styling `:hover` elements.
-    pub hovered_nodes: BTreeMap<DomId, HitTest>,
+    /// Last hit-test that was performed: necessary because the
+    /// events are stored in a queue and only storing the hovered
+    /// nodes is not sufficient to correctly determine events
+    pub last_hit_test: FullHitTest,
 }
 
 impl Default for FullWindowState {
@@ -1239,7 +1255,7 @@ impl Default for FullWindowState {
             hovered_file: None,
             dropped_file: None,
             focused_node: None,
-            hovered_nodes: BTreeMap::default(),
+            last_hit_test: FullHitTest::empty(None),
         }
     }
 }
@@ -1272,34 +1288,47 @@ impl FullWindowState {
             None => false,
         }
     }
-}
 
-impl From<WindowState> for FullWindowState {
-    /// Creates a FullWindowState from a regular WindowState, fills non-available
-    /// fields with their default values
-    fn from(window_state: WindowState) -> FullWindowState {
-        FullWindowState {
+    /// Creates a FullWindowState from a regular WindowState,
+    /// fills non-available fields with the given values
+    ///
+    /// You need to pass the extra fields explicitly in order
+    /// to prevent state management bugs
+    pub fn from_window_state(
+        window_state: &WindowState,
+        dropped_file: Option<AzString>,
+        hovered_file: Option<AzString>,
+        focused_node: Option<DomNodeId>,
+        last_hit_test: FullHitTest,
+    ) -> Self {
+        Self {
             monitor: window_state.monitor.clone(),
             theme: window_state.theme,
-            title: window_state.title,
+            title: window_state.title.clone(),
             size: window_state.size,
             position: window_state.position.into(),
             flags: window_state.flags,
             debug_state: window_state.debug_state,
-            keyboard_state: window_state.keyboard_state,
+            keyboard_state: window_state.keyboard_state.clone(),
             mouse_state: window_state.mouse_state,
             touch_state: window_state.touch_state,
             ime_position: window_state.ime_position.into(),
-            platform_specific_options: window_state.platform_specific_options,
+            platform_specific_options: window_state.platform_specific_options.clone(),
             background_color: window_state.background_color,
-            layout_callback: window_state.layout_callback,
+            layout_callback: window_state.layout_callback.clone(),
             close_callback: window_state.close_callback,
             renderer_options: window_state.renderer_options,
-            dropped_file: None,
-            focused_node: None,
-            hovered_file: None,
-            hovered_nodes: BTreeMap::new(),
+            dropped_file,
+            hovered_file,
+            focused_node,
+            last_hit_test,
         }
+    }
+
+    pub fn process_system_scroll(&mut self, scroll_states: &ScrollStates) -> Option<ScrollResult> {
+        let (x, y) = self.mouse_state.get_scroll_amount()?;
+        // TODO
+        Some(ScrollResult { })
     }
 }
 
@@ -1354,6 +1383,10 @@ pub struct CallCallbacksResult {
     pub timers: Option<FastHashMap<TimerId, Timer>>,
     /// Tasks that were added in the callbacks
     pub threads: Option<FastHashMap<ThreadId, Thread>>,
+    /// Timers that were added in the callbacks
+    pub timers_removed: Option<FastBTreeSet<TimerId>>,
+    /// Tasks that were added in the callbacks
+    pub threads_removed: Option<FastBTreeSet<ThreadId>>,
     /// Windows that were created in the callbacks
     pub windows_created: Vec<WindowCreateOptions>,
     /// Whether the cursor changed in the callbacks

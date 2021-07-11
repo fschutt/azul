@@ -68,7 +68,7 @@ use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::btree_set::BTreeSet;
 use crate::{
-    FastHashMap,
+    FastHashMap, FastBTreeSet,
     app_resources::{RendererResources, ImageCache},
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, Update},
@@ -116,10 +116,10 @@ impl Events {
 
         let old_focus_node = previous_window_state.as_ref().and_then(|f| f.focused_node.clone());
         let old_hit_node_ids = previous_window_state.as_ref().map(|f| {
-            if f.hovered_nodes.is_empty() {
+            if f.last_hit_test.hovered_nodes.is_empty() {
                 BTreeMap::new()
             } else {
-                f.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()
+                f.last_hit_test.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()
             }
         }).unwrap_or_default();
 
@@ -127,7 +127,7 @@ impl Events {
             if prev_state.theme != current_window_state.theme {
                 current_window_events.push(WindowEventFilter::ThemeChanged);
             }
-            if current_window_state.hovered_nodes != prev_state.hovered_nodes.clone() {
+            if current_window_state.last_hit_test.hovered_nodes != prev_state.last_hit_test.hovered_nodes.clone() {
                 current_hover_events.push(HoverEventFilter::MouseLeave);
                 current_hover_events.push(HoverEventFilter::MouseEnter);
             }
@@ -322,6 +322,7 @@ impl StyleAndLayoutChanges {
         false
     }
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FocusChange {
     pub old: Option<DomNodeId>,
@@ -807,6 +808,8 @@ impl CallbacksOfHitTest {
             update_focused_node: None,
             timers: None,
             threads: None,
+            timers_removed: None,
+            threads_removed: None,
             windows_created: Vec::new(),
             cursor_changed: false,
         };
@@ -821,7 +824,9 @@ impl CallbacksOfHitTest {
 
         let mut ret_modified_window_state = full_window_state.clone().into();
         let mut ret_timers = FastHashMap::new();
+        let mut ret_timers_removed = FastBTreeSet::new();
         let mut ret_threads = FastHashMap::new();
+        let mut ret_threads_removed = FastBTreeSet::new();
         let mut ret_words_changed = BTreeMap::new();
         let mut ret_images_changed = BTreeMap::new();
         let mut ret_image_masks_changed = BTreeMap::new();
@@ -895,6 +900,8 @@ impl CallbacksOfHitTest {
                             /*system_fonts,*/ system_fonts,
                             /*timers:*/ &mut ret_timers,
                             /*threads:*/ &mut ret_threads,
+                            /*timers_removed:*/ &mut ret_timers_removed,
+                            /*threads_removed:*/ &mut ret_threads_removed,
                             /*new_windows:*/ &mut ret.windows_created,
                             /*current_window_handle:*/ raw_window_handle,
                             /*node_hierarchy*/ &node_hierarchy,
@@ -972,6 +979,8 @@ impl CallbacksOfHitTest {
                         /*system_fonts,*/ system_fonts,
                         /*timers:*/ &mut ret_timers,
                         /*threads:*/ &mut ret_threads,
+                        /*timers_removed:*/ &mut ret_timers_removed,
+                        /*threads_removed:*/ &mut ret_threads_removed,
                         /*new_windows:*/ &mut ret.windows_created,
                         /*current_window_handle:*/ raw_window_handle,
                         /*node_hierarchy*/ &node_hierarchy,
@@ -1068,6 +1077,8 @@ impl CallbacksOfHitTest {
         ret.modified_window_state = Some(ret_modified_window_state);
         ret.timers = Some(ret_timers);
         ret.threads = Some(ret_threads);
+        ret.timers_removed = Some(ret_timers_removed);
+        ret.threads_removed = Some(ret_threads_removed);
         ret.words_changed = Some(ret_words_changed);
         ret.images_changed = Some(ret_images_changed);
         ret.image_masks_changed = Some(ret_image_masks_changed);

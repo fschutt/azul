@@ -18,7 +18,7 @@ use azul_css::{
 };
 use rust_fontconfig::FcFontCache;
 use crate::{
-    FastHashMap,
+    FastHashMap, FastBTreeSet,
     app_resources::{
         ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
@@ -960,6 +960,10 @@ pub struct CallbackInfo {
     timers: *mut FastHashMap<TimerId, Timer>,
     /// Currently running threads (asynchronous functions running each on a different thread)
     threads: *mut FastHashMap<ThreadId, Thread>,
+    /// Timers removed by the callback
+    timers_removed: *mut FastBTreeSet<TimerId>,
+    /// Threads removed by the callback
+    threads_removed: *mut FastBTreeSet<ThreadId>,
     /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows.
     new_windows: *mut Vec<WindowCreateOptions>,
     /// Handle of the current window
@@ -1026,6 +1030,8 @@ impl CallbackInfo {
        system_fonts: &'a mut FcFontCache,
        timers: &'a mut FastHashMap<TimerId, Timer>,
        threads: &'a mut FastHashMap<ThreadId, Thread>,
+       timers_removed: &'a mut FastBTreeSet<TimerId>,
+       threads_removed: &'a mut FastBTreeSet<ThreadId>,
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
        node_hierarchy: &'a AzNodeVec,
@@ -1058,6 +1064,8 @@ impl CallbackInfo {
             system_fonts: system_fonts as *mut FcFontCache,
             timers: timers as *mut FastHashMap<TimerId, Timer>,
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
+            timers_removed: timers_removed as *mut FastBTreeSet<TimerId>,
+            threads_removed: threads_removed as *mut FastBTreeSet<ThreadId>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
             system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
@@ -1094,6 +1102,8 @@ impl CallbackInfo {
     fn internal_get_system_fonts<'a>(&'a mut self) -> &'a mut FcFontCache { unsafe { &mut *self.system_fonts } }
     fn internal_get_timers<'a>(&'a mut self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
     fn internal_get_threads<'a>(&'a mut self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
+    fn internal_get_timers_removed<'a>(&'a mut self) -> &'a mut FastBTreeSet<TimerId> { unsafe { &mut *self.timers_removed } }
+    fn internal_get_threads_removed<'a>(&'a mut self) -> &'a mut FastBTreeSet<ThreadId> { unsafe { &mut *self.threads_removed } }
     fn internal_get_new_windows<'a>(&'a mut self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
@@ -1325,7 +1335,7 @@ impl CallbackInfo {
 
     /// Removes and stops a thread, sending one last `ThreadSendMsg::TerminateThread`
     pub fn stop_thread(&mut self, thread_id: ThreadId) -> bool {
-        self.internal_get_threads().remove(&thread_id).is_some()
+        self.internal_get_threads_removed().insert(thread_id)
     }
 
     pub fn start_timer(&mut self, timer: Timer) -> Option<TimerId> {
@@ -1399,7 +1409,7 @@ impl CallbackInfo {
     }
 
     pub fn stop_timer(&mut self, timer_id: TimerId) -> bool {
-        self.internal_get_timers().remove(&timer_id).is_some()
+        self.internal_get_timers_removed().insert(timer_id)
     }
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<PositionInfo> {
@@ -1487,6 +1497,8 @@ impl Clone for CallbackInfo {
             system_fonts: self.system_fonts,
             timers: self.timers,
             threads: self.threads,
+            timers_removed: self.timers_removed,
+            threads_removed: self.threads_removed,
             new_windows: self.new_windows,
             current_window_handle: self.current_window_handle,
             node_hierarchy: self.node_hierarchy,

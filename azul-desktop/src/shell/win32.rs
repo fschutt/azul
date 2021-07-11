@@ -15,13 +15,15 @@ use crate::{
 };
 use alloc::{collections::BTreeMap, rc::Rc, sync::Arc};
 use azul_core::{
+    FastBTreeSet, FastHashMap,
     app_resources::{AppConfig, ImageCache, ResourceUpdate},
     callbacks::RefAny,
     gl::OptionGlContextPtr,
     task::{Thread, ThreadId, Timer, TimerId},
     window::{
-        LogicalSize, Menu, MenuCallback, MenuItem, MonitorVec, WindowCreateOptions, WindowInternal,
-        WindowState,
+        LogicalSize, Menu, MenuCallback, MenuItem,
+        MonitorVec, WindowCreateOptions, WindowInternal,
+        WindowState, FullWindowState, ScrollResult,
     },
 };
 use core::{
@@ -55,7 +57,19 @@ use winapi::{
     },
     um::dwmapi::{DWM_BB_ENABLE, DWM_BLURBEHIND},
     um::uxtheme::MARGINS,
+    um::winuser::WM_APP,
 };
+use crate::wr_translate::AsyncHitTester;
+
+type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
+
+// ID set by WM_TIMER to check the thread results
+const AZ_THREAD_TICK: usize = 1;
+
+const AZ_REGENERATE_DOM: u32 = WM_APP + 1;
+const AZ_REGENERATE_DISPLAY_LIST: u32 = WM_APP + 2;
+const AZ_REDO_HIT_TEST: u32 = WM_APP + 3;
+const AZ_GPU_SCROLL_RENDER: u32 = WM_APP + 4;
 
 const CLASS_NAME: &str = "AzulApplicationClass";
 
@@ -142,8 +156,6 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         image_cache,
         fc_cache,
         windows: BTreeMap::new(),
-        threads: BTreeMap::new(),
-        timers: BTreeMap::new(),
         dwm,
     }));
 
@@ -367,8 +379,6 @@ struct ApplicationData {
     image_cache: ImageCache,
     fc_cache: LazyFcCache,
     windows: BTreeMap<usize, Window>,
-    threads: BTreeMap<ThreadId, Thread>,
-    timers: BTreeMap<TimerId, Timer>,
     dwm: Option<DwmFunctions>,
 }
 
@@ -1453,8 +1463,6 @@ impl ExtraWglFunctions {
 struct Window {
     /// HWND handle of the plaform window
     hwnd: HWND,
-    /// Current window state
-    state: WindowState,
     /// See azul-core, stores the entire UI (DOM, CSS styles, layout results, etc.)
     internal: WindowInternal,
     /// OpenGL context handle - None if running in software mode
@@ -1471,17 +1479,25 @@ struct Window {
     hit_tester: AsyncHitTester,
     /// ID -> Callback map for the window menu (default: empty map)
     menu_callbacks: BTreeMap<u16, MenuCallback>,
+    /// Timer ID -> Timer + Win32 pointer map (created using SetTimer)
+    timers: BTreeMap<TimerId, (Timer, TIMERPTR)>,
+    /// List of threads running in the background
+    threads: BTreeMap<ThreadId, Thread>,
+    /// If threads is non-empty, the window will receive a WM_TIMER every 16ms
+    thread_timer_running: Option<TIMERPTR>,
+    /// Hash of the current system menu
+    menu_hash: Option<u64>,
 }
 
 impl fmt::Debug for Window {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.hwnd.fmt(f)?;
-        self.state.fmt(f)?;
         self.internal.fmt(f)?;
         self.gl_context.fmt(f)?;
         self.gl_context_ptr.fmt(f)?;
         self.renderer.is_some().fmt(f)?;
         self.menu_callbacks.fmt(f)?;
+        self.menu_hash.fmt(f)?;
         Ok(())
     }
 }
@@ -1511,6 +1527,7 @@ impl Window {
         mut options: WindowCreateOptions,
         data: SharedApplicationData,
     ) -> Result<Self, WindowsWindowCreateError> {
+
         use crate::{
             compositor::Compositor,
             wr_translate::{
@@ -1522,8 +1539,10 @@ impl Window {
             callbacks::PipelineId,
             gl::GlContextPtr,
             window::{
-                CursorPosition, HwAcceleration, LogicalPosition, PhysicalSize, RendererType,
-                WindowInternalInit,
+                CursorPosition, HwAcceleration,
+                LogicalPosition, ScrollResult,
+                PhysicalSize, RendererType,
+                WindowInternalInit, FullHitTest,
             },
         };
         use webrender::api::ColorF as WrColorF;
@@ -1684,17 +1703,19 @@ impl Window {
             Box::new(Notifier {}),
             WrRendererOptions {
                 resource_override_path: None,
-                precache_flags: WrShaderPrecacheFlags::EMPTY,
-                device_pixel_ratio: dpi_factor,
-                enable_subpixel_aa: true,
+                use_optimized_shaders: true,
                 enable_aa: true,
-                cached_programs: Some(WrProgramCache::new(None)),
+                enable_subpixel_aa: true,
+                force_subpixel_aa: true,
                 clear_color: WrColorF {
                     r: 0.0,
                     g: 0.0,
                     b: 0.0,
                     a: 0.0,
                 }, // transparent
+                panic_on_gl_error: false,
+                precache_flags: WrShaderPrecacheFlags::EMPTY,
+                cached_programs: Some(WrProgramCache::new(None)),
                 enable_multithreading: true,
                 debug_flags: wr_translate_debug_flags(&options.state.debug_state),
                 ..WrRendererOptions::default()
@@ -1808,15 +1829,18 @@ impl Window {
         // Since the menu bar affects the window size, set it first,
         // before querying the window size again
         let mut menu_callbacks = BTreeMap::new();
+        let mut menu_hash = None;
         if let Some(menu_bar) = internal.get_menu_bar() {
             let WindowsMenuBar {
                 _native_ptr,
                 callbacks,
+                hash,
             } = WindowsMenuBar::new(menu_bar);
             unsafe {
                 SetMenu(hwnd, _native_ptr);
             }
             menu_callbacks = callbacks;
+            menu_hash = Some(hash);
         }
 
         // If size_to_content is set, query the content size and adjust!
@@ -1851,8 +1875,7 @@ impl Window {
             WrDeviceIntRect::new(
                 WrDeviceIntPoint::zero(),
                 WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
-            ),
-            dpi_factor,
+            )
         );
         render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
@@ -1867,7 +1890,13 @@ impl Window {
 
             fc_cache.apply_closure(|fc_cache| {
                 use azul_core::window::FullWindowState;
-                let full_window_state: FullWindowState = options.state.clone().into();
+                let full_window_state: FullWindowState = FullWindowState::from_window_state(
+                    &options.state,
+                    /*dropped_file:*/ None,
+                    /*hovered_file:*/ None,
+                    /*focused_node:*/ None,
+                    /*last_hit_test:*/ FullHitTest::empty(None),
+                );
                 internal.do_quick_resize(
                     &image_cache,
                     &crate::app::CALLBACKS,
@@ -1924,7 +1953,6 @@ impl Window {
         // NOTE: The window is NOT stored yet
         Ok(Window {
             hwnd,
-            state: options.state,
             internal,
             gl_context: opengl_context,
             gl_functions: gl,
@@ -1933,6 +1961,10 @@ impl Window {
             renderer: Some(renderer),
             hit_tester: AsyncHitTester::Resolved(hit_tester),
             menu_callbacks,
+            menu_hash,
+            timers: BTreeMap::new(),
+            threads: BTreeMap::new(),
+            thread_timer_running: None,
         })
     }
 
@@ -1944,11 +1976,11 @@ impl Window {
         };
 
         let mut sw_options = SW_HIDE; // 0 = default
-        if self.state.flags.is_visible {
+        if self.internal.current_window_state.flags.is_visible {
             sw_options |= SW_SHOWNORMAL;
         }
 
-        match self.state.flags.frame {
+        match self.internal.current_window_state.flags.frame {
             WindowFrame::Normal => sw_options |= {
                 SW_NORMAL
             },
@@ -1957,9 +1989,55 @@ impl Window {
             WindowFrame::Fullscreen => sw_options |= SW_MAXIMIZE,
         }
 
-        unsafe {
-            ShowWindow(self.hwnd, sw_options);
+        unsafe { ShowWindow(self.hwnd, sw_options); }
+    }
+
+    fn start_stop_timers(&mut self, added: FastHashMap<TimerId, Timer>, removed: FastBTreeSet<TimerId>) {
+
+        use winapi::um::winuser::{SetTimer, KillTimer};
+
+        for (id, timer) in added {
+            let res = unsafe { SetTimer(self.hwnd, id.id, timer.tick_millis().max(u32::MAX as u64) as u32, None) };
+            self.timers.insert(id, (timer, res));
         }
+
+        for id in removed {
+            if let Some((timer, handle)) = self.timers.remove(&id) {
+                unsafe { KillTimer(self.hwnd, handle) };
+            }
+        }
+    }
+
+    fn start_stop_threads(&mut self, added: FastHashMap<ThreadId, Thread>, removed: FastBTreeSet<ThreadId>) {
+
+        use winapi::um::winuser::{SetTimer, KillTimer};
+
+        self.threads.append(&mut added);
+        self.threads.retain(|r, _| !removed.contains(r));
+
+        if self.threads.is_empty() {
+            if let Some(thread_tick) = self.thread_timer_running {
+                unsafe { KillTimer(self.hwnd, thread_tick) };
+            }
+            self.thread_timer_running = None;
+        } else if !self.threads.is_empty() && self.thread_timer_running.is_none() {
+            let res = unsafe { SetTimer(self.hwnd, AZ_THREAD_TICK, 16, None) }; // 16ms timer
+            self.thread_timer_running = Some(res);
+        }
+    }
+
+    // ScrollResult contains information about what nodes need to be scrolled,
+    // whether they were scrolled by the system or by the user and how far they
+    // need to be scrolled
+    fn do_system_scroll(&mut self, scroll: ScrollResult) {
+        println!("scroll: {:#?}", scroll); // TODO
+        // for scrolled_node in scroll {
+        //      self.render_api.scroll_node_with_id();
+        //      let scrolled_rect = LogicalRect { origin: scroll_offset, size: visible.size };
+        //      if !scrolled_node.scroll_bounds.contains(&scroll_rect) {
+        //
+        //      }
+        // }
     }
 }
 
@@ -2200,43 +2278,11 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
     return Ok((hRC, extra_functions));
 }
 
-// Initializes the OS window
-fn initialize_os_window(hwnd: HWND, initial_state: &WindowState, internal_state: &WindowState) {
-
-    /*
-
-        window.set_title(new_state.title.as_str());
-        window.set_maximized(new_state.flags.is_maximized);
-
-        if new_state.flags.is_fullscreen {
-            window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
-        } else {
-            window.set_fullscreen(None);
-        }
-
-        window.set_decorations(new_state.flags.has_decorations);
-        window.set_inner_size(translate_logical_size(new_state.size.dimensions));
-        window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(translate_logical_size));
-        window.set_min_inner_size(new_state.size.max_dimensions.into_option().map(translate_logical_size));
-
-        if let WindowPosition::Initialized(new_position) = new_state.position {
-            let new_position: PhysicalPosition<i32> = new_position.into();
-            window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
-        }
-
-        if let ImePosition::Initialized(new_ime_position) = new_state.ime_position {
-            window.set_ime_position(translate_logical_position(new_ime_position));
-        }
-
-        window.set_always_on_top(new_state.flags.is_always_on_top);
-        window.set_resizable(new_state.flags.is_resizable);
-    */
-}
-
 struct WindowsMenuBar {
     _native_ptr: HMENU,
     /// Map from Command -> callback to call
     callbacks: BTreeMap<u16, MenuCallback>,
+    hash: u64,
 }
 
 static WINDOWS_UNIQUE_COMMAND_ID_GENERATOR: AtomicUsize = AtomicUsize::new(1); // 0 = no command
@@ -2246,6 +2292,7 @@ impl WindowsMenuBar {
     fn new(new: &Menu) -> Self {
         use winapi::um::winuser::CreateMenu;
 
+        let hash = new.get_hash();
         let mut root = unsafe { CreateMenu() };
         let mut command_map = BTreeMap::new();
 
@@ -2254,6 +2301,7 @@ impl WindowsMenuBar {
         Self {
             _native_ptr: root,
             callbacks: command_map,
+            hash,
         }
     }
 
@@ -2332,27 +2380,6 @@ impl WindowsMenuBar {
     }
 }
 
-enum AsyncHitTester {
-    Requested(WrHitTesterRequest),
-    Resolved(Arc<dyn WrApiHitTester>),
-}
-
-impl AsyncHitTester {
-    pub fn resolve(&mut self) -> Arc<dyn WrApiHitTester> {
-        let mut _swap: Self = unsafe { mem::zeroed() };
-        mem::swap(self, &mut _swap);
-        let mut new = match _swap {
-            AsyncHitTester::Requested(r) => r.resolve(),
-            AsyncHitTester::Resolved(r) => r.clone(),
-        };
-        let r = new.clone();
-        let mut swap_back = AsyncHitTester::Resolved(new.clone());
-        mem::swap(self, &mut swap_back);
-        mem::forget(swap_back);
-        return r;
-    }
-}
-
 unsafe extern "system" fn WindowProc(
     hwnd: HWND,
     msg: u32,
@@ -2362,7 +2389,7 @@ unsafe extern "system" fn WindowProc(
 
     use winapi::um::winuser::{
         DefWindowProcW, SetWindowLongPtrW,
-        GetWindowLongPtrW, PostQuitMessage,
+        GetWindowLongPtrW, PostQuitMessage, PostMessageW,
         WM_NCCREATE, WM_TIMER, WM_COMMAND,
         WM_CREATE, WM_NCMOUSELEAVE, WM_ERASEBKGND,
         WM_MOUSEMOVE, WM_DESTROY, WM_PAINT, WM_ACTIVATE,
@@ -2373,6 +2400,7 @@ unsafe extern "system" fn WindowProc(
         CREATESTRUCTW, GWLP_USERDATA,
     };
     use winapi::um::wingdi::wglMakeCurrent;
+    use crate::wr_translate::wr_translate_document_id;
 
 
     return if msg == WM_NCCREATE {
@@ -2397,6 +2425,194 @@ unsafe extern "system" fn WindowProc(
         let hwnd_key = hwnd as usize;
 
         match msg {
+            AZ_REGENERATE_DOM => {
+
+                // Regenerate the DOM
+
+                let mut ret = ProcessEventResult::DoNothing;
+
+                match app_borrow.windows.get_mut(&hwnd_key) {
+                    Some(current_window) => {
+
+                        let document_id = current_window.internal.document_id;
+                        let hit_tester = &mut current_window.hit_tester;
+                        let internal = &mut current_window.internal;
+                        let gl_context = &current_window.gl_context_ptr;
+
+                        let mut resource_updates = Vec::new();
+                        app_borrow.fc_cache.apply_closure(|fc_cache| {
+                            internal.regenerate_styled_dom(
+                                &mut app_borrow.data,
+                                &mut app_borrow.image_cache,
+                                &current_window.gl_context_ptr,
+                                &mut resource_updates,
+                                &crate::app::CALLBACKS,
+                                fc_cache,
+                                azul_layout::do_the_relayout,
+                                |window_state, scroll_states, layout_results| {
+                                    crate::wr_translate::fullhittest_new_webrender(
+                                         &*hit_tester.resolve(),
+                                         document_id,
+                                         window_state.focused_node,
+                                         layout_results,
+                                         &window_state.mouse_state.cursor_position,
+                                         window_state.size.hidpi_factor,
+                                    )
+                                }
+                            );
+                        });
+
+                        // send_resource_updates(resource_updates);
+
+                        let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                        current_window.hit_tester = AsyncHitTester::Requested(
+                            current_window.render_api.request_hit_tester(wr_document_id)
+                        );
+
+                        let hit_test = crate::wr_translate::fullhittest_new_webrender(
+                            &*current_window.hit_tester.resolve(),
+                            current_window.internal.document_id,
+                            current_window.internal.current_window_state.focused_node,
+                            &current_window.internal.layout_results,
+                            &current_window.internal.current_window_state.mouse_state.cursor_position,
+                            current_window.internal.current_window_state.size.hidpi_factor,
+                        );
+                        current_window.internal.current_window_state.last_hit_test = hit_test;
+
+                        unsafe { PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0); }
+                    },
+                    None => { },
+                };
+
+                mem::drop(app_borrow);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            },
+            AZ_REDO_HIT_TEST => {
+
+                let mut ret = ProcessEventResult::DoNothing;
+
+                let hwnd;
+
+                match app_borrow.windows.get_mut(&hwnd_key) {
+                    Some(current_window) => {
+
+                        hwnd = current_window.hwnd;
+
+                        let mut initial_resource_updates = Vec::new();
+
+                        let mut new_windows = Vec::new();
+                        let mut destroyed_windows = Vec::new();
+
+                        ret = process_event(
+                            app_borrow.hinstance,
+                            &mut current_window,
+                            &mut app_borrow.fc_cache,
+                            &mut app_borrow.image_cache,
+                            &app_borrow.config,
+                            &mut new_windows,
+                            &mut destroyed_windows,
+                        );
+
+                        create_windows(&mut app_borrow, new_windows);
+                        destroy_windows(&mut app_borrow, destroyed_windows);
+
+                        if ret == ProcessEventResult::UpdateHitTesterAndProcessAgain {
+
+                            // TODO: rebuild display list?
+
+                            let hit_test = crate::wr_translate::fullhittest_new_webrender(
+                                &*current_window.hit_tester.resolve(),
+                                current_window.internal.document_id,
+                                current_window.internal.current_window_state.focused_node,
+                                &current_window.internal.layout_results,
+                                &current_window.internal.current_window_state.mouse_state.cursor_position,
+                                current_window.internal.current_window_state.size.hidpi_factor,
+                            );
+                            current_window.internal.current_window_state.last_hit_test = hit_test;
+                        }
+                    },
+                    None => {
+                        mem::drop(app_borrow);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    },
+                };
+
+                match ret {
+                    ProcessEventResult::DoNothing => { },
+                    ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                        PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
+                    },
+                    ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                        for window in app_borrow.windows.values() {
+                            PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
+                        }
+                    },
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                        PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                    },
+                    ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                        PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    },
+                    ProcessEventResult::ShouldReRenderCurrentWindow => {
+                        PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
+                    },
+                }
+
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            AZ_REGENERATE_DISPLAY_LIST => {
+                match app_borrow.windows.get_mut(&hwnd_key) {
+                    Some(current_window) => {
+
+                        let mut initial_resource_updates = Vec::new();
+
+                        rebuild_display_list(
+                            &mut current_window.internal,
+                            &mut current_window.render_api,
+                            &app_borrow.image_cache,
+                            initial_resource_updates,
+                        );
+
+                        // submit_resources(initial_resource_updates)
+
+                        let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                        current_window.hit_tester = AsyncHitTester::Requested(
+                            current_window.render_api.request_hit_tester(wr_document_id)
+                        );
+
+                        generate_frame(
+                            &mut current_window.internal,
+                            &mut current_window.render_api,
+                            true,
+                        );
+
+                        PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
+
+                    },
+                    None => {},
+                }
+
+                mem::drop(app_borrow);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            },
+            AZ_GPU_SCROLL_RENDER => {
+                match app_borrow.windows.get_mut(&hwnd_key) {
+                    Some(current_window) => {
+                        generate_frame(
+                            &mut current_window.internal,
+                            &mut current_window.render_api,
+                            false,
+                        );
+
+                        PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
+                    },
+                    None => { },
+                }
+
+                mem::drop(app_borrow);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            },
             WM_CREATE => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -2412,75 +2628,28 @@ unsafe extern "system" fn WindowProc(
             WM_MOUSEMOVE => {
 
                 use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
+                use azul_core::window::{LogicalPosition, CursorPosition};
 
                 let x = GET_X_LPARAM(lparam);
                 let y = GET_Y_LPARAM(lparam);
 
-                let previous_state = current_window.state.clone();
-
-                // update window state
-                let pos = LogicalPosition::new(
-                    x as f32 / current_window.state.size.hidpi_factor,
-                    y as f32 / current_window.state.size.hidpi_factor,
-                );
-                current_window.state.mouse_state.cursor_position = CursorPosition::InWindow(pos);
-                println!("mouse moved to {}", pos);
-
-                // do hit test
-                let events = Events::new(&current_window.state, &previous_state);
-                println!("events: {:#?}", events);
-
-                // TODO: delete state from window, use internal.current_window_state instead
-                let hit_test = {
-                    let hit_tester = window.hit_tester.resolve();
-                    let ht = crate::wr_translate::fullhittest_new_webrender(
-                        &hit_tester,
-                        current_window.internal.document_id,
-                        current_window.internal.current_window_state.focused_node,
-                        &current_window.internal.layout_results,
-                        &current_window.state.mouse_state.cursor_position,
-                        current_window.state.size.hidpi_factor,
-                    );
-                    current_window.state.hovered_nodes = ht.hovered_nodes.clone();
-                    ht
+                match app_borrow.windows.get_mut(&hwnd_key) {
+                    Some(current_window) => {
+                        let pos = CursorPosition::InWindow(LogicalPosition::new(
+                            x as f32 / current_window.internal.current_window_state.size.hidpi_factor,
+                            y as f32 / current_window.internal.current_window_state.size.hidpi_factor,
+                        ));
+                        let previous_state = current_window.internal.current_window_state.clone();
+                        current_window.internal.previous_window_state = Some(previous_state);
+                        current_window.internal.current_window_state.mouse_state.cursor_position = pos;
+                        unsafe { PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0) };
+                    },
+                    None => { },
                 };
-                println!("hit test: {:#?}", hit_test);
 
-                let nodes_to_check = NodesToCheck::new(&hit_test, &events);
-                println!("nodes to check: {:#?}", nodes_to_check);
-
-                // invoke callbacks
-                let mut callback_results = fc_cache.apply_closure(|fc_cache| {
-                    window.call_callbacks(
-                        &nodes_to_check,
-                        &events,
-                        &mut image_cache,
-                        fc_cache,
-                        &config.system_callbacks
-                    )
-                });
-
-                println!("callback results: {:#?}", callback_results);
-
-                let cur_should_callback_render = callback_results.should_scroll_render;
-                if cur_should_callback_render {
-                    should_callback_render = true;
-                }
-
-                // if layout_callback_changed(previous_state, current_state)
-
-                // if callbacks need re-render, regenerate display list (?) + generate frame
-                // if frame generated, send WM_PAINT
-
-                // if( cursor_needs_setting ) {
-                //     SetClassLongPtr(hwnd, GCLP_HCURSOR, (LONG_PTR)LoadCursor(NULL, IDC_ARROW));
-                //     cursor_needs_setting = FALSE;
-                // }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
-            // AZ_REGENERATE_DOM => { }
-            // AZ_CALCULATE_CSS_CHANGES => { }
             WM_NCMOUSELEAVE => {
                 // cursor_needs_setting = TRUE;
                 mem::drop(app_borrow);
@@ -2545,29 +2714,6 @@ unsafe extern "system" fn WindowProc(
                 // Assuming that the display list has been submitted and the
                 // scene on the background thread has been rebuilt, now tell
                 // webrender to pain the scene
-
-                /*
-                    app_borrow.hinstance: HINSTANCE,
-                    app_borrow.data: RefAny,
-                    app_borrow.config: AppConfig,
-                    app_borrow.image_cache: ImageCache,
-                    app_borrow.fc_cache: LazyFcCache,
-                    app_borrow.windows: BTreeMap<usize, Window>,
-                    app_borrow.threads: BTreeMap<ThreadId, Thread>,
-                    app_borrow.timers: BTreeMap<TimerId, Timer>,
-                    app_borrow.dwm: Option<DwmFunctions>,
-
-                    current_window.hwnd: HWND,
-                    current_window.state: WindowState,
-                    current_window.internal: WindowInternal,
-                    current_window.gl_context: Option<HGLRC>,
-                    current_window.gl_functions: GlFunctions,
-                    current_window.gl_context_ptr: OptionGlContextPtr,
-                    current_window.render_api: WrRenderApi,
-                    current_window.renderer: Option<WrRenderer>,
-                    current_window.hit_tester: Arc<dyn WrApiHitTester>,
-                    current_window.menu_callbacks: BTreeMap<u16, MenuCallback>,
-                */
 
                 let hDC = GetDC(hwnd);
                 if hDC.is_null() {
@@ -2650,6 +2796,17 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_TIMER => {
+                match wparam {
+                    AZ_THREAD_TICK => {
+                        // tick every 16ms to process new thread messages
+                        run_all_threads();
+                    },
+                    id => {
+                        // TODO: optimize so that only the timer with "id" is run
+                        // currently this will attempt to run all timers
+                        run_all_timers();
+                    }
+                }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
@@ -2658,6 +2815,7 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_DESTROY => {
+
                 let windows_is_emtpy = {
                     let mut app = &mut *app_borrow;
                     let _ = app.windows.remove(&(hwnd as usize));
@@ -2679,4 +2837,241 @@ unsafe extern "system" fn WindowProc(
             }
         }
     };
+}
+
+#[derive(PartialEq, Eq)]
+enum ProcessEventResult {
+    DoNothing,
+    ShouldRegenerateDomCurrentWindow,
+    ShouldRegenerateDomAllWindows,
+    ShouldUpdateDisplayListCurrentWindow,
+    // GPU transforms changed: do another hit-test and recurse
+    // until nothing has changed anymore
+    UpdateHitTesterAndProcessAgain,
+    // Only refresh the display (in case of pure scroll or GPU-only events)
+    ShouldReRenderCurrentWindow,
+}
+
+// Assuming that current_window_state and the previous_window_state of the window
+// are set correctly and the hit-test has been performed, will call the callbacks
+// and return what the application should do next
+#[must_use]
+fn process_event(
+    hinstance: HINSTANCE,
+    window: &mut Window,
+    fc_cache: &mut LazyFcCache,
+    image_cache: &mut ImageCache,
+    config: &AppConfig,
+    new_windows: &mut Vec<WindowCreateOptions>,
+    destroyed_windows: &mut Vec<usize>,
+) -> ProcessEventResult {
+
+    use azul_core::window_state::{
+        Events, NodesToCheck, CallbacksOfHitTest,
+        StyleAndLayoutChanges,
+    };
+    use azul_core::window::FullWindowState;
+    use azul_core::callbacks::Update;
+
+    // TODO:
+    // window.internal.current_window_state.monitor =
+    // win32_translate_monitor(MonitorFromWindow(window.hwnd, MONITOR_DEFAULTTONEAREST));
+
+    // Get events
+    let events = Events::new(
+        &window.internal.current_window_state,
+        &window.internal.previous_window_state,
+    );
+
+    // Get nodes for events
+    let nodes_to_check = NodesToCheck::new(
+        &window.internal.current_window_state.last_hit_test,
+        &events
+    );
+
+    // Invoke callbacks on nodes
+    let mut callback_results = fc_cache.apply_closure(|fc_cache| {
+
+        use azul_core::window::{RawWindowHandle, WindowsHandle};
+
+        // Get callbacks for nodes
+        let mut callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &window.internal.layout_results);
+        let window_handle = RawWindowHandle::Windows(WindowsHandle {
+            hwnd: window.hwnd as *mut _,
+            hinstance: hinstance as *mut _,
+        });
+        let current_scroll_states = window.internal.get_current_scroll_states();
+
+        // Invoke user-defined callbacks in the UI
+        callbacks.call(
+            &window.internal.previous_window_state,
+            &window.internal.current_window_state,
+            &window_handle,
+            &current_scroll_states,
+            &window.gl_context_ptr,
+            &mut window.internal.layout_results,
+            &mut window.internal.scroll_states,
+            image_cache,
+            fc_cache,
+            &config.system_callbacks,
+        )
+    });
+
+    // TODO: add timers and threads to window
+    window.start_stop_timers(
+        callback_results.timers.unwrap_or_default(),
+        callback_results.timers_removed.unwrap_or_default()
+    );
+    window.start_stop_threads(
+        callback_results.threads.unwrap_or_default(),
+        callback_results.threads_removed.unwrap_or_default()
+    );
+
+    for w in callback_results.windows_created {
+        new_windows.push(w);
+    }
+
+    let mut result = ProcessEventResult::DoNothing;
+
+    let scroll = window.internal.current_window_state.process_system_scroll(&window.internal.scroll_states);
+    let need_scroll_render = scroll.is_some();
+
+    if let Some(modified) = callback_results.modified_window_state.as_ref() {
+        if modified.flags.is_about_to_close {
+            destroyed_windows.push(window.hwnd as usize);
+        }
+        window.internal.current_window_state = FullWindowState::from_window_state(
+            modified,
+            window.internal.current_window_state.dropped_file.clone(),
+            window.internal.current_window_state.hovered_file.clone(),
+            window.internal.current_window_state.focused_node.clone(),
+            window.internal.current_window_state.last_hit_test.clone(),
+        );
+        if modified.size.get_layout_size() != window.internal.current_window_state.size.get_layout_size() {
+            result = ProcessEventResult::UpdateHitTesterAndProcessAgain;
+        } else if !need_scroll_render {
+            result = ProcessEventResult::ShouldReRenderCurrentWindow;
+        }
+    }
+
+    synchronize_window_state_with_os(
+        window.hwnd,
+        window.internal.previous_window_state.as_ref(),
+        &window.internal.current_window_state
+    );
+
+    let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(
+        &window.internal.previous_window_state
+    );
+
+    if layout_callback_changed {
+        return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
+    } else {
+        match callback_results.callbacks_update_screen {
+            Update::RegenerateStyledDomForCurrentWindow => {
+                return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
+            },
+            Update::RegenerateStyledDomForAllWindows => {
+                return ProcessEventResult::ShouldRegenerateDomAllWindows;
+            },
+            Update::DoNothing => { },
+        }
+    }
+
+    // Re-layout and re-style the window.internal.layout_results
+    let mut style_layout_changes = StyleAndLayoutChanges::new(
+        &nodes_to_check,
+        &mut window.internal.layout_results,
+        &image_cache,
+        &mut window.internal.renderer_resources,
+        window.internal.current_window_state.size.get_layout_size(),
+        &window.internal.document_id,
+        callback_results.css_properties_changed.as_ref(),
+        callback_results.words_changed.as_ref(),
+        &callback_results.update_focused_node,
+        azul_layout::do_the_relayout,
+    );
+
+    // Perform a system or user scroll event: only
+    // scroll nodes that were not scrolled in the current frame
+    //
+    // Update the scroll states of the nodes, returning what nodes were actually scrolled this frame
+    if let Some(scroll) = scroll {
+        // Does a system scroll and re-invokes the IFrame
+        // callbacks if scrolled out of view
+        window.do_system_scroll(scroll);
+        window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
+    }
+
+    if style_layout_changes.did_resize_nodes() {
+        // at least update the hit-tester
+        ProcessEventResult::UpdateHitTesterAndProcessAgain
+    } else if style_layout_changes.need_regenerate_display_list() {
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    } else if need_scroll_render || style_layout_changes.need_redraw() {
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    } else {
+        result
+    }
+}
+
+fn create_windows(app: &mut ApplicationData, new: Vec<WindowCreateOptions>) {
+    // TODO
+}
+
+fn destroy_windows(app: &mut ApplicationData, old: Vec<usize>) {
+    // TODO
+}
+
+fn run_all_threads() {
+    // TODO
+}
+
+fn run_all_timers() {
+    // TODO
+}
+
+// Initializes the OS window
+fn initialize_os_window(
+    hwnd: HWND,
+    initial_state: &WindowState,
+    internal_state: &WindowState
+) {
+
+    /*
+
+        window.set_title(new_state.title.as_str());
+        window.set_maximized(new_state.flags.is_maximized);
+
+        if new_state.flags.is_fullscreen {
+            window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+        } else {
+            window.set_fullscreen(None);
+        }
+
+        window.set_decorations(new_state.flags.has_decorations);
+        window.set_inner_size(translate_logical_size(new_state.size.dimensions));
+        window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(translate_logical_size));
+        window.set_min_inner_size(new_state.size.max_dimensions.into_option().map(translate_logical_size));
+
+        if let WindowPosition::Initialized(new_position) = new_state.position {
+            let new_position: PhysicalPosition<i32> = new_position.into();
+            window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
+        }
+
+        if let ImePosition::Initialized(new_ime_position) = new_state.ime_position {
+            window.set_ime_position(translate_logical_position(new_ime_position));
+        }
+
+        window.set_always_on_top(new_state.flags.is_always_on_top);
+        window.set_resizable(new_state.flags.is_resizable);
+    */
+}
+
+fn synchronize_window_state_with_os(
+    window: HWND,
+    previous_state: Option<&FullWindowState>,
+    current_state: &FullWindowState
+) {
+    // TODO: window.set_title
 }

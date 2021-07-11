@@ -20,7 +20,7 @@ use std::time::Duration as StdDuration;
 use std::sync::Mutex;
 
 use crate::{
-    FastHashMap,
+    FastHashMap, FastBTreeSet,
     callbacks::{
         TimerCallback, TimerCallbackInfo, RefAny, OptionDomNodeId,
         TimerCallbackReturn, TimerCallbackType, Update,
@@ -51,12 +51,12 @@ pub enum TerminateTimer {
     Continue,
 }
 
-static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(0);
+static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(5);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct TimerId { id: usize }
+pub struct TimerId { pub id: usize }
 
 impl TimerId {
     /// Generates a new, unique `TimerId`.
@@ -67,7 +67,7 @@ impl TimerId {
 
 impl_option!(TimerId, OptionTimerId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
+static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(5);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -504,6 +504,11 @@ impl SystemTimeDiff {
             None
         }
     }
+
+    pub fn millis(&self) -> u64 {
+        (self.secs * MILLIS_PER_SEC) + (self.nanos / NANOS_PER_MILLI) as u64
+    }
+
     #[cfg(feature = "std")]
     pub fn get(&self) -> StdDuration { (*self).into() }
 }
@@ -562,6 +567,14 @@ impl Timer {
             interval: OptionDuration::None,
             timeout: OptionDuration::None,
             callback: TimerCallback { cb: callback },
+        }
+    }
+
+    pub fn tick_millis(&self) -> u64 {
+        match self.interval.as_ref() {
+            Some(Duration::System(s)) => { s.millis() }
+            Some(Duration::Tick(s)) => { s.tick_diff },
+            None => 16, // ms
         }
     }
 
@@ -1099,6 +1112,8 @@ pub fn run_all_timers<'a, 'b>(
     system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
+    timers_removed: &mut FastBTreeSet<TimerId>,
+    threads_removed: &mut FastBTreeSet<ThreadId>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
     layout_results: &'a mut Vec<LayoutResult>,
@@ -1135,6 +1150,8 @@ pub fn run_all_timers<'a, 'b>(
             system_fonts,
             timers,
             threads,
+            timers_removed,
+            threads_removed,
             new_windows,
             current_window_handle,
             &layout_result.styled_dom.node_hierarchy,
@@ -1199,6 +1216,8 @@ pub fn clean_up_finished_threads<'a, 'b>(
     system_callbacks: &ExternalSystemCallbacks,
     timers: &mut FastHashMap<TimerId, Timer>,
     threads: &mut FastHashMap<ThreadId, Thread>,
+    timers_removed: &mut FastBTreeSet<TimerId>,
+    threads_removed: &mut FastBTreeSet<ThreadId>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
     layout_results: &'a mut Vec<LayoutResult>,
@@ -1251,6 +1270,8 @@ pub fn clean_up_finished_threads<'a, 'b>(
                     system_fonts,
                     timers,
                     threads,
+                    timers_removed,
+                    threads_removed,
                     new_windows,
                     current_window_handle,
                     node_hierarchy,

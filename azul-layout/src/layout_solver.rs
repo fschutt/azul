@@ -1591,7 +1591,7 @@ pub fn do_the_layout(
 
                 // TODO: use other fields of iframe_return here!
 
-                let hovered_nodes = full_window_state.hovered_nodes
+                let hovered_nodes = full_window_state.last_hit_test.hovered_nodes
                     .get(&iframe_dom_id)
                     .map(|i| i.regular_hit_test_nodes.clone())
                     .unwrap_or_default()

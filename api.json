@@ -1037,6 +1037,8 @@
                         {"system_fonts": {"type": "*mut c_void"}},
                         {"timers": {"type": "*mut c_void"}},
                         {"threads": {"type": "*mut c_void"}},
+                        {"timers_removed": {"type": "*mut c_void"}},
+                        {"threads_removed": {"type": "*mut c_void"}},
                         {"new_windows": {"type": "*mut c_void"}},
                         {"current_window_handle": {"type": "*const RawWindowHandle"}},
                         {"node_hierarchy": {"type": "*const c_void"}},

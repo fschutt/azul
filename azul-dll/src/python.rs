@@ -7720,6 +7720,8 @@ pub struct AzCallbackInfo {
     pub system_fonts: *mut c_void,
     pub timers: *mut c_void,
     pub threads: *mut c_void,
+    pub timers_removed: *mut c_void,
+    pub threads_removed: *mut c_void,
     pub new_windows: *mut c_void,
     pub current_window_handle: *const AzRawWindowHandleEnumWrapper,
     pub node_hierarchy: *const c_void,

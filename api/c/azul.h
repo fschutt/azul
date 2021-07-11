@@ -8923,6 +8923,8 @@ struct AzCallbackInfo {
     void* restrict system_fonts;
     void* restrict timers;
     void* restrict threads;
+    void* restrict timers_removed;
+    void* restrict threads_removed;
     void* restrict new_windows;
     AzRawWindowHandle* current_window_handle;
     void* node_hierarchy;
