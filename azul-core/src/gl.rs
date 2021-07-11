@@ -8,7 +8,10 @@ use alloc::vec::Vec;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use gl_context_loader::{
-    GenericGlContext, GlType, gl, GLbitfield,
+    GenericGlContext, GlType, gl,
+};
+pub use gl_context_loader::{
+    GLbitfield,
     GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES,
     GLenum, GLfloat, GLint, GLint64, GLintptr, GLsizei,
     GLsizeiptr, GLsync, GLubyte, GLuint, GLuint64, GLvoid,

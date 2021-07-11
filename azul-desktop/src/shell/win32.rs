@@ -1689,12 +1689,12 @@ impl Window {
                 enable_subpixel_aa: true,
                 enable_aa: true,
                 cached_programs: Some(WrProgramCache::new(None)),
-                clear_color: Some(WrColorF {
+                clear_color: WrColorF {
                     r: 0.0,
                     g: 0.0,
                     b: 0.0,
                     a: 0.0,
-                }), // transparent
+                }, // transparent
                 enable_multithreading: true,
                 debug_flags: wr_translate_debug_flags(&options.state.debug_state),
                 ..WrRendererOptions::default()
@@ -2541,7 +2541,6 @@ unsafe extern "system" fn WindowProc(
                     wingdi::SwapBuffers,
                     winuser::{GetDC, ReleaseDC, GetClientRect},
                 };
-                use gleam::gl::{Gl, COLOR_BUFFER_BIT, DEPTH_BUFFER_BIT};
 
                 // Assuming that the display list has been submitted and the
                 // scene on the background thread has been rebuilt, now tell
@@ -2609,13 +2608,13 @@ unsafe extern "system" fn WindowProc(
 
                 let mut gl = &mut current_window.gl_functions.functions;
 
-                gl.bind_framebuffer(gleam::gl::FRAMEBUFFER, 0);
-                gl.disable(gleam::gl::FRAMEBUFFER_SRGB);
-                gl.disable(gleam::gl::MULTISAMPLE);
+                gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                gl.disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
+                gl.disable(gl_context_loader::gl::MULTISAMPLE);
                 gl.viewport(0, 0, rect.width() as i32, rect.height() as i32);
 
                 let mut current_program = [0_i32];
-                gl.get_integer_v(gleam::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
 
                 let framebuffer_size = WrDeviceIntSize::new(
                     rect.width() as i32,
@@ -2641,8 +2640,8 @@ unsafe extern "system" fn WindowProc(
 
                 SwapBuffers(hDC);
 
-                gl.bind_framebuffer(gleam::gl::FRAMEBUFFER, 0);
-                gl.bind_texture(gleam::gl::TEXTURE_2D, 0);
+                gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
                 gl.use_program(current_program[0] as u32);
 
                 wglMakeCurrent(ptr::null_mut(), ptr::null_mut());

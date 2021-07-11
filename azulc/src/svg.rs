@@ -588,8 +588,8 @@ pub fn render_tesselated_node_gpu(
     gl_context.draw_elements(gl::TRIANGLES, node.indices.len() as i32, INDEX_TYPE, 0);
 
     // stage 4: cleanup - reset the OpenGL state
-    if current_multisample[0] == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
-    if current_primitive_restart_enabled[0] == gl::FALSE { gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX); }
+    if u32::from(current_multisample[0]) == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
+    if u32::from(current_primitive_restart_enabled[0]) == gl::FALSE { gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX); }
     gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
     gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
