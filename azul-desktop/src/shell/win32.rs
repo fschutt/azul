@@ -1697,7 +1697,6 @@ impl Window {
         // Invoke callback to initialize UI for the first time
         let mut initial_resource_updates = Vec::new();
 
-
         let (mut renderer, sender) = match WrRenderer::new(
             gl.functions.clone(),
             Box::new(Notifier {}),
@@ -2658,7 +2657,7 @@ unsafe extern "system" fn WindowProc(
                         let previous_state = current_window.internal.current_window_state.clone();
                         current_window.internal.previous_window_state = Some(previous_state);
                         current_window.internal.current_window_state.mouse_state.cursor_position = pos;
-                        unsafe { PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0) };
+                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     },
                     None => { },
                 };

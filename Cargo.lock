@@ -249,9 +249,9 @@ dependencies = [
 
 [[package]]
 name = "azul-webrender"
-version = "0.62.0"
+version = "0.62.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ffa9a7c9ad55654cfe2ebb2227b88ff41c6a4419e21fc4c3f4cadf5447f2811"
+checksum = "be4a0c6749d6dbaede78dec4606805cefa7e0f0f400c7c7c060754f263e315fc"
 dependencies = [
  "azul-webrender-api",
  "azul-webrender-build",
@@ -866,9 +866,9 @@ checksum = "f6503fe142514ca4799d4c26297c4248239fe8838d827db6bd6065c6ed29a6ce"
 
 [[package]]
 name = "gl-context-loader"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5baf0c0a4354974e2e7b8ca71793a26da24e9bd9b392e69f47b7be70cb8f8c68"
+checksum = "4db728a157b926b6f26baff476fea7da0f45144e7eb80c969c3ffc4a8defcdfc"
 
 [[package]]
 name = "glslopt"

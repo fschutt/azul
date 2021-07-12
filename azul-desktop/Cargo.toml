@@ -27,8 +27,8 @@ backtrace               = { version = "0.3.43" }
 rust-fontconfig         = { version = "0.1.5", default-features = false, features = ["std"] }
 strfmt                  = { version = "0.1.6", default-features = false }
 libm                    = { version = "0.2.1", default-features = false }
-gl-context-loader       = { version = "0.1.3", default-features = false }
-webrender               = { version = "0.62.0", package = "azul-webrender", default-features = false, features = ["freetype-lib", "no_static_freetype"] }
+gl-context-loader       = { version = "0.1.4", default-features = false }
+webrender               = { version = "0.62.1", package = "azul-webrender", default-features = false, features = ["freetype-lib"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 coarsetime              = { version = "0.1.19", default-features = false }
@@ -69,3 +69,4 @@ hdr = ["image_loading", "azulc/hdr"]
 dxt = ["image_loading", "azulc/dxt"]
 webp = ["image_loading", "azulc/webp"]
 pnm = ["image_loading", "azulc/pnm"]
+no_static_freetype = ["webrender/no_static_freetype"]
