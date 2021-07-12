@@ -1724,8 +1724,8 @@ impl Window {
             Ok(o) => o,
             Err(e) => unsafe {
                 if let Some(hrc) = opengl_context.as_mut() {
-                    unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
-                    unsafe { wglDeleteContext(*hrc) };
+                    wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                    wglDeleteContext(*hrc);
                 }
                 ReleaseDC(hwnd, hdc);
                 DestroyWindow(hwnd);
@@ -1785,6 +1785,7 @@ impl Window {
 
 
         let mut internal = {
+
             let appdata_lock = &mut *appdata_lock;
             let fc_cache = &mut appdata_lock.fc_cache;
             let image_cache = &appdata_lock.image_cache;
@@ -2648,18 +2649,29 @@ unsafe extern "system" fn WindowProc(
                 let x = GET_X_LPARAM(lparam);
                 let y = GET_Y_LPARAM(lparam);
 
-                match app_borrow.windows.get_mut(&hwnd_key) {
-                    Some(current_window) => {
-                        let pos = CursorPosition::InWindow(LogicalPosition::new(
-                            x as f32 / current_window.internal.current_window_state.size.hidpi_factor,
-                            y as f32 / current_window.internal.current_window_state.size.hidpi_factor,
-                        ));
-                        let previous_state = current_window.internal.current_window_state.clone();
-                        current_window.internal.previous_window_state = Some(previous_state);
-                        current_window.internal.current_window_state.mouse_state.cursor_position = pos;
-                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
-                    },
-                    None => { },
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+
+                    let pos = CursorPosition::InWindow(LogicalPosition::new(
+                        x as f32 / current_window.internal.current_window_state.size.hidpi_factor,
+                        y as f32 / current_window.internal.current_window_state.size.hidpi_factor,
+                    ));
+                    let previous_state = current_window.internal.current_window_state.clone();
+
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.cursor_position = pos;
+
+                    // mouse moved, so we need a new hit test
+                    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+                        &*current_window.hit_tester.resolve(),
+                        current_window.internal.document_id,
+                        current_window.internal.current_window_state.focused_node,
+                        &current_window.internal.layout_results,
+                        &current_window.internal.current_window_state.mouse_state.cursor_position,
+                        current_window.internal.current_window_state.size.hidpi_factor,
+                    );
+                    current_window.internal.current_window_state.last_hit_test = hit_test;
+
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 };
 
                 mem::drop(app_borrow);
@@ -2854,7 +2866,7 @@ unsafe extern "system" fn WindowProc(
     };
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum ProcessEventResult {
     DoNothing,
     ShouldRegenerateDomCurrentWindow,
@@ -2898,6 +2910,7 @@ fn process_event(
         &window.internal.previous_window_state,
     );
 
+
     // Get nodes for events
     let nodes_to_check = NodesToCheck::new(
         &window.internal.current_window_state.last_hit_test,
@@ -2911,6 +2924,7 @@ fn process_event(
 
         // Get callbacks for nodes
         let mut callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &window.internal.layout_results);
+
         let window_handle = RawWindowHandle::Windows(WindowsHandle {
             hwnd: window.hwnd as *mut _,
             hinstance: hinstance as *mut _,
@@ -2932,7 +2946,6 @@ fn process_event(
         )
     });
 
-    // TODO: add timers and threads to window
     window.start_stop_timers(
         callback_results.timers.unwrap_or_default(),
         callback_results.timers_removed.unwrap_or_default()

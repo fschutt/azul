@@ -820,10 +820,6 @@ pub(crate) fn fullhittest_new_webrender(
         }
     }
 
-    if !ret.hovered_nodes.is_empty() {
-        println!("hovered nodes: {:#?}", ret.hovered_nodes);
-    }
-
     ret
 }
 

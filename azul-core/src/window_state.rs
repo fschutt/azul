@@ -225,8 +225,9 @@ impl NodesToCheck {
         };
 
         // Collect all On::MouseEnter nodes (for both hover and focus events)
+        let default_map = BTreeMap::new();
         let onmouseenter_nodes = new_hit_node_ids.iter().filter_map(|(dom_id, nhnid)| {
-            let old_hit_node_ids = events.old_hit_node_ids.get(dom_id)?;
+            let old_hit_node_ids = events.old_hit_node_ids.get(dom_id).unwrap_or(&default_map);
             let new = nhnid.iter()
             .filter(|(current_node_id, _)| old_hit_node_ids.get(current_node_id).is_none())
             .map(|(x, y)| (*x, y.clone()))
@@ -293,34 +294,6 @@ pub struct StyleAndLayoutChanges {
     pub nodes_that_changed_size: Option<BTreeMap<DomId, Vec<NodeId>>>,
     /// Changes to the text content
     pub nodes_that_changed_text_content: Option<BTreeMap<DomId, Vec<NodeId>>>,
-}
-
-impl StyleAndLayoutChanges {
-    pub fn did_resize_nodes(&self) -> bool {
-        use azul_css::CssPropertyType;
-
-        if let Some(l) = self.nodes_that_changed_size.as_ref() {
-            if !l.is_empty() { return true; }
-        }
-
-        if let Some(l) = self.nodes_that_changed_text_content.as_ref() {
-            if !l.is_empty() { return true; }
-        }
-
-        // check if any changed node is a CSS transform
-        if let Some(s) = self.style_changes.as_ref() {
-            for restyle_nodes in s.values() {
-                for changed in restyle_nodes.values() {
-                    for changed in changed.iter() {
-                        if changed.current_prop.get_type() == CssPropertyType::Transform {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -397,6 +370,7 @@ impl StyleAndLayoutChanges {
         }};}
 
         for (dom_id, onmouseenter_nodes) in nodes.onmouseenter_nodes.iter() {
+
             let layout_result = &mut layout_results[dom_id.inner];
 
             let keys = onmouseenter_nodes.keys().copied().collect::<Vec<_>>();
@@ -530,6 +504,32 @@ impl StyleAndLayoutChanges {
             nodes_that_changed_text_content,
             focus_change,
         }
+    }
+
+    pub fn did_resize_nodes(&self) -> bool {
+        use azul_css::CssPropertyType;
+
+        if let Some(l) = self.nodes_that_changed_size.as_ref() {
+            if !l.is_empty() { return true; }
+        }
+
+        if let Some(l) = self.nodes_that_changed_text_content.as_ref() {
+            if !l.is_empty() { return true; }
+        }
+
+        // check if any changed node is a CSS transform
+        if let Some(s) = self.style_changes.as_ref() {
+            for restyle_nodes in s.values() {
+                for changed in restyle_nodes.values() {
+                    for changed in changed.iter() {
+                        if changed.current_prop.get_type() == CssPropertyType::Transform {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     // Note: this can be false in case that only opacity: / transform: properties changed!
