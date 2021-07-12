@@ -4,6 +4,10 @@
 /// for a Callback with a `.cb` field:
 ///
 /// ```
+/// # use azul_core::impl_callback;
+/// # use std::fmt;
+/// struct T { }
+///
 /// struct MyCallback { cb: fn (&T) };
 ///
 /// // impl Display, Debug, etc. for MyCallback
