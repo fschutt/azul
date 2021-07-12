@@ -975,7 +975,7 @@ pub(crate) fn generate_frame(
     internal.epoch.increment();
 
     txn.set_root_pipeline(wr_translate_pipeline_id(PipelineId(0, internal.document_id.id)));
-    txn.set_document_view(WrDeviceIntRect::new(WrDeviceIntPoint::new(0, 0), framebuffer_size), internal.current_window_state.size.hidpi_factor);
+    txn.set_document_view(WrDeviceIntRect::from_origin_and_size(WrDeviceIntPoint::new(0, 0), framebuffer_size));
     scroll_all_nodes(&mut internal.scroll_states, &mut txn);
     synchronize_gpu_values(&internal.layout_results, &mut txn);
 
@@ -1348,9 +1348,10 @@ pub fn wr_translate_border_side(input: CssBorderSide) -> WrBorderSide {
 // NOTE: Reverse direction: Translate from webrender::LayoutRect to css::LayoutRect
 #[inline(always)]
 pub fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect {
+    let size =  input.size();
     CssLayoutRect {
-        origin: CssLayoutPoint { x: input.origin.x.round() as isize, y: input.origin.y.round() as isize },
-        size: CssLayoutSize { width: input.size.width.round() as isize, height: input.size.height.round() as isize },
+        origin: CssLayoutPoint { x: input.min.x.round() as isize, y: input.min.y.round() as isize },
+        size: CssLayoutSize { width: size.width.round() as isize, height: size.height.round() as isize },
     }
 }
 
@@ -1371,12 +1372,18 @@ pub(crate) fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutP
 
 #[inline]
 fn wr_translate_logical_rect(input: LogicalRect) -> WrLayoutRect {
-    WrLayoutRect::new(wr_translate_logical_position(input.origin), wr_translate_logical_size(input.size))
+    WrLayoutRect::from_origin_and_size(
+        wr_translate_logical_position(input.origin),
+        wr_translate_logical_size(input.size)
+    )
 }
 
 #[inline]
 fn wr_translate_layout_rect(input: CssLayoutRect) -> WrLayoutRect {
-    WrLayoutRect::new(wr_translate_layout_point(input.origin), wr_translate_layout_size(input.size))
+    WrLayoutRect::from_origin_and_size(
+        wr_translate_layout_point(input.origin),
+        wr_translate_layout_size(input.size)
+    )
 }
 
 #[inline]
@@ -1391,7 +1398,10 @@ fn translate_layout_point_wr(input: WrLayoutPoint) -> CssLayoutPoint {
 
 #[inline]
 fn translate_layout_rect_wr(input: WrLayoutRect) -> CssLayoutRect {
-    CssLayoutRect::new(translate_layout_point_wr(input.origin), translate_layout_size_wr(input.size))
+    CssLayoutRect::new(
+        translate_layout_point_wr(input.min),
+        translate_layout_size_wr(input.size())
+    )
 }
 
 #[inline]
@@ -1593,7 +1603,7 @@ fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect
     match dirty_rect {
         ImageDirtyRect::All => WrDirtyRect::All,
         ImageDirtyRect::Partial(rect) => WrDirtyRect::Partial(
-            WrDeviceIntRect::new(
+            WrDeviceIntRect::from_origin_and_size(
                 WrDeviceIntPoint::new(rect.origin.x as i32, rect.origin.y as i32),
                 WrDeviceIntSize::new(rect.size.width as i32, rect.size.height as i32),
             )
@@ -1770,8 +1780,8 @@ fn push_display_list_msg(
             render_api.send_transaction(wr_translate_document_id(document_id), transaction);
 
             builder.push_iframe(
-                WrLayoutRect::new(WrLayoutPoint::zero(), wr_translate_logical_size(iframe_root_size)), // bounds
-                WrLayoutRect::new(WrLayoutPoint::zero(), wr_translate_logical_size(iframe_clip_size)), // clip_bounds
+                WrLayoutRect::from_size(wr_translate_logical_size(iframe_root_size)), // bounds
+                WrLayoutRect::from_size(wr_translate_logical_size(iframe_clip_size)), // clip_bounds
                 &WrSpaceAndClipInfo {
                     clip_id: parent_clip_id,
                     spatial_id: rect_spatial_id,
@@ -1833,8 +1843,7 @@ fn push_frame(
     // push the hit-testing tag if any
     if let Some(hit_tag) = frame.tag {
         builder.push_hit_test(&WrCommonItemProperties {
-            clip_rect: WrLayoutRect::new(
-                WrLayoutPoint::new(0.0, 0.0),
+            clip_rect: WrLayoutRect::from_size(
                 WrLayoutSize::new(frame.size.width, frame.size.height),
             ),
             spatial_id: rect_spatial_id,
@@ -1913,9 +1922,11 @@ fn push_scroll_frame(
 
     // push the scroll hit-testing tag if any
     builder.push_hit_test(&WrCommonItemProperties {
-        clip_rect: WrLayoutRect::new(
-            WrLayoutPoint::new(0.0, 0.0),
-            WrLayoutSize::new(scroll_frame.content_rect.size.width, scroll_frame.content_rect.size.height),
+        clip_rect: WrLayoutRect::from_size(
+            WrLayoutSize::new(
+                scroll_frame.content_rect.size.width,
+                scroll_frame.content_rect.size.height
+            ),
         ),
         spatial_id: scroll_frame_clip_info.spatial_id,
         clip_id: scroll_frame_clip_info.clip_id,
@@ -1925,9 +1936,11 @@ fn push_scroll_frame(
     // additionally push the hit tag of the frame if there is any
     if let Some(hit_tag) = scroll_frame.frame.tag {
         builder.push_hit_test(&WrCommonItemProperties {
-            clip_rect: WrLayoutRect::new(
-                WrLayoutPoint::new(0.0, 0.0),
-                WrLayoutSize::new(scroll_frame.frame.size.width, scroll_frame.frame.size.height),
+            clip_rect: WrLayoutRect::from_size(
+                WrLayoutSize::new(
+                    scroll_frame.frame.size.width,
+                    scroll_frame.frame.size.height
+                ),
             ),
             spatial_id: scroll_frame_clip_info.spatial_id,
             clip_id: scroll_frame_clip_info.clip_id,
@@ -1965,7 +1978,7 @@ fn define_border_radius_clip(
 
     // NOTE: only translate the size, position is always (0.0, 0.0)
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
-    let wr_layout_rect = WrLayoutRect::new(WrLayoutPoint::zero(), wr_layout_size);
+    let wr_layout_rect = WrLayoutRect::from_size(wr_layout_size);
     builder.define_clip_rounded_rect( // TODO: optimize - if border radius = 0,
         &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
         WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
@@ -2092,6 +2105,7 @@ mod background {
         units::{
             LayoutSize as WrLayoutSize,
             LayoutRect as WrLayoutRect,
+            LayoutPoint as WrLayoutPoint,
         },
         DisplayListBuilder as WrDisplayListBuilder,
         CommonItemProperties as WrCommonItemProperties,
@@ -2146,15 +2160,16 @@ mod background {
         use webrender::api::units::LayoutPoint as WrLayoutPoint;
         use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
 
-        let width = info.clip_rect.size.width.round();
-        let height = info.clip_rect.size.height.round();
+        let clip_rect_size = info.clip_rect.size();
+        let width = clip_rect_size.width.round();
+        let height = clip_rect_size.height.round();
         let background_position = background_position.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
         let offset = calculate_background_position(width, height, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.min.x += offset.x;
+        offset_info.clip_rect.min.y += offset.y;
 
         let stops: Vec<WrGradientStop> = conic_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
@@ -2196,15 +2211,16 @@ mod background {
         use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
         use webrender::api::units::LayoutPoint as WrLayoutPoint;
 
-        let width = info.clip_rect.size.width.round();
-        let height = info.clip_rect.size.height.round();
+        let clip_rect_size = info.clip_rect.size();
+        let width = clip_rect_size.width.round();
+        let height = clip_rect_size.height.round();
         let background_position = background_position.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
         let offset = calculate_background_position(width, height, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.min.x += offset.x;
+        offset_info.clip_rect.min.y += offset.y;
 
         let center = calculate_background_position(width, height, radial_gradient.position, background_size);
         let center = WrLayoutPoint::new(center.x, center.y);
@@ -2259,11 +2275,12 @@ mod background {
 
         let background_position = background_position.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(info.clip_rect.size.width.round(), info.clip_rect.size.height.round(), background_position, background_size);
+        let clip_rect_size = info.clip_rect.size();
+        let offset = calculate_background_position(clip_rect_size.width.round(), clip_rect_size.height.round(), background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.min.x += offset.x;
+        offset_info.clip_rect.min.y += offset.y;
 
         let stops: Vec<WrGradientStop> = linear_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
@@ -2305,7 +2322,13 @@ mod background {
         let background_position = background_position.unwrap_or_default();
         let background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let background_position = calculate_background_position(info.clip_rect.size.width.round(), info.clip_rect.size.height.round(), background_position, background_size);
+        let clip_rect_size = info.clip_rect.size();
+        let background_position = calculate_background_position(
+            clip_rect_size.width.round(),
+            clip_rect_size.height.round(),
+            background_position,
+            background_size
+        );
         let background_repeat_info = get_background_repeat_info(info, background_repeat, background_size);
 
         // TODO: customize this for image backgrounds?
@@ -2330,13 +2353,19 @@ mod background {
         let background_position = background_position.unwrap_or_default();
         let _background_repeat = background_repeat.unwrap_or_default();
         let background_size = calculate_background_size(info, background_size, content_size);
-        let offset = calculate_background_position(info.clip_rect.size.width.round(), info.clip_rect.size.height.round(), background_position, background_size);
+        let clip_rect_size = info.clip_rect.size();
+        let offset = calculate_background_position(
+            clip_rect_size.width.round(),
+            clip_rect_size.height.round(),
+            background_position,
+            background_size
+        );
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
-        offset_info.clip_rect.size.width = background_size.width;
-        offset_info.clip_rect.size.height = background_size.height;
+        offset_info.clip_rect.min.x += offset.x;
+        offset_info.clip_rect.min.y += offset.y;
+        offset_info.clip_rect.max.x = offset_info.clip_rect.min.x + background_size.width;
+        offset_info.clip_rect.max.y = offset_info.clip_rect.min.y + background_size.height;
 
         builder.push_rect(
             &offset_info,
@@ -2355,24 +2384,24 @@ mod background {
 
         match background_repeat {
             NoRepeat => WrCommonItemProperties {
-                clip_rect: WrLayoutRect::new(
-                    info.clip_rect.origin,
+                clip_rect: WrLayoutRect::from_origin_and_size(
+                    WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
                     WrLayoutSize::new(background_size.width, background_size.height),
                 ),
                 .. *info
             },
             Repeat => *info,
             RepeatX => WrCommonItemProperties {
-                clip_rect: WrLayoutRect::new(
-                    info.clip_rect.origin,
-                    WrLayoutSize::new(info.clip_rect.size.width, background_size.height),
+                clip_rect: WrLayoutRect::from_origin_and_size(
+                    WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
+                    WrLayoutSize::new(info.clip_rect.size().width, background_size.height),
                 ),
                 .. *info
             },
             RepeatY => WrCommonItemProperties {
-                clip_rect: WrLayoutRect::new(
-                    info.clip_rect.origin,
-                    WrLayoutSize::new(background_size.width, info.clip_rect.size.height),
+                clip_rect: WrLayoutRect::from_origin_and_size(
+                    WrLayoutPoint::new(info.clip_rect.min.x, info.clip_rect.min.y),
+                    WrLayoutSize::new(background_size.width, info.clip_rect.size().height),
                 ),
                 .. *info
             },
@@ -2386,22 +2415,26 @@ mod background {
         content_size: Option<(f32, f32)>,
     ) -> LogicalSize {
 
-        let content_size = content_size.unwrap_or((info.clip_rect.size.width, info.clip_rect.size.height));
+        let default_content_size = info.clip_rect.size();
+        let content_size = content_size.unwrap_or(
+            (default_content_size.width, default_content_size.height)
+        );
 
         let bg_size = match bg_size {
             None => return LogicalSize::new(content_size.0, content_size.1),
             Some(s) => s,
         };
 
+        let clip_rect_size = info.clip_rect.size();
         let content_aspect_ratio = Ratio {
-            width: info.clip_rect.size.width / content_size.0,
-            height: info.clip_rect.size.height / content_size.1,
+            width: clip_rect_size.width / content_size.0,
+            height: clip_rect_size.height / content_size.1,
         };
 
         let ratio = match bg_size {
             StyleBackgroundSize::ExactSize([w, h]) => {
-                let w = w.to_pixels(info.clip_rect.size.width);
-                let h = h.to_pixels(info.clip_rect.size.height);
+                let w = w.to_pixels(clip_rect_size.width);
+                let h = h.to_pixels(clip_rect_size.height);
                 w.min(h)
             },
             StyleBackgroundSize::Contain => content_aspect_ratio.width.min(content_aspect_ratio.height),
@@ -2471,8 +2504,8 @@ mod image {
         use webrender::api::units::LayoutSize as WrLayoutSize;
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.min.x += offset.x;
+        offset_info.clip_rect.min.y += offset.y;
 
         let tile_spacing = WrLayoutSize::zero();
 
@@ -2808,7 +2841,8 @@ mod border {
         styles: StyleBorderStyles,
         current_hidpi_factor: f32,
     ) {
-        let rect_size = LogicalSize::new(info.clip_rect.size.width, info.clip_rect.size.height);
+        let clip_rect_size = info.clip_rect.size();
+        let rect_size = LogicalSize::new(clip_rect_size.width, clip_rect_size.height);
 
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles, current_hidpi_factor) {
             builder.push_border(&info, info.clip_rect, border_widths, border_details);

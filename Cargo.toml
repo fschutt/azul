@@ -19,10 +19,10 @@ panic = "abort"
 debug = true
 
 [profile.release]
-opt-level = 'z'
-lto = false
+opt-level = 3
+lto = true
 panic = "abort"
-codegen-units = 16
+codegen-units = 1
 debug = false
 overflow-checks = false
 incremental = false

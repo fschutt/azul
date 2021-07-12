@@ -1872,7 +1872,7 @@ impl Window {
         };
         let mut txn = WrTransaction::new();
         txn.set_document_view(
-            WrDeviceIntRect::new(
+            WrDeviceIntRect::from_origin_and_size(
                 WrDeviceIntPoint::zero(),
                 WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
             )
@@ -1992,7 +1992,11 @@ impl Window {
         unsafe { ShowWindow(self.hwnd, sw_options); }
     }
 
-    fn start_stop_timers(&mut self, added: FastHashMap<TimerId, Timer>, removed: FastBTreeSet<TimerId>) {
+    fn start_stop_timers(
+        &mut self,
+        added: FastHashMap<TimerId, Timer>,
+        removed: FastBTreeSet<TimerId>
+    ) {
 
         use winapi::um::winuser::{SetTimer, KillTimer};
 
@@ -2008,7 +2012,11 @@ impl Window {
         }
     }
 
-    fn start_stop_threads(&mut self, added: FastHashMap<ThreadId, Thread>, removed: FastBTreeSet<ThreadId>) {
+    fn start_stop_threads(
+        &mut self,
+        mut added: FastHashMap<ThreadId, Thread>,
+        removed: FastBTreeSet<ThreadId>
+    ) {
 
         use winapi::um::winuser::{SetTimer, KillTimer};
 
@@ -2427,62 +2435,64 @@ unsafe extern "system" fn WindowProc(
         match msg {
             AZ_REGENERATE_DOM => {
 
-                // Regenerate the DOM
-
                 let mut ret = ProcessEventResult::DoNothing;
 
-                match app_borrow.windows.get_mut(&hwnd_key) {
-                    Some(current_window) => {
+                // borrow checker :|
+                let ab = &mut *app_borrow;
+                let windows = &mut ab.windows;
+                let fc_cache = &mut ab.fc_cache;
+                let data = &mut ab.data;
+                let image_cache = &mut ab.image_cache;
 
-                        let document_id = current_window.internal.document_id;
-                        let hit_tester = &mut current_window.hit_tester;
-                        let internal = &mut current_window.internal;
-                        let gl_context = &current_window.gl_context_ptr;
+                if let Some(current_window) = windows.get_mut(&hwnd_key) {
 
-                        let mut resource_updates = Vec::new();
-                        app_borrow.fc_cache.apply_closure(|fc_cache| {
-                            internal.regenerate_styled_dom(
-                                &mut app_borrow.data,
-                                &mut app_borrow.image_cache,
-                                &current_window.gl_context_ptr,
-                                &mut resource_updates,
-                                &crate::app::CALLBACKS,
-                                fc_cache,
-                                azul_layout::do_the_relayout,
-                                |window_state, scroll_states, layout_results| {
-                                    crate::wr_translate::fullhittest_new_webrender(
-                                         &*hit_tester.resolve(),
-                                         document_id,
-                                         window_state.focused_node,
-                                         layout_results,
-                                         &window_state.mouse_state.cursor_position,
-                                         window_state.size.hidpi_factor,
-                                    )
-                                }
-                            );
-                        });
+                    let document_id = current_window.internal.document_id;
+                    let mut hit_tester = &mut current_window.hit_tester;
+                    let internal = &mut current_window.internal;
+                    let gl_context = &current_window.gl_context_ptr;
 
-                        // send_resource_updates(resource_updates);
-
-                        let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
-                        current_window.hit_tester = AsyncHitTester::Requested(
-                            current_window.render_api.request_hit_tester(wr_document_id)
+                    let mut resource_updates = Vec::new();
+                    fc_cache.apply_closure(|fc_cache| {
+                        internal.regenerate_styled_dom(
+                            data,
+                            image_cache,
+                            gl_context,
+                            &mut resource_updates,
+                            &crate::app::CALLBACKS,
+                            fc_cache,
+                            azul_layout::do_the_relayout,
+                            |window_state, scroll_states, layout_results| {
+                                crate::wr_translate::fullhittest_new_webrender(
+                                     &*hit_tester.resolve(),
+                                     document_id,
+                                     window_state.focused_node,
+                                     layout_results,
+                                     &window_state.mouse_state.cursor_position,
+                                     window_state.size.hidpi_factor,
+                                )
+                            }
                         );
+                    });
 
-                        let hit_test = crate::wr_translate::fullhittest_new_webrender(
-                            &*current_window.hit_tester.resolve(),
-                            current_window.internal.document_id,
-                            current_window.internal.current_window_state.focused_node,
-                            &current_window.internal.layout_results,
-                            &current_window.internal.current_window_state.mouse_state.cursor_position,
-                            current_window.internal.current_window_state.size.hidpi_factor,
-                        );
-                        current_window.internal.current_window_state.last_hit_test = hit_test;
+                    // send_resource_updates(resource_updates);
 
-                        unsafe { PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0); }
-                    },
-                    None => { },
-                };
+                    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                    current_window.hit_tester = AsyncHitTester::Requested(
+                        current_window.render_api.request_hit_tester(wr_document_id)
+                    );
+
+                    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+                        &*current_window.hit_tester.resolve(),
+                        current_window.internal.document_id,
+                        current_window.internal.current_window_state.focused_node,
+                        &current_window.internal.layout_results,
+                        &current_window.internal.current_window_state.mouse_state.cursor_position,
+                        current_window.internal.current_window_state.size.hidpi_factor,
+                    );
+                    current_window.internal.current_window_state.last_hit_test = hit_test;
+
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
 
                 mem::drop(app_borrow);
                 return DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -2491,30 +2501,32 @@ unsafe extern "system" fn WindowProc(
 
                 let mut ret = ProcessEventResult::DoNothing;
 
-                let hwnd;
+                let cur_hwnd;
 
-                match app_borrow.windows.get_mut(&hwnd_key) {
+                let ab = &mut *app_borrow;
+                let windows = &mut ab.windows;
+                let fc_cache = &mut ab.fc_cache;
+                let image_cache = &mut ab.image_cache;
+                let config = &ab.config;
+                let hinstance = ab.hinstance;
+
+                let mut new_windows = Vec::new();
+                let mut destroyed_windows = Vec::new();
+
+                match windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
 
-                        hwnd = current_window.hwnd;
-
-                        let mut initial_resource_updates = Vec::new();
-
-                        let mut new_windows = Vec::new();
-                        let mut destroyed_windows = Vec::new();
+                        cur_hwnd = current_window.hwnd;
 
                         ret = process_event(
-                            app_borrow.hinstance,
-                            &mut current_window,
-                            &mut app_borrow.fc_cache,
-                            &mut app_borrow.image_cache,
-                            &app_borrow.config,
+                            hinstance,
+                            current_window,
+                            fc_cache,
+                            image_cache,
+                            config,
                             &mut new_windows,
                             &mut destroyed_windows,
                         );
-
-                        create_windows(&mut app_borrow, new_windows);
-                        destroy_windows(&mut app_borrow, destroyed_windows);
 
                         if ret == ProcessEventResult::UpdateHitTesterAndProcessAgain {
 
@@ -2537,10 +2549,13 @@ unsafe extern "system" fn WindowProc(
                     },
                 };
 
+                create_windows(ab, new_windows);
+                destroy_windows(ab, destroyed_windows);
+
                 match ret {
                     ProcessEventResult::DoNothing => { },
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
-                        PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
+                        PostMessageW(cur_hwnd, AZ_REGENERATE_DOM, 0, 0);
                     },
                     ProcessEventResult::ShouldRegenerateDomAllWindows => {
                         for window in app_borrow.windows.values() {
@@ -2548,13 +2563,13 @@ unsafe extern "system" fn WindowProc(
                         }
                     },
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
-                        PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                        PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                     },
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        PostMessageW(cur_hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     },
                     ProcessEventResult::ShouldReRenderCurrentWindow => {
-                        PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
+                        PostMessageW(cur_hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
                     },
                 }
 
@@ -2562,35 +2577,36 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             AZ_REGENERATE_DISPLAY_LIST => {
-                match app_borrow.windows.get_mut(&hwnd_key) {
-                    Some(current_window) => {
 
-                        let mut initial_resource_updates = Vec::new();
+                let ab = &mut *app_borrow;
+                let image_cache = &ab.image_cache;
+                let windows = &mut ab.windows;
 
-                        rebuild_display_list(
-                            &mut current_window.internal,
-                            &mut current_window.render_api,
-                            &app_borrow.image_cache,
-                            initial_resource_updates,
-                        );
+                if let Some(current_window) =  windows.get_mut(&hwnd_key) {
 
-                        // submit_resources(initial_resource_updates)
+                    let mut initial_resource_updates = Vec::new();
 
-                        let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
-                        current_window.hit_tester = AsyncHitTester::Requested(
-                            current_window.render_api.request_hit_tester(wr_document_id)
-                        );
+                    rebuild_display_list(
+                        &mut current_window.internal,
+                        &mut current_window.render_api,
+                        image_cache,
+                        initial_resource_updates,
+                    );
 
-                        generate_frame(
-                            &mut current_window.internal,
-                            &mut current_window.render_api,
-                            true,
-                        );
+                    // submit_resources(initial_resource_updates)
 
-                        PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
+                    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                    current_window.hit_tester = AsyncHitTester::Requested(
+                        current_window.render_api.request_hit_tester(wr_document_id)
+                    );
 
-                    },
-                    None => {},
+                    generate_frame(
+                        &mut current_window.internal,
+                        &mut current_window.render_api,
+                        true,
+                    );
+
+                    PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
                 }
 
                 mem::drop(app_borrow);

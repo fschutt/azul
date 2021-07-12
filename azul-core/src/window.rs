@@ -794,8 +794,8 @@ impl WindowInternal {
         callbacks: &RenderCallbacks,
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
-        hit_test_func: F,
-    ) where F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
+        mut hit_test_func: F,
+    ) where F: FnMut(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
 
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
