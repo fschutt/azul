@@ -65,8 +65,14 @@ use crate::wr_translate::AsyncHitTester;
 
 type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
 
-// ID set by WM_TIMER to check the thread results
+// ID sent by WM_TIMER to check the thread results
 const AZ_THREAD_TICK: usize = 1;
+// ID sent by WM_TIMER to re-generate the DOM
+const AZ_TICK_REGENERATE_DOM: usize = 2;
+
+// ID sent if the DOM was completely reloaded (forces repaint)
+const AZ_DOM_WAS_RELOADED_ONCE: usize = 1;
+const AZ_DOM_WAS_RELOADED_TWICE: usize = 2;
 
 const AZ_REGENERATE_DOM: u32 = WM_APP + 1;
 const AZ_REGENERATE_DISPLAY_LIST: u32 = WM_APP + 2;
@@ -1952,6 +1958,10 @@ impl Window {
         // WebRender (window is ready to render), menu bar is visible and hit-tester
         // now contains the newest UI tree.
 
+        if options.hot_reload {
+            use winapi::um::winuser::SetTimer;
+            unsafe { SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None); }
+        }
 
         // NOTE: The window is NOT stored yet
         Ok(Window {
@@ -2407,6 +2417,7 @@ unsafe extern "system" fn WindowProc(
         WM_MOUSEWHEEL, WM_SIZE, WM_NCHITTEST,
         WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
         WM_LBUTTONUP, WM_RBUTTONUP, WM_MOUSELEAVE,
+        WM_DISPLAYCHANGE, WM_SIZING,
 
         CREATESTRUCTW, GWLP_USERDATA,
     };
@@ -2438,6 +2449,8 @@ unsafe extern "system" fn WindowProc(
         match msg {
             AZ_REGENERATE_DOM => {
 
+                println!("AZ_REGENERATE_DOM!");
+
                 let mut ret = ProcessEventResult::DoNothing;
 
                 // borrow checker :|
@@ -2456,6 +2469,7 @@ unsafe extern "system" fn WindowProc(
 
                     let mut resource_updates = Vec::new();
                     fc_cache.apply_closure(|fc_cache| {
+                        println!("regenerating styled dom...");
                         internal.regenerate_styled_dom(
                             data,
                             image_cache,
@@ -2494,11 +2508,12 @@ unsafe extern "system" fn WindowProc(
                     );
                     current_window.internal.current_window_state.last_hit_test = hit_test;
 
-                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    println!("sending AZ_REDO_HIT_TEST...");
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, AZ_DOM_WAS_RELOADED_ONCE, 0);
                 }
 
                 mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
+                return 0;
             },
             AZ_REDO_HIT_TEST => {
 
@@ -2531,7 +2546,7 @@ unsafe extern "system" fn WindowProc(
                             &mut destroyed_windows,
                         );
 
-                        if ret == ProcessEventResult::UpdateHitTesterAndProcessAgain {
+                        if ret == ProcessEventResult::UpdateHitTesterAndProcessAgain || wparam == AZ_DOM_WAS_RELOADED_ONCE {
 
                             // TODO: rebuild display list?
 
@@ -2556,7 +2571,13 @@ unsafe extern "system" fn WindowProc(
                 destroy_windows(ab, destroyed_windows);
 
                 match ret {
-                    ProcessEventResult::DoNothing => { },
+                    ProcessEventResult::DoNothing => {
+                        if wparam == AZ_DOM_WAS_RELOADED_ONCE {
+                            PostMessageW(cur_hwnd, AZ_REDO_HIT_TEST, AZ_DOM_WAS_RELOADED_TWICE, 0);
+                        } else if wparam == AZ_DOM_WAS_RELOADED_TWICE {
+                            PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                        }
+                    },
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                         PostMessageW(cur_hwnd, AZ_REGENERATE_DOM, 0, 0);
                     },
@@ -2577,7 +2598,7 @@ unsafe extern "system" fn WindowProc(
                 }
 
                 mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                return 0;
             },
             AZ_REGENERATE_DISPLAY_LIST => {
 
@@ -2610,10 +2631,12 @@ unsafe extern "system" fn WindowProc(
                     );
 
                     PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
+                    mem::drop(app_borrow);
+                    return 0;
+                } else {
+                    mem::drop(app_borrow);
+                    return -1;
                 }
-
-                mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             AZ_GPU_SCROLL_RENDER => {
                 match app_borrow.windows.get_mut(&hwnd_key) {
@@ -2788,16 +2811,80 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
+            WM_SIZING |
             WM_SIZE => {
                 // update display list, relayout + update hit-tester
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+
+                use azul_core::window::{PhysicalSize, WindowFrame};
+                use winapi::shared::minwindef::{LOWORD, HIWORD};
+                use winapi::um::winuser::{SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED};
+
+                let mut ab = &mut *app_borrow;
+                let fc_cache = &mut ab.fc_cache;
+                let windows = &mut ab.windows;
+                let image_cache = &ab.image_cache;
+
+                let new_size = if msg == WM_SIZE {
+                    let new_width = LOWORD(lparam as u32);
+                    let new_height = HIWORD(lparam as u32);
+                    PhysicalSize { width: new_width as u32, height: new_height as u32 }
+                } else {
+                    // WM_SIZING has different parameters
+                    let rect: *const RECT = mem::transmute(lparam);
+                    let rect: RECT = *rect;
+                    PhysicalSize { width: rect.width(), height: rect.height() }
+                };
+
+                if let Some(current_window) = windows.get_mut(&hwnd_key) {
+                    fc_cache.apply_closure(|fc_cache| {
+                        let mut new_window_state = current_window.internal.current_window_state.clone();
+                        new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
+
+                        if msg == WM_SIZE {
+                            match wparam {
+                                SIZE_MAXIMIZED => {
+                                    new_window_state.flags.frame = WindowFrame::Maximized;
+                                },
+                                SIZE_MINIMIZED => {
+                                    new_window_state.flags.frame = WindowFrame::Minimized;
+                                },
+                                SIZE_RESTORED => {
+                                    new_window_state.flags.frame = WindowFrame::Normal;
+                                },
+                                _ => { }
+                            }
+                        }
+
+                        current_window.internal.do_quick_resize(
+                            &image_cache,
+                            &crate::app::CALLBACKS,
+                            azul_layout::do_the_relayout,
+                            fc_cache,
+                            &new_window_state,
+                        );
+
+                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                        current_window.internal.current_window_state = new_window_state;
+                    });
+
+                    mem::drop(app_borrow);
+                    PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                    if msg == WM_SIZE {
+                        return 0;
+                    } else {
+                        return 1; // TRUE / WM_SIZING
+                    }
+                } else {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
+
             },
             WM_NCHITTEST => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
-            WM_PAINT => {
+            WM_PAINT | WM_DISPLAYCHANGE => {
 
                 use winapi::um::{
                     wingdi::SwapBuffers,
@@ -2889,14 +2976,22 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_TIMER => {
+                println!("WM_TIMER!");
                 match wparam {
                     AZ_THREAD_TICK => {
+                        println!("thread tick");
                         // tick every 16ms to process new thread messages
                         run_all_threads();
+                    },
+                    AZ_TICK_REGENERATE_DOM => {
+                        // re-load the layout() callback
+                        println!("regenerate dom!");
+                        PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
                     },
                     id => {
                         // TODO: optimize so that only the timer with "id" is run
                         // currently this will attempt to run all timers
+                        println!("run timer {}", id);
                         run_all_timers();
                     }
                 }
