@@ -855,7 +855,9 @@ impl WindowInternal {
             self.current_window_state.mouse_state.mouse_down()
         );
 
-        let _ = StyleAndLayoutChanges::new(
+        println!("initial nodes to check: {:?}", nodes_to_check);
+
+        let sl = StyleAndLayoutChanges::new(
             &nodes_to_check,
             &mut layout_results,
             &image_cache,
@@ -867,6 +869,10 @@ impl WindowInternal {
             &None,
             relayout_fn,
         );
+
+        if !sl.is_empty() {
+            println!("regernate styled dom: initial style-layout changes {:#?}", sl);
+        }
 
         let gl_texture_cache = GlTextureCache::new(
             &mut layout_results,
@@ -931,12 +937,12 @@ impl WindowInternal {
         callbacks: &RenderCallbacks,
         relayout_fn: RelayoutFn,
         fc_cache: &FcFontCache,
-        window_state: &FullWindowState,
+        window_size: &WindowSize,
+        window_theme: WindowTheme,
     ) -> QuickResizeResult {
         LayoutResult::do_quick_resize(
             &self.document_id,
             DomId::ROOT_ID,
-            LogicalRect::new(LogicalPosition::zero(), window_state.size.dimensions),
             image_cache,
             &mut self.layout_results,
             &mut self.gl_texture_cache,
@@ -944,7 +950,8 @@ impl WindowInternal {
             callbacks,
             relayout_fn,
             fc_cache,
-            window_state,
+            window_size,
+            window_theme,
         )
     }
 

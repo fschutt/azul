@@ -32,7 +32,7 @@ use crate::{
         IFrameCallbackReturn, HidpiAdjustedBounds,
         IFrameCallbackInfo,
     },
-    window::{ScrollStates, FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
+    window::{ScrollStates, WindowSize, WindowTheme, FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
     window_state::RelayoutFn,
 };
 use rust_fontconfig::FcFontCache;
@@ -653,7 +653,6 @@ impl LayoutResult {
     pub fn do_quick_resize(
         document_id: &DocumentId,
         dom_id: DomId,
-        dom_bounds: LogicalRect,
         image_cache: &ImageCache,
         layout_results: &mut [LayoutResult],
         gl_texture_cache: &mut GlTextureCache,
@@ -661,9 +660,11 @@ impl LayoutResult {
         callbacks: &RenderCallbacks,
         relayout_fn: RelayoutFn,
         fc_cache: &FcFontCache,
-        window_state: &FullWindowState,
+        window_size: &WindowSize,
+        window_theme: WindowTheme,
     ) -> QuickResizeResult {
 
+        let dom_bounds = LogicalRect::new(LogicalPosition::zero(), window_size.dimensions);
         let mut dom_ids_to_resize = vec![(dom_id, dom_bounds)];
         let mut gpu_event_changes = GpuEventChanges::default();
         let mut rsn = BTreeMap::new();
@@ -720,8 +721,7 @@ impl LayoutResult {
                         };
 
                         // invoke the iframe with the new size and replace the dom with the DOM ID
-                        let hidpi_bounds = HidpiAdjustedBounds::from_bounds(layout_size.size, window_state.size.hidpi_factor);
-                        let window_theme = window_state.theme;
+                        let hidpi_bounds = HidpiAdjustedBounds::from_bounds(layout_size.size, window_size.hidpi_factor);
                         let scroll_node = layout_result.scrollable_nodes.overflowing_nodes
                             .get(&AzNodeId::from_crate_internal(Some(node_id)))
                             .cloned()

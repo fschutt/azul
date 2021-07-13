@@ -1764,9 +1764,7 @@ impl Window {
 
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
 
-
-        let framebuffer_size =
-            WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
         let pipeline_id = PipelineId::new();
         let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
@@ -1881,8 +1879,7 @@ impl Window {
         };
         let mut txn = WrTransaction::new();
         txn.set_document_view(
-            WrDeviceIntRect::from_origin_and_size(
-                WrDeviceIntPoint::zero(),
+            WrDeviceIntRect::from_size(
                 WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
             )
         );
@@ -1911,7 +1908,8 @@ impl Window {
                     &crate::app::CALLBACKS,
                     azul_layout::do_the_relayout,
                     fc_cache,
-                    &full_window_state,
+                    &full_window_state.size,
+                    full_window_state.theme,
                 );
             });
         }
@@ -1962,7 +1960,8 @@ impl Window {
         if options.hot_reload {
             use winapi::um::winuser::SetTimer;
             unsafe { SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None); }
-        }*/
+        }
+        */
 
         // NOTE: The window is NOT stored yet
         Ok(Window {
@@ -2510,7 +2509,7 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.last_hit_test = hit_test;
 
                     println!("sending AZ_REDO_HIT_TEST...");
-                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, AZ_DOM_WAS_RELOADED_ONCE, 0);
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
 
                 mem::drop(app_borrow);
@@ -2603,6 +2602,10 @@ unsafe extern "system" fn WindowProc(
             },
             AZ_REGENERATE_DISPLAY_LIST => {
 
+                use winapi::um::winuser::InvalidateRect;
+
+                println!("AZ_REGENERATE_DISPLAY_LIST");
+
                 let ab = &mut *app_borrow;
                 let image_cache = &ab.image_cache;
                 let windows = &mut ab.windows;
@@ -2631,7 +2634,7 @@ unsafe extern "system" fn WindowProc(
                         true,
                     );
 
-                    PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
+                    InvalidateRect(current_window.hwnd, ptr::null_mut(), 0);
                     mem::drop(app_borrow);
                     return 0;
                 } else {
@@ -2640,16 +2643,19 @@ unsafe extern "system" fn WindowProc(
                 }
             },
             AZ_GPU_SCROLL_RENDER => {
+
+                use winapi::um::winuser::InvalidateRect;
+                println!("AZ_GPU_SCROLL_RENDER!");
+
                 match app_borrow.windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
-                        println!("AZ_GPU_SCROLL_RENDER!");
                         generate_frame(
                             &mut current_window.internal,
                             &mut current_window.render_api,
                             false,
                         );
 
-                        PostMessageW(current_window.hwnd, WM_PAINT, 0, 0);
+                        InvalidateRect(current_window.hwnd, ptr::null_mut(), 0);
                     },
                     None => { },
                 }
@@ -2725,7 +2731,6 @@ unsafe extern "system" fn WindowProc(
                     // update the cursor if necessary
                     if current_window.internal.current_window_state.mouse_state.mouse_cursor_type != OptionMouseCursorType::Some(cht.cursor_icon) {
                         // TODO: unset previous cursor?
-                        println!("setting cursor to {:?}", cht.cursor_icon);
                         current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
                         SetClassLongPtrW(current_window.hwnd, GCLP_HCURSOR, win32_translate_cursor(cht.cursor_icon) as isize);
                     }
@@ -2812,76 +2817,100 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
-            WM_WINDOWPOSCHANGED => {
-                use azul_core::window::PhysicalSize;
-                use winapi::um::winuser::{WINDOWPOS, SWP_NOSIZE};
-                let window_pos: *const WINDOWPOS = mem::transmute(lparam);
+            WM_SIZE => {
+                use azul_core::window::{WindowFrame, PhysicalSize};
+                use winapi::um::winuser::{
+                    WINDOWPOS, SWP_NOSIZE, SIZE_MAXIMIZED,
+                    SIZE_RESTORED, SIZE_MINIMIZED
+                };
+                use winapi::shared::minwindef::{LOWORD, HIWORD};
 
-                if !((*window_pos).flags & SWP_NOSIZE == 1) {
+                let new_width = LOWORD(lparam as u32);
+                let new_height = HIWORD(lparam as u32);
+                let new_size = PhysicalSize {
+                    width: new_width as u32,
+                    height: new_height as u32
+                };
 
-                    let new_width = (*window_pos).cx;
-                    let new_height = (*window_pos).cy;
-                    let new_size = PhysicalSize { width: new_width as u32, height: new_height as u32 };
+                let mut ab = &mut *app_borrow;
+                let fc_cache = &mut ab.fc_cache;
+                let windows = &mut ab.windows;
+                let image_cache = &ab.image_cache;
 
-                    // same as handling WM_SIZE, but more reliable
-                    // WM_SIZE does not get fired on aero snap (?)
+                if let Some(current_window) = windows.get_mut(&hwnd_key) {
+                    fc_cache.apply_closure(|fc_cache| {
+                        let mut new_window_state = current_window.internal.current_window_state.clone();
+                        new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
 
-                    println!("window size changing to {:?}", new_size);
+                        match wparam {
+                            SIZE_MAXIMIZED => {
+                                new_window_state.flags.frame = WindowFrame::Maximized;
+                            },
+                            SIZE_MINIMIZED => {
+                                new_window_state.flags.frame = WindowFrame::Minimized;
+                            },
+                            SIZE_RESTORED => {
+                                new_window_state.flags.frame = WindowFrame::Normal;
+                            },
+                            _ => { }
+                        }
 
-                    let mut ab = &mut *app_borrow;
-                    let fc_cache = &mut ab.fc_cache;
-                    let windows = &mut ab.windows;
-                    let image_cache = &ab.image_cache;
+                        current_window.internal.do_quick_resize(
+                            &image_cache,
+                            &crate::app::CALLBACKS,
+                            azul_layout::do_the_relayout,
+                            fc_cache,
+                            &new_window_state.size,
+                            new_window_state.theme,
+                        );
 
-                    if let Some(current_window) = windows.get_mut(&hwnd_key) {
-                        fc_cache.apply_closure(|fc_cache| {
-                            let mut new_window_state = current_window.internal.current_window_state.clone();
-                            new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
+                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                        current_window.internal.current_window_state = new_window_state;
 
-                            /*
-                            match wparam {
-                                SIZE_MAXIMIZED => {
-                                    new_window_state.flags.frame = WindowFrame::Maximized;
-                                },
-                                SIZE_MINIMIZED => {
-                                    new_window_state.flags.frame = WindowFrame::Minimized;
-                                },
-                                SIZE_RESTORED => {
-                                    new_window_state.flags.frame = WindowFrame::Normal;
-                                },
-                                _ => { }
-                            }
-                            */
+                        let mut txn = WrTransaction::new();
+                        txn.set_document_view(
+                            WrDeviceIntRect::from_size(
+                                WrDeviceIntSize::new(new_width as i32, new_height as i32),
+                            )
+                        );
+                        current_window.render_api.send_transaction(wr_translate_document_id(current_window.internal.document_id), txn);
 
-                            current_window.internal.do_quick_resize(
-                                &image_cache,
-                                &crate::app::CALLBACKS,
-                                azul_layout::do_the_relayout,
-                                fc_cache,
-                                &new_window_state,
-                            );
+                        // rebuild display list
+                        let mut initial_resource_updates = Vec::new();
 
-                            current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                            current_window.internal.current_window_state = new_window_state;
-                        });
+                        rebuild_display_list(
+                            &mut current_window.internal,
+                            &mut current_window.render_api,
+                            image_cache,
+                            initial_resource_updates,
+                        );
 
-                        mem::drop(app_borrow);
-                        PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
-                        return 0; // don't fire WM_SIZE / WM_MOVE
-                    } else {
-                        mem::drop(app_borrow);
-                        return DefWindowProcW(hwnd, msg, wparam, lparam);
-                    }
+                        // submit_resources(initial_resource_updates)
+
+                        let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+                        current_window.hit_tester = AsyncHitTester::Requested(
+                            current_window.render_api.request_hit_tester(wr_document_id)
+                        );
+
+                        generate_frame(
+                            &mut current_window.internal,
+                            &mut current_window.render_api,
+                            true,
+                        );
+                    });
+
+                    mem::drop(app_borrow);
+                    return 0;
+                } else {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
                 }
-
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_NCHITTEST => {
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
-            WM_PAINT | WM_DISPLAYCHANGE => {
+            WM_PAINT => {
 
                 use winapi::um::{
                     wingdi::SwapBuffers,
@@ -2973,22 +3002,18 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_TIMER => {
-                println!("WM_TIMER!");
                 match wparam {
                     AZ_THREAD_TICK => {
-                        println!("thread tick");
                         // tick every 16ms to process new thread messages
                         run_all_threads();
                     },
                     AZ_TICK_REGENERATE_DOM => {
                         // re-load the layout() callback
-                        println!("regenerate dom!");
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
                     },
                     id => {
                         // TODO: optimize so that only the timer with "id" is run
                         // currently this will attempt to run all timers
-                        println!("run timer {}", id);
                         run_all_timers();
                     }
                 }
