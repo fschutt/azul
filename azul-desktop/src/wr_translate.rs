@@ -733,7 +733,10 @@ pub(crate) fn fullhittest_new_webrender(
         CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
     };
 
-    let mut ret = FullHitTest::empty(old_focus_node);
+    // If there was no new focus found then the focus is set to none
+    // NOTE: The following code should NOT use this field for updating,
+    // but rather check if the event was a MouseUp event first
+    let mut ret = FullHitTest::empty(None);
 
     // TODO: necessary?
     cursor_location.x /= hidpi_factor;

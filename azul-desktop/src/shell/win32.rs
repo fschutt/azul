@@ -2418,6 +2418,7 @@ unsafe extern "system" fn WindowProc(
         WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
         WM_LBUTTONUP, WM_RBUTTONUP, WM_MOUSELEAVE,
         WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
+        WM_QUIT,
 
         CREATESTRUCTW, GWLP_USERDATA,
     };
@@ -2546,6 +2547,7 @@ unsafe extern "system" fn WindowProc(
                             &mut destroyed_windows,
                         );
 
+                        /*
                         if ret == ProcessEventResult::UpdateHitTesterAndProcessAgain || wparam == AZ_DOM_WAS_RELOADED_ONCE {
 
                             // TODO: rebuild display list?
@@ -2560,6 +2562,7 @@ unsafe extern "system" fn WindowProc(
                             );
                             current_window.internal.current_window_state.last_hit_test = hit_test;
                         }
+                        */
                     },
                     None => {
                         mem::drop(app_borrow);
@@ -2645,7 +2648,6 @@ unsafe extern "system" fn WindowProc(
             AZ_GPU_SCROLL_RENDER => {
 
                 use winapi::um::winuser::InvalidateRect;
-                println!("AZ_GPU_SCROLL_RENDER!");
 
                 match app_borrow.windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
@@ -2749,20 +2751,14 @@ unsafe extern "system" fn WindowProc(
                 };
 
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-                    println!("WM_MOUSELEAVE");
-
-                    // use winapi::um::winuser::ReleaseCapture;
-                    // ReleaseCapture(current_window.hwnd);
 
                     let current_focus = current_window.internal.current_window_state.focused_node;
                     let previous_state = current_window.internal.current_window_state.clone();
-
                     current_window.internal.previous_window_state = Some(previous_state);
                     current_window.internal.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
                     current_window.internal.current_window_state.last_hit_test = FullHitTest::empty(current_focus);
                     current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
 
-                    println!("setting cursor to default");
                     SetClassLongPtrW(hwnd, GCLP_HCURSOR, win32_translate_cursor(MouseCursorType::Default) as isize);
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
@@ -2778,6 +2774,12 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_RBUTTONDOWN => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let previous_state = current_window.internal.current_window_state.clone();
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.right_down = true;
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
                 /*
                 use winapi::um::winuser::{
                     CreatePopupMenu, InsertMenuW, TrackPopupMenu, SetForegroundWindow,
@@ -2799,14 +2801,32 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_RBUTTONUP => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let previous_state = current_window.internal.current_window_state.clone();
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.right_down = false;
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_LBUTTONDOWN => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let previous_state = current_window.internal.current_window_state.clone();
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.left_down = true;
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_LBUTTONUP => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let previous_state = current_window.internal.current_window_state.clone();
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.left_down = false;
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
@@ -3021,6 +3041,12 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_COMMAND => {
+                // execute menu callback
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_QUIT => {
+                // TODO: execute quit callback
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
@@ -3093,12 +3119,13 @@ fn process_event(
         &window.internal.previous_window_state,
     );
 
-
     // Get nodes for events
     let nodes_to_check = NodesToCheck::new(
         &window.internal.current_window_state.last_hit_test,
         &events
     );
+
+    println!("nodes new focus node: {:?}", nodes_to_check.new_focus_node);
 
     // Invoke callbacks on nodes
     let mut callback_results = fc_cache.apply_closure(|fc_cache| {
@@ -3203,6 +3230,11 @@ fn process_event(
         azul_layout::do_the_relayout,
     );
 
+    // FOCUS CHANGE HAPPENS HERE!
+    if let Some(focus_change) = style_layout_changes.focus_change.clone() {
+         window.internal.current_window_state.focused_node = focus_change.new;
+    }
+
     // Perform a system or user scroll event: only
     // scroll nodes that were not scrolled in the current frame
     //
@@ -3215,7 +3247,7 @@ fn process_event(
     }
 
     if !style_layout_changes.is_empty() {
-        println!("style and layout changes: {:?}", style_layout_changes);
+        // println!("style and layout changes: {:#?}", style_layout_changes);
     }
 
     if style_layout_changes.did_resize_nodes() {
