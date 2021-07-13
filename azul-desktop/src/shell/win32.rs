@@ -24,6 +24,7 @@ use azul_core::{
         LogicalSize, Menu, MenuCallback, MenuItem,
         MonitorVec, WindowCreateOptions, WindowInternal,
         WindowState, FullWindowState, ScrollResult,
+        MouseCursorType,
     },
 };
 use core::{
@@ -55,6 +56,7 @@ use winapi::{
         ntdef::HRESULT,
         windef::{HDC, HGLRC, HMENU, HWND, RECT},
     },
+    ctypes::wchar_t,
     um::dwmapi::{DWM_BB_ENABLE, DWM_BLURBEHIND},
     um::uxtheme::MARGINS,
     um::winuser::WM_APP,
@@ -133,6 +135,7 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
     wc.hInstance = hinstance;
     wc.lpszClassName = class_name.as_mut_ptr();
     wc.lpfnWndProc = Some(WindowProc);
+    wc.hCursor = ptr::null_mut();
 
     // RegisterClass can fail if the same class is
     // registered twice, error can be ignored
@@ -2403,7 +2406,7 @@ unsafe extern "system" fn WindowProc(
         WM_MOUSEMOVE, WM_DESTROY, WM_PAINT, WM_ACTIVATE,
         WM_MOUSEWHEEL, WM_SIZE, WM_NCHITTEST,
         WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
-        WM_LBUTTONUP, WM_RBUTTONUP,
+        WM_LBUTTONUP, WM_RBUTTONUP, WM_MOUSELEAVE,
 
         CREATESTRUCTW, GWLP_USERDATA,
     };
@@ -2615,6 +2618,7 @@ unsafe extern "system" fn WindowProc(
             AZ_GPU_SCROLL_RENDER => {
                 match app_borrow.windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
+                        println!("AZ_GPU_SCROLL_RENDER!");
                         generate_frame(
                             &mut current_window.internal,
                             &mut current_window.render_api,
@@ -2639,12 +2643,23 @@ unsafe extern "system" fn WindowProc(
             },
             WM_ERASEBKGND => {
                 mem::drop(app_borrow);
-                1
+                return 1;
             },
             WM_MOUSEMOVE => {
 
-                use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
-                use azul_core::window::{LogicalPosition, CursorPosition};
+                use winapi::{
+                    um::winuser::{
+                        SetClassLongPtrW, TrackMouseEvent,
+                        TME_LEAVE, HOVER_DEFAULT, TRACKMOUSEEVENT,
+                        GCLP_HCURSOR
+                    },
+                    shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM}
+                };
+                use azul_core::window::{
+                    CursorTypeHitTest, LogicalPosition,
+                    CursorPosition, OptionMouseCursorType,
+                    FullHitTest,
+                };
 
                 let x = GET_X_LPARAM(lparam);
                 let y = GET_Y_LPARAM(lparam);
@@ -2656,6 +2671,17 @@ unsafe extern "system" fn WindowProc(
                         y as f32 / current_window.internal.current_window_state.size.hidpi_factor,
                     ));
                     let previous_state = current_window.internal.current_window_state.clone();
+
+                    // call SetCapture(hwnd) so that we can capture the WM_MOUSELEAVE event
+                    let cur_cursor_pos = current_window.internal.current_window_state.mouse_state.cursor_position;
+                    if cur_cursor_pos == CursorPosition::OutOfWindow || cur_cursor_pos == CursorPosition::Uninitialized {
+                        TrackMouseEvent(&mut TRACKMOUSEEVENT {
+                            cbSize: mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                            dwFlags: TME_LEAVE,
+                            hwndTrack: current_window.hwnd,
+                            dwHoverTime: HOVER_DEFAULT,
+                        });
+                    }
 
                     current_window.internal.previous_window_state = Some(previous_state);
                     current_window.internal.current_window_state.mouse_state.cursor_position = pos;
@@ -2669,13 +2695,53 @@ unsafe extern "system" fn WindowProc(
                         &current_window.internal.current_window_state.mouse_state.cursor_position,
                         current_window.internal.current_window_state.size.hidpi_factor,
                     );
+                    let cht = CursorTypeHitTest::new(&hit_test, &current_window.internal.layout_results);
                     current_window.internal.current_window_state.last_hit_test = hit_test;
+
+                    // update the cursor if necessary
+                    if current_window.internal.current_window_state.mouse_state.mouse_cursor_type != OptionMouseCursorType::Some(cht.cursor_icon) {
+                        // TODO: unset previous cursor?
+                        println!("setting cursor to {:?}", cht.cursor_icon);
+                        current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
+                        SetClassLongPtrW(current_window.hwnd, GCLP_HCURSOR, win32_translate_cursor(cht.cursor_icon) as isize);
+                    }
 
                     PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 };
 
                 mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                return 0;
+            },
+            WM_MOUSELEAVE => {
+
+                use winapi::um::winuser::{SetClassLongPtrW, GCLP_HCURSOR};
+                use azul_core::window::{
+                    FullHitTest, OptionMouseCursorType, CursorPosition,
+                };
+
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    println!("WM_MOUSELEAVE");
+
+                    // use winapi::um::winuser::ReleaseCapture;
+                    // ReleaseCapture(current_window.hwnd);
+
+                    let current_focus = current_window.internal.current_window_state.focused_node;
+                    let previous_state = current_window.internal.current_window_state.clone();
+
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
+                    current_window.internal.current_window_state.last_hit_test = FullHitTest::empty(current_focus);
+                    current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
+
+                    println!("setting cursor to default");
+                    SetClassLongPtrW(hwnd, GCLP_HCURSOR, win32_translate_cursor(MouseCursorType::Default) as isize);
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    mem::drop(app_borrow);
+                    return 0;
+                } else {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
             },
             WM_NCMOUSELEAVE => {
                 // cursor_needs_setting = TRUE;
@@ -3031,6 +3097,10 @@ fn process_event(
         window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
     }
 
+    if !style_layout_changes.is_empty() {
+        println!("style and layout changes: {:?}", style_layout_changes);
+    }
+
     if style_layout_changes.did_resize_nodes() {
         // at least update the hit-tester
         ProcessEventResult::UpdateHitTesterAndProcessAgain
@@ -3102,4 +3172,50 @@ fn synchronize_window_state_with_os(
     current_state: &FullWindowState
 ) {
     // TODO: window.set_title
+}
+
+// translates MouseCursorType to a builtin IDC_* value
+// note: taken from https://github.com/rust-windowing/winit/blob/1c4d6e7613c3a3870cecb4cfa0eecc97409d45ff/src/platform_impl/windows/util.rs#L200
+const fn win32_translate_cursor(input: MouseCursorType) -> *const wchar_t {
+    use azul_core::window::MouseCursorType::*;
+    use winapi::um::winuser;
+
+    match input {
+        Arrow
+        | Default => winuser::IDC_ARROW,
+        Hand => winuser::IDC_HAND,
+        Crosshair => winuser::IDC_CROSS,
+        Text
+        | VerticalText => winuser::IDC_IBEAM,
+        NotAllowed
+        | NoDrop => winuser::IDC_NO,
+        Grab
+        | Grabbing
+        | Move
+        | AllScroll => {
+            winuser::IDC_SIZEALL
+        }
+        EResize
+        | WResize
+        | EwResize
+        | ColResize => winuser::IDC_SIZEWE,
+        NResize
+        | SResize
+        | NsResize
+        | RowResize => winuser::IDC_SIZENS,
+        NeResize
+        | SwResize
+        | NeswResize => {
+            winuser::IDC_SIZENESW
+        }
+        NwResize
+        | SeResize
+        | NwseResize => {
+            winuser::IDC_SIZENWSE
+        }
+        Wait => winuser::IDC_WAIT,
+        Progress => winuser::IDC_APPSTARTING,
+        Help => winuser::IDC_HELP,
+        _ => winuser::IDC_ARROW,
+    }
 }

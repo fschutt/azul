@@ -74,7 +74,7 @@ use crate::{
     callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, Update},
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
-    ui_solver::{LayoutResult, RelayoutChanges},
+    ui_solver::{LayoutResult, RelayoutChanges, GpuEventChanges},
     task::ExternalSystemCallbacks,
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
@@ -294,6 +294,8 @@ pub struct StyleAndLayoutChanges {
     pub nodes_that_changed_size: Option<BTreeMap<DomId, Vec<NodeId>>>,
     /// Changes to the text content
     pub nodes_that_changed_text_content: Option<BTreeMap<DomId, Vec<NodeId>>>,
+    /// Changes to GPU-cached opacity / transform values
+    pub gpu_key_changes: Option<BTreeMap<DomId, GpuEventChanges>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -503,6 +505,7 @@ impl StyleAndLayoutChanges {
             nodes_that_changed_size,
             nodes_that_changed_text_content,
             focus_change,
+            gpu_key_changes: gpu_key_change_events,
         }
     }
 
@@ -549,6 +552,15 @@ impl StyleAndLayoutChanges {
         } else {
             false
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.style_changes.is_none() &&
+        self.layout_changes.is_none() &&
+        self.focus_change.is_none() &&
+        self.nodes_that_changed_size.is_none() &&
+        self.nodes_that_changed_text_content.is_none() &&
+        self.gpu_key_changes.is_none()
     }
 
     pub fn need_redraw(&self) -> bool {

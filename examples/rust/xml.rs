@@ -14,8 +14,5 @@ fn main() {
     let mut app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(layout);
     window.hot_reload = true;
-    app.add_window(WindowCreateOptions::new(layout));
-    app.add_window(WindowCreateOptions::new(layout));
-    app.add_window(WindowCreateOptions::new(layout));
     app.run(window);
 }
