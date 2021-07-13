@@ -855,8 +855,6 @@ impl WindowInternal {
             self.current_window_state.mouse_state.mouse_down()
         );
 
-        println!("initial nodes to check: {:?}", nodes_to_check);
-
         let sl = StyleAndLayoutChanges::new(
             &nodes_to_check,
             &mut layout_results,
@@ -869,10 +867,6 @@ impl WindowInternal {
             &None,
             relayout_fn,
         );
-
-        if !sl.is_empty() {
-            println!("regernate styled dom: initial style-layout changes {:#?}", sl);
-        }
 
         let gl_texture_cache = GlTextureCache::new(
             &mut layout_results,

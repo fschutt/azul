@@ -1890,6 +1890,8 @@ pub fn do_the_layout_internal(
         document_id,
     );
 
+    println!("do the layout: overflowing rects: {:?}", overflowing_rects);
+
     let mut gpu_value_cache = GpuValueCache::empty();
     let _ = gpu_value_cache.synchronize(&positioned_rects.as_ref(), &styled_dom);
 
@@ -2452,6 +2454,8 @@ fn get_nodes_that_need_scroll_clip(
             }
         }
     }
+
+    println!("all direct overflows: {:#?}", all_direct_overflows);
 
     // Insert all rectangles that need to scroll
     for (parent_id, (parent_rect, children_sum_rect)) in all_direct_overflows {
@@ -3113,6 +3117,7 @@ pub fn do_the_relayout(
 
     if !nodes_that_changed_size.is_empty() {
         // TODO: optimize?
+        println!("do the relayout: get_nodes_that_need_scroll_clip");
         get_nodes_that_need_scroll_clip(
             &mut layout_result.scrollable_nodes,
             &layout_result.styled_dom.styled_nodes.as_container(),
