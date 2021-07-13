@@ -1958,10 +1958,11 @@ impl Window {
         // WebRender (window is ready to render), menu bar is visible and hit-tester
         // now contains the newest UI tree.
 
+        /*
         if options.hot_reload {
             use winapi::um::winuser::SetTimer;
             unsafe { SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None); }
-        }
+        }*/
 
         // NOTE: The window is NOT stored yet
         Ok(Window {
@@ -2417,7 +2418,7 @@ unsafe extern "system" fn WindowProc(
         WM_MOUSEWHEEL, WM_SIZE, WM_NCHITTEST,
         WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
         WM_LBUTTONUP, WM_RBUTTONUP, WM_MOUSELEAVE,
-        WM_DISPLAYCHANGE, WM_SIZING,
+        WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
 
         CREATESTRUCTW, GWLP_USERDATA,
     };
@@ -2811,36 +2812,33 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
-            WM_SIZING |
-            WM_SIZE => {
-                // update display list, relayout + update hit-tester
+            WM_WINDOWPOSCHANGED => {
+                use azul_core::window::PhysicalSize;
+                use winapi::um::winuser::{WINDOWPOS, SWP_NOSIZE};
+                let window_pos: *const WINDOWPOS = mem::transmute(lparam);
 
-                use azul_core::window::{PhysicalSize, WindowFrame};
-                use winapi::shared::minwindef::{LOWORD, HIWORD};
-                use winapi::um::winuser::{SIZE_MAXIMIZED, SIZE_MINIMIZED, SIZE_RESTORED};
+                if !((*window_pos).flags & SWP_NOSIZE == 1) {
 
-                let mut ab = &mut *app_borrow;
-                let fc_cache = &mut ab.fc_cache;
-                let windows = &mut ab.windows;
-                let image_cache = &ab.image_cache;
+                    let new_width = (*window_pos).cx;
+                    let new_height = (*window_pos).cy;
+                    let new_size = PhysicalSize { width: new_width as u32, height: new_height as u32 };
 
-                let new_size = if msg == WM_SIZE {
-                    let new_width = LOWORD(lparam as u32);
-                    let new_height = HIWORD(lparam as u32);
-                    PhysicalSize { width: new_width as u32, height: new_height as u32 }
-                } else {
-                    // WM_SIZING has different parameters
-                    let rect: *const RECT = mem::transmute(lparam);
-                    let rect: RECT = *rect;
-                    PhysicalSize { width: rect.width(), height: rect.height() }
-                };
+                    // same as handling WM_SIZE, but more reliable
+                    // WM_SIZE does not get fired on aero snap (?)
 
-                if let Some(current_window) = windows.get_mut(&hwnd_key) {
-                    fc_cache.apply_closure(|fc_cache| {
-                        let mut new_window_state = current_window.internal.current_window_state.clone();
-                        new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
+                    println!("window size changing to {:?}", new_size);
 
-                        if msg == WM_SIZE {
+                    let mut ab = &mut *app_borrow;
+                    let fc_cache = &mut ab.fc_cache;
+                    let windows = &mut ab.windows;
+                    let image_cache = &ab.image_cache;
+
+                    if let Some(current_window) = windows.get_mut(&hwnd_key) {
+                        fc_cache.apply_closure(|fc_cache| {
+                            let mut new_window_state = current_window.internal.current_window_state.clone();
+                            new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
+
+                            /*
                             match wparam {
                                 SIZE_MAXIMIZED => {
                                     new_window_state.flags.frame = WindowFrame::Maximized;
@@ -2853,32 +2851,31 @@ unsafe extern "system" fn WindowProc(
                                 },
                                 _ => { }
                             }
-                        }
+                            */
 
-                        current_window.internal.do_quick_resize(
-                            &image_cache,
-                            &crate::app::CALLBACKS,
-                            azul_layout::do_the_relayout,
-                            fc_cache,
-                            &new_window_state,
-                        );
+                            current_window.internal.do_quick_resize(
+                                &image_cache,
+                                &crate::app::CALLBACKS,
+                                azul_layout::do_the_relayout,
+                                fc_cache,
+                                &new_window_state,
+                            );
 
-                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                        current_window.internal.current_window_state = new_window_state;
-                    });
+                            current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                            current_window.internal.current_window_state = new_window_state;
+                        });
 
-                    mem::drop(app_borrow);
-                    PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
-                    if msg == WM_SIZE {
-                        return 0;
+                        mem::drop(app_borrow);
+                        PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                        return 0; // don't fire WM_SIZE / WM_MOVE
                     } else {
-                        return 1; // TRUE / WM_SIZING
+                        mem::drop(app_borrow);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
                     }
-                } else {
-                    mem::drop(app_borrow);
-                    return DefWindowProcW(hwnd, msg, wparam, lparam);
                 }
 
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_NCHITTEST => {
                 mem::drop(app_borrow);
