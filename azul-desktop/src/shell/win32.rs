@@ -1956,11 +1956,10 @@ impl Window {
         // WebRender (window is ready to render), menu bar is visible and hit-tester
         // now contains the newest UI tree.
 
-        /*
         if options.hot_reload {
             use winapi::um::winuser::SetTimer;
             unsafe { SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None); }
-        }*/
+        }
 
         // NOTE: The window is NOT stored yet
         Ok(Window {
@@ -2449,6 +2448,8 @@ unsafe extern "system" fn WindowProc(
         match msg {
             AZ_REGENERATE_DOM => {
 
+                use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
+
                 let mut ret = ProcessEventResult::DoNothing;
 
                 // borrow checker :|
@@ -2464,6 +2465,9 @@ unsafe extern "system" fn WindowProc(
                     let mut hit_tester = &mut current_window.hit_tester;
                     let internal = &mut current_window.internal;
                     let gl_context = &current_window.gl_context_ptr;
+
+                    // unset the focus
+                    internal.current_window_state.focused_node = None;
 
                     let mut resource_updates = Vec::new();
                     fc_cache.apply_closure(|fc_cache| {
@@ -2488,7 +2492,15 @@ unsafe extern "system" fn WindowProc(
                         );
                     });
 
-                    // send_resource_updates(resource_updates);
+                    // rebuild the display list and send it
+                    rebuild_display_list(
+                        &mut current_window.internal,
+                        &mut current_window.render_api,
+                        image_cache,
+                        resource_updates,
+                    );
+
+                    current_window.render_api.flush_scene_builder();
 
                     let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
                     current_window.hit_tester = AsyncHitTester::Requested(
@@ -2503,9 +2515,30 @@ unsafe extern "system" fn WindowProc(
                         &current_window.internal.current_window_state.mouse_state.cursor_position,
                         current_window.internal.current_window_state.size.hidpi_factor,
                     );
+
+                    current_window.internal.previous_window_state = None;
                     current_window.internal.current_window_state.last_hit_test = hit_test;
 
-                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    let mut nodes_to_check = NodesToCheck::simulated_mouse_move(
+                        &current_window.internal.current_window_state.last_hit_test,
+                        current_window.internal.current_window_state.focused_node,
+                        current_window.internal.current_window_state.mouse_state.mouse_down()
+                    );
+
+                    let mut style_layout_changes = StyleAndLayoutChanges::new(
+                        &nodes_to_check,
+                        &mut current_window.internal.layout_results,
+                        &image_cache,
+                        &mut current_window.internal.renderer_resources,
+                        current_window.internal.current_window_state.size.get_layout_size(),
+                        &current_window.internal.document_id,
+                        None,
+                        None,
+                        &None,
+                        azul_layout::do_the_relayout,
+                    );
+
+                    PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                 }
 
                 mem::drop(app_borrow);
@@ -2610,16 +2643,12 @@ unsafe extern "system" fn WindowProc(
 
                 if let Some(current_window) =  windows.get_mut(&hwnd_key) {
 
-                    let mut initial_resource_updates = Vec::new();
-
                     rebuild_display_list(
                         &mut current_window.internal,
                         &mut current_window.render_api,
                         image_cache,
-                        initial_resource_updates,
+                        Vec::new(), // no resource updates
                     );
-
-                    // submit_resources(initial_resource_updates)
 
                     let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
                     current_window.hit_tester = AsyncHitTester::Requested(
@@ -2822,16 +2851,6 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
-            WM_HSCROLL => {
-                println!("WM_HSCROLL!");
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
-            WM_VSCROLL => {
-                println!("WM_VSCROLL!");
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
             WM_MOUSEWHEEL => {
                 println!("WM_MOUSEWHEEL!");
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
@@ -2920,17 +2939,12 @@ unsafe extern "system" fn WindowProc(
                         );
                         current_window.render_api.send_transaction(wr_translate_document_id(current_window.internal.document_id), txn);
 
-                        // rebuild display list
-                        let mut initial_resource_updates = Vec::new();
-
                         rebuild_display_list(
                             &mut current_window.internal,
                             &mut current_window.render_api,
                             image_cache,
-                            initial_resource_updates,
+                            Vec::new(),
                         );
-
-                        // submit_resources(initial_resource_updates)
 
                         let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
                         current_window.hit_tester = AsyncHitTester::Requested(
@@ -3269,10 +3283,6 @@ fn process_event(
         window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
     }
 
-    if !style_layout_changes.is_empty() {
-        // println!("style and layout changes: {:#?}", style_layout_changes);
-    }
-
     if style_layout_changes.did_resize_nodes() {
         // at least update the hit-tester
         ProcessEventResult::UpdateHitTesterAndProcessAgain
@@ -3344,6 +3354,13 @@ fn synchronize_window_state_with_os(
     current_state: &FullWindowState
 ) {
     // TODO: window.set_title
+}
+
+fn send_resource_updates(
+    render_api: &mut WrRenderApi,
+    resource_updates: Vec<ResourceUpdate>,
+) {
+
 }
 
 // translates MouseCursorType to a builtin IDC_* value
