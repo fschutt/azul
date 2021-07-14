@@ -8,6 +8,7 @@ use core::{
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::collections::btree_set::BTreeSet;
 use azul_css::{
     CssProperty, LayoutSize, U8Vec, ColorU, OptionF32,
     AzString, OptionAzString, LayoutPoint, LayoutRect,
@@ -27,7 +28,7 @@ use crate::{
     },
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
-    task::{TimerId, ThreadId, Timer, Thread},
+    task::{TimerId, ExternalSystemCallbacks, ThreadId, Timer, Thread, Instant},
 };
 use rust_fontconfig::FcFontCache;
 use crate::gl::OptionGlContextPtr;
@@ -570,6 +571,10 @@ pub struct WindowInternal {
     pub gl_texture_cache: GlTextureCache,
     /// States of scrolling animations, updated every frame
     pub scroll_states: ScrollStates,
+    /// Timer ID -> Timer + Win32 pointer map (created using SetTimer)
+    pub timers: BTreeMap<TimerId, Timer>,
+    /// List of threads running in the background
+    pub threads: BTreeMap<ThreadId, Thread>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -586,7 +591,6 @@ impl FullHitTest {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct CursorTypeHitTest {
@@ -779,6 +783,8 @@ impl WindowInternal {
             epoch, // = 0
             layout_results,
             gl_texture_cache,
+            timers: BTreeMap::new(),
+            threads: BTreeMap::new(),
             scroll_states,
         }
     }
@@ -1010,6 +1016,149 @@ impl WindowInternal {
             }
         }
         context_menu
+    }
+
+    /// Runs a single timer, similar to CallbacksOfHitTest.call()
+    ///
+    /// NOTE: The timer has to be selected first by the calling code and verified
+    /// that it is ready to run
+    pub fn run_single_timer(
+        &mut self,
+        timer_id: usize,
+        frame_start: Instant,
+        data: &mut RefAny,
+        current_window_handle: &RawWindowHandle,
+        gl_context: &OptionGlContextPtr,
+        image_cache: &mut ImageCache,
+        system_fonts: &mut FcFontCache,
+        system_callbacks: &ExternalSystemCallbacks,
+    ) -> CallCallbacksResult {
+
+        use crate::task::TerminateTimer;
+        use crate::callbacks::CallbackInfo;
+
+        let mut ret = CallCallbacksResult {
+            should_scroll_render: false,
+            callbacks_update_screen: Update::DoNothing,
+            modified_window_state: None,
+            css_properties_changed: None,
+            words_changed: None,
+            images_changed: None,
+            image_masks_changed: None,
+            nodes_scrolled_in_callbacks: None,
+            update_focused_node: None,
+            timers: None,
+            threads: None,
+            timers_removed: None,
+            threads_removed: None,
+            windows_created: Vec::new(),
+            cursor_changed: false,
+        };
+
+        let mut ret_modified_window_state: WindowState = self.current_window_state.clone().into();
+        let ret_window_state = ret_modified_window_state.clone();
+        let mut ret_timers = FastHashMap::new();
+        let mut ret_timers_removed = FastBTreeSet::new();
+        let mut ret_threads = FastHashMap::new();
+        let mut ret_threads_removed = FastBTreeSet::new();
+        let mut ret_words_changed = BTreeMap::new();
+        let mut ret_images_changed = BTreeMap::new();
+        let mut ret_image_masks_changed = BTreeMap::new();
+        let mut ret_css_properties_changed = BTreeMap::new();
+        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
+
+        let mut should_terminate = TerminateTimer::Continue;
+        let mut new_focus_node = None;
+
+        // TODO: unused?
+        let current_scroll_states = self.get_current_scroll_states();
+
+        if let Some(timer) = self.timers.get_mut(&TimerId { id: timer_id }) {
+
+            let mut new_focus_target = None;
+            let mut stop_propagation = false;
+
+            // TODO: store the hit DOM of the timer?
+            let hit_dom_node = match timer.node_id.into_option() {
+                Some(s) => s,
+                None => DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) },
+            };
+            let cursor_relative_to_item = OptionLogicalPosition::None;
+            let cursor_in_viewport = OptionLogicalPosition::None;
+
+            let layout_result = &mut self.layout_results[hit_dom_node.dom.inner];
+            let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+
+            let callback_info = CallbackInfo::new(
+                &layout_result.styled_dom.css_property_cache.ptr,
+                &layout_result.styled_dom.styled_nodes,
+                &self.previous_window_state,
+                &self.current_window_state,
+                &mut ret_modified_window_state,
+                gl_context,
+                image_cache,
+                system_fonts,
+                &mut ret_timers,
+                &mut ret_threads,
+                &mut ret_timers_removed,
+                &mut ret_threads_removed,
+                &mut ret.windows_created,
+                current_window_handle,
+                &layout_result.styled_dom.node_hierarchy,
+                system_callbacks,
+                &layout_result.words_cache,
+                &layout_result.shaped_words_cache,
+                &layout_result.positioned_words_cache,
+                &layout_result.rects,
+                &mut datasets.1,
+                &mut stop_propagation,
+                &mut new_focus_target,
+                &mut ret_words_changed,
+                &mut ret_images_changed,
+                &mut ret_image_masks_changed,
+                &mut ret_css_properties_changed,
+                &current_scroll_states,
+                &mut ret_nodes_scrolled_in_callbacks,
+                hit_dom_node,
+                cursor_relative_to_item,
+                cursor_in_viewport,
+            );
+
+            let tcr = timer.invoke(
+                data,
+                callback_info,
+                frame_start.clone(),
+                system_callbacks.get_system_time_fn
+            );
+
+            ret.callbacks_update_screen = tcr.should_update;
+            should_terminate = tcr.should_terminate;
+
+            if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
+            if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+            if ret_modified_window_state != ret_window_state {
+                ret.modified_window_state = Some(ret_modified_window_state);
+            }
+            if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
+            if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
+            if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
+            if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
+            if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
+            if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
+            if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
+
+            new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&self.layout_results, self.current_window_state.focused_node).ok()?);
+        }
+
+        if self.current_window_state.focused_node != new_focus_node {
+            ret.update_focused_node = Some(new_focus_node);
+        }
+
+        if should_terminate == TerminateTimer::Terminate {
+            ret.timers_removed.get_or_insert_with(|| BTreeSet::new()).insert(TimerId { id: timer_id });
+        }
+
+        return ret;
     }
 }
 

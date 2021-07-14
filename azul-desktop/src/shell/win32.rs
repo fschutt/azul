@@ -70,10 +70,6 @@ const AZ_THREAD_TICK: usize = 1;
 // ID sent by WM_TIMER to re-generate the DOM
 const AZ_TICK_REGENERATE_DOM: usize = 2;
 
-// ID sent if the DOM was completely reloaded (forces repaint)
-const AZ_DOM_WAS_RELOADED_ONCE: usize = 1;
-const AZ_DOM_WAS_RELOADED_TWICE: usize = 2;
-
 const AZ_REGENERATE_DOM: u32 = WM_APP + 1;
 const AZ_REGENERATE_DISPLAY_LIST: u32 = WM_APP + 2;
 const AZ_REDO_HIT_TEST: u32 = WM_APP + 3;
@@ -1488,10 +1484,8 @@ struct Window {
     hit_tester: AsyncHitTester,
     /// ID -> Callback map for the window menu (default: empty map)
     menu_callbacks: BTreeMap<u16, MenuCallback>,
-    /// Timer ID -> Timer + Win32 pointer map (created using SetTimer)
-    timers: BTreeMap<TimerId, (Timer, TIMERPTR)>,
-    /// List of threads running in the background
-    threads: BTreeMap<ThreadId, Thread>,
+    /// Timer ID -> Win32 timer map
+    timers: BTreeMap<TimerId, TIMERPTR>,
     /// If threads is non-empty, the window will receive a WM_TIMER every 16ms
     thread_timer_running: Option<TIMERPTR>,
     /// Hash of the current system menu
@@ -1974,7 +1968,6 @@ impl Window {
             menu_callbacks,
             menu_hash,
             timers: BTreeMap::new(),
-            threads: BTreeMap::new(),
             thread_timer_running: None,
         })
     }
@@ -2013,12 +2006,15 @@ impl Window {
 
         for (id, timer) in added {
             let res = unsafe { SetTimer(self.hwnd, id.id, timer.tick_millis().max(u32::MAX as u64) as u32, None) };
-            self.timers.insert(id, (timer, res));
+            self.internal.timers.insert(id, timer);
+            self.timers.insert(id, res);
         }
 
         for id in removed {
-            if let Some((timer, handle)) = self.timers.remove(&id) {
-                unsafe { KillTimer(self.hwnd, handle) };
+            if let Some(_) = self.internal.timers.remove(&id) {
+                if let Some(handle) = self.timers.remove(&id) {
+                    unsafe { KillTimer(self.hwnd, handle) };
+                }
             }
         }
     }
@@ -2031,15 +2027,15 @@ impl Window {
 
         use winapi::um::winuser::{SetTimer, KillTimer};
 
-        self.threads.append(&mut added);
-        self.threads.retain(|r, _| !removed.contains(r));
+        self.internal.threads.append(&mut added);
+        self.internal.threads.retain(|r, _| !removed.contains(r));
 
-        if self.threads.is_empty() {
+        if self.internal.threads.is_empty() {
             if let Some(thread_tick) = self.thread_timer_running {
                 unsafe { KillTimer(self.hwnd, thread_tick) };
             }
             self.thread_timer_running = None;
-        } else if !self.threads.is_empty() && self.thread_timer_running.is_none() {
+        } else if !self.internal.threads.is_empty() && self.thread_timer_running.is_none() {
             let res = unsafe { SetTimer(self.hwnd, AZ_THREAD_TICK, 16, None) }; // 16ms timer
             self.thread_timer_running = Some(res);
         }
@@ -2574,23 +2570,6 @@ unsafe extern "system" fn WindowProc(
                             &mut new_windows,
                             &mut destroyed_windows,
                         );
-
-                        /*
-                        if ret == ProcessEventResult::UpdateHitTesterAndProcessAgain || wparam == AZ_DOM_WAS_RELOADED_ONCE {
-
-                            // TODO: rebuild display list?
-
-                            let hit_test = crate::wr_translate::fullhittest_new_webrender(
-                                &*current_window.hit_tester.resolve(),
-                                current_window.internal.document_id,
-                                current_window.internal.current_window_state.focused_node,
-                                &current_window.internal.layout_results,
-                                &current_window.internal.current_window_state.mouse_state.cursor_position,
-                                current_window.internal.current_window_state.size.hidpi_factor,
-                            );
-                            current_window.internal.current_window_state.last_hit_test = hit_test;
-                        }
-                        */
                     },
                     None => {
                         mem::drop(app_borrow);
@@ -2602,13 +2581,7 @@ unsafe extern "system" fn WindowProc(
                 destroy_windows(ab, destroyed_windows);
 
                 match ret {
-                    ProcessEventResult::DoNothing => {
-                        if wparam == AZ_DOM_WAS_RELOADED_ONCE {
-                            PostMessageW(cur_hwnd, AZ_REDO_HIT_TEST, AZ_DOM_WAS_RELOADED_TWICE, 0);
-                        } else if wparam == AZ_DOM_WAS_RELOADED_TWICE {
-                            PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
-                        }
-                    },
+                    ProcessEventResult::DoNothing => { },
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
                         PostMessageW(cur_hwnd, AZ_REGENERATE_DOM, 0, 0);
                     },
@@ -2634,8 +2607,6 @@ unsafe extern "system" fn WindowProc(
             AZ_REGENERATE_DISPLAY_LIST => {
 
                 use winapi::um::winuser::InvalidateRect;
-
-                println!("AZ_REGENERATE_DISPLAY_LIST");
 
                 let ab = &mut *app_borrow;
                 let image_cache = &ab.image_cache;
@@ -3065,19 +3036,77 @@ unsafe extern "system" fn WindowProc(
                     AZ_THREAD_TICK => {
                         // tick every 16ms to process new thread messages
                         run_all_threads();
+                        mem::drop(app_borrow);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
                     },
                     AZ_TICK_REGENERATE_DOM => {
                         // re-load the layout() callback
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
+                        mem::drop(app_borrow);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam);
                     },
-                    id => {
-                        // TODO: optimize so that only the timer with "id" is run
-                        // currently this will attempt to run all timers
-                        run_all_timers();
+                    id => { // run thread with ID "id"
+
+                        let mut ab = &mut *app_borrow;
+                        let hinstance = ab.hinstance;
+                        let windows = &mut ab.windows;
+                        let data = &mut ab.data;
+                        let image_cache = &mut ab.image_cache;
+                        let fc_cache = &mut ab.fc_cache;
+                        let config = &ab.config;
+
+                        let mut ret = ProcessEventResult::DoNothing;
+                        let mut new_windows = Vec::new();
+                        let mut destroyed_windows = Vec::new();
+
+                        match windows.get_mut(&hwnd_key) {
+                            Some(current_window) => {
+                                ret = process_timer(
+                                    id,
+                                    hinstance,
+                                    data,
+                                    current_window,
+                                    fc_cache,
+                                    image_cache,
+                                    config,
+                                    &mut new_windows,
+                                    &mut destroyed_windows,
+                                );
+                            },
+                            None => {
+                                mem::drop(app_borrow);
+                                return DefWindowProcW(hwnd, msg, wparam, lparam);
+                            },
+                        }
+
+                        create_windows(ab, new_windows);
+                        destroy_windows(ab, destroyed_windows);
+
+                        match ret {
+                            ProcessEventResult::DoNothing => { },
+                            ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                                PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
+                            },
+                            ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                                for window in app_borrow.windows.values() {
+                                    PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
+                                }
+                            },
+                            ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                                PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                            },
+                            ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                                PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                            },
+                            ProcessEventResult::ShouldReRenderCurrentWindow => {
+                                PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
+                            },
+                        }
+
+                        mem::drop(app_borrow);
+                        return 0;
                     }
                 }
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_COMMAND => {
                 // execute menu callback
@@ -3295,6 +3324,138 @@ fn process_event(
     }
 }
 
+#[must_use]
+fn process_timer(
+    timer_id: usize,
+    hinstance: HINSTANCE,
+    data: &mut RefAny,
+    window: &mut Window,
+    fc_cache: &mut LazyFcCache,
+    image_cache: &mut ImageCache,
+    config: &AppConfig,
+    new_windows: &mut Vec<WindowCreateOptions>,
+    destroyed_windows: &mut Vec<usize>
+) -> ProcessEventResult {
+
+    use azul_core::callbacks::Update;
+    use azul_core::window::{RawWindowHandle, WindowsHandle};
+    use azul_core::window_state::{StyleAndLayoutChanges, NodesToCheck};
+
+    let mut result = ProcessEventResult::DoNothing;
+
+    let callback_results = fc_cache.apply_closure(|fc_cache| {
+
+        let window_handle = RawWindowHandle::Windows(WindowsHandle {
+            hwnd: window.hwnd as *mut _,
+            hinstance: hinstance as *mut _,
+        });
+
+        let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
+        window.internal.run_single_timer(
+            timer_id,
+            frame_start,
+            data,
+            &window_handle,
+            &window.gl_context_ptr,
+            image_cache,
+            fc_cache,
+            &config.system_callbacks,
+        )
+    });
+
+    window.start_stop_timers(
+        callback_results.timers.unwrap_or_default(),
+        callback_results.timers_removed.unwrap_or_default()
+    );
+
+    window.start_stop_threads(
+        callback_results.threads.unwrap_or_default(),
+        callback_results.threads_removed.unwrap_or_default()
+    );
+
+    let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(
+        &window.internal.previous_window_state
+    );
+
+    *new_windows = callback_results.windows_created;
+
+    // see if the timers have scrolled any nodes
+    let scroll = window.internal.current_window_state
+    .process_system_scroll(&window.internal.scroll_states);
+    let need_scroll_render = scroll.is_some();
+
+    if let Some(modified) = callback_results.modified_window_state.as_ref() {
+        if modified.flags.is_about_to_close {
+            destroyed_windows.push(window.hwnd as usize);
+        }
+        window.internal.current_window_state = FullWindowState::from_window_state(
+            modified,
+            window.internal.current_window_state.dropped_file.clone(),
+            window.internal.current_window_state.hovered_file.clone(),
+            window.internal.current_window_state.focused_node.clone(),
+            window.internal.current_window_state.last_hit_test.clone(),
+        );
+        if modified.size.get_layout_size() != window.internal.current_window_state.size.get_layout_size() {
+            result = ProcessEventResult::UpdateHitTesterAndProcessAgain;
+        } else if !need_scroll_render {
+            result = ProcessEventResult::ShouldReRenderCurrentWindow;
+        }
+    }
+
+    if layout_callback_changed {
+        return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
+    } else {
+        match callback_results.callbacks_update_screen {
+            Update::RegenerateStyledDomForCurrentWindow => {
+                result = ProcessEventResult::ShouldRegenerateDomCurrentWindow;
+            },
+            Update::RegenerateStyledDomForAllWindows => {
+                result = ProcessEventResult::ShouldRegenerateDomAllWindows;
+            },
+            Update::DoNothing => { }
+        }
+    }
+
+    if let Some(scroll) = scroll {
+        window.do_system_scroll(scroll);
+        window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
+    }
+
+    // calculate CSS / layout changes for nodes modified by timer
+    let mut style_layout_changes = StyleAndLayoutChanges::new(
+        &NodesToCheck::empty(
+            window.internal.current_window_state.mouse_state.mouse_down(),
+            window.internal.current_window_state.focused_node,
+        ),
+        &mut window.internal.layout_results,
+        image_cache,
+        &mut window.internal.renderer_resources,
+        window.internal.current_window_state.size.get_layout_size(),
+        &window.internal.document_id,
+        callback_results.css_properties_changed.as_ref(),
+        callback_results.words_changed.as_ref(),
+        &callback_results.update_focused_node,
+        azul_layout::do_the_relayout,
+    );
+
+    // TODO: should a timer even be able to change the focus?
+    // FOCUS CHANGE HAPPENS HERE!
+    if let Some(focus_change) = style_layout_changes.focus_change.clone() {
+         window.internal.current_window_state.focused_node = focus_change.new;
+    }
+
+    if style_layout_changes.did_resize_nodes() {
+        // at least update the hit-tester
+        ProcessEventResult::UpdateHitTesterAndProcessAgain
+    } else if style_layout_changes.need_regenerate_display_list() {
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+    } else if need_scroll_render || style_layout_changes.need_redraw() {
+        ProcessEventResult::ShouldReRenderCurrentWindow
+    } else {
+        result
+    }
+}
+
 fn create_windows(app: &mut ApplicationData, new: Vec<WindowCreateOptions>) {
     // TODO
 }
@@ -3304,10 +3465,6 @@ fn destroy_windows(app: &mut ApplicationData, old: Vec<usize>) {
 }
 
 fn run_all_threads() {
-    // TODO
-}
-
-fn run_all_timers() {
     // TODO
 }
 
