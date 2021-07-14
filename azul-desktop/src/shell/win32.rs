@@ -180,10 +180,6 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             .insert(w.get_id(), w);
     }
 
-    for window in app_data_inner.try_borrow_mut()?.windows.values_mut() {
-        window.show();
-    }
-
     // Process the window messages one after another
     //
     // Multiple windows will process messages in sequence
@@ -308,6 +304,8 @@ fn load_dll(name: &'static str) -> Option<HINSTANCE> {
 #[derive(Debug)]
 pub enum WindowsWindowCreateError {
     FailedToCreateHWND(u32),
+    NoHDC,
+    NoGlContext,
     Renderer(WrRendererError),
     BorrowMut(BorrowMutError),
 }
@@ -1546,6 +1544,7 @@ impl Window {
                 LogicalPosition, ScrollResult,
                 PhysicalSize, RendererType,
                 WindowInternalInit, FullHitTest,
+                WindowFrame,
             },
         };
         use webrender::api::ColorF as WrColorF;
@@ -1553,16 +1552,23 @@ impl Window {
         use winapi::{
             shared::windef::POINT,
             um::{
-                wingdi::{wglDeleteContext, wglMakeCurrent, GetDeviceCaps, LOGPIXELSX, LOGPIXELSY},
+                wingdi::{
+                    wglDeleteContext, wglMakeCurrent,
+                    SwapBuffers, GetDeviceCaps,
+                    LOGPIXELSX, LOGPIXELSY
+                },
                 winuser::{
                     CreateWindowExW, DestroyWindow, GetClientRect, GetCursorPos, GetDC,
                     GetWindowRect, ReleaseDC, ScreenToClient, SetMenu, CW_USEDEFAULT, WS_CAPTION,
                     WS_EX_ACCEPTFILES, WS_EX_APPWINDOW, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
                     WS_OVERLAPPED, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME,
+                    ShowWindow, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_SHOWNORMAL,
                 },
             },
         };
-
+        use winapi::um::winuser::{
+            SetWindowPos, HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOZORDER,
+        };
         let parent_window = match options
             .state
             .platform_specific_options
@@ -1846,9 +1852,6 @@ impl Window {
 
         // If size_to_content is set, query the content size and adjust!
         if options.size_to_content {
-            use winapi::um::winuser::{
-                SetWindowPos, HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOZORDER,
-            };
             let content_size = internal.get_content_size();
             unsafe {
                 SetWindowPos(
@@ -1863,6 +1866,22 @@ impl Window {
             }
         }
 
+        // If the window is maximized on startup, we have to call ShowWindow here
+        // before querying the client area
+        let mut sw_options = SW_HIDE; // 0 = default
+        let mut hidden_sw_options = SW_HIDE; // 0 = default
+        if internal.current_window_state.flags.is_visible {
+            sw_options |= SW_SHOWNORMAL;
+        }
+
+        match internal.current_window_state.flags.frame {
+            WindowFrame::Normal => { sw_options |= SW_NORMAL; hidden_sw_options |= SW_NORMAL; },
+            WindowFrame::Minimized => { sw_options |= SW_MINIMIZE; hidden_sw_options |= SW_MINIMIZE; },
+            WindowFrame::Maximized => { sw_options |= SW_MAXIMIZE; hidden_sw_options |= SW_MAXIMIZE; },
+            WindowFrame::Fullscreen => { sw_options |= SW_MAXIMIZE; hidden_sw_options |= SW_MAXIMIZE; },
+        }
+
+        unsafe { ShowWindow(hwnd, hidden_sw_options); }
 
         // Query the client area from Win32 (not DPI adjusted) and adjust framebuffer
         let mut rect: RECT = unsafe { mem::zeroed() };
@@ -1871,15 +1890,8 @@ impl Window {
             width: rect.width(),
             height: rect.height(),
         };
-        let mut txn = WrTransaction::new();
-        txn.set_document_view(
-            WrDeviceIntRect::from_size(
-                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
-            )
-        );
-        render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
-        options.state.size.dimensions = physical_size.to_logical(dpi_factor);
-
+        // internal.previous_window_state = Some(internal.current_window_state.clone());
+        internal.current_window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         // re-layout the window content for the first frame
         // (since the width / height might have changed)
@@ -1887,26 +1899,29 @@ impl Window {
             let appdata_lock = &mut *appdata_lock;
             let fc_cache = &mut appdata_lock.fc_cache;
             let image_cache = &appdata_lock.image_cache;
-
+            let size = internal.current_window_state.size.clone();
+            let theme = internal.current_window_state.theme;
             fc_cache.apply_closure(|fc_cache| {
-                use azul_core::window::FullWindowState;
-                let full_window_state: FullWindowState = FullWindowState::from_window_state(
-                    &options.state,
-                    /*dropped_file:*/ None,
-                    /*hovered_file:*/ None,
-                    /*focused_node:*/ None,
-                    /*last_hit_test:*/ FullHitTest::empty(None),
-                );
                 internal.do_quick_resize(
                     &image_cache,
                     &crate::app::CALLBACKS,
                     azul_layout::do_the_relayout,
                     fc_cache,
-                    &full_window_state.size,
-                    full_window_state.theme,
+                    &size,
+                    theme,
                 );
             });
         }
+
+        let mut txn = WrTransaction::new();
+        txn.set_document_view(
+            WrDeviceIntRect::from_size(
+                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
+            )
+        );
+        render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+
+        render_api.flush_scene_builder();
 
         // Build the display list and send it to webrender for the first time
         rebuild_display_list(
@@ -1916,14 +1931,15 @@ impl Window {
             initial_resource_updates,
         );
 
+        render_api.flush_scene_builder();
+
         generate_frame(
             &mut internal,
             &mut render_api,
             true,
         );
 
-        // Unlock the SharedApplicationData
-        mem::drop(appdata_lock);
+        render_api.flush_scene_builder();
 
         // Get / store mouse cursor position, now that the window position is final
         let mut cursor_pos: POINT = POINT { x: 0, y: 0 };
@@ -1935,16 +1951,14 @@ impl Window {
             x: cursor_pos.x as f32 / dpi_factor,
             y: cursor_pos.y as f32 / dpi_factor,
         };
-        options.state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
+        internal.current_window_state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
             CursorPosition::OutOfWindow
         } else {
             CursorPosition::InWindow(cursor_pos_logical)
         };
 
         // Update the hit-tester to account for the new hit-testing functionality
-        let hit_tester = render_api
-            .request_hit_tester(wr_translate_document_id(document_id))
-            .resolve();
+        let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id));
 
         // Done! Window is now created properly, display list has been built by
         // WebRender (window is ready to render), menu bar is visible and hit-tester
@@ -1955,6 +1969,10 @@ impl Window {
             unsafe { SetTimer(hwnd, AZ_TICK_REGENERATE_DOM, 200, None); }
         }
 
+        use winapi::um::winuser::PostMessageW;
+        unsafe { PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0 ); }
+        unsafe { ShowWindow(hwnd, sw_options); }
+
         // NOTE: The window is NOT stored yet
         Ok(Window {
             hwnd,
@@ -1964,36 +1982,12 @@ impl Window {
             gl_context_ptr,
             render_api,
             renderer: Some(renderer),
-            hit_tester: AsyncHitTester::Resolved(hit_tester),
+            hit_tester: AsyncHitTester::Requested(hit_tester),
             menu_callbacks,
             menu_hash,
             timers: BTreeMap::new(),
             thread_timer_running: None,
         })
-    }
-
-    // Calls ShowWindow to show the window on the screen
-    fn show(&mut self) {
-        use azul_core::window::WindowFrame;
-        use winapi::um::winuser::{
-            ShowWindow, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_NORMAL, SW_SHOWNORMAL,
-        };
-
-        let mut sw_options = SW_HIDE; // 0 = default
-        if self.internal.current_window_state.flags.is_visible {
-            sw_options |= SW_SHOWNORMAL;
-        }
-
-        match self.internal.current_window_state.flags.frame {
-            WindowFrame::Normal => sw_options |= {
-                SW_NORMAL
-            },
-            WindowFrame::Minimized => sw_options |= SW_MINIMIZE,
-            WindowFrame::Maximized => sw_options |= SW_MAXIMIZE,
-            WindowFrame::Fullscreen => sw_options |= SW_MAXIMIZE,
-        }
-
-        unsafe { ShowWindow(self.hwnd, sw_options); }
     }
 
     fn start_stop_timers(
