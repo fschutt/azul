@@ -1704,8 +1704,6 @@ impl Window {
         }
 
         // Invoke callback to initialize UI for the first time
-        let mut initial_resource_updates = Vec::new();
-
         let (mut renderer, sender) = match WrRenderer::new(
             gl.functions.clone(),
             Box::new(Notifier {}),
@@ -1790,7 +1788,7 @@ impl Window {
             },
         };
 
-
+        let mut initial_resource_updates = Vec::new();
         let mut internal = {
 
             let appdata_lock = &mut *appdata_lock;

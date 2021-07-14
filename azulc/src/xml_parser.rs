@@ -178,14 +178,14 @@ impl DomXml {
         let parsed = match parse_xml_string(&xml) {
             Ok(parsed) => parsed,
             Err(e) => return Self {
-                parsed_dom: Dom::text(format!("{}", e)).style(&mut error_css),
+                parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(&mut error_css),
             },
         };
 
         let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
             Ok(o) => o,
             Err(e) => return Self {
-                parsed_dom: Dom::text(format!("{}", e)).style(&mut error_css),
+                parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(&mut error_css),
             },
         };
 
@@ -1559,7 +1559,7 @@ impl XmlComponent for DivRenderer {
     }
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(StyledDom::default())
+        Ok(Dom::div().style(&mut Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -1588,7 +1588,7 @@ impl XmlComponent for BodyRenderer {
     }
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(StyledDom::default())
+        Ok(Dom::body().style(&mut Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -1621,7 +1621,7 @@ impl XmlComponent for TextRenderer {
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
-        Ok(StyledDom::default())
+        Ok(Dom::text(content).style(&mut Css::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
