@@ -8927,6 +8927,7 @@ namespace dll {
         TextInput TextInput_withLabelStyle(TextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  label_style);
         Dom TextInput_dom(TextInput* restrict textinput);
         NumberInput NumberInput_new(float number);
+        Dom NumberInput_dom(NumberInput* restrict numberinput);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);
         CssPropertyCache CssPropertyCache_deepCopy(CssPropertyCache* const instance);
         StyledDom StyledDom_new(AzDom  dom, AzCss  css);

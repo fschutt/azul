@@ -5528,7 +5528,13 @@
                         }
                     },
                     "functions": {
-
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "numberinput.swap_with_default().dom()"
+                        }
                     }
                 },
                 "NumberInputStateWrapper": {

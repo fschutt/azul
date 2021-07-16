@@ -22650,6 +22650,11 @@ impl AzNumberInput {
             mem::transmute(number),
         )) }
     }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzNumberInput_dom(
+            mem::transmute(self),
+        )) }
+    }
 }
 
 #[pyproto]

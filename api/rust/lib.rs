@@ -9089,6 +9089,7 @@ mod dll {
         pub(crate) fn AzTextInput_withLabelStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec) -> AzTextInput;
         pub(crate) fn AzTextInput_dom(_:  &mut AzTextInput) -> AzDom;
         pub(crate) fn AzNumberInput_new(_:  f32) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_dom(_:  &mut AzNumberInput) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -11994,6 +11995,8 @@ pub mod widgets {
     impl NumberInput {
         /// Creates a new `NumberInput` instance.
         pub fn new(number: f32) -> Self { unsafe { crate::dll::AzNumberInput_new(number) } }
+        /// Calls the `NumberInput::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzNumberInput_dom(self) } }
     }
 
     /// `NumberInputStateWrapper` struct

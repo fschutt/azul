@@ -57,6 +57,16 @@ pub enum Update {
     RegenerateStyledDomForAllWindows,
 }
 
+impl Update {
+    pub fn max(&mut self, other: Self) {
+        if *self == Update::DoNothing && other != Update::DoNothing {
+            *self = other;
+        } else if *self == Update::RegenerateStyledDomForCurrentWindow && other == Update::RegenerateStyledDomForAllWindows {
+            *self = other;
+        }
+    }
+}
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct RefCountInner {

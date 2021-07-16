@@ -115,6 +115,12 @@ impl NumberInput {
     }).into();
     }
 
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut s = Self::new(0.0);
+        core::mem::swap(&mut s, self);
+        s
+    }
+
     pub fn dom(mut self) -> Dom {
 
         let number_string = format!("{}", self.state.inner.number);

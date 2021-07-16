@@ -1776,6 +1776,8 @@ pub use AzNumberInputTT as AzNumberInput;
 /// Creates a new `NumberInput` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `NumberInput::new()` constructor.
 #[no_mangle] pub extern "C" fn AzNumberInput_new(number: f32) -> AzNumberInput { AzNumberInput::new(number) }
+/// Equivalent to the Rust `NumberInput::dom()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_dom(numberinput: &mut AzNumberInput) -> AzDom { numberinput.swap_with_default().dom() }
 
 /// Re-export of rust-allocated (stack based) `NumberInputStateWrapper` struct
 pub type AzNumberInputStateWrapperTT = crate::widgets::number_input::NumberInputStateWrapper;

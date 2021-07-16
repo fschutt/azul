@@ -10868,6 +10868,7 @@ extern DLLIMPORT void AzTextInput_setLabelStyle(AzTextInput* restrict textinput,
 extern DLLIMPORT AzTextInput AzTextInput_withLabelStyle(AzTextInput* restrict textinput, AzNodeDataInlineCssPropertyVec  label_style);
 extern DLLIMPORT AzDom AzTextInput_dom(AzTextInput* restrict textinput);
 extern DLLIMPORT AzNumberInput AzNumberInput_new(float number);
+extern DLLIMPORT AzDom AzNumberInput_dom(AzNumberInput* restrict numberinput);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
 extern DLLIMPORT AzCssPropertyCache AzCssPropertyCache_deepCopy(AzCssPropertyCache* const instance);
 extern DLLIMPORT AzStyledDom AzStyledDom_new(AzDom  dom, AzCss  css);
