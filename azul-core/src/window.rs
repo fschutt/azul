@@ -1068,13 +1068,12 @@ impl WindowInternal {
         let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
 
         let mut should_terminate = TerminateTimer::Continue;
-        let mut new_focus_node = None;
+        let mut new_focus_target = None;
 
         let current_scroll_states = self.get_current_scroll_states();
 
         if let Some(timer) = self.timers.get_mut(&TimerId { id: timer_id }) {
 
-            let mut new_focus_target = None;
             let mut stop_propagation = false;
 
             // TODO: store the hit DOM of the timer?
@@ -1146,11 +1145,12 @@ impl WindowInternal {
             if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
             if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
 
-            new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&self.layout_results, self.current_window_state.focused_node).ok()?);
         }
 
-        if self.current_window_state.focused_node != new_focus_node {
-            ret.update_focused_node = Some(new_focus_node);
+        if let Some(ft) = new_focus_target {
+            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+                ret.update_focused_node = Some(new_focus_node);
+            }
         }
 
         if should_terminate == TerminateTimer::Terminate {
@@ -1237,7 +1237,7 @@ impl WindowInternal {
 
             let ThreadWriteBackMsg { data, callback } = match msg {
                 ThreadReceiveMsg::Update(update_screen) => {
-                    ret.callbacks_update_screen.max(update_screen);
+                    ret.callbacks_update_screen.max_self(update_screen);
                     continue;
                 },
                 ThreadReceiveMsg::WriteBack(t) => t,
@@ -1279,7 +1279,7 @@ impl WindowInternal {
             );
 
             let callback_update = (callback.cb)(&mut thread.writeback_data, data, callback_info);
-            ret.callbacks_update_screen.max(callback_update);
+            ret.callbacks_update_screen.max_self(callback_update);
 
             if thread.is_finished() {
                 ret.threads_removed.get_or_insert_with(|| BTreeSet::default()).insert(*thread_id);
@@ -1299,9 +1299,10 @@ impl WindowInternal {
         if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
         if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
 
-        let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&self.layout_results, self.current_window_state.focused_node).ok()?);
-        if self.current_window_state.focused_node != new_focus_node {
-            ret.update_focused_node = Some(new_focus_node);
+        if let Some(ft) = new_focus_target {
+            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+                ret.update_focused_node = Some(new_focus_node);
+            }
         }
 
         return ret;

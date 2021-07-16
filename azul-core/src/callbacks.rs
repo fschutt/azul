@@ -58,7 +58,7 @@ pub enum Update {
 }
 
 impl Update {
-    pub fn max(&mut self, other: Self) {
+    pub fn max_self(&mut self, other: Self) {
         if *self == Update::DoNothing && other != Update::DoNothing {
             *self = other;
         } else if *self == Update::RegenerateStyledDomForCurrentWindow && other == Update::RegenerateStyledDomForAllWindows {

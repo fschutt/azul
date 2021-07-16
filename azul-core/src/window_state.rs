@@ -437,11 +437,15 @@ impl StyleAndLayoutChanges {
 
         // recursively relayout if there are layout_changes or the window size has changed
         let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
-        let mut doms_to_relayout = if layout_changes.is_none() && !window_was_resized {
-            Vec::new()
-        } else {
-            vec![DomId::ROOT_ID]
-        };
+        let need_root_relayout =
+            layout_changes.is_some() ||
+            window_was_resized ||
+            nodes_that_changed_text_content.is_some();
+
+        let mut doms_to_relayout = Vec::new();
+        if need_root_relayout {
+            doms_to_relayout.push(DomId::ROOT_ID);
+        }
 
         loop {
             let mut new_iframes_to_relayout = Vec::new();
@@ -807,6 +811,7 @@ impl CallbacksOfHitTest {
 
         use crate::styled_dom::ParentWithNodeDepth;
         use crate::callbacks::CallbackInfo;
+        use crate::window::WindowState;
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -834,7 +839,8 @@ impl CallbacksOfHitTest {
             return ret;
         }
 
-        let mut ret_modified_window_state = full_window_state.clone().into();
+        let mut ret_modified_window_state: WindowState = full_window_state.clone().into();
+        let mut ret_modified_window_state_unmodified = ret_modified_window_state.clone();
         let mut ret_timers = FastHashMap::new();
         let mut ret_timers_removed = FastBTreeSet::new();
         let mut ret_threads = FastHashMap::new();
@@ -946,17 +952,7 @@ impl CallbacksOfHitTest {
                             }
                         };
 
-                        match callback_return {
-                            Update::RegenerateStyledDomForCurrentWindow => {
-                                if ret.callbacks_update_screen == Update::DoNothing { ret.callbacks_update_screen = callback_return;  }
-                            },
-                            Update::RegenerateStyledDomForAllWindows => {
-                                if ret.callbacks_update_screen == Update::DoNothing || ret.callbacks_update_screen == Update::RegenerateStyledDomForCurrentWindow  {
-                                    ret.callbacks_update_screen = callback_return;
-                                }
-                            },
-                            Update::DoNothing => { }
-                        }
+                        ret.callbacks_update_screen.max_self(callback_return);
 
                         if let Some(new_focus) = new_focus.clone() {
                             new_focus_target = Some(new_focus);
@@ -1027,22 +1023,7 @@ impl CallbacksOfHitTest {
                         }
                     };
 
-                    // let callback_return = (callback_data.callback.cb)(&mut callback_data.data, callback_info);
-
-                    match callback_return {
-                        Update::RegenerateStyledDomForCurrentWindow => {
-                            if ret.callbacks_update_screen == Update::DoNothing {
-                                ret.callbacks_update_screen = callback_return;
-                            }
-                        },
-                        Update::RegenerateStyledDomForAllWindows => {
-                            if ret.callbacks_update_screen == Update::DoNothing ||
-                               ret.callbacks_update_screen == Update::RegenerateStyledDomForCurrentWindow {
-                                ret.callbacks_update_screen = callback_return;
-                            }
-                        },
-                        Update::DoNothing => { }
-                    }
+                    ret.callbacks_update_screen.max_self(callback_return);
 
                     if let Some(new_focus) = new_focus.clone() {
                         new_focus_target = Some(new_focus);
@@ -1073,29 +1054,28 @@ impl CallbacksOfHitTest {
         }
 
         // Resolve the new focus target
-        let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results, full_window_state.focused_node).ok()?);
-        let focus_has_changed = full_window_state.focused_node != new_focus_node;
+        if let Some(ft) = new_focus_target {
+            if let Ok(new_focus_node) = ft.resolve(&layout_results, full_window_state.focused_node) {
+                ret.update_focused_node = Some(new_focus_node);
+            }
+        }
 
         if current_cursor != ret_modified_window_state.mouse_state.mouse_cursor_type {
             ret.cursor_changed = true;
         }
 
-        if !focus_has_changed {
-            ret.update_focused_node = None;
-        } else {
-            ret.update_focused_node = Some(new_focus_node);
+        if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
+        if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+        if ret_modified_window_state != ret_modified_window_state_unmodified {
+            ret.modified_window_state = Some(ret_modified_window_state);
         }
-
-        ret.modified_window_state = Some(ret_modified_window_state);
-        ret.timers = Some(ret_timers);
-        ret.threads = Some(ret_threads);
-        ret.timers_removed = Some(ret_timers_removed);
-        ret.threads_removed = Some(ret_threads_removed);
-        ret.words_changed = Some(ret_words_changed);
-        ret.images_changed = Some(ret_images_changed);
-        ret.image_masks_changed = Some(ret_image_masks_changed);
-        ret.css_properties_changed = Some(ret_css_properties_changed);
-        ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+        if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
+        if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
+        if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
+        if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
+        if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
+        if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
+        if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
 
         ret
     }
@@ -1192,7 +1172,8 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         _ => { }
     }
 
-    if current_window_state.flags.is_about_to_close {
+    let about_to_close_equals = current_window_state.flags.is_about_to_close == previous_window_state.flags.is_about_to_close;
+    if current_window_state.flags.is_about_to_close && !about_to_close_equals {
         events.push(WindowEventFilter::CloseRequested);
     }
 
@@ -1219,22 +1200,29 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
     }
 
     // keyboard events
+    let cur_vk_equal = current_window_state.keyboard_state.current_virtual_keycode == previous_window_state.keyboard_state.current_virtual_keycode;
+    let cur_char_equal = current_window_state.keyboard_state.current_char == previous_window_state.keyboard_state.current_char;
 
-    if previous_window_state.keyboard_state.current_virtual_keycode.is_none() && current_window_state.keyboard_state.current_virtual_keycode.is_some() {
+    if !cur_vk_equal &&
+        previous_window_state.keyboard_state.current_virtual_keycode.is_none() &&
+        current_window_state.keyboard_state.current_virtual_keycode.is_some() {
         events.push(WindowEventFilter::VirtualKeyDown);
     }
 
-    if current_window_state.keyboard_state.current_char.is_some() {
+    if !cur_char_equal && current_window_state.keyboard_state.current_char.is_some() {
         events.push(WindowEventFilter::TextInput);
     }
 
-    if previous_window_state.keyboard_state.current_virtual_keycode.is_some() && current_window_state.keyboard_state.current_virtual_keycode.is_none() {
+    if !cur_vk_equal &&
+        previous_window_state.keyboard_state.current_virtual_keycode.is_some() &&
+        current_window_state.keyboard_state.current_virtual_keycode.is_none() {
         events.push(WindowEventFilter::VirtualKeyUp);
     }
 
     // misc events
 
-    if previous_window_state.hovered_file.is_none() && current_window_state.hovered_file.is_some() {
+    let hovered_file_equals = previous_window_state.hovered_file == current_window_state.hovered_file;
+    if previous_window_state.hovered_file.is_none() && current_window_state.hovered_file.is_some() && !hovered_file_equals {
         events.push(WindowEventFilter::HoveredFile);
     }
 

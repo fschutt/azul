@@ -2407,7 +2407,7 @@ unsafe extern "system" fn WindowProc(
         WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
         WM_QUIT, WM_HSCROLL, WM_VSCROLL,
         WM_KEYUP, WM_KEYDOWN, WM_SYSKEYUP, WM_SYSKEYDOWN,
-        WM_CHAR,
+        WM_CHAR, WM_UNICHAR,
 
         CREATESTRUCTW, GWLP_USERDATA,
     };
@@ -2575,6 +2575,8 @@ unsafe extern "system" fn WindowProc(
                 create_windows(ab, new_windows);
                 destroy_windows(ab, destroyed_windows);
 
+                mem::drop(ab);
+
                 match ret {
                     ProcessEventResult::DoNothing => { },
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
@@ -2589,7 +2591,12 @@ unsafe extern "system" fn WindowProc(
                         PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                     },
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        PostMessageW(cur_hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
+                            // TODO: submit display list, wait for new hit-tester and update hit-test results
+                            w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
+                            PostMessageW(cur_hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                            PostMessageW(cur_hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        }
                     },
                     ProcessEventResult::ShouldReRenderCurrentWindow => {
                         PostMessageW(cur_hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
@@ -2743,10 +2750,14 @@ unsafe extern "system" fn WindowProc(
                         current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
                     }
                     current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(*scancode);
-                    current_window_state.keyboard_state.current_char = None.into();
                 */
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                    current_window.internal.current_window_state.keyboard_state.current_char = None.into();
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
                 mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                return 0;
             },
             WM_SYSKEYDOWN => {
                 println!("WM_SYSKEYDOWN: {:0x}", wparam);
@@ -2754,10 +2765,28 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_CHAR => {
-                println!("WM_CHAR: {:0x}", wparam);
-                // current_window.current_window_state.keyboard_state.current_char = Some((*c) as u32).into();
+                if let Some(c) = char::from_u32(wparam as u32) {
+                    println!("WM_CHAR: \"{}\"", c);
+                    if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                        current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
+                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    }
+                }
                 mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                return 0;
+            },
+            WM_UNICHAR => {
+                if let Some(c) = char::from_u32(wparam as u32) {
+                    println!("WM_UNICHAR: \"{}\"", c);
+                    if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                        current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
+                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    }
+                }
+                mem::drop(app_borrow);
+                return 0;
             },
             WM_KEYUP => {
                 println!("WM_KEYUP: {:0x}", wparam);
@@ -2767,10 +2796,14 @@ unsafe extern "system" fn WindowProc(
                         current_window_state.keyboard_state.current_virtual_keycode = None.into();
                     }
                     current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(scancode);
-                    current_window_state.keyboard_state.current_char = None.into();
                 */
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                    current_window.internal.current_window_state.keyboard_state.current_char = None.into();
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
                 mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                return 0;
             },
             WM_SYSKEYUP => {
                 println!("WM_SYSKEYUP: {:0x}", wparam);
@@ -3151,7 +3184,12 @@ unsafe extern "system" fn WindowProc(
                         PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                     },
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
+                            w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
+                            // TODO: submit display list, wait for new hit-tester and update hit-test results
+                            PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                            PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        }
                     },
                     ProcessEventResult::ShouldReRenderCurrentWindow => {
                         PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
