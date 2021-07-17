@@ -12,7 +12,7 @@ edition = "2018"
 autoexamples = false
 
 [dependencies]
-tinyfiledialogs         = { version = "3.3.9",  default-features = false }
+tinyfiledialogs         = { version = "3.8.3",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
 raw-window-handle       = { version = "0.3.3", default-features = false }
 azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["image_loading", "font_loading"] }
