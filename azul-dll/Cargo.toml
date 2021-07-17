@@ -58,8 +58,9 @@ default = [
     "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp"
 ]
 minimal = [
-    "std", "logging", "css_parser", "font_loading", "text_layout",
-    "svg", "xml", "image_loading", "jpeg", "png", "no_static_freetype"
+    "std", "css_parser",
+    "font_loading", "text_layout",
+    "no_static_freetype", "svg", "xml"
 ]
 std = ["azul-core/std", "azul-desktop/std", "azul-core/multithreading"]
 logging = ["azul-desktop/logging", "log"]

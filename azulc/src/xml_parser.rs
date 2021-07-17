@@ -207,7 +207,10 @@ impl DomXml {
         let xml = match fs::read_to_string(file_path.as_ref()) {
             Ok(xml) => xml,
             Err(e) => return Self {
-                parsed_dom: Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
+                parsed_dom: Dom::body()
+                .with_children(vec![
+                    Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
+                ].into())
                 .style(&mut error_css),
             },
         };

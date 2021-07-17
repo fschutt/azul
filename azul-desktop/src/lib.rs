@@ -100,6 +100,7 @@ pub mod traits {
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
+    pub use azul_layout::callback_info_shape_text;
     pub use azul_text_layout::*;
     pub use azul_text_layout::text_layout::*;
     pub use azul_text_layout::text_shaping::*;

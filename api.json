@@ -1213,7 +1213,7 @@
                                 {"text": "String"}
                             ],
                             "returns": {"type": "OptionInlineText"},
-                            "fn_body": "azul_layout::callback_info_shape_text(self, node_id, text).into()"
+                            "fn_body": "azul_impl::text_layout::callback_info_shape_text(callbackinfo, node_id, text).into()"
                         },
                         "get_index_in_parent": {
                             "doc": "Returns the index of the node relative to the parent node.",
@@ -1375,7 +1375,7 @@
                                 {"new_image": "ImageRef"},
                                 {"image_type": "UpdateImageType"}
                             ],
-                            "fn_body": "callbackinfo.update_image(node_id, new_image)"
+                            "fn_body": "callbackinfo.update_image(node_id, new_image, image_type)"
                         },
                         "delete_image": {
                             "doc": "Deletes an image identified by a CSS ID from the image cache",
@@ -9741,6 +9741,7 @@
                 "EncodeImageError": {
                     "external": "azul_impl::resources::encode::EncodeImageError",
                     "enum_fields": [
+                        {"EncoderNotAvailable": {"doc": "Library was not compiled with the given encoder"}},
                         {"InsufficientMemory": {"doc": "Not enough memory available to perform the encoding operation"}},
                         {"DimensionError": {"doc": "Width x height x channels does not match the image data"}},
                         {"InvalidData": {"doc": "The data did not match the type of data necessary for encoding - for example, HDR can only encode image data of type `F32Vec`, not `U8Vec`."}},

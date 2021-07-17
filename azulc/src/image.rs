@@ -137,6 +137,8 @@ pub mod encode {
     #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
     #[repr(C)]
     pub enum EncodeImageError {
+        /// Crate was not compiled with the given encoder flags
+        EncoderNotAvailable,
         InsufficientMemory,
         DimensionError,
         InvalidData,
@@ -147,6 +149,7 @@ pub mod encode {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             use self::EncodeImageError::*;
             match self {
+                EncoderNotAvailable => write!(f, "Missing encoder (library was not compiled with given codec)"),
                 InsufficientMemory => write!(f, "Error encoding image: Not enough memory available to perform encoding operation"),
                 DimensionError => write!(f, "Error encoding image: Wrong dimensions"),
                 InvalidData => write!(f, "Error encoding image: Invalid data format"),
@@ -183,7 +186,7 @@ pub mod encode {
 
     impl_result!(U8Vec, EncodeImageError, ResultU8VecEncodeImageError, copy = false, [Debug, Clone]);
 
-    macro_rules! encode_func {($func:ident, $encoder:ident, $get_fn:ident, $feature:expr) => (
+    macro_rules! encode_func {($func:ident, $encoder:ident, $feature:expr) => (
         #[cfg(feature = $feature)]
         pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
             let mut result = Vec::<u8>::new();
@@ -191,7 +194,7 @@ pub mod encode {
             {
                 let mut cursor = Cursor::new(&mut result);
                 let mut encoder = $encoder::new(&mut cursor);
-                let pixels = match image.pixels.$get_fn() {
+                let pixels = match image.pixels.get_u8_vec_ref() {
                     Some(s) => s,
                     None => { return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData); },
                 };
@@ -208,13 +211,18 @@ pub mod encode {
 
             ResultU8VecEncodeImageError::Ok(result.into())
         }
+
+        #[cfg(not(feature = $feature))]
+        pub fn $func(image: &RawImage) -> ResultU8VecEncodeImageError {
+            ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
+        }
     )}
 
-    encode_func!(encode_bmp, BmpEncoder, get_u8_vec_ref, "bmp");
-    encode_func!(encode_png, PngEncoder, get_u8_vec_ref, "png");
-    encode_func!(encode_jpeg, JpegEncoder, get_u8_vec_ref, "jpeg");
-    encode_func!(encode_tga, TgaEncoder, get_u8_vec_ref, "tga");
-    encode_func!(encode_tiff, TiffEncoder, get_u8_vec_ref, "tiff");
-    encode_func!(encode_gif, GifEncoder, get_u8_vec_ref, "gif");
-    encode_func!(encode_pnm, PnmEncoder, get_u8_vec_ref, "pnm");
+    encode_func!(encode_bmp, BmpEncoder, "bmp");
+    encode_func!(encode_png, PngEncoder, "png");
+    encode_func!(encode_jpeg, JpegEncoder, "jpeg");
+    encode_func!(encode_tga, TgaEncoder, "tga");
+    encode_func!(encode_tiff, TiffEncoder, "tiff");
+    encode_func!(encode_gif, GifEncoder, "gif");
+    encode_func!(encode_pnm, PnmEncoder, "pnm");
 }

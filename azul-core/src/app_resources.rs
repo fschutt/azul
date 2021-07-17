@@ -277,7 +277,7 @@ impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, E
 impl ImageRef {
 
     /// If *copies = 1, returns the internal image data
-    pub(crate) fn into_inner(self) -> Option<DecodedImage> {
+    pub fn into_inner(self) -> Option<DecodedImage> {
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data as *mut DecodedImage);

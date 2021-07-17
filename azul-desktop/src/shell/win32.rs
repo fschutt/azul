@@ -17,12 +17,17 @@ use alloc::{collections::BTreeMap, rc::Rc, sync::Arc};
 use azul_core::{
     FastBTreeSet, FastHashMap,
     app_resources::{
-        NodeId, ImageMask, ImageRef, Epoch,
-        AppConfig, ImageCache, ResourceUpdate
+        ImageMask, ImageRef, Epoch,
+        AppConfig, ImageCache, ResourceUpdate,
+        RendererResources,
     },
-    callbacks::{RefAny, DocumentId},
+    callbacks::{RefAny, UpdateImageType, DocumentId},
     gl::OptionGlContextPtr,
     task::{Thread, ThreadId, Timer, TimerId},
+    ui_solver::LayoutResult,
+    styled_dom::DomId,
+    dom::NodeId,
+    display_list::{RenderCallbacks, GlTextureCache},
     window::{
         LogicalSize, Menu, MenuCallback, MenuItem,
         MonitorVec, WindowCreateOptions, WindowInternal,
@@ -3126,6 +3131,7 @@ unsafe extern "system" fn WindowProc(
                             translate_epoch_wr(*oldest_to_remove_epoch)
                         );
                     }
+                    current_window.internal.epoch.increment();
                 }
 
                 SwapBuffers(hDC);
@@ -3535,6 +3541,22 @@ fn process_callback_results(
     use azul_core::callbacks::Update;
     use azul_core::window_state::{StyleAndLayoutChanges, NodesToCheck};
 
+    if callback_results.images_changed.is_some() ||
+       callback_results.image_masks_changed.is_some() {
+        update_image_resources(
+            &mut window.render_api,
+            &window.internal.layout_results,
+            callback_results.images_changed.unwrap_or_default(),
+            callback_results.image_masks_changed.unwrap_or_default(),
+            &crate::app::CALLBACKS,
+            &*image_cache,
+            &mut window.internal.gl_texture_cache,
+            &mut window.internal.renderer_resources,
+            window.internal.document_id,
+            window.internal.epoch,
+        );
+    }
+
     window.start_stop_timers(
         callback_results.timers.unwrap_or_default(),
         callback_results.timers_removed.unwrap_or_default()
@@ -3645,17 +3667,25 @@ fn update_image_resources(
     images_to_update: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
     image_masks_to_update: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     callbacks: &RenderCallbacks,
+    image_cache: &ImageCache,
     gl_texture_cache: &mut GlTextureCache,
     renderer_resources: &mut RendererResources,
     document_id: DocumentId,
     epoch: Epoch,
 ) {
 
+    use webrender::api::units::ImageDirtyRect as WrImageDirtyRect;
     use crate::wr_translate::{
         wr_translate_image_key,
         wr_translate_image_descriptor,
         wr_translate_image_data,
         wr_translate_document_id,
+    };
+    use azul_core::dom::NodeType;
+    use azul_core::app_resources::{
+        ImageData, ExternalImageType,
+        ExternalImageData, DecodedImage,
+        ImageBufferKind
     };
 
     let mut txn = WrTransaction::new();
@@ -3671,32 +3701,36 @@ fn update_image_resources(
         for (node_id, (image_ref, image_type)) in image_map {
 
             // get the existing key + extents of the image
-            let (dirty_rect_size, existing_image_ref_hash) = match image_type {
+            let existing_image_ref_hash = match image_type {
                 UpdateImageType::Content => {
-                    match layout_result.styled_dom.node_data.get(node_id).and_then(|n| n.node_type) {
-                        Some(NodeType::Image(image_ref)) => (image_ref.get_size(), image_ref.get_hash()),
+                    match layout_result.styled_dom.node_data.as_container().get(node_id).map(|n| n.get_node_type()) {
+                        Some(NodeType::Image(image_ref)) => image_ref.get_hash(),
                         _ => continue,
                     }
                 },
                 UpdateImageType::Background => {
 
-                    let node_data = match layout_result.styled_dom.node_data.get(node_id) {
+                    let node_data = layout_result.styled_dom.node_data.as_container();
+                    let node_data = match node_data.get(node_id) {
                         Some(s) => s,
                         None => continue,
                     };
 
-                    let node_state = match layout_result.styled_dom.styled_node_states.get(node_id) {
-                        Some(s) => s,
+                    let styled_node_states = layout_result.styled_dom.styled_nodes.as_container();
+                    let node_state = match styled_node_states.get(node_id) {
+                        Some(s) => s.state.clone(),
                         None => continue,
                     };
+
+                    let default = azul_css::StyleBackgroundContentVec::from_const_slice(&[]);
 
                     // TODO: only updates the first image background - usually not a problem
-                    let bg_hash = layout_result.styled_dom
-                    .get_background_content(node_data, &node_id, node_state)
-                    .and_then(|bg| bg.iter().find_map(|bg| match bg {
+                    let bg_hash = layout_result.styled_dom.css_property_cache.ptr
+                    .get_background_content(node_data, &node_id, &node_state)
+                    .and_then(|bg| bg.get_property().unwrap_or(&default).as_ref().iter().find_map(|b| match b {
                         azul_css::StyleBackgroundContent::Image(id) => {
                             let image_ref = image_cache.get_css_image_id(id)?;
-                            Some((image_ref.get_size(), image_ref.get_hash()))
+                            Some(image_ref.get_hash())
                         },
                         _ => None,
                     }));
@@ -3713,11 +3747,34 @@ fn update_image_resources(
                 None => continue,
             };
 
-            let (key, descriptor, data) = match decoded_image {
+            // Try getting the existing image key either
+            // from the textures or from the renderer resources
+            let existing_key = gl_texture_cache.solved_textures
+                .get(&dom_id)
+                .and_then(|map| map.get(&node_id))
+                .map(|val| val.0);
+
+            let existing_key = match existing_key {
+                Some(s) => Some(s),
+                None => {
+                    renderer_resources.currently_registered_images
+                    .get(&existing_image_ref_hash)
+                    .map(|(key, _desc)| *key)
+                },
+            };
+
+            let key = match existing_key {
+                Some(s) => s,
+                None => continue, // updating an image requires at
+                                  // least one image to be present
+            };
+
+            let (descriptor, data) = match decoded_image {
                 DecodedImage::Gl(texture) => {
 
                     let descriptor = texture.get_descriptor();
                     let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, texture);
+
 
                     gl_texture_cache.solved_textures
                         .entry(dom_id.clone())
@@ -3735,18 +3792,10 @@ fn update_image_resources(
                 DecodedImage::Raw((descriptor, data)) => {
                     // use the hash to get the existing image key
                     // TODO: may lead to problems when the same ImageRef is used more than once?
-                    let existing_image_key = renderer_resources.currently_registered_images
-                    .get(existing_image_ref_hash)
-                    .and_then(|(key, _desc)| key);
-
-                    let existing_image_key = match existing_image_key {
-                        Some(s) => s,
-                        None => continue,
-                    };
-
-                    (existing_image_key, descriptor, data)
+                    renderer_resources.currently_registered_images.get_mut(&existing_image_ref_hash).unwrap().1 = descriptor.clone();
+                    (descriptor, data)
                 },
-                DecodedImage::NullImage { .. } => continue, // TODO: ?
+                DecodedImage::NullImage { .. } => continue, // TODO: NULL image descriptor?
                 DecodedImage::Callback(callback) => {
                     // TODO: re-render image callbacks?
                     /*
@@ -3760,13 +3809,12 @@ fn update_image_resources(
             };
 
             // update the image descriptor in the renderer resources
-            renderer_resources.currently_registered_images[existing_image_key].1 = descriptor;
 
             txn.update_image(
-                wr_translate_image_key(existing_image_key),
+                wr_translate_image_key(key),
                 wr_translate_image_descriptor(descriptor),
                 wr_translate_image_data(data),
-                dirty_rect,
+                &WrImageDirtyRect::All,
             );
         }
     }
@@ -3779,10 +3827,28 @@ fn update_image_resources(
             None => continue,
         };
 
-        for (node_id, image_ref) in image_mask_map {
-            let existing_image_mask_key = ;
+        /*
 
+        for (node_id, image_ref) in image_mask_map {
+                let key = match existing_key {
+                    Some(s) => s,
+                    None => continue, // updating an image requires at
+                                      // least one image to be present
+                };
+            let decoded_image = match image_ref.into_inner() {
+                Some(s) => s,
+                None => continue,
+            };
+
+            txn.update_image(
+                wr_translate_image_key(key),
+                wr_translate_image_descriptor(descriptor),
+                wr_translate_image_data(data),
+                &WrImageDirtyRect::All,
+            );
         }
+        */
+
     }
 
     render_api.send_transaction(wr_translate_document_id(document_id), txn);
@@ -3791,9 +3857,9 @@ fn update_image_resources(
 fn create_windows(hinstance: HINSTANCE, app: &mut SharedApplicationData, new: Vec<WindowCreateOptions>) {
     for opts in new {
         if let Ok(w) = Window::create(hinstance, opts, app.clone()) {
-            app.inner
-            .try_borrow_mut()
-            .map(|a| { a.windows.insert(w.get_id(), w); });
+            if let Ok(mut a) = app.inner.try_borrow_mut() {
+                a.windows.insert(w.get_id(), w);
+            }
         }
     }
 }
@@ -3801,7 +3867,7 @@ fn create_windows(hinstance: HINSTANCE, app: &mut SharedApplicationData, new: Ve
 fn destroy_windows(app: &mut ApplicationData, old: Vec<usize>) {
     use winapi::um::winuser::{PostMessageW, WM_QUIT};
     for window in old {
-        if let Some(w) => app.window.get(window) {
+        if let Some(w) = app.windows.get(&window) {
             unsafe { PostMessageW(w.hwnd, WM_QUIT, 0, 0); }
         }
     }

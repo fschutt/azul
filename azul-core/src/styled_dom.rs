@@ -76,6 +76,8 @@ pub enum CssPropertySource {
 }
 
 /// NOTE: multiple states can be active at
+///
+/// TODO: use bitflags here!
 #[repr(C)]
 #[derive(Clone, PartialEq, Hash, PartialOrd, Eq, Ord)]
 pub struct StyledNodeState {

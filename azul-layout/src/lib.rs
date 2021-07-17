@@ -22,3 +22,6 @@ pub use layout_solver::{
     do_the_layout,
     do_the_relayout,
 };
+
+#[cfg(feature = "text_layout")]
+pub use layout_solver::callback_info_shape_text;

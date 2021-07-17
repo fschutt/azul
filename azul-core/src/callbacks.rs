@@ -1550,6 +1550,7 @@ impl Clone for CallbackInfo {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub enum UpdateImageType {
     Background,
     Content,

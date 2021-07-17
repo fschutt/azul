@@ -339,7 +339,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getFontRef(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionFontRef { callbackinfo.get_font_ref(node_id).into() }
 /// Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_shapeText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId, text: AzString) -> AzOptionInlineText { azul_layout::callback_info_shape_text(self, node_id, text).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_shapeText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId, text: AzString) -> AzOptionInlineText { azul_impl::text_layout::callback_info_shape_text(callbackinfo, node_id, text).into() }
 /// Returns the index of the node relative to the parent node.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getIndexInParent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> usize { let mut t = 0; let mut n = node_id; while let Some(prev) = callbackinfo.get_previous_sibling(n) { n = prev; t += 1; } t }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
@@ -375,7 +375,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the image with a given CSS ID
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getImage(callbackinfo: &AzCallbackInfo, id: AzString) -> AzOptionImageRef { callbackinfo.get_image(&id).into() }
 /// If the node is an `Image`, exchanges the current image with a new source
-#[no_mangle] pub extern "C" fn AzCallbackInfo_updateImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageRef, image_type: AzUpdateImageType) { callbackinfo.update_image(node_id, new_image) }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_updateImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageRef, image_type: AzUpdateImageType) { callbackinfo.update_image(node_id, new_image, image_type) }
 /// Deletes an image identified by a CSS ID from the image cache
 #[no_mangle] pub extern "C" fn AzCallbackInfo_deleteImage(callbackinfo: &mut AzCallbackInfo, id: AzString) { callbackinfo.delete_image(&id) }
 /// If the node has an `ImageMask`, exchanges the current mask for the new mask
