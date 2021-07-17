@@ -499,6 +499,17 @@ impl ImageCache {
     }
 }
 
+/// What type of image is this?
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ImageType {
+    /// CSS background-image
+    Background,
+    /// DOM node content
+    Content,
+    /// DOM node clip-mask
+    ClipMask,
+}
+
 /// Renderer resources that manage font, image and font instance keys.
 /// RendererResources are local to each renderer / window, since the
 /// keys are not shared across renderers
@@ -1331,7 +1342,7 @@ pub struct GlyphInfo {
 }
 
 #[cfg(feature = "multithreading")]
-pub(crate) fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions: &WordPositions, inline_text_layout: &InlineTextLayout) -> InlineText {
+pub fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions: &WordPositions, inline_text_layout: &InlineTextLayout) -> InlineText {
 
     use crate::callbacks::{
         InlineWord, InlineLine,

@@ -1269,6 +1269,13 @@ pub struct AzCallback {
 /// `AzCallbackType` struct
 pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
 
+/// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
+#[repr(C)]
+pub enum AzUpdateImageType {
+    Background,
+    Content,
+}
+
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
 pub enum AzUpdate {
@@ -8317,6 +8324,13 @@ pub struct AzWindowThemeEnumWrapper {
     pub inner: AzWindowTheme,
 }
 
+/// `AzUpdateImageTypeEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "UpdateImageType")]
+pub struct AzUpdateImageTypeEnumWrapper {
+    pub inner: AzUpdateImageType,
+}
+
 /// `AzUpdateEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "Update")]
@@ -10531,6 +10545,7 @@ impl Clone for AzTouchState { fn clone(&self) -> Self { let r: &azul_core::windo
 impl Clone for AzMarshaledLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::MarshaledLayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_impl::callbacks::LayoutCallbackInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Callback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzUpdateImageTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::UpdateImageType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzUpdateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Update = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::DomId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -13382,6 +13397,30 @@ impl AzCallbackInfo {
         }
 
     }
+    fn get_font_ref(&self, node_id: AzDomNodeId) -> Option<AzFontRef> {
+        let m: AzOptionFontRef = unsafe { mem::transmute(crate::AzCallbackInfo_getFontRef(
+            mem::transmute(self),
+            mem::transmute(node_id),
+        )) };
+        match m {
+            AzOptionFontRef::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionFontRef::None => None,
+        }
+
+    }
+    fn shape_text(&self, node_id: AzDomNodeId, text: String) -> Option<AzInlineText> {
+        let text = pystring_to_azstring(&text);
+        let m: AzOptionInlineText = unsafe { mem::transmute(crate::AzCallbackInfo_shapeText(
+            mem::transmute(self),
+            mem::transmute(node_id),
+            mem::transmute(text),
+        )) };
+        match m {
+            AzOptionInlineText::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionInlineText::None => None,
+        }
+
+    }
     fn get_index_in_parent(&mut self, node_id: AzDomNodeId) -> usize {
         unsafe { mem::transmute(crate::AzCallbackInfo_getIndexInParent(
             mem::transmute(self),
@@ -13538,11 +13577,12 @@ impl AzCallbackInfo {
         }
 
     }
-    fn update_image(&mut self, node_id: AzDomNodeId, new_image: AzImageRef) -> () {
+    fn update_image(&mut self, node_id: AzDomNodeId, new_image: AzImageRef, image_type: AzUpdateImageTypeEnumWrapper) -> () {
         unsafe { mem::transmute(crate::AzCallbackInfo_updateImage(
             mem::transmute(self),
             mem::transmute(node_id),
             mem::transmute(new_image),
+            mem::transmute(image_type),
         )) }
     }
     fn delete_image(&mut self, id: String) -> () {
@@ -13621,6 +13661,34 @@ impl PyObjectProtocol for AzCallbackInfo {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::callbacks::CallbackInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzUpdateImageTypeEnumWrapper {
+    #[classattr]
+    fn Background() -> AzUpdateImageTypeEnumWrapper { AzUpdateImageTypeEnumWrapper { inner: AzUpdateImageType::Background } }
+    #[classattr]
+    fn Content() -> AzUpdateImageTypeEnumWrapper { AzUpdateImageTypeEnumWrapper { inner: AzUpdateImageType::Content } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzUpdateImageTypeEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::callbacks::UpdateImageType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::callbacks::UpdateImageType = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzUpdateImageTypeEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -36325,6 +36393,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzLayoutCallbackInner>()?;
     m.add_class::<AzCallback>()?;
     m.add_class::<AzCallbackInfo>()?;
+    m.add_class::<AzUpdateImageTypeEnumWrapper>()?;
     m.add_class::<AzUpdateEnumWrapper>()?;
     m.add_class::<AzNodeId>()?;
     m.add_class::<AzDomId>()?;

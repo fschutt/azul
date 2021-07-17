@@ -16,7 +16,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap, FastBTreeSet,
-    callbacks::Callback,
+    callbacks::{Callback, UpdateImageType},
     window_state::RelayoutFn,
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
@@ -1666,7 +1666,7 @@ pub struct CallCallbacksResult {
     pub words_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, AzString>>>,
     /// A callback can "exchange" and image for a new one without requiring a new display list to be
     /// rebuilt. This is important for animated images, especially video.
-    pub images_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>>,
+    pub images_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>>,
     /// Same as images, clip masks can be changed in callbacks, often the case with vector animations
     pub image_masks_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>>,
     /// If the focus target changes in the callbacks, the function will automatically

@@ -2192,6 +2192,46 @@ fn create_word_cache<'a>(
     word_map.into_iter().filter_map(|a| a).collect()
 }
 
+// same as get_inline_text(), but shapes a new word instead of using the internal one
+// - necessary to implement text cursor, so that we can calculate the x-offset of
+// the text cursor for the next frame (after the character has been pressed)
+#[cfg(feature = "text_layout")]
+pub fn callback_info_shape_text(
+    callbackinfo: &CallbackInfo,
+    node_id: DomNodeId,
+    text: AzString,
+) -> Option<InlineText> {
+
+    use azul_text_layout::text_shaping::ParsedFont;
+    use azul_text_layout::text_layout::{
+        position_words,
+        word_positions_to_inline_text_layout,
+        shaped_words,
+    };
+
+    if node_id.dom != callbackinfo.get_hit_node().dom {
+        return None;
+    }
+
+    // get the font used for this node
+    let font_ref = callbackinfo.get_font_ref(node_id)?;
+    let font_data = font_ref.get_data();
+    let parsed_font_downcasted = unsafe { &*(font_data.parsed as *const ParsedFont) };
+
+    // get text layout options for this node
+    let positioned_rectangle = callbackinfo.internal_get_positioned_rectangles();
+    let positioned_rectangle = positioned_rectangle.as_ref();
+    let positioned_rectangle = positioned_rectangle.get(nid)?;
+    let (text_layout_options, _) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
+
+    let words = split_text_into_words(text.as_str());
+    let shaped_words = shape_words(words, parsed_font_downcasted);
+    let word_positions = position_words(words, shaped_words, &text_layout_options);
+    let inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
+
+    Some(azul_core::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
+}
+
 #[cfg(feature = "text_layout")]
 pub fn create_shaped_words<'a>(
     renderer_resources: &RendererResources,

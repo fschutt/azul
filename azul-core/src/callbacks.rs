@@ -1000,7 +1000,7 @@ pub struct CallbackInfo {
     /// Mutable reference to a list of words / text items that were changed in the callback
     words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
     /// Mutable reference to a list of images that were changed in the callback
-    images_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
+    images_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
     /// Mutable reference to a list of image clip masks that were changed in the callback
     image_masks_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
     /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
@@ -1054,7 +1054,7 @@ impl CallbackInfo {
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
        words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
+       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
        image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
        css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -1088,7 +1088,7 @@ impl CallbackInfo {
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             words_changed_in_callbacks: words_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>>,
+            images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
             image_masks_changed_in_callbacks: image_masks_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
             current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -1133,7 +1133,7 @@ impl CallbackInfo {
     fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
     fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
     fn internal_get_words_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>> { unsafe { &mut *self.words_changed_in_callbacks } }
-    fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageRef>> { unsafe { &mut *self.images_changed_in_callbacks } }
+    fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>> { unsafe { &mut *self.images_changed_in_callbacks } }
     fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
 
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
@@ -1289,6 +1289,24 @@ impl CallbackInfo {
         let (_, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
 
         Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
+    }
+
+    /// Returns the FontRef for the given NodeId
+    pub fn get_font_ref(&self, node_id: DomNodeId) -> Option<FontRef> {
+
+        if node_id.dom != self.get_hit_node().dom {
+            return None;
+        }
+
+        let styled_node_state = &self. styled_nodes.get(*node_id)?.state;
+        let node_data = &node_data.get(*node_id)?;
+        let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
+        let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
+        let css_font_family = renderer_resources.font_families_map.get(&css_font_families_hash)?;
+        let font_key = renderer_resources.font_id_map.get(&css_font_family)?;
+        let (font_ref, _) = renderer_resources.currently_registered_fonts.get(&font_key)?;
+
+        Some(font_ref)
     }
 
     pub fn get_computed_css_property(&self, node_id: DomNodeId, property_type: CssPropertyType) -> Option<CssProperty> {
@@ -1458,12 +1476,12 @@ impl CallbackInfo {
         self.internal_get_image_cache().delete_css_image_id(css_id);
     }
 
-    pub fn update_image(&mut self, node_id: DomNodeId, new_image: ImageRef) {
+    pub fn update_image(&mut self, node_id: DomNodeId, new_image: ImageRef, image_type: UpdateImageType) {
         if let Some(nid) = node_id.node.into_crate_internal() {
             self.internal_get_images_changed_in_callbacks()
             .entry(node_id.dom)
             .or_insert_with(|| BTreeMap::new())
-            .insert(nid, new_image);
+            .insert(nid, (new_image, image_type));
         }
     }
 
@@ -1533,6 +1551,12 @@ impl Clone for CallbackInfo {
             _abi_mut: self._abi_mut,
         }
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum UpdateImageType {
+    Background,
+    Content,
 }
 
 #[derive(Debug, Clone, PartialEq)]

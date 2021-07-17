@@ -1263,6 +1263,17 @@ mod dll {
     /// `AzCallbackType` struct
     pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
 
+    /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzUpdateImageType {
+        Background,
+        Content,
+    }
+
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)]
     #[derive(Debug)]
@@ -8914,6 +8925,8 @@ mod dll {
         pub(crate) fn AzCallbackInfo_getDataset(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny;
         pub(crate) fn AzCallbackInfo_getStringContents(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionString;
         pub(crate) fn AzCallbackInfo_getInlineText(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
+        pub(crate) fn AzCallbackInfo_getFontRef(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionFontRef;
+        pub(crate) fn AzCallbackInfo_shapeText(_:  &AzCallbackInfo, _:  AzDomNodeId, _:  AzString) -> AzOptionInlineText;
         pub(crate) fn AzCallbackInfo_getIndexInParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> usize;
         pub(crate) fn AzCallbackInfo_getParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
         pub(crate) fn AzCallbackInfo_getPreviousSibling(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
@@ -8931,7 +8944,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_addImage(_:  &mut AzCallbackInfo, _:  AzString, _:  AzImageRef);
         pub(crate) fn AzCallbackInfo_hasImage(_:  &AzCallbackInfo, _:  AzString) -> bool;
         pub(crate) fn AzCallbackInfo_getImage(_:  &AzCallbackInfo, _:  AzString) -> AzOptionImageRef;
-        pub(crate) fn AzCallbackInfo_updateImage(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageRef);
+        pub(crate) fn AzCallbackInfo_updateImage(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageRef, _:  AzUpdateImageType);
         pub(crate) fn AzCallbackInfo_deleteImage(_:  &mut AzCallbackInfo, _:  AzString);
         pub(crate) fn AzCallbackInfo_updateImageMask(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageMask);
         pub(crate) fn AzCallbackInfo_stopPropagation(_:  &mut AzCallbackInfo);
@@ -9951,9 +9964,9 @@ pub mod callbacks {
             let struct_as_bytes = unsafe { ::core::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
-    }    use crate::css::{CssProperty, CssPropertyType};
+    }    use crate::str::String;
+    use crate::css::{CssProperty, CssPropertyType};
     use crate::window::{LogicalPosition, WindowCreateOptions, WindowState};
-    use crate::str::String;
     use crate::image::{ImageMask, ImageRef};
     use crate::task::{ThreadId, ThreadSendMsg, Timer, TimerId};
     /// `LayoutCallback` struct
@@ -10014,8 +10027,12 @@ pub mod callbacks {
         pub fn get_dataset(&mut self, node_id: DomNodeId)  -> crate::option::OptionRefAny { unsafe { crate::dll::AzCallbackInfo_getDataset(self, node_id) } }
         /// If the node is a `Text` node, returns a copy of the internal string contents.
         pub fn get_string_contents(&self, node_id: DomNodeId)  -> crate::option::OptionString { unsafe { crate::dll::AzCallbackInfo_getStringContents(self, node_id) } }
-        /// If the node is a `Text` node, returns the layouted inline glyphs
+        /// If the node is a `Text` node, returns the layouted inline glyphs of the text currently rendered on the screen
         pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_getInlineText(self, node_id) } }
+        /// If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string
+        pub fn get_font_ref(&self, node_id: DomNodeId)  -> crate::option::OptionFontRef { unsafe { crate::dll::AzCallbackInfo_getFontRef(self, node_id) } }
+        /// Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.
+        pub fn shape_text(&self, node_id: DomNodeId, text: String)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_shapeText(self, node_id, text) } }
         /// Returns the index of the node relative to the parent node.
         pub fn get_index_in_parent(&mut self, node_id: DomNodeId)  -> usize { unsafe { crate::dll::AzCallbackInfo_getIndexInParent(self, node_id) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
@@ -10051,7 +10068,7 @@ pub mod callbacks {
         /// Returns the image with a given CSS ID
         pub fn get_image(&self, id: String)  -> crate::option::OptionImageRef { unsafe { crate::dll::AzCallbackInfo_getImage(self, id) } }
         /// If the node is an `Image`, exchanges the current image with a new source
-        pub fn update_image(&mut self, node_id: DomNodeId, new_image: ImageRef)  { unsafe { crate::dll::AzCallbackInfo_updateImage(self, node_id, new_image) } }
+        pub fn update_image(&mut self, node_id: DomNodeId, new_image: ImageRef, image_type: UpdateImageType)  { unsafe { crate::dll::AzCallbackInfo_updateImage(self, node_id, new_image, image_type) } }
         /// Deletes an image identified by a CSS ID from the image cache
         pub fn delete_image(&mut self, id: String)  { unsafe { crate::dll::AzCallbackInfo_deleteImage(self, id) } }
         /// If the node has an `ImageMask`, exchanges the current mask for the new mask
@@ -10074,6 +10091,9 @@ pub mod callbacks {
         pub fn stop_thread(&mut self, thread_id: ThreadId)  -> bool { unsafe { crate::dll::AzCallbackInfo_stopThread(self, thread_id) } }
     }
 
+    /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
+    
+#[doc(inline)] pub use crate::dll::AzUpdateImageType as UpdateImageType;
     /// Specifies if the screen should be updated after the callback function has returned
     
 #[doc(inline)] pub use crate::dll::AzUpdate as Update;

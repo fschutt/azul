@@ -1187,13 +1187,32 @@
                             "fn_body": "callbackinfo.get_string_contents(node_id).into()"
                         },
                         "get_inline_text": {
-                            "doc": "If the node is a `Text` node, returns the layouted inline glyphs",
+                            "doc": "If the node is a `Text` node, returns the layouted inline glyphs of the text currently rendered on the screen",
                             "fn_args": [
                                 {"self": "ref"},
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionInlineText"},
                             "fn_body": "callbackinfo.get_inline_text(node_id).into()"
+                        },
+                        "get_font_ref": {
+                            "doc": "If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"node_id": "DomNodeId"}
+                            ],
+                            "returns": {"type": "OptionFontRef"},
+                            "fn_body": "callbackinfo.get_font_ref(node_id).into()"
+                        },
+                        "shape_text": {
+                            "doc": "Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"node_id": "DomNodeId"},
+                                {"text": "String"}
+                            ],
+                            "returns": {"type": "OptionInlineText"},
+                            "fn_body": "azul_layout::callback_info_shape_text(self, node_id, text).into()"
                         },
                         "get_index_in_parent": {
                             "doc": "Returns the index of the node relative to the parent node.",
@@ -1352,7 +1371,8 @@
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"node_id": "DomNodeId"},
-                                {"new_image": "ImageRef"}
+                                {"new_image": "ImageRef"},
+                                {"image_type": "UpdateImageType"}
                             ],
                             "fn_body": "callbackinfo.update_image(node_id, new_image)"
                         },
@@ -1447,6 +1467,15 @@
                             "fn_body": "callbackinfo.stop_thread(thread_id)"
                         }
                     }
+                },
+                "UpdateImageType": {
+                    "doc": "Which type of image should be updated: background image (the CSS background) or content image (the <img src=\"\"> content)",
+                    "external": "azul_impl::callbacks::UpdateImageType",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"Background": {"doc": "Update the background image"}},
+                        {"Content": {"doc": "Update the <img> content of the DOM node"}}
+                    ]
                 },
                 "Update": {
                     "doc": "Specifies if the screen should be updated after the callback function has returned",

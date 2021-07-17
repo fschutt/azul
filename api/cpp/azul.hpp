@@ -700,6 +700,11 @@ namespace dll {
         Callback() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    enum class UpdateImageType {
+       Background,
+       Content,
+    };
+    
     enum class Update {
        DoNothing,
        RefreshDom,
@@ -8752,6 +8757,8 @@ namespace dll {
         OptionRefAny CallbackInfo_getDataset(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
         OptionString CallbackInfo_getStringContents(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionInlineText CallbackInfo_getInlineText(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
+        OptionFontRef CallbackInfo_getFontRef(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
+        OptionInlineText CallbackInfo_shapeText(const CallbackInfo* callbackinfo, AzDomNodeId  node_id, AzString  text);
         size_t CallbackInfo_getIndexInParent(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
         OptionDomNodeId CallbackInfo_getParent(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
         OptionDomNodeId CallbackInfo_getPreviousSibling(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
@@ -8769,7 +8776,7 @@ namespace dll {
         void CallbackInfo_addImage(CallbackInfo* restrict callbackinfo, AzString  id, AzImageRef  image);
         bool  CallbackInfo_hasImage(const CallbackInfo* callbackinfo, AzString  id);
         OptionImageRef CallbackInfo_getImage(const CallbackInfo* callbackinfo, AzString  id);
-        void CallbackInfo_updateImage(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image);
+        void CallbackInfo_updateImage(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image, AzUpdateImageType  image_type);
         void CallbackInfo_deleteImage(CallbackInfo* restrict callbackinfo, AzString  id);
         void CallbackInfo_updateImageMask(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
         void CallbackInfo_stopPropagation(CallbackInfo* restrict callbackinfo);

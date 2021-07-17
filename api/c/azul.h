@@ -795,6 +795,12 @@ struct AzCallback {
 };
 typedef struct AzCallback AzCallback;
 
+enum AzUpdateImageType {
+   AzUpdateImageType_Background,
+   AzUpdateImageType_Content,
+};
+typedef enum AzUpdateImageType AzUpdateImageType;
+
 enum AzUpdate {
    AzUpdate_DoNothing,
    AzUpdate_RefreshDom,
@@ -10693,6 +10699,8 @@ extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getScrollPosition(const 
 extern DLLIMPORT AzOptionRefAny AzCallbackInfo_getDataset(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionString AzCallbackInfo_getStringContents(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionInlineText AzCallbackInfo_getInlineText(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionFontRef AzCallbackInfo_getFontRef(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionInlineText AzCallbackInfo_shapeText(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id, AzString  text);
 extern DLLIMPORT size_t AzCallbackInfo_getIndexInParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getPreviousSibling(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
@@ -10710,7 +10718,7 @@ extern DLLIMPORT void AzCallbackInfo_setStringContents(AzCallbackInfo* restrict 
 extern DLLIMPORT void AzCallbackInfo_addImage(AzCallbackInfo* restrict callbackinfo, AzString  id, AzImageRef  image);
 extern DLLIMPORT bool  AzCallbackInfo_hasImage(const AzCallbackInfo* callbackinfo, AzString  id);
 extern DLLIMPORT AzOptionImageRef AzCallbackInfo_getImage(const AzCallbackInfo* callbackinfo, AzString  id);
-extern DLLIMPORT void AzCallbackInfo_updateImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image);
+extern DLLIMPORT void AzCallbackInfo_updateImage(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageRef  new_image, AzUpdateImageType  image_type);
 extern DLLIMPORT void AzCallbackInfo_deleteImage(AzCallbackInfo* restrict callbackinfo, AzString  id);
 extern DLLIMPORT void AzCallbackInfo_updateImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
 extern DLLIMPORT void AzCallbackInfo_stopPropagation(AzCallbackInfo* restrict callbackinfo);

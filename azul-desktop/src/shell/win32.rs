@@ -2556,6 +2556,24 @@ unsafe extern "system" fn WindowProc(
 
                         cur_hwnd = current_window.hwnd;
 
+                        let hDC = GetDC(cur_hwnd);
+
+                        let gl_context = match current_window.gl_context {
+                            Some(c) => {
+                                if !hDC.is_null() {
+                                    wglMakeCurrent(hDC, c);
+                                }
+                            },
+                            None => { },
+                        };
+
+                        let mut current_program = [0_i32];
+
+                        {
+                            let mut gl = &mut current_window.gl_functions.functions;
+                            gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                        }
+
                         ret = process_event(
                             hinstance,
                             current_window,
@@ -2565,6 +2583,16 @@ unsafe extern "system" fn WindowProc(
                             &mut new_windows,
                             &mut destroyed_windows,
                         );
+
+                        let mut gl = &mut current_window.gl_functions.functions;
+                        gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                        gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                        gl.use_program(current_program[0] as u32);
+
+                        wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                        if !hDC.is_null() {
+                            ReleaseDC(cur_hwnd, hDC);
+                        }
                     },
                     None => {
                         mem::drop(app_borrow);
@@ -2572,7 +2600,11 @@ unsafe extern "system" fn WindowProc(
                     },
                 };
 
-                create_windows(ab, new_windows);
+                mem::drop(ab);
+                mem::drop(app_borrow);
+                create_windows(shared_application_data, new_windows);
+                let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
+                let mut ab = &mut *app_borrow;
                 destroy_windows(ab, destroyed_windows);
 
                 mem::drop(ab);
@@ -3127,6 +3159,25 @@ unsafe extern "system" fn WindowProc(
                         // tick every 16ms to process new thread messages
                         match windows.get_mut(&hwnd_key) {
                             Some(current_window) => {
+
+                                let hDC = GetDC(hwnd);
+
+                                let gl_context = match current_window.gl_context {
+                                    Some(c) => {
+                                        if !hDC.is_null() {
+                                            wglMakeCurrent(hDC, c);
+                                        }
+                                    },
+                                    None => { },
+                                };
+
+                                let mut current_program = [0_i32];
+
+                                {
+                                    let mut gl = &mut current_window.gl_functions.functions;
+                                    gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                                }
+
                                 ret = process_threads(
                                     hinstance,
                                     data,
@@ -3137,6 +3188,16 @@ unsafe extern "system" fn WindowProc(
                                     &mut new_windows,
                                     &mut destroyed_windows,
                                 );
+
+                                let mut gl = &mut current_window.gl_functions.functions;
+                                gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                                gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                                gl.use_program(current_program[0] as u32);
+
+                                wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                                if !hDC.is_null() {
+                                    ReleaseDC(hwnd, hDC);
+                                }
                             },
                             None => {
                                 mem::drop(app_borrow);
@@ -3147,6 +3208,25 @@ unsafe extern "system" fn WindowProc(
                     id => { // run timer with ID "id"
                         match windows.get_mut(&hwnd_key) {
                             Some(current_window) => {
+
+                                let hDC = GetDC(hwnd);
+
+                                let gl_context = match current_window.gl_context {
+                                    Some(c) => {
+                                        if !hDC.is_null() {
+                                            wglMakeCurrent(hDC, c);
+                                        }
+                                    },
+                                    None => { },
+                                };
+
+                                let mut current_program = [0_i32];
+
+                                {
+                                    let mut gl = &mut current_window.gl_functions.functions;
+                                    gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                                }
+
                                 ret = process_timer(
                                     id,
                                     hinstance,
@@ -3158,6 +3238,16 @@ unsafe extern "system" fn WindowProc(
                                     &mut new_windows,
                                     &mut destroyed_windows,
                                 );
+
+                                let mut gl = &mut current_window.gl_functions.functions;
+                                gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                                gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                                gl.use_program(current_program[0] as u32);
+
+                                wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                                if !hDC.is_null() {
+                                    ReleaseDC(hwnd, hDC);
+                                }
                             },
                             None => {
                                 mem::drop(app_borrow);
@@ -3167,7 +3257,13 @@ unsafe extern "system" fn WindowProc(
                     }
                 }
 
-                create_windows(ab, new_windows);
+                // create_windows needs to clone the SharedApplicationData RefCell
+                // drop the borrowed variables and restore them immediately after
+                mem::drop(ab);
+                mem::drop(app_borrow);
+                create_windows(shared_application_data, new_windows);
+                let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
+                let mut ab = &mut *app_borrow;
                 destroy_windows(ab, destroyed_windows);
 
                 match ret {
@@ -3531,12 +3627,166 @@ fn process_callback_results(
     }
 }
 
-fn create_windows(app: &mut ApplicationData, new: Vec<WindowCreateOptions>) {
-    // TODO
+// Updates images and image mask resources
+// NOTE: assumes the GL context is made current
+fn update_image_resources(
+    render_api: &mut WrRenderApi,
+    layout_results: &[LayoutResult],
+    images_to_update: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
+    image_masks_to_update: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
+    callbacks: &RenderCallbacks,
+    gl_texture_cache: &mut GlTextureCache,
+    renderer_resources: &mut RendererResources,
+    document_id: DocumentId,
+    epoch: Epoch,
+) {
+    let mut txn = WrTransaction::new();
+
+    // update images
+    for (dom_id, image_map) in images_to_update {
+
+        let layout_result = match layout_results.get(dom_id.inner) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        for (node_id, (image_ref, image_type)) in image_map {
+
+            // get the existing key + extents of the image
+            let (dirty_rect_size, existing_image_ref_hash) = match image_type {
+                UpdateImageType::Content => {
+                    match layout_result.styled_dom.node_data.get(node_id).and_then(|n| n.node_type) {
+                        Some(NodeType::Image(image_ref)) => (image_ref.get_size(), image_ref.get_hash()),
+                        _ => continue,
+                    }
+                },
+                UpdateImageType::Background => {
+
+                    let node_data = match layout_result.styled_dom.node_data.get(node_id) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    let node_state = match layout_result.styled_dom.styled_node_states.get(node_id) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    // TODO: only updates the first image background - usually not a problem
+                    let bg_hash = layout_result.styled_dom
+                    .get_background_content(node_data, &node_id, node_state)
+                    .and_then(|bg| bg.iter().find_map(|bg| match bg {
+                        azul_css::StyleBackgroundContent::Image(id) => {
+                            let image_ref = image_cache.get_css_image_id(id)?;
+                            Some(image_ref.get_size(), image_ref.get_hash())
+                        },
+                        _ => None,
+                    }));
+
+                    match bg_hash {
+                        Some(h) => h,
+                        None => continue,
+                    }
+                }
+            };
+
+            let decoded_image = match image_ref.into_inner() {
+                Some(s) => s,
+                None => continue,
+            };
+
+            let (key, descriptor, data) = match decoded_image {
+                DecodedImage::Gl(texture) => {
+
+                    let descriptor = texture.get_descriptor();
+                    let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, texture);
+
+                    gl_texture_cache.solved_textures
+                        .entry(dom_id.clone())
+                        .or_insert_with(|| BTreeMap::new())
+                        .insert(node_id, (key, descriptor));
+
+                    let data = ImageData::External(ExternalImageData {
+                        id: external_image_id,
+                        channel_index: 0,
+                        image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                    });
+
+                    (descriptor, data)
+                },
+                DecodedImage::Raw((descriptor, data)) => {
+                    // use the hash to get the existing image key
+                    // TODO: may lead to problems when the same ImageRef is used more than once?
+                    let existing_image_key = renderer_resources.currently_registered_images
+                    .get(existing_image_ref_hash)
+                    .and_then(|(key, _desc)| key);
+
+                    let existing_image_key = match existing_image_key {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    (existing_image_key, descriptor, data)
+                },
+                DecodedImage::NullImage { .. } => continue, // TODO: ?
+                DecodedImage::Callback(callback) => {
+                    // TODO: re-render image callbacks?
+                    /*
+                    let (key, descriptor) = match gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&node_id)) {
+                        Some((k, d)) => (k, d),
+                        None => continue,
+                    };*/
+
+                    continue
+                },
+            };
+
+            // update the image descriptor in the renderer resources
+            renderer_resources.currently_registered_images[existing_image_key].1 = descriptor;
+
+            txn.update_image(
+                wr_translate_image_key(existing_image_key),
+                wr_translate_image_descriptor(descriptor),
+                wr_translate_image_data(descriptor),
+                dirty_rect,
+            );
+        }
+    }
+
+    // update image masks
+    for (dom_id, image_mask_map) in image_masks_to_update {
+
+        let layout_result = match layout_results.get(dom_id.inner) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        for (node_id, image_ref) in image_mask_map {
+            let existing_image_mask_key = ;
+
+        }
+    }
+
+    render_api.send_transaction(wr_translate_document_id(document_id), txn);
+}
+
+fn create_windows(app: &mut SharedApplicationData, new: Vec<WindowCreateOptions>) {
+    if let Ok(w) = Window::create(hinstance, opts, app.clone()) {
+        app.inner
+        .try_borrow_mut()
+        .and_then(|a| {
+            a.windows.insert(w.get_id(), w)
+        });
+    }
 }
 
 fn destroy_windows(app: &mut ApplicationData, old: Vec<usize>) {
-    // TODO
+    use winapi::um::winuser::{PostMessageW, WM_QUIT};
+    for window in old {
+        if let Some(w) => app.window.get(window) {
+            unsafe { PostMessageW(w.hwnd, WM_QUIT, 0, 0); }
+        }
+    }
 }
 
 fn run_all_threads() {

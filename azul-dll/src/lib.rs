@@ -334,8 +334,12 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getDataset(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionRefAny { callbackinfo.get_dataset(node_id).into() }
 /// If the node is a `Text` node, returns a copy of the internal string contents.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getStringContents(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionString { callbackinfo.get_string_contents(node_id).into() }
-/// If the node is a `Text` node, returns the layouted inline glyphs
+/// If the node is a `Text` node, returns the layouted inline glyphs of the text currently rendered on the screen
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getInlineText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { callbackinfo.get_inline_text(node_id).into() }
+/// If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getFontRef(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionFontRef { callbackinfo.get_font_ref(node_id).into() }
+/// Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_shapeText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId, text: AzString) -> AzOptionInlineText { azul_layout::callback_info_shape_text(self, node_id, text).into() }
 /// Returns the index of the node relative to the parent node.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getIndexInParent(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> usize { let mut t = 0; let mut n = node_id; while let Some(prev) = callbackinfo.get_previous_sibling(n) { n = prev; t += 1; } t }
 /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
@@ -371,7 +375,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns the image with a given CSS ID
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getImage(callbackinfo: &AzCallbackInfo, id: AzString) -> AzOptionImageRef { callbackinfo.get_image(&id).into() }
 /// If the node is an `Image`, exchanges the current image with a new source
-#[no_mangle] pub extern "C" fn AzCallbackInfo_updateImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageRef) { callbackinfo.update_image(node_id, new_image) }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_updateImage(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_image: AzImageRef, image_type: AzUpdateImageType) { callbackinfo.update_image(node_id, new_image) }
 /// Deletes an image identified by a CSS ID from the image cache
 #[no_mangle] pub extern "C" fn AzCallbackInfo_deleteImage(callbackinfo: &mut AzCallbackInfo, id: AzString) { callbackinfo.delete_image(&id) }
 /// If the node has an `ImageMask`, exchanges the current mask for the new mask
@@ -392,6 +396,10 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_sendThreadMsg(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId, msg: AzThreadSendMsg) -> bool { callbackinfo.send_thread_msg(thread_id, msg) }
 /// Stops a thread at the nearest possible opportunity. Sends a `ThreadSendMsg::TerminateThread` message to the thread and joins the thread.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopThread(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId) -> bool { callbackinfo.stop_thread(thread_id) }
+
+/// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
+pub type AzUpdateImageTypeTT = azul_impl::callbacks::UpdateImageType;
+pub use AzUpdateImageTypeTT as AzUpdateImageType;
 
 /// Specifies if the screen should be updated after the callback function has returned
 pub type AzUpdateTT = azul_impl::callbacks::Update;
@@ -4503,6 +4511,13 @@ mod test_sizes {
 
     /// `AzCallbackType` struct
     pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
+
+    /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
+    #[repr(C)]
+    pub enum AzUpdateImageType {
+        Background,
+        Content,
+    }
 
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)]
@@ -10325,6 +10340,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"), (Layout::new::<AzMarshaledLayoutCallbackInner>(), "AzMarshaledLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInner>(), "AzLayoutCallbackInner"), (Layout::new::<AzLayoutCallbackInner>(), "AzLayoutCallbackInner"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Callback>(), "AzCallback"), (Layout::new::<AzCallback>(), "AzCallback"));
+        assert_eq!((Layout::new::<azul_impl::callbacks::UpdateImageType>(), "AzUpdateImageType"), (Layout::new::<AzUpdateImageType>(), "AzUpdateImageType"));
         assert_eq!((Layout::new::<azul_impl::callbacks::Update>(), "AzUpdate"), (Layout::new::<AzUpdate>(), "AzUpdate"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeId>(), "AzNodeId"), (Layout::new::<AzNodeId>(), "AzNodeId"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::DomId>(), "AzDomId"), (Layout::new::<AzDomId>(), "AzDomId"));
