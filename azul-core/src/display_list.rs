@@ -791,19 +791,19 @@ impl SolvedLayout {
 pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
-) -> DisplayListMsg {
+) -> Option<DisplayListMsg> {
 
     use rayon::prelude::*;
 
     let mut content = displaylist_handle_rect(
         root_content_group.root.into_crate_internal().unwrap(),
         referenced_content,
-    );
+    )?;
 
     let children = root_content_group.children
         .as_ref()
         .par_iter()
-        .map(|child_content_group| {
+        .filter_map(|child_content_group| {
             push_rectangles_into_displaylist(
                 child_content_group,
                 referenced_content,
@@ -813,7 +813,7 @@ pub fn push_rectangles_into_displaylist<'a>(
 
     content.append_children(children);
 
-    content
+    Some(content)
 }
 
 /// Push a single rectangle into the display list builder
@@ -821,10 +821,11 @@ pub fn push_rectangles_into_displaylist<'a>(
 pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
-) -> DisplayListMsg {
+) -> Option<DisplayListMsg> {
 
     use crate::dom::NodeType::*;
     use crate::styled_dom::AzTagId;
+    use azul_css::LayoutDisplay;
 
     let DisplayListParametersRef {
         dom_id,
@@ -855,6 +856,20 @@ pub fn displaylist_handle_rect<'a>(
             repeat: m.repeat,
         })
     });
+
+    // do not push display:none items in any way
+    //
+    // TODO: this currently operates on the visual order, not on the DOM order!
+    let display = layout_result.styled_dom.get_css_property_cache()
+        .get_display(&html_node, &rect_idx, &styled_node.state)
+        .cloned()
+        .unwrap_or_default()
+        .get_property_or_default()
+        .unwrap_or_default();
+
+    if display == LayoutDisplay::None {
+        return None;
+    }
 
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
@@ -1112,13 +1127,13 @@ pub fn displaylist_handle_rect<'a>(
     }
 
     match layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(Some(rect_idx))) {
-        Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
+        Some(scroll_node) => Some(DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
             parent_rect: scroll_node.parent_rect,
             content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,
             scroll_tag: scroll_node.scroll_tag_id,
             frame,
-        }),
-        None => DisplayListMsg::Frame(frame),
+        })),
+        None => Some(DisplayListMsg::Frame(frame)),
     }
 }

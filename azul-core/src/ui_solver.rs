@@ -584,6 +584,7 @@ impl LayoutResult {
         use crate::display_list::{
             LayoutRectContent, push_rectangles_into_displaylist,
             RectBackground, DisplayListParametersRef, displaylist_handle_rect,
+            DisplayListFrame, DisplayListMsg,
         };
         use rayon::prelude::*;
 
@@ -611,12 +612,12 @@ impl LayoutResult {
         let mut root_content = displaylist_handle_rect(
             rects_in_rendering_order.root.into_crate_internal().unwrap(),
             &referenced_content,
-        );
+        ).unwrap_or(DisplayListMsg::Frame(DisplayListFrame::root(LayoutSize::zero(), LayoutPoint::zero())));
 
         let children = rects_in_rendering_order.children
         .as_ref()
         .par_iter()
-        .map(|child_content_group| {
+        .filter_map(|child_content_group| {
             push_rectangles_into_displaylist(
                 child_content_group,
                 &referenced_content,
