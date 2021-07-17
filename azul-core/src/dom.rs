@@ -10,13 +10,17 @@ use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
 use crate::{
     app_resources::ImageRef,
-    styled_dom::{CssPropertyCache, StyledNodeState},
+    styled_dom::{
+        CssPropertyCache, CssPropertyCachePtr,
+        StyleFontFamilyHash,
+        StyledNodeState, StyledNode
+    },
     callbacks::{
         Callback, CallbackType,
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
-    app_resources::ImageMask,
+    app_resources::{ImageMask, RendererResources},
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
         NodeDataContainerRefMut
@@ -24,7 +28,10 @@ use crate::{
     window::{Menu, OptionVirtualKeyCodeCombo},
     styled_dom::{StyledDom, AzNodeId},
 };
-use azul_css::{Css, OptionAzString, AzString, NodeTypeTag, CssProperty};
+use azul_css::{
+    FontRef, Css, OptionAzString,
+    AzString, NodeTypeTag, CssProperty
+};
 
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
@@ -834,18 +841,42 @@ impl NodeDataVec {
 
     // necessary so that the callbacks have mutable access to the NodeType while
     // at the same time the library has mutable access to the CallbackDataVec
-    pub fn split_into_callbacks_and_dataset<'a>(&'a mut self)
-    -> (
+    pub fn split_into_callbacks_and_dataset<'a>(
+        &'a mut self,
+        css_property_cache: &CssPropertyCachePtr,
+        styled_nodes: &NodeDataContainerRef<StyledNode>,
+        renderer_resources: &RendererResources,
+    ) -> (
         BTreeMap<NodeId, &'a mut CallbackDataVec>,
-         BTreeMap<NodeId, &'a mut RefAny>
+         BTreeMap<NodeId, &'a mut RefAny>,
+         BTreeMap<NodeId, FontRef>,
     ) {
 
         let mut a = BTreeMap::new();
         let mut b = BTreeMap::new();
+        let mut fonts = BTreeMap::new();
 
         for (node_id, node_data) in self.iter_mut().enumerate() {
 
             let n_internal = NodeId::new(node_id);
+
+            if node_data.is_text_node() {
+
+                use crate::styled_dom::StyleFontFamiliesHash;
+
+                let font_ref = styled_nodes
+                    .get(n_internal)
+                    .map(|s| css_property_cache.ptr.get_font_id_or_default(node_data, &n_internal, &s.state))
+                    .map(|css_font_families| StyleFontFamiliesHash::new(css_font_families.as_ref()))
+                    .and_then(|css_font_families_hash| renderer_resources.font_families_map.get(&css_font_families_hash))
+                    .and_then(|css_font_family| renderer_resources.font_id_map.get(&css_font_family))
+                    .and_then(|font_key| renderer_resources.currently_registered_fonts.get(&font_key))
+                    .map(|f| f.0.clone());
+
+                if let Some(font_ref) = font_ref {
+                    fonts.insert(n_internal, font_ref.clone());
+                }
+            }
 
             let a_map = &mut node_data.callbacks;
             let b_map = &mut node_data.dataset;
@@ -859,7 +890,7 @@ impl NodeDataVec {
             }
         }
 
-        (a, b)
+        (a, b, fonts)
     }
 }
 
@@ -1031,6 +1062,13 @@ impl NodeData {
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool {
         self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_class() == Some(class))
+    }
+
+    pub fn is_text_node(&self) -> bool {
+        match self.node_type {
+            NodeType::Text(_) => true,
+            _ => false,
+        }
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData

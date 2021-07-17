@@ -807,6 +807,7 @@ impl CallbacksOfHitTest {
         image_cache: &mut ImageCache,
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
+        renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
 
         use crate::styled_dom::ParentWithNodeDepth;
@@ -865,7 +866,11 @@ impl CallbacksOfHitTest {
                 &lr.rects,
                 &lr.styled_dom.styled_nodes,
                 &lr.styled_dom.css_property_cache,
-                lr.styled_dom.node_data.split_into_callbacks_and_dataset()
+                lr.styled_dom.node_data.split_into_callbacks_and_dataset(
+                    &lr.styled_dom.css_property_cache,
+                    &lr.styled_dom.styled_nodes.as_container(),
+                    renderer_resources,
+                )
             )))
         }).collect::<BTreeMap<_, _>>();
 
@@ -886,7 +891,7 @@ impl CallbacksOfHitTest {
                  positioned_rects,
                  styled_nodes,
                  css_property_cache,
-                 (callback_map, dataset_map)
+                 (callback_map, dataset_map, font_map)
             ) = match node_hierarchies.get_mut(dom_id) {
                 Some(s) => s,
                 None => { return ret; },
@@ -928,6 +933,7 @@ impl CallbacksOfHitTest {
                             /*shaped_words_cache*/ &shaped_words_cache,
                             /*positioned_words_cache*/ &positioned_words_cache,
                             /*positioned_rects*/ &positioned_rects,
+                            /*font_map*/ font_map,
                             /*dataset_map*/ dataset_map,
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
@@ -997,6 +1003,7 @@ impl CallbacksOfHitTest {
                         /*shaped_words_cache*/ &shaped_words_cache,
                         /*positioned_words_cache*/ &positioned_words_cache,
                         /*positioned_rects*/ &positioned_rects,
+                        /*font_map*/ &font_map,
                         /*dataset_map*/ dataset_map,
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,

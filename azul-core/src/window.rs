@@ -1085,7 +1085,11 @@ impl WindowInternal {
             let cursor_in_viewport = OptionLogicalPosition::None;
 
             let layout_result = &mut self.layout_results[hit_dom_node.dom.inner];
-            let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+            let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+                &layout_result.styled_dom.css_property_cache,
+                &layout_result.styled_dom.styled_nodes.as_container(),
+                &self.renderer_resources,
+            );
 
             let callback_info = CallbackInfo::new(
                 &layout_result.styled_dom.css_property_cache.ptr,
@@ -1108,6 +1112,7 @@ impl WindowInternal {
                 &layout_result.shaped_words_cache,
                 &layout_result.positioned_words_cache,
                 &layout_result.rects,
+                &datasets.2,
                 &mut datasets.1,
                 &mut stop_propagation,
                 &mut new_focus_target,
@@ -1217,7 +1222,11 @@ impl WindowInternal {
             let cursor_in_viewport = OptionLogicalPosition::None;
 
             let layout_result = &mut self.layout_results[hit_dom_node.dom.inner];
-            let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset();
+            let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+                &layout_result.styled_dom.css_property_cache,
+                &layout_result.styled_dom.styled_nodes.as_container(),
+                &self.renderer_resources,
+            );
             let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
 
             let thread = &mut *match thread.ptr.lock().ok() {
@@ -1264,6 +1273,7 @@ impl WindowInternal {
                 &layout_result.shaped_words_cache,
                 &layout_result.positioned_words_cache,
                 &layout_result.rects,
+                &mut datasets.2,
                 &mut datasets.1,
                 &mut stop_propagation,
                 &mut new_focus_target,

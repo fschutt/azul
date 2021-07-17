@@ -14,7 +14,7 @@ use std::hash::Hash;
 use azul_css::{
     CssProperty, LayoutSize, CssPath, InterpolateResolver,
     AzString, LayoutRect, AnimationInterpolationFunction,
-    CssPropertyType,
+    CssPropertyType, FontRef,
 };
 use rust_fontconfig::FcFontCache;
 use crate::{
@@ -982,6 +982,8 @@ pub struct CallbackInfo {
     node_hierarchy: *const AzNodeVec,
     /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
     system_callbacks: *const ExternalSystemCallbacks,
+    /// Current fonts in the DOM
+    font_map: *const BTreeMap<NodeId, FontRef>,
     /// Current datasets in the DOM
     dataset_map: *mut BTreeMap<NodeId, *mut RefAny>, // &'a BTreeMap<NodeId, &'b mut RefAny>
     /// Sets whether the event should be propagated to the parent hit node or not
@@ -1050,6 +1052,7 @@ impl CallbackInfo {
        shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
        positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
        positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
+       font_map: &'a BTreeMap<NodeId, FontRef>,
        dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
@@ -1084,6 +1087,7 @@ impl CallbackInfo {
             positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
             positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
             node_hierarchy: node_hierarchy as *const AzNodeVec,
+            font_map: font_map as *const BTreeMap<NodeId, FontRef>,
             dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
@@ -1118,6 +1122,7 @@ impl CallbackInfo {
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
     fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_extern_system_callbacks<'a>(&'a self) -> &'a ExternalSystemCallbacks { unsafe { &*self.system_callbacks } }
+    fn internal_get_font_map<'a>(&'a self) -> &'a BTreeMap<NodeId, FontRef> { unsafe { &*self.font_map } }
     fn internal_get_dataset_map<'a>(&'a mut self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
     fn internal_get_stop_propagation<'a>(&'a mut self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a mut self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
@@ -1131,7 +1136,7 @@ impl CallbackInfo {
     fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
     fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> { unsafe { &*self.shaped_words_cache } }
     fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
-    fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
+    pub fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
     fn internal_get_words_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>> { unsafe { &mut *self.words_changed_in_callbacks } }
     fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>> { unsafe { &mut *self.images_changed_in_callbacks } }
     fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
@@ -1293,20 +1298,10 @@ impl CallbackInfo {
 
     /// Returns the FontRef for the given NodeId
     pub fn get_font_ref(&self, node_id: DomNodeId) -> Option<FontRef> {
-
         if node_id.dom != self.get_hit_node().dom {
             return None;
         }
-
-        let styled_node_state = &self. styled_nodes.get(*node_id)?.state;
-        let node_data = &node_data.get(*node_id)?;
-        let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
-        let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
-        let css_font_family = renderer_resources.font_families_map.get(&css_font_families_hash)?;
-        let font_key = renderer_resources.font_id_map.get(&css_font_family)?;
-        let (font_ref, _) = renderer_resources.currently_registered_fonts.get(&font_key)?;
-
-        Some(font_ref)
+        self.internal_get_font_map().get(&node_id.node.into_crate_internal()?).cloned()
     }
 
     pub fn get_computed_css_property(&self, node_id: DomNodeId, property_type: CssPropertyType) -> Option<CssProperty> {
@@ -1531,6 +1526,7 @@ impl Clone for CallbackInfo {
             current_window_handle: self.current_window_handle,
             node_hierarchy: self.node_hierarchy,
             system_callbacks: self.system_callbacks,
+            font_map: self.font_map,
             dataset_map: self.dataset_map,
             stop_propagation: self.stop_propagation,
             focus_target: self.focus_target,

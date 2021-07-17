@@ -16,8 +16,11 @@ use crate::{
 use alloc::{collections::BTreeMap, rc::Rc, sync::Arc};
 use azul_core::{
     FastBTreeSet, FastHashMap,
-    app_resources::{AppConfig, ImageCache, ResourceUpdate},
-    callbacks::RefAny,
+    app_resources::{
+        NodeId, ImageMask, ImageRef, Epoch,
+        AppConfig, ImageCache, ResourceUpdate
+    },
+    callbacks::{RefAny, DocumentId},
     gl::OptionGlContextPtr,
     task::{Thread, ThreadId, Timer, TimerId},
     window::{
@@ -2554,6 +2557,8 @@ unsafe extern "system" fn WindowProc(
                 match windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
 
+                        use winapi::um::winuser::{GetDC, ReleaseDC};
+
                         cur_hwnd = current_window.hwnd;
 
                         let hDC = GetDC(cur_hwnd);
@@ -2600,9 +2605,10 @@ unsafe extern "system" fn WindowProc(
                     },
                 };
 
+                let hinstance = ab.hinstance;
                 mem::drop(ab);
                 mem::drop(app_borrow);
-                create_windows(shared_application_data, new_windows);
+                create_windows(hinstance, shared_application_data, new_windows);
                 let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
                 let mut ab = &mut *app_borrow;
                 destroy_windows(ab, destroyed_windows);
@@ -3135,6 +3141,8 @@ unsafe extern "system" fn WindowProc(
             },
             WM_TIMER => {
 
+                use winapi::um::winuser::{GetDC, ReleaseDC};
+
                 let mut ab = &mut *app_borrow;
                 let hinstance = ab.hinstance;
                 let windows = &mut ab.windows;
@@ -3259,9 +3267,10 @@ unsafe extern "system" fn WindowProc(
 
                 // create_windows needs to clone the SharedApplicationData RefCell
                 // drop the borrowed variables and restore them immediately after
+                let hinstance = ab.hinstance;
                 mem::drop(ab);
                 mem::drop(app_borrow);
-                create_windows(shared_application_data, new_windows);
+                create_windows(hinstance, shared_application_data, new_windows);
                 let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
                 let mut ab = &mut *app_borrow;
                 destroy_windows(ab, destroyed_windows);
@@ -3406,6 +3415,7 @@ fn process_event(
             image_cache,
             fc_cache,
             &config.system_callbacks,
+            &window.internal.renderer_resources,
         )
     });
 
@@ -3640,6 +3650,14 @@ fn update_image_resources(
     document_id: DocumentId,
     epoch: Epoch,
 ) {
+
+    use crate::wr_translate::{
+        wr_translate_image_key,
+        wr_translate_image_descriptor,
+        wr_translate_image_data,
+        wr_translate_document_id,
+    };
+
     let mut txn = WrTransaction::new();
 
     // update images
@@ -3678,7 +3696,7 @@ fn update_image_resources(
                     .and_then(|bg| bg.iter().find_map(|bg| match bg {
                         azul_css::StyleBackgroundContent::Image(id) => {
                             let image_ref = image_cache.get_css_image_id(id)?;
-                            Some(image_ref.get_size(), image_ref.get_hash())
+                            Some((image_ref.get_size(), image_ref.get_hash()))
                         },
                         _ => None,
                     }));
@@ -3747,7 +3765,7 @@ fn update_image_resources(
             txn.update_image(
                 wr_translate_image_key(existing_image_key),
                 wr_translate_image_descriptor(descriptor),
-                wr_translate_image_data(descriptor),
+                wr_translate_image_data(data),
                 dirty_rect,
             );
         }
@@ -3770,13 +3788,13 @@ fn update_image_resources(
     render_api.send_transaction(wr_translate_document_id(document_id), txn);
 }
 
-fn create_windows(app: &mut SharedApplicationData, new: Vec<WindowCreateOptions>) {
-    if let Ok(w) = Window::create(hinstance, opts, app.clone()) {
-        app.inner
-        .try_borrow_mut()
-        .and_then(|a| {
-            a.windows.insert(w.get_id(), w)
-        });
+fn create_windows(hinstance: HINSTANCE, app: &mut SharedApplicationData, new: Vec<WindowCreateOptions>) {
+    for opts in new {
+        if let Ok(w) = Window::create(hinstance, opts, app.clone()) {
+            app.inner
+            .try_borrow_mut()
+            .map(|a| { a.windows.insert(w.get_id(), w); });
+        }
     }
 }
 

@@ -7750,6 +7750,7 @@ pub struct AzCallbackInfo {
     pub current_window_handle: *const AzRawWindowHandleEnumWrapper,
     pub node_hierarchy: *const c_void,
     pub system_callbacks: *const AzSystemCallbacks,
+    pub fonts: *const c_void,
     pub datasets: *mut c_void,
     pub stop_propagation: *mut bool,
     pub focus_target: *mut c_void,

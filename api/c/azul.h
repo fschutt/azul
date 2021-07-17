@@ -8950,6 +8950,7 @@ struct AzCallbackInfo {
     AzRawWindowHandle* current_window_handle;
     void* node_hierarchy;
     AzSystemCallbacks* system_callbacks;
+    void* fonts;
     void* restrict datasets;
     bool * restrict stop_propagation;
     void* restrict focus_target;

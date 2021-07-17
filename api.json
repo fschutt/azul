@@ -1043,6 +1043,7 @@
                         {"current_window_handle": {"type": "*const RawWindowHandle"}},
                         {"node_hierarchy": {"type": "*const c_void"}},
                         {"system_callbacks": {"type": "*const SystemCallbacks"}},
+                        {"fonts": {"type": "*const c_void"}},
                         {"datasets": {"type": "*mut c_void"}},
                         {"stop_propagation": {"type": "*mut bool"}},
                         {"focus_target": {"type": "*mut c_void"}},

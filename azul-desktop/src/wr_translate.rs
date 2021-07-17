@@ -1531,7 +1531,7 @@ fn wr_translate_add_image(add_image: AddImage) -> WrAddImage {
 }
 
 #[inline(always)]
-fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
+pub(crate) fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
     match image_data {
         ImageData::Raw(data) => WrImageData::Raw(u8vec_into_wr_type(data)),
         ImageData::External(external) => WrImageData::External(wr_translate_external_image_data(external)),

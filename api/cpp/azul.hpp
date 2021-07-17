@@ -8177,6 +8177,7 @@ namespace dll {
         RawWindowHandle* current_window_handle;
         void* node_hierarchy;
         SystemCallbacks* system_callbacks;
+        void* fonts;
         void* restrict datasets;
         bool * restrict stop_propagation;
         void* restrict focus_target;
