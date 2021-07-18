@@ -30,13 +30,15 @@ panic = "unwind"
 debug = false
 
 [profile.release]
-opt-level = 3
+opt-level = 'z'
 lto = true
 panic = "abort"
 codegen-units = 1
 debug = false
+debug-assertions = false
 overflow-checks = false
 incremental = false
+rpath = false
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false }
@@ -57,10 +59,13 @@ default = [
     "hdr", "jpeg", "dxt", "webp", "pnm", "font_loading",
     "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp"
 ]
+# these are the features that currently HAVE to be present
+# removing any of these features will lead to compile error
+# this will be fixed in the future
 minimal = [
     "std", "css_parser",
     "font_loading", "text_layout",
-    "no_static_freetype", "svg", "xml"
+    "no_static_freetype",
 ]
 std = ["azul-core/std", "azul-desktop/std", "azul-core/multithreading"]
 logging = ["azul-desktop/logging", "log"]

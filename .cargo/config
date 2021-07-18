@@ -7,7 +7,9 @@ rustflags = [
 
 [target.'cfg(all(target_arch="x86_64", target_os="windows"))']
 rustflags = [
-    "-Ctarget-feature=-crt-static",
+    # "-Ctarget-feature=+crt-static",
+    "-Clink-args=/DEBUG:NONE /SUBSYSTEM:CONSOLE,5.02",
+    "--remap-path-prefix=*="
 ]
 
 [target.x86_64-apple-darwin]

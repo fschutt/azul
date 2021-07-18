@@ -42,18 +42,17 @@ azul-css                = { path = "../azul-css",        version = "0.0.1",     
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }
 image                   = { version = "0.23.12",         default-features = false,       optional = true }
-rust-fontconfig         = { version = "0.1.5",           default-features = false,       features = ["std"], optional = true }
-lyon                    = { version = "0.15.8",  default-features = false, optional = true }
+rust-fontconfig         = { version = "0.1.5",           default-features = false,       optional = true }
+lyon                    = { version = "0.17.5",  default-features = false, optional = true }
 rayon                   = { version = "1.5.1",   default-features = false, optional = true }
 usvg                    = { version = "0.14.0",  default-features = false, optional = true }
 resvg                   = { version = "0.14.0",  default-features = false, optional = true }
 roxmltree               = { version = "0.14.0",  default-features = false, optional = true }
-owned_ttf_parser        = { version = "0.6.0",   default-features = false, optional = true }
 tiny-skia               = { version = "0.5.1",   default-features = false, optional = true, features = ["libm"] }
 
 [features]
 default = ["std", "text_layout"]
-std = ["azul-core/std", "azul-layout/std"]
+std = ["azul-core/std", "azul-layout/std", "rust-fontconfig/std"]
 image_loading = ["image", "std"]
 gif = ["image_loading", "image/gif"]
 jpeg = ["image_loading", "image/jpeg", "image/jpeg_rayon"]
@@ -68,5 +67,5 @@ webp = ["image_loading", "image/webp"]
 pnm = ["image_loading", "image/pnm"]
 font_loading = ["rust-fontconfig", "std"]
 text_layout = ["azul-layout/text_layout"]
-svg = ["lyon", "tiny-skia", "owned_ttf_parser", "rayon", "usvg", "resvg", "xml"]
+svg = ["lyon", "tiny-skia", "rayon", "usvg", "resvg", "xml"]
 xml = ["roxmltree"]

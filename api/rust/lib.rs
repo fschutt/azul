@@ -2515,6 +2515,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzEncodeImageError {
+        EncoderNotAvailable,
         InsufficientMemory,
         DimensionError,
         InvalidData,
@@ -3066,18 +3067,18 @@ mod dll {
     /// `AzMenuItemVecDestructorType` struct
     pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
 
-    /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
+    /// Re-export of rust-allocated (stack based) `TessellatedSvgNodeVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
     #[derive(Copy)]
-    pub enum AzTesselatedSvgNodeVecDestructor {
+    pub enum AzTessellatedSvgNodeVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzTesselatedSvgNodeVecDestructorType),
+        External(AzTessellatedSvgNodeVecDestructorType),
     }
 
-    /// `AzTesselatedSvgNodeVecDestructorType` struct
-    pub type AzTesselatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedSvgNodeVec);
+    /// `AzTessellatedSvgNodeVecDestructorType` struct
+    pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
     #[repr(C, u8)]
@@ -7146,23 +7147,23 @@ mod dll {
         CubicCurve(AzSvgCubicCurve),
     }
 
-    /// Re-export of rust-allocated (stack based) `TesselatedSvgNode` struct
+    /// Re-export of rust-allocated (stack based) `TessellatedSvgNode` struct
     #[repr(C)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-    pub struct AzTesselatedSvgNode {
+    pub struct AzTessellatedSvgNode {
         pub vertices: AzSvgVertexVec,
         pub indices: AzU32Vec,
     }
 
-    /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
+    /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
     #[repr(C)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
-    pub struct AzTesselatedSvgNodeVecRef {
-        pub(crate) ptr: *const AzTesselatedSvgNode,
+    pub struct AzTessellatedSvgNodeVecRef {
+        pub(crate) ptr: *const AzTessellatedSvgNode,
         pub len: usize,
     }
 
@@ -7235,13 +7236,13 @@ mod dll {
         pub vec: AzU8Vec,
     }
 
-    /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
+    /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
     #[repr(C)]
-    pub struct AzTesselatedSvgNodeVec {
-        pub(crate) ptr: *const AzTesselatedSvgNode,
+    pub struct AzTessellatedSvgNodeVec {
+        pub(crate) ptr: *const AzTessellatedSvgNode,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzTesselatedSvgNodeVecDestructor,
+        pub destructor: AzTessellatedSvgNodeVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -8734,6 +8735,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzXmlError {
+        NoParserAvailable,
         InvalidXmlPrefixUri(AzSvgParseErrorPosition),
         UnexpectedXmlUri(AzSvgParseErrorPosition),
         UnexpectedXmlnsUri(AzSvgParseErrorPosition),
@@ -8827,6 +8829,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzSvgParseError {
+        NoParserAvailable,
         InvalidFileSuffix,
         FileOpenFailed,
         NotAnUtf8Str,
@@ -9116,7 +9119,7 @@ mod dll {
         pub(crate) fn AzStyledDom_getHtmlStringTest(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzStyledDom_getHtmlStringDebug(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzLayoutSize) -> AzTexture;
-        pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTesselatedSvgNode) -> bool;
+        pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzTexture_deepCopy(_:  &AzTexture) -> AzTexture;
@@ -9386,19 +9389,19 @@ mod dll {
         pub(crate) fn AzSvgXmlNode_toString(_:  &AzSvgXmlNode, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvgXmlNode_delete(_:  &mut AzSvgXmlNode);
         pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
-        pub(crate) fn AzSvgMultiPolygon_tesselateFill(_:  &AzSvgMultiPolygon, _:  AzSvgFillStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgMultiPolygon_tesselateStroke(_:  &AzSvgMultiPolygon, _:  AzSvgStrokeStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgNode_tesselateFill(_:  &AzSvgNode, _:  AzSvgFillStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgNode_tesselateStroke(_:  &AzSvgNode, _:  AzSvgStrokeStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgStyledNode_tesselate(_:  &AzSvgStyledNode) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgCircle_tesselateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgCircle_tesselateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgPath_tesselateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgPath_tesselateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgRect_tesselateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzSvgRect_tesselateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTesselatedSvgNode;
-        pub(crate) fn AzTesselatedSvgNode_empty() -> AzTesselatedSvgNode;
-        pub(crate) fn AzTesselatedSvgNode_fromNodes(_:  AzTesselatedSvgNodeVecRef) -> AzTesselatedSvgNode;
+        pub(crate) fn AzSvgMultiPolygon_tessellateFill(_:  &AzSvgMultiPolygon, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgMultiPolygon_tessellateStroke(_:  &AzSvgMultiPolygon, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgNode_tessellateFill(_:  &AzSvgNode, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgNode_tessellateStroke(_:  &AzSvgNode, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgStyledNode_tessellate(_:  &AzSvgStyledNode) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgCircle_tessellateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPath_tessellateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgRect_tessellateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgRect_tessellateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode;
+        pub(crate) fn AzTessellatedSvgNode_fromNodes(_:  AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
         pub(crate) fn AzXml_fromStr(_:  AzRefstr) -> AzResultXmlXmlError;
@@ -9447,8 +9450,8 @@ mod dll {
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
         pub(crate) fn AzAccessibilityStateVec_delete(_:  &mut AzAccessibilityStateVec);
         pub(crate) fn AzMenuItemVec_delete(_:  &mut AzMenuItemVec);
-        pub(crate) fn AzTesselatedSvgNodeVec_asRefVec(_:  &AzTesselatedSvgNodeVec) -> AzTesselatedSvgNodeVecRef;
-        pub(crate) fn AzTesselatedSvgNodeVec_delete(_:  &mut AzTesselatedSvgNodeVec);
+        pub(crate) fn AzTessellatedSvgNodeVec_asRefVec(_:  &AzTessellatedSvgNodeVec) -> AzTessellatedSvgNodeVecRef;
+        pub(crate) fn AzTessellatedSvgNodeVec_delete(_:  &mut AzTessellatedSvgNodeVec);
         pub(crate) fn AzStyleFontFamilyVec_delete(_:  &mut AzStyleFontFamilyVec);
         pub(crate) fn AzXmlNodeVec_delete(_:  &mut AzXmlNodeVec);
         pub(crate) fn AzFmtArgVec_delete(_:  &mut AzFmtArgVec);
@@ -12344,7 +12347,7 @@ pub mod gl {
 
 
     use crate::window::LayoutSize;
-    use crate::svg::TesselatedSvgNode;
+    use crate::svg::TessellatedSvgNode;
     use crate::vec::{GLuintVec, StringVec};
     use crate::option::OptionU8VecRef;
     /// `Texture` struct
@@ -12353,8 +12356,8 @@ pub mod gl {
     impl Texture {
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
         pub fn allocate_clip_mask(gl: Gl, size: LayoutSize) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size) } }
-        /// Draws a vertex / index buffer (aka. `&TesselatedSvgNode`) to the texture
-        pub fn draw_clip_mask(&mut self, node: TesselatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
+        /// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
+        pub fn draw_clip_mask(&mut self, node: TessellatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
         /// Applies an FXAA filter to the texture
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
@@ -14494,48 +14497,48 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
     impl SvgMultiPolygon {
-        /// Calls the `SvgMultiPolygon::tesselate_fill` function.
-        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tesselateFill(self, fill_style) } }
-        /// Calls the `SvgMultiPolygon::tesselate_stroke` function.
-        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tesselateStroke(self, stroke_style) } }
+        /// Calls the `SvgMultiPolygon::tessellate_fill` function.
+        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateFill(self, fill_style) } }
+        /// Calls the `SvgMultiPolygon::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateStroke(self, stroke_style) } }
     }
 
     /// `SvgNode` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
     impl SvgNode {
-        /// Calls the `SvgNode::tesselate_fill` function.
-        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgNode_tesselateFill(self, fill_style) } }
-        /// Calls the `SvgNode::tesselate_stroke` function.
-        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgNode_tesselateStroke(self, stroke_style) } }
+        /// Calls the `SvgNode::tessellate_fill` function.
+        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateFill(self, fill_style) } }
+        /// Calls the `SvgNode::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateStroke(self, stroke_style) } }
     }
 
     /// `SvgStyledNode` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
     impl SvgStyledNode {
-        /// Calls the `SvgStyledNode::tesselate` function.
-        pub fn tesselate(&self)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgStyledNode_tesselate(self) } }
+        /// Calls the `SvgStyledNode::tessellate` function.
+        pub fn tessellate(&self)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgStyledNode_tessellate(self) } }
     }
 
     /// `SvgCircle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;
     impl SvgCircle {
-        /// Calls the `SvgCircle::tesselate_fill` function.
-        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgCircle_tesselateFill(self, fill_style) } }
-        /// Calls the `SvgCircle::tesselate_stroke` function.
-        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgCircle_tesselateStroke(self, stroke_style) } }
+        /// Calls the `SvgCircle::tessellate_fill` function.
+        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCircle_tessellateFill(self, fill_style) } }
+        /// Calls the `SvgCircle::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCircle_tessellateStroke(self, stroke_style) } }
     }
 
     /// `SvgPath` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
     impl SvgPath {
-        /// Calls the `SvgPath::tesselate_fill` function.
-        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgPath_tesselateFill(self, fill_style) } }
-        /// Calls the `SvgPath::tesselate_stroke` function.
-        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgPath_tesselateStroke(self, stroke_style) } }
+        /// Calls the `SvgPath::tessellate_fill` function.
+        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateFill(self, fill_style) } }
+        /// Calls the `SvgPath::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateStroke(self, stroke_style) } }
     }
 
     /// `SvgPathElement` struct
@@ -14557,28 +14560,28 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
     impl SvgRect {
-        /// Calls the `SvgRect::tesselate_fill` function.
-        pub fn tesselate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgRect_tesselateFill(self, fill_style) } }
-        /// Calls the `SvgRect::tesselate_stroke` function.
-        pub fn tesselate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TesselatedSvgNode { unsafe { crate::dll::AzSvgRect_tesselateStroke(self, stroke_style) } }
+        /// Calls the `SvgRect::tessellate_fill` function.
+        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateFill(self, fill_style) } }
+        /// Calls the `SvgRect::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateStroke(self, stroke_style) } }
     }
 
     /// `SvgVertex` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
-    /// `TesselatedSvgNode` struct
+    /// `TessellatedSvgNode` struct
     
-#[doc(inline)] pub use crate::dll::AzTesselatedSvgNode as TesselatedSvgNode;
-    impl TesselatedSvgNode {
+#[doc(inline)] pub use crate::dll::AzTessellatedSvgNode as TessellatedSvgNode;
+    impl TessellatedSvgNode {
         /// Returns an empty buffer vertices / indices
-        pub fn empty() -> Self { unsafe { crate::dll::AzTesselatedSvgNode_empty() } }
-        /// Creates a new TesselatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
-        pub fn from_nodes(nodes: TesselatedSvgNodeVecRef) -> Self { unsafe { crate::dll::AzTesselatedSvgNode_fromNodes(nodes) } }
+        pub fn empty() -> Self { unsafe { crate::dll::AzTessellatedSvgNode_empty() } }
+        /// Creates a new TessellatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
+        pub fn from_nodes(nodes: TessellatedSvgNodeVecRef) -> Self { unsafe { crate::dll::AzTessellatedSvgNode_fromNodes(nodes) } }
     }
 
-    /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
+    /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
     
-#[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVecRef as TesselatedSvgNodeVecRef;
+#[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecRef as TessellatedSvgNodeVecRef;
     /// `SvgParseOptions` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
@@ -15342,12 +15345,12 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `Vec<MenuItem>`
     
 #[doc(inline)] pub use crate::dll::AzMenuItemVec as MenuItemVec;
-    /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
+    /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
     
-#[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVec as TesselatedSvgNodeVec;
-    impl TesselatedSvgNodeVec {
-        /// Returns the `TesselatedSvgNodeVec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
-        pub fn as_ref_vec(&self)  -> crate::svg::TesselatedSvgNodeVecRef { unsafe { crate::dll::AzTesselatedSvgNodeVec_asRefVec(self) } }
+#[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVec as TessellatedSvgNodeVec;
+    impl TessellatedSvgNodeVec {
+        /// Returns the `TessellatedSvgNodeVec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
+        pub fn as_ref_vec(&self)  -> crate::svg::TessellatedSvgNodeVecRef { unsafe { crate::dll::AzTessellatedSvgNodeVec_asRefVec(self) } }
     }
 
     /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
@@ -15522,12 +15525,12 @@ pub mod vec {
     /// `MenuItemVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzMenuItemVecDestructorType as MenuItemVecDestructorType;
-    /// `TesselatedSvgNodeVecDestructor` struct
+    /// `TessellatedSvgNodeVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVecDestructor as TesselatedSvgNodeVecDestructor;
-    /// `TesselatedSvgNodeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructor as TessellatedSvgNodeVecDestructor;
+    /// `TessellatedSvgNodeVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzTesselatedSvgNodeVecDestructorType as TesselatedSvgNodeVecDestructorType;
+#[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructorType as TessellatedSvgNodeVecDestructorType;
     /// `XmlNodeVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructor as XmlNodeVecDestructor;

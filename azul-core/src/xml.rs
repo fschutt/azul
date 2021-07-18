@@ -1,25 +1,13 @@
-#![allow(unused_variables)]
+//! XML structure definitions
 
 use core::fmt;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use alloc::string::String;
-use alloc::prelude::v1::Box;
-use azul_core::{
-    impl_from,
-    dom::Dom,
-    styled_dom::StyledDom,
-    window::StringPairVec,
-};
-use azul_css::{AzString, OptionAzString, Css};
+use azul_css::{AzString, Css, U8Vec, OptionAzString};
+use crate::window::{AzStringPair, StringPairVec};
+use crate::styled_dom::StyledDom;
+use crate::dom::Dom;
+#[cfg(feature = "css_parser")]
 use azul_css_parser::CssParseError;
-use xmlparser::Tokenizer;
-
-#[cfg(feature = "std")]
-use std::path::Path;
-
-use crate::xml::XmlError;
-use crate::xml::XmlParseError;
 
 /// Error that can happen during hot-reload -
 /// stringified, since it is only used for printing and is not exposed in the public API
@@ -48,6 +36,257 @@ pub const DEFAULT_ARGS: [&str;7] = [
     "name",
     "args"
 ];
+
+#[allow(non_camel_case_types)]
+pub enum c_void { }
+
+#[repr(C)]
+pub enum XmlNodeType {
+    Root,
+    Element,
+    PI,
+    Comment,
+    Text,
+}
+
+#[repr(C)]
+pub struct XmlQualifiedName {
+    pub name: AzString,
+    pub namespace: OptionAzString,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct Xml {
+    pub root: XmlNodeVec,
+}
+
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct NonXmlCharError {
+    pub ch: u32, /* u32 = char, but ABI stable */
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct InvalidCharError {
+    pub expected: u8,
+    pub got: u8,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct InvalidCharMultipleError {
+    pub expected: u8,
+    pub got: U8Vec,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct InvalidQuoteError {
+    pub got: u8,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct InvalidSpaceError {
+    pub got: u8,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct InvalidStringError {
+    pub got: AzString,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C, u8)]
+pub enum XmlStreamError {
+    UnexpectedEndOfStream,
+    InvalidName,
+    NonXmlChar(NonXmlCharError),
+    InvalidChar(InvalidCharError),
+    InvalidCharMultiple(InvalidCharMultipleError),
+    InvalidQuote(InvalidQuoteError),
+    InvalidSpace(InvalidSpaceError),
+    InvalidString(InvalidStringError),
+    InvalidReference,
+    InvalidExternalID,
+    InvalidCommentData,
+    InvalidCommentEnd,
+    InvalidCharacterData,
+}
+
+impl fmt::Display for XmlStreamError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlStreamError::*;
+        match self {
+            UnexpectedEndOfStream => write!(f, "Unexpected end of stream"),
+            InvalidName => write!(f, "Invalid name"),
+            NonXmlChar(nx) => write!(f, "Non-XML character: {:?} at {}", core::char::from_u32(nx.ch), nx.pos),
+            InvalidChar(ic) => write!(f, "Invalid character: expected: {}, got: {} at {}", ic.expected as char, ic.got as char, ic.pos),
+            InvalidCharMultiple(imc) => write!(f, "Multiple invalid characters: expected: {}, got: {:?} at {}", imc.expected, imc.got.as_ref(), imc.pos),
+            InvalidQuote(iq) => write!(f, "Invalid quote: got {} at {}", iq.got as char, iq.pos),
+            InvalidSpace(is) => write!(f, "Invalid space: got {} at {}", is.got as char, is.pos),
+            InvalidString(ise) => write!(f, "Invalid string: got \"{}\" at {}", ise.got.as_str(), ise.pos),
+            InvalidReference => write!(f, "Invalid reference"),
+            InvalidExternalID => write!(f, "Invalid external ID"),
+            InvalidCommentData => write!(f, "Invalid comment data"),
+            InvalidCommentEnd => write!(f, "Invalid comment end"),
+            InvalidCharacterData => write!(f, "Invalid character data"),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone, Ord, Hash, Eq)]
+#[repr(C)]
+pub struct XmlTextPos {
+    pub row: u32,
+    pub col: u32,
+}
+
+impl fmt::Display for XmlTextPos {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "line {}:{}", self.row, self.col)
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct XmlTextError {
+    pub stream_error: XmlStreamError,
+    pub pos: XmlTextPos
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C, u8)]
+pub enum XmlParseError {
+    InvalidDeclaration(XmlTextError),
+    InvalidComment(XmlTextError),
+    InvalidPI(XmlTextError),
+    InvalidDoctype(XmlTextError),
+    InvalidEntity(XmlTextError),
+    InvalidElement(XmlTextError),
+    InvalidAttribute(XmlTextError),
+    InvalidCdata(XmlTextError),
+    InvalidCharData(XmlTextError),
+    UnknownToken(XmlTextPos),
+}
+
+impl fmt::Display for XmlParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlParseError::*;
+        match self {
+            InvalidDeclaration(e) => write!(f, "Invalid declaraction: {} at {}", e.stream_error, e.pos),
+            InvalidComment(e) => write!(f, "Invalid comment: {} at {}", e.stream_error, e.pos),
+            InvalidPI(e) => write!(f, "Invalid processing instruction: {} at {}", e.stream_error, e.pos),
+            InvalidDoctype(e) => write!(f, "Invalid doctype: {} at {}", e.stream_error, e.pos),
+            InvalidEntity(e) => write!(f, "Invalid entity: {} at {}", e.stream_error, e.pos),
+            InvalidElement(e) => write!(f, "Invalid element: {} at {}", e.stream_error, e.pos),
+            InvalidAttribute(e) => write!(f, "Invalid attribute: {} at {}", e.stream_error, e.pos),
+            InvalidCdata(e) => write!(f, "Invalid CDATA: {} at {}", e.stream_error, e.pos),
+            InvalidCharData(e) => write!(f, "Invalid char data: {} at {}", e.stream_error, e.pos),
+            UnknownToken(e) => write!(f, "Unknown token at {}", e),
+        }
+    }
+}
+
+impl_result!(Xml, XmlError, ResultXmlXmlError, copy = false, [Debug, PartialEq, PartialOrd, Clone]);
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct DuplicatedNamespaceError {
+    pub ns: AzString,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct UnknownNamespaceError {
+    pub ns: AzString,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct UnexpectedCloseTagError {
+    pub expected: AzString,
+    pub actual: AzString,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct UnknownEntityReferenceError {
+    pub entity: AzString,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
+pub struct DuplicatedAttributeError {
+    pub attribute: AzString,
+    pub pos: XmlTextPos,
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C, u8)]
+pub enum XmlError {
+    NoParserAvailable,
+    InvalidXmlPrefixUri(XmlTextPos),
+    UnexpectedXmlUri(XmlTextPos),
+    UnexpectedXmlnsUri(XmlTextPos),
+    InvalidElementNamePrefix(XmlTextPos),
+    DuplicatedNamespace(DuplicatedNamespaceError),
+    UnknownNamespace(UnknownNamespaceError),
+    UnexpectedCloseTag(UnexpectedCloseTagError),
+    UnexpectedEntityCloseTag(XmlTextPos),
+    UnknownEntityReference(UnknownEntityReferenceError),
+    MalformedEntityReference(XmlTextPos),
+    EntityReferenceLoop(XmlTextPos),
+    InvalidAttributeValue(XmlTextPos),
+    DuplicatedAttribute(DuplicatedAttributeError),
+    NoRootNode,
+    SizeLimit,
+    DtdDetected,
+    /// Invalid hierarchy close tags, i.e `<app></p></app>`
+    MalformedHierarchy(AzString, AzString),
+    ParserError(XmlParseError),
+}
+
+impl fmt::Display for XmlError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::XmlError::*;
+        match self {
+            NoParserAvailable => write!(f, "Library was compiled without XML parser (XML parser not available)"),
+            InvalidXmlPrefixUri(pos) => write!(f, "Invalid XML Prefix URI at line {}:{}", pos.row, pos.col),
+            UnexpectedXmlUri(pos) => write!(f, "Unexpected XML URI at at line {}:{}", pos.row, pos.col),
+            UnexpectedXmlnsUri(pos) => write!(f, "Unexpected XML namespace URI at line {}:{}", pos.row, pos.col),
+            InvalidElementNamePrefix(pos) => write!(f, "Invalid element name prefix at line {}:{}", pos.row, pos.col),
+            DuplicatedNamespace(ns) => write!(f, "Duplicated namespace: \"{}\" at {}", ns.ns.as_str(), ns.pos),
+            UnknownNamespace(uns) => write!(f, "Unknown namespace: \"{}\" at {}", uns.ns.as_str(), uns.pos),
+            UnexpectedCloseTag(ct) => write!(f, "Unexpected close tag: expected \"{}\", got \"{}\" at {}", ct.expected.as_str(), ct.actual.as_str(), ct.pos),
+            UnexpectedEntityCloseTag(pos) => write!(f, "Unexpected entity close tag at line {}:{}", pos.row, pos.col),
+            UnknownEntityReference(uer) => write!(f, "Unexpected entity reference: \"{}\" at {}", uer.entity, uer.pos),
+            MalformedEntityReference(pos) => write!(f, "Malformed entity reference at line {}:{}", pos.row, pos.col),
+            EntityReferenceLoop(pos) => write!(f, "Entity reference loop (recursive entity reference) at line {}:{}", pos.row, pos.col),
+            InvalidAttributeValue(pos) => write!(f, "Invalid attribute value at line {}:{}", pos.row, pos.col),
+            DuplicatedAttribute(ae) => write!(f, "Duplicated attribute \"{}\" at line {}:{}", ae.attribute.as_str(), ae.pos.row, ae.pos.col),
+            NoRootNode => write!(f, "No root node found"),
+            SizeLimit => write!(f, "XML file too large (size limit reached)"),
+            DtdDetected => write!(f, "Document type descriptor detected"),
+            MalformedHierarchy(expected, got) => write!(f, "Malformed hierarchy: expected <{}/> closing tag, got <{}/>", expected.as_str(), got.as_str()),
+            ParserError(p) => write!(f, "{}", p),
+        }
+    }
+}
 
 /// A component can take various arguments (to pass down to its children), which are then
 /// later compiled into Rust function arguments - for example
@@ -98,6 +337,7 @@ impl ComponentArguments {
         Self::default()
     }
 }
+
 
 /// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponent {
@@ -165,58 +405,12 @@ pub trait XmlComponent {
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
+#[derive(Default)]
 pub struct DomXml {
     pub parsed_dom: StyledDom,
 }
 
 impl DomXml {
-
-    pub fn from_str(xml: &str, component_map: &mut XmlComponentMap) -> Self {
-        let mut error_css = Css::empty();
-        // azul_css_parser::new_from_str("* { font-family: monospace; }").unwrap_or_default();
-
-        let parsed = match parse_xml_string(&xml) {
-            Ok(parsed) => parsed,
-            Err(e) => return Self {
-                parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(&mut error_css),
-            },
-        };
-
-        let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
-            Ok(o) => o,
-            Err(e) => return Self {
-                parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(&mut error_css),
-            },
-        };
-
-        Self { parsed_dom }
-    }
-
-    /// Loads, parses and builds a DOM from an XML file
-    ///
-    /// **Warning**: The file is reloaded from disk on every function call - do not
-    /// use this in release builds! This function deliberately never fails: In an error case,
-    /// the error gets rendered as a `NodeType::Label`.
-    #[cfg(feature = "std")]
-    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap) -> Self {
-
-        use std::fs;
-
-        let mut error_css = Css::empty();
-
-        let xml = match fs::read_to_string(file_path.as_ref()) {
-            Ok(xml) => xml,
-            Err(e) => return Self {
-                parsed_dom: Dom::body()
-                .with_children(vec![
-                    Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
-                ].into())
-                .style(&mut error_css),
-            },
-        };
-
-        Self::from_str(&xml, component_map)
-    }
 
     /// Convenience function, only available in tests, useful for quickly writing UI tests.
     /// Wraps the XML string in the required `<app></app>` braces, panics if the XML couldn't be parsed.
@@ -247,99 +441,6 @@ impl DomXml {
 impl Into<StyledDom> for DomXml {
     fn into(self) -> StyledDom {
         self.parsed_dom
-    }
-}
-
-/// Component that was created from a XML node (instead of being registered from Rust code).
-/// Necessary to
-pub struct DynamicXmlComponent {
-    /// What the name of this component is, i.e. "test" for `<component name="test" />`
-    pub name: String,
-    /// Whether this component has any `args="a: String"` arguments
-    pub arguments: ComponentArguments,
-    /// Root XML node of this component (the `<component />` Node)
-    pub root: XmlNode,
-}
-
-impl DynamicXmlComponent {
-
-    /// Parses a `component` from an XML node
-    pub fn new<'a>(root: &'a XmlNode) -> Result<Self, ComponentParseError<'a>> {
-
-        let node_type = normalize_casing(&root.node_type);
-
-        if node_type.as_str() != "component" {
-            return Err(ComponentParseError::NotAComponent);
-        }
-
-        let name = root.attributes.get_key("name").cloned().ok_or(ComponentParseError::NotAComponent)?;
-        let accepts_text = root.attributes.get_key("accepts_text").and_then(|p| parse_bool(p.as_str())).unwrap_or(false);
-
-        let args = match root.attributes.get_key("args") {
-            Some(s) => parse_component_arguments(s)?,
-            None => ComponentArgumentsMap::default(),
-        };
-
-        Ok(Self {
-            name: normalize_casing(&name),
-            arguments: ComponentArguments {
-                args,
-                accepts_text,
-            },
-            root: root.clone(),
-        })
-    }
-}
-
-impl XmlComponent for DynamicXmlComponent {
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        self.arguments.clone()
-    }
-
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
-        &self.root
-    }
-
-    fn render_dom<'a>(
-        &'a self,
-        components: &'a XmlComponentMap,
-        arguments: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError<'a>> {
-
-        let mut component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
-            Some(style_node) => {
-                if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                    let parsed_css = azul_css_parser::new_from_str(&text)?;
-                    Some(parsed_css)
-                } else {
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let mut dom = StyledDom::default();
-
-        for child_node in self.root.children.as_ref() {
-            dom.append_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
-        }
-
-        if let Some(css) = component_css.as_mut() {
-            dom.restyle(css);
-        }
-
-        Ok(dom)
-    }
-
-    fn compile_to_rust_code(
-        &self,
-        components: &XmlComponentMap,
-        attributes: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<String, CompileError> {
-        Ok("Dom::div()".into()) // TODO!s
     }
 }
 
@@ -379,6 +480,7 @@ pub struct XmlComponentMap {
     /// + whether this component should inherit variables from the parent scope
     components: BTreeMap<String, (Box<dyn XmlComponent>, bool)>,
 }
+
 
 impl Default for XmlComponentMap {
     fn default() -> Self {
@@ -604,109 +706,98 @@ impl<'a> fmt::Display for RenderDomError<'a> {
     }
 }
 
-/// Parses the XML string into an XML tree, returns
-/// the root `<app></app>` node, with the children attached to it.
-///
-/// Since the XML allows multiple root nodes, this function returns
-/// a `Vec<XmlNode>` - which are the "root" nodes, containing all their
-/// children recursively.
-///
-/// # Example
-///
-/// ```rust
-/// # use azulc::xml::{XmlNode, parse_xml_string};
-/// assert_eq!(
-///     parse_xml_string("<app><p /><div id='thing' /></app>").unwrap(),
-///     vec![
-///          XmlNode::new("app").with_children(vec![
-///             XmlNode::new("p"),
-///             XmlNode::new("div").with_attribute("id", "thing"),
-///         ])
-///     ]
-/// )
-/// ```
-pub fn parse_xml_string(xml: &str) -> Result<XmlNodeVec, XmlError> {
 
-    use xmlparser::Token::*;
-    use xmlparser::ElementEnd::*;
+// --- Renderers for various built-in types
 
-    let mut root_node = XmlNode::default();
+/// Render for a `div` component
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DivRenderer {
+    node: XmlNode,
+}
 
-    let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
+impl DivRenderer {
+    pub fn new() -> Self {
+        Self { node: XmlNode::new("div") }
+    }
+}
 
-    // In order to insert where the item is, let's say
-    // [0 -> 1st element, 5th-element -> node]
-    // we need to trach the index of the item in the parent.
-    let mut current_hierarchy: Vec<usize> = Vec::new();
+impl XmlComponent for DivRenderer {
 
-    for token in tokenizer {
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
 
-        let token = token.map_err(|e| XmlError::ParserError(e.into()))?;
-        match token {
-            ElementStart { local, .. } => {
-                if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
-                    let children_len = current_parent.children.as_ref().len();
-                    current_parent.children.push(XmlNode {
-                        node_type: normalize_casing(local.as_str()).into(),
-                        attributes: Vec::new().into(),
-                        children: Vec::new().into(),
-                        text: None.into(),
-                    });
-                    current_hierarchy.push(children_len);
-                }
-            },
-            ElementEnd { end: Empty, .. } => {
-                current_hierarchy.pop();
-            },
-            ElementEnd { end: Close(_, close_value), .. } => {
-                let close_value = normalize_casing(close_value.as_str());
-                if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    if last.node_type.as_str() != close_value.as_str() {
-                        return Err(XmlError::MalformedHierarchy(close_value.into(), last.node_type.clone().into()));
-                    }
-                }
-                current_hierarchy.pop();
-            },
-            Attribute { local, value, .. } => {
-                if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    // NOTE: Only lowercase the key ("local"), not the value!
-                    last.attributes.insert_kv(normalize_casing(local.as_str()), value.as_str().to_string());
-                }
-            },
-            Text { text } => {
-                if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    if let Some(s) = last.text.as_mut() {
-                        let mut s_copy = s.as_str().to_owned();
-                        s_copy.push_str(text.as_str());
-                        *s = s_copy.into();
-                    }
-                    if last.text.is_none() {
-                        last.text = Some(AzString::from(text.as_str())).into();
-                    }
-                }
-            }
-            _ => { },
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
+        Ok(Dom::div().style(&mut Css::empty()))
+    }
+
+    fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+        Ok("Dom::div()".into())
+    }
+
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
+}
+
+/// Render for a `body` component
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BodyRenderer {
+    node: XmlNode,
+}
+
+impl BodyRenderer {
+    pub fn new() -> Self {
+        Self { node: XmlNode::new("body") }
+    }
+}
+
+impl XmlComponent for BodyRenderer {
+
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
+
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
+        Ok(Dom::body().style(&mut Css::empty()))
+    }
+
+    fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+        Ok("Dom::body()".into())
+    }
+
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
+}
+
+/// Render for a `p` component
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TextRenderer {
+    node: XmlNode,
+}
+
+impl TextRenderer {
+    pub fn new() -> Self {
+        Self { node: XmlNode::new("p") }
+    }
+}
+
+impl XmlComponent for TextRenderer {
+
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments {
+            args: ComponentArgumentsMap::default(),
+            accepts_text: true, // important!
         }
     }
 
-    Ok(root_node.children)
-}
-
-/// Given a root node, traverses along the hierarchy, and returns a
-/// mutable reference to the last child node of the root node
-fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
-    let mut current_node = &*root_node;
-    let mut iter = hierarchy.iter();
-
-    while let Some(item) = iter.next() {
-        current_node = current_node.children.get(*item).as_ref()?;
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
+        let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
+        Ok(Dom::text(content).style(&mut Css::empty()))
     }
 
-    // Safe because we only ever have one mutable reference, but
-    // the borrow checker doesn't allow recursive mutable borrowing
-    let node_ptr = current_node as *const XmlNode;
-    let mut_node_ptr = node_ptr as *mut XmlNode;
-    Some(unsafe { &mut *mut_node_ptr }) // safe because we hold a &'a mut XmlNode
+    fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
+        Ok(String::from("Dom::label(text)"))
+    }
+
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
 }
 
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
@@ -754,8 +845,6 @@ pub fn parse_component_arguments<'a>(input: &'a str) -> Result<ComponentArgument
 pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
 -> Result<FilteredComponentArguments, ComponentError> {
 
-    use azul_core::window::AzStringPair;
-
     let mut map = FilteredComponentArguments {
         args: ComponentArgumentsMap::default(),
         accepts_text: valid_args.accepts_text,
@@ -782,35 +871,6 @@ pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, vali
 
     Ok(map)
 }
-
-/// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
-pub fn normalize_casing(input: &str) -> String {
-
-    let mut words: Vec<String> = Vec::new();
-    let mut cur_str = Vec::new();
-
-    for ch in input.chars() {
-        if ch.is_uppercase() || ch == '_' || ch == '-' {
-            if !cur_str.is_empty() {
-                words.push(cur_str.iter().collect());
-                cur_str.clear();
-            }
-            if ch.is_uppercase() {
-                cur_str.extend(ch.to_lowercase());
-            }
-        } else {
-            cur_str.extend(ch.to_lowercase());
-        }
-    }
-
-    if !cur_str.is_empty() {
-        words.push(cur_str.iter().collect());
-        cur_str.clear();
-    }
-
-    words.join("_")
-}
-
 
 /// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
@@ -857,6 +917,53 @@ pub fn find_node_by_type<'a>(root_nodes: &'a [XmlNode], node_type: &str) -> Opti
 pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a AzString> {
     node.attributes.iter().find(|n| normalize_casing(&n.key.as_str()).as_str() == attribute).map(|s| &s.value)
 }
+
+/// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
+pub fn normalize_casing(input: &str) -> String {
+
+    let mut words: Vec<String> = Vec::new();
+    let mut cur_str = Vec::new();
+
+    for ch in input.chars() {
+        if ch.is_uppercase() || ch == '_' || ch == '-' {
+            if !cur_str.is_empty() {
+                words.push(cur_str.iter().collect());
+                cur_str.clear();
+            }
+            if ch.is_uppercase() {
+                cur_str.extend(ch.to_lowercase());
+            }
+        } else {
+            cur_str.extend(ch.to_lowercase());
+        }
+    }
+
+    if !cur_str.is_empty() {
+        words.push(cur_str.iter().collect());
+        cur_str.clear();
+    }
+
+    words.join("_")
+}
+
+
+/// Given a root node, traverses along the hierarchy, and returns a
+/// mutable reference to the last child node of the root node
+pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
+    let mut current_node = &*root_node;
+    let mut iter = hierarchy.iter();
+
+    while let Some(item) = iter.next() {
+        current_node = current_node.children.get(*item).as_ref()?;
+    }
+
+    // Safe because we only ever have one mutable reference, but
+    // the borrow checker doesn't allow recursive mutable borrowing
+    let node_ptr = current_node as *const XmlNode;
+    let mut_node_ptr = node_ptr as *mut XmlNode;
+    Some(unsafe { &mut *mut_node_ptr }) // safe because we hold a &'a mut XmlNode
+}
+
 
 /// Parses an XML string and returns a `StyledDom` with the components instantiated in the `<app></app>`
 pub fn str_to_dom<'a>(
@@ -1038,8 +1145,8 @@ pub fn render_dom_from_body_node_inner<'a>(
 
 pub fn set_attributes(dom: &mut StyledDom, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
-    use azul_core::dom::TabIndex;
-    use azul_core::dom::IdOrClass::{Id, Class};
+    use crate::dom::TabIndex;
+    use crate::dom::IdOrClass::{Id, Class};
 
     let mut ids_and_classes = Vec::new();
     let dom_root = match dom.root.into_crate_internal() {
@@ -1541,295 +1648,299 @@ pub fn compile_node_to_rust_code_inner<'a>(
     Ok(dom_string)
 }
 
-// --- Renderers for various built-in types
-
-/// Render for a `div` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DivRenderer {
-    node: XmlNode,
+/// Component that was created from a XML node (instead of being registered from Rust code).
+/// Necessary to
+pub struct DynamicXmlComponent {
+    /// What the name of this component is, i.e. "test" for `<component name="test" />`
+    pub name: String,
+    /// Whether this component has any `args="a: String"` arguments
+    pub arguments: ComponentArguments,
+    /// Root XML node of this component (the `<component />` Node)
+    pub root: XmlNode,
 }
 
-impl DivRenderer {
-    pub fn new() -> Self {
-        Self { node: XmlNode::new("div") }
-    }
-}
+impl DynamicXmlComponent {
 
-impl XmlComponent for DivRenderer {
+    /// Parses a `component` from an XML node
+    pub fn new<'a>(root: &'a XmlNode) -> Result<Self, ComponentParseError<'a>> {
 
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::new()
-    }
+        let node_type = normalize_casing(&root.node_type);
 
-    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(&mut Css::empty()))
-    }
-
-    fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
-        Ok("Dom::div()".into())
-    }
-
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
-}
-
-/// Render for a `body` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BodyRenderer {
-    node: XmlNode,
-}
-
-impl BodyRenderer {
-    pub fn new() -> Self {
-        Self { node: XmlNode::new("body") }
-    }
-}
-
-impl XmlComponent for BodyRenderer {
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments::new()
-    }
-
-    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::body().style(&mut Css::empty()))
-    }
-
-    fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
-        Ok("Dom::body()".into())
-    }
-
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
-}
-
-/// Render for a `p` component
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TextRenderer {
-    node: XmlNode,
-}
-
-impl TextRenderer {
-    pub fn new() -> Self {
-        Self { node: XmlNode::new("p") }
-    }
-}
-
-impl XmlComponent for TextRenderer {
-
-    fn get_available_arguments(&self) -> ComponentArguments {
-        ComponentArguments {
-            args: ComponentArgumentsMap::default(),
-            accepts_text: true, // important!
+        if node_type.as_str() != "component" {
+            return Err(ComponentParseError::NotAComponent);
         }
+
+        let name = root.attributes.get_key("name").cloned().ok_or(ComponentParseError::NotAComponent)?;
+        let accepts_text = root.attributes.get_key("accepts_text").and_then(|p| parse_bool(p.as_str())).unwrap_or(false);
+
+        let args = match root.attributes.get_key("args") {
+            Some(s) => parse_component_arguments(s)?,
+            None => ComponentArgumentsMap::default(),
+        };
+
+        Ok(Self {
+            name: normalize_casing(&name),
+            arguments: ComponentArguments {
+                args,
+                accepts_text,
+            },
+            root: root.clone(),
+        })
+    }
+}
+
+impl XmlComponent for DynamicXmlComponent {
+
+    fn get_available_arguments(&self) -> ComponentArguments {
+        self.arguments.clone()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
-        Ok(Dom::text(content).style(&mut Css::empty()))
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
+        &self.root
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
-        Ok(String::from("Dom::label(text)"))
+    fn render_dom<'a>(
+        &'a self,
+        components: &'a XmlComponentMap,
+        arguments: &FilteredComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<StyledDom, RenderDomError<'a>> {
+
+        let mut component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
+            Some(style_node) => {
+                if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
+                    let parsed_css = azul_css_parser::new_from_str(&text)?;
+                    Some(parsed_css)
+                } else {
+                    None
+                }
+            },
+            None => None,
+        };
+
+        let mut dom = StyledDom::default();
+
+        for child_node in self.root.children.as_ref() {
+            dom.append_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
+        }
+
+        if let Some(css) = component_css.as_mut() {
+            dom.restyle(css);
+        }
+
+        Ok(dom)
     }
 
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
+    fn compile_to_rust_code(
+        &self,
+        components: &XmlComponentMap,
+        attributes: &FilteredComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<String, CompileError> {
+        Ok("Dom::div()".into()) // TODO!s
+    }
 }
 
 // -- Tests
+#[cfg(test)] mod tests {
 
-#[test]
-fn test_compile_dom_1() {
+    use super::*;
 
-    use crate::Dummy;
+    #[test]
+    fn test_compile_dom_1() {
 
-    // Test the output of a certain component
-    fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
-        let mut component_map = XmlComponentMap::<Dummy>::default();
-        let root_nodes = parse_xml_string(input).unwrap();
-        get_xml_components(&root_nodes, &mut component_map).unwrap();
-        let body_node = get_body_node(&root_nodes).unwrap();
-        let components = compile_components_to_rust_code(&component_map).unwrap();
-        let (searched_component_source, searched_component_args) = components.get(component_name).unwrap();
-        let component_string = compile_component(component_name, searched_component_args, searched_component_source);
+        use crate::Dummy;
 
-        // TODO!
-        // assert_eq!(component_string, expected);
-    }
+        // Test the output of a certain component
+        fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
+            let mut component_map = XmlComponentMap::<Dummy>::default();
+            let root_nodes = parse_xml_string(input).unwrap();
+            get_xml_components(&root_nodes, &mut component_map).unwrap();
+            let body_node = get_body_node(&root_nodes).unwrap();
+            let components = compile_components_to_rust_code(&component_map).unwrap();
+            let (searched_component_source, searched_component_args) = components.get(component_name).unwrap();
+            let component_string = compile_component(component_name, searched_component_args, searched_component_source);
 
-    fn test_app_source_code(input: &str, expected: &str) {
-        let mut component_map = XmlComponentMap::<Dummy>::default();
-        let root_nodes = parse_xml_string(input).unwrap();
-        get_xml_components(&root_nodes, &mut component_map).unwrap();
-        let body_node = get_body_node(&root_nodes).unwrap();
-        let app_source = compile_body_node_to_rust_code(&body_node, &component_map).unwrap();
-
-        // TODO!
-        // assert_eq!(app_source, expected);
-    }
-
-    let s1 = r#"
-        <component name="test">
-            <div id="a" class="b"></div>
-        </component>
-
-        <body>
-            <Test />
-        </body>
-    "#;
-    let s1_expected = r#"
-        fn test() -> StyledDom {
-            Dom::div().with_id("a").with_class("b")
+            // TODO!
+            // assert_eq!(component_string, expected);
         }
-    "#;
 
-    test_component_source_code(&s1, "test", &s1_expected);
-}
+        fn test_app_source_code(input: &str, expected: &str) {
+            let mut component_map = XmlComponentMap::<Dummy>::default();
+            let root_nodes = parse_xml_string(input).unwrap();
+            get_xml_components(&root_nodes, &mut component_map).unwrap();
+            let body_node = get_body_node(&root_nodes).unwrap();
+            let app_source = compile_body_node_to_rust_code(&body_node, &component_map).unwrap();
 
-#[test]
-fn test_format_args_dynamic() {
-    let mut variables = FilteredComponentArguments::new();
-    variables.insert("a".to_string(), "value1".to_string());
-    variables.insert("b".to_string(), "value2".to_string());
-    assert_eq!(
-        format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
-        String::from("hello value1, value2{ {c} }"),
-    );
-    assert_eq!(
-        format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
-        String::from("hello {a}, value2{ {c} }"),
-    );
-    assert_eq!(
-        format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
-        String::from("hello {{{{{{ a   }, value2{ {c} }"),
-    );
-}
+            // TODO!
+            // assert_eq!(app_source, expected);
+        }
 
-#[test]
-fn test_normalize_casing() {
-    assert_eq!(normalize_casing("abcDef"), String::from("abc_def"));
-    assert_eq!(normalize_casing("abc_Def"), String::from("abc_def"));
-    assert_eq!(normalize_casing("abc-Def"), String::from("abc_def"));
-    assert_eq!(normalize_casing("abc-def"), String::from("abc_def"));
-    assert_eq!(normalize_casing("AbcDef"), String::from("abc_def"));
-    assert_eq!(normalize_casing("Abc-Def"), String::from("abc_def"));
-    assert_eq!(normalize_casing("Abc_Def"), String::from("abc_def"));
-    assert_eq!(normalize_casing("aBc_Def"), String::from("a_bc_def")); // wrong, but whatever
-    assert_eq!(normalize_casing("StartScreen"), String::from("start_screen"));
-}
+        let s1 = r#"
+            <component name="test">
+                <div id="a" class="b"></div>
+            </component>
 
-#[test]
-fn test_parse_component_arguments() {
+            <body>
+                <Test />
+            </body>
+        "#;
+        let s1_expected = r#"
+            fn test() -> StyledDom {
+                Dom::div().with_id("a").with_class("b")
+            }
+        "#;
 
-    let mut args_1_expected = ComponentArguments::new();
-    args_1_expected.insert("selected_date".to_string(), "DateTime".to_string());
-    args_1_expected.insert("minimum_date".to_string(), "DateTime".to_string());
-    args_1_expected.insert("grid_visible".to_string(), "bool".to_string());
+        test_component_source_code(&s1, "test", &s1_expected);
+    }
 
-    // Everything OK
-    assert_eq!(
-        parse_component_arguments("gridVisible: bool, selectedDate: DateTime, minimumDate: DateTime"),
-        Ok(args_1_expected)
-    );
+    #[test]
+    fn test_format_args_dynamic() {
+        let mut variables = FilteredComponentArguments::new();
+        variables.insert("a".to_string(), "value1".to_string());
+        variables.insert("b".to_string(), "value2".to_string());
+        assert_eq!(
+            format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
+            String::from("hello value1, value2{ {c} }"),
+        );
+        assert_eq!(
+            format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
+            String::from("hello {a}, value2{ {c} }"),
+        );
+        assert_eq!(
+            format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
+            String::from("hello {{{{{{ a   }, value2{ {c} }"),
+        );
+    }
 
-    // Missing type for selectedDate
-    assert_eq!(
-        parse_component_arguments("gridVisible: bool, selectedDate: , minimumDate: DateTime"),
-        Err(ComponentParseError::MissingType(1, "selectedDate".to_string()))
-    );
+    #[test]
+    fn test_normalize_casing() {
+        assert_eq!(normalize_casing("abcDef"), String::from("abc_def"));
+        assert_eq!(normalize_casing("abc_Def"), String::from("abc_def"));
+        assert_eq!(normalize_casing("abc-Def"), String::from("abc_def"));
+        assert_eq!(normalize_casing("abc-def"), String::from("abc_def"));
+        assert_eq!(normalize_casing("AbcDef"), String::from("abc_def"));
+        assert_eq!(normalize_casing("Abc-Def"), String::from("abc_def"));
+        assert_eq!(normalize_casing("Abc_Def"), String::from("abc_def"));
+        assert_eq!(normalize_casing("aBc_Def"), String::from("a_bc_def")); // wrong, but whatever
+        assert_eq!(normalize_casing("StartScreen"), String::from("start_screen"));
+    }
 
-    // Missing name for first argument
-    assert_eq!(
-        parse_component_arguments(": bool, selectedDate: DateTime, minimumDate: DateTime"),
-        Err(ComponentParseError::MissingName(0))
-    );
+    #[test]
+    fn test_parse_component_arguments() {
 
-    // Missing comma after DateTime
-    assert_eq!(
-        parse_component_arguments("gridVisible: bool, selectedDate: DateTime  minimumDate: DateTime"),
-        Err(ComponentParseError::WhiteSpaceInComponentType(1, "selectedDate".to_string(), "DateTime  minimumDate".to_string()))
-    );
+        let mut args_1_expected = ComponentArguments::new();
+        args_1_expected.insert("selected_date".to_string(), "DateTime".to_string());
+        args_1_expected.insert("minimum_date".to_string(), "DateTime".to_string());
+        args_1_expected.insert("grid_visible".to_string(), "bool".to_string());
 
-    // Missing colon after gridVisible
-    assert_eq!(
-        parse_component_arguments("gridVisible: bool, selectedDate DateTime, minimumDate: DateTime"),
-        Err(ComponentParseError::WhiteSpaceInComponentName(1, "selectedDate DateTime".to_string()))
-    );
-}
+        // Everything OK
+        assert_eq!(
+            parse_component_arguments("gridVisible: bool, selectedDate: DateTime, minimumDate: DateTime"),
+            Ok(args_1_expected)
+        );
 
-#[test]
-fn test_xml_get_item() {
+        // Missing type for selectedDate
+        assert_eq!(
+            parse_component_arguments("gridVisible: bool, selectedDate: , minimumDate: DateTime"),
+            Err(ComponentParseError::MissingType(1, "selectedDate".to_string()))
+        );
 
-    // <a>
-    //     <b/>
-    //     <c/>
-    //     <d/>
-    //     <e/>
-    // </a>
-    // <f>
-    //     <g>
-    //         <h/>
-    //     </g>
-    //     <i/>
-    // </f>
-    // <j/>
+        // Missing name for first argument
+        assert_eq!(
+            parse_component_arguments(": bool, selectedDate: DateTime, minimumDate: DateTime"),
+            Err(ComponentParseError::MissingName(0))
+        );
 
-    let mut tree = XmlNode::new("component")
-    .with_children(vec![
-        XmlNode::new("a")
+        // Missing comma after DateTime
+        assert_eq!(
+            parse_component_arguments("gridVisible: bool, selectedDate: DateTime  minimumDate: DateTime"),
+            Err(ComponentParseError::WhiteSpaceInComponentType(1, "selectedDate".to_string(), "DateTime  minimumDate".to_string()))
+        );
+
+        // Missing colon after gridVisible
+        assert_eq!(
+            parse_component_arguments("gridVisible: bool, selectedDate DateTime, minimumDate: DateTime"),
+            Err(ComponentParseError::WhiteSpaceInComponentName(1, "selectedDate DateTime".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_xml_get_item() {
+
+        // <a>
+        //     <b/>
+        //     <c/>
+        //     <d/>
+        //     <e/>
+        // </a>
+        // <f>
+        //     <g>
+        //         <h/>
+        //     </g>
+        //     <i/>
+        // </f>
+        // <j/>
+
+        let mut tree = XmlNode::new("component")
         .with_children(vec![
-            XmlNode::new("b"),
-            XmlNode::new("c"),
-            XmlNode::new("d"),
-            XmlNode::new("e"),
-        ]),
-        XmlNode::new("f")
-        .with_children(vec![
-            XmlNode::new("g")
-            .with_children(vec![XmlNode::new("h")]),
-            XmlNode::new("i"),
-        ]),
-        XmlNode::new("j"),
-    ]);
+            XmlNode::new("a")
+            .with_children(vec![
+                XmlNode::new("b"),
+                XmlNode::new("c"),
+                XmlNode::new("d"),
+                XmlNode::new("e"),
+            ]),
+            XmlNode::new("f")
+            .with_children(vec![
+                XmlNode::new("g")
+                .with_children(vec![XmlNode::new("h")]),
+                XmlNode::new("i"),
+            ]),
+            XmlNode::new("j"),
+        ]);
 
-    assert_eq!(&get_item(&[], &mut tree).unwrap().node_type, "component");
-    assert_eq!(&get_item(&[0], &mut tree).unwrap().node_type, "a");
-    assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().node_type, "b");
-    assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().node_type, "c");
-    assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().node_type, "d");
-    assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().node_type, "e");
-    assert_eq!(&get_item(&[1], &mut tree).unwrap().node_type, "f");
-    assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().node_type, "g");
-    assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().node_type, "h");
-    assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().node_type, "i");
-    assert_eq!(&get_item(&[2], &mut tree).unwrap().node_type, "j");
+        assert_eq!(&get_item(&[], &mut tree).unwrap().node_type, "component");
+        assert_eq!(&get_item(&[0], &mut tree).unwrap().node_type, "a");
+        assert_eq!(&get_item(&[0, 0], &mut tree).unwrap().node_type, "b");
+        assert_eq!(&get_item(&[0, 1], &mut tree).unwrap().node_type, "c");
+        assert_eq!(&get_item(&[0, 2], &mut tree).unwrap().node_type, "d");
+        assert_eq!(&get_item(&[0, 3], &mut tree).unwrap().node_type, "e");
+        assert_eq!(&get_item(&[1], &mut tree).unwrap().node_type, "f");
+        assert_eq!(&get_item(&[1, 0], &mut tree).unwrap().node_type, "g");
+        assert_eq!(&get_item(&[1, 0, 0], &mut tree).unwrap().node_type, "h");
+        assert_eq!(&get_item(&[1, 1], &mut tree).unwrap().node_type, "i");
+        assert_eq!(&get_item(&[2], &mut tree).unwrap().node_type, "j");
 
-    assert_eq!(get_item(&[123213], &mut tree), None);
-    assert_eq!(get_item(&[0, 1, 2], &mut tree), None);
-}
+        assert_eq!(get_item(&[123213], &mut tree), None);
+        assert_eq!(get_item(&[0, 1, 2], &mut tree), None);
+    }
 
-#[test]
-fn test_prepare_string_1() {
-    let input1 = r#"Test"#;
-    let output = prepare_string(input1);
-    assert_eq!(output, String::from("Test"));
-}
+    #[test]
+    fn test_prepare_string_1() {
+        let input1 = r#"Test"#;
+        let output = prepare_string(input1);
+        assert_eq!(output, String::from("Test"));
+    }
 
-#[test]
-fn test_prepare_string_2() {
-    let input1 = r#"
-    Hello,
-    123
-
-
-    Test Test2
-
-    Test3
+    #[test]
+    fn test_prepare_string_2() {
+        let input1 = r#"
+        Hello,
+        123
 
 
+        Test Test2
+
+        Test3
 
 
-    Test4
-    "#;
 
-    let output = prepare_string(input1);
-    assert_eq!(output, String::from("Hello, 123\nTest Test2\nTest3\nTest4"));
+
+        Test4
+        "#;
+
+        let output = prepare_string(input1);
+        assert_eq!(output, String::from("Hello, 123\nTest Test2\nTest3\nTest4"));
+    }
 }

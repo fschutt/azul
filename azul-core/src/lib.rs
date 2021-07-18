@@ -16,14 +16,6 @@ extern crate azul_css;
 extern crate gl_context_loader;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
-#[cfg(feature = "svg")]
-extern crate lyon;
-#[cfg(feature = "svg")]
-extern crate usvg;
-#[cfg(feature = "svg")]
-extern crate rusttype;
-#[cfg(feature = "xml")]
-extern crate roxmltree;
 
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
@@ -47,7 +39,7 @@ pub mod id_tree;
 pub mod style;
 /// SVG module
 pub mod svg;
-#[cfg(feature = "xml")]
+/// XML structures
 pub mod xml;
 /// Main `Layout` and `GetTextLayout` trait definition
 pub mod traits;

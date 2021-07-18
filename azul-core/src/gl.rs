@@ -22,7 +22,7 @@ use crate::{
     window::{PhysicalSizeU32, RendererType},
     app_resources::{ImageDescriptor, ImageDescriptorFlags, Epoch, RawImageFormat, ExternalImageId},
     callbacks::DocumentId,
-    svg::TesselatedGPUSvgNode,
+    svg::TessellatedGPUSvgNode,
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
 
@@ -1834,7 +1834,7 @@ impl GlShader {
     /// **NOTE: `FrameBuffer::bind()` and `VertexBuffer::bind()` have to be called first!**
     pub fn draw(
         &self,
-        buffers: &[(&TesselatedGPUSvgNode, &[Uniform])],
+        buffers: &[(&TessellatedGPUSvgNode, &[Uniform])],
         clear_color: Option<ColorU>,
         texture_size: PhysicalSizeU32,
     ) -> Texture {

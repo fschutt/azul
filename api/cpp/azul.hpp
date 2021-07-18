@@ -97,8 +97,8 @@ namespace dll {
     struct MenuItemVec;
     using MenuItemVecDestructorType = void(*)(MenuItemVec* restrict);
     
-    struct TesselatedSvgNodeVec;
-    using TesselatedSvgNodeVecDestructorType = void(*)(TesselatedSvgNodeVec* restrict);
+    struct TessellatedSvgNodeVec;
+    using TessellatedSvgNodeVecDestructorType = void(*)(TessellatedSvgNodeVec* restrict);
     
     struct XmlNodeVec;
     using XmlNodeVecDestructorType = void(*)(XmlNodeVec* restrict);
@@ -1590,6 +1590,7 @@ namespace dll {
     };
     
     enum class EncodeImageError {
+       EncoderNotAvailable,
        InsufficientMemory,
        DimensionError,
        InvalidData,
@@ -1990,19 +1991,19 @@ namespace dll {
     };
     
     
-    enum class TesselatedSvgNodeVecDestructorTag {
+    enum class TessellatedSvgNodeVecDestructorTag {
        DefaultRust,
        NoDestructor,
        External,
     };
     
-    struct TesselatedSvgNodeVecDestructorVariant_DefaultRust { TesselatedSvgNodeVecDestructorTag tag; };
-    struct TesselatedSvgNodeVecDestructorVariant_NoDestructor { TesselatedSvgNodeVecDestructorTag tag; };
-    struct TesselatedSvgNodeVecDestructorVariant_External { TesselatedSvgNodeVecDestructorTag tag; TesselatedSvgNodeVecDestructorType payload; };
-    union TesselatedSvgNodeVecDestructor {
-        TesselatedSvgNodeVecDestructorVariant_DefaultRust DefaultRust;
-        TesselatedSvgNodeVecDestructorVariant_NoDestructor NoDestructor;
-        TesselatedSvgNodeVecDestructorVariant_External External;
+    struct TessellatedSvgNodeVecDestructorVariant_DefaultRust { TessellatedSvgNodeVecDestructorTag tag; };
+    struct TessellatedSvgNodeVecDestructorVariant_NoDestructor { TessellatedSvgNodeVecDestructorTag tag; };
+    struct TessellatedSvgNodeVecDestructorVariant_External { TessellatedSvgNodeVecDestructorTag tag; TessellatedSvgNodeVecDestructorType payload; };
+    union TessellatedSvgNodeVecDestructor {
+        TessellatedSvgNodeVecDestructorVariant_DefaultRust DefaultRust;
+        TessellatedSvgNodeVecDestructorVariant_NoDestructor NoDestructor;
+        TessellatedSvgNodeVecDestructorVariant_External External;
     };
     
     
@@ -6632,20 +6633,20 @@ namespace dll {
     };
     
     
-    struct TesselatedSvgNode {
+    struct TessellatedSvgNode {
         SvgVertexVec vertices;
         U32Vec indices;
-        TesselatedSvgNode& operator=(const TesselatedSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        TesselatedSvgNode(const TesselatedSvgNode&) = delete; /* disable copy constructor, use explicit .clone() */
-        TesselatedSvgNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
+        TessellatedSvgNode& operator=(const TessellatedSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedSvgNode(const TessellatedSvgNode&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedSvgNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
-    struct TesselatedSvgNodeVecRef {
-        TesselatedSvgNode* ptr;
+    struct TessellatedSvgNodeVecRef {
+        TessellatedSvgNode* ptr;
         size_t len;
-        TesselatedSvgNodeVecRef& operator=(const TesselatedSvgNodeVecRef&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        TesselatedSvgNodeVecRef(const TesselatedSvgNodeVecRef&) = delete; /* disable copy constructor, use explicit .clone() */
-        TesselatedSvgNodeVecRef() = delete; /* disable default constructor, use C++20 designated initializer instead */
+        TessellatedSvgNodeVecRef& operator=(const TessellatedSvgNodeVecRef&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedSvgNodeVecRef(const TessellatedSvgNodeVecRef&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedSvgNodeVecRef() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct SvgRenderOptions {
@@ -6713,14 +6714,14 @@ namespace dll {
         String() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
-    struct TesselatedSvgNodeVec {
-        TesselatedSvgNode* ptr;
+    struct TessellatedSvgNodeVec {
+        TessellatedSvgNode* ptr;
         size_t len;
         size_t cap;
-        TesselatedSvgNodeVecDestructor destructor;
-        TesselatedSvgNodeVec& operator=(const TesselatedSvgNodeVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        TesselatedSvgNodeVec(const TesselatedSvgNodeVec&) = delete; /* disable copy constructor, use explicit .clone() */
-        TesselatedSvgNodeVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+        TessellatedSvgNodeVecDestructor destructor;
+        TessellatedSvgNodeVec& operator=(const TessellatedSvgNodeVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedSvgNodeVec(const TessellatedSvgNodeVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedSvgNodeVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct StyleTransformVec {
@@ -8517,6 +8518,7 @@ namespace dll {
     };
     
     enum class XmlErrorTag {
+       NoParserAvailable,
        InvalidXmlPrefixUri,
        UnexpectedXmlUri,
        UnexpectedXmlnsUri,
@@ -8535,6 +8537,7 @@ namespace dll {
        ParserError,
     };
     
+    struct XmlErrorVariant_NoParserAvailable { XmlErrorTag tag; };
     struct XmlErrorVariant_InvalidXmlPrefixUri { XmlErrorTag tag; SvgParseErrorPosition payload; };
     struct XmlErrorVariant_UnexpectedXmlUri { XmlErrorTag tag; SvgParseErrorPosition payload; };
     struct XmlErrorVariant_UnexpectedXmlnsUri { XmlErrorTag tag; SvgParseErrorPosition payload; };
@@ -8552,6 +8555,7 @@ namespace dll {
     struct XmlErrorVariant_SizeLimit { XmlErrorTag tag; };
     struct XmlErrorVariant_ParserError { XmlErrorTag tag; XmlParseError payload; };
     union XmlError {
+        XmlErrorVariant_NoParserAvailable NoParserAvailable;
         XmlErrorVariant_InvalidXmlPrefixUri InvalidXmlPrefixUri;
         XmlErrorVariant_UnexpectedXmlUri UnexpectedXmlUri;
         XmlErrorVariant_UnexpectedXmlnsUri UnexpectedXmlnsUri;
@@ -8642,6 +8646,7 @@ namespace dll {
     
     
     enum class SvgParseErrorTag {
+       NoParserAvailable,
        InvalidFileSuffix,
        FileOpenFailed,
        NotAnUtf8Str,
@@ -8650,6 +8655,7 @@ namespace dll {
        ParsingFailed,
     };
     
+    struct SvgParseErrorVariant_NoParserAvailable { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_InvalidFileSuffix { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_FileOpenFailed { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_NotAnUtf8Str { SvgParseErrorTag tag; };
@@ -8657,6 +8663,7 @@ namespace dll {
     struct SvgParseErrorVariant_InvalidSize { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_ParsingFailed { SvgParseErrorTag tag; XmlError payload; };
     union SvgParseError {
+        SvgParseErrorVariant_NoParserAvailable NoParserAvailable;
         SvgParseErrorVariant_InvalidFileSuffix InvalidFileSuffix;
         SvgParseErrorVariant_FileOpenFailed FileOpenFailed;
         SvgParseErrorVariant_NotAnUtf8Str NotAnUtf8Str;
@@ -8948,7 +8955,7 @@ namespace dll {
         String StyledDom_getHtmlStringTest(const StyledDom* styleddom);
         String StyledDom_getHtmlStringDebug(const StyledDom* styleddom);
         Texture Texture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
-        bool  Texture_drawClipMask(Texture* restrict texture, AzTesselatedSvgNode  node);
+        bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);
         bool  Texture_applyFxaa(Texture* restrict texture);
         void Texture_delete(Texture* restrict instance);
         Texture Texture_deepCopy(Texture* const instance);
@@ -9218,19 +9225,19 @@ namespace dll {
         String SvgXmlNode_toString(const SvgXmlNode* svgxmlnode, AzSvgStringFormatOptions  options);
         void SvgXmlNode_delete(SvgXmlNode* restrict instance);
         SvgXmlNode SvgXmlNode_deepCopy(SvgXmlNode* const instance);
-        TesselatedSvgNode SvgMultiPolygon_tesselateFill(const SvgMultiPolygon* svgmultipolygon, AzSvgFillStyle  fill_style);
-        TesselatedSvgNode SvgMultiPolygon_tesselateStroke(const SvgMultiPolygon* svgmultipolygon, AzSvgStrokeStyle  stroke_style);
-        TesselatedSvgNode SvgNode_tesselateFill(const SvgNode* svgnode, AzSvgFillStyle  fill_style);
-        TesselatedSvgNode SvgNode_tesselateStroke(const SvgNode* svgnode, AzSvgStrokeStyle  stroke_style);
-        TesselatedSvgNode SvgStyledNode_tesselate(const SvgStyledNode* svgstylednode);
-        TesselatedSvgNode SvgCircle_tesselateFill(const SvgCircle* svgcircle, AzSvgFillStyle  fill_style);
-        TesselatedSvgNode SvgCircle_tesselateStroke(const SvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
-        TesselatedSvgNode SvgPath_tesselateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);
-        TesselatedSvgNode SvgPath_tesselateStroke(const SvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
-        TesselatedSvgNode SvgRect_tesselateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
-        TesselatedSvgNode SvgRect_tesselateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
-        TesselatedSvgNode TesselatedSvgNode_empty();
-        TesselatedSvgNode TesselatedSvgNode_fromNodes(AzTesselatedSvgNodeVecRef  nodes);
+        TessellatedSvgNode SvgMultiPolygon_tessellateFill(const SvgMultiPolygon* svgmultipolygon, AzSvgFillStyle  fill_style);
+        TessellatedSvgNode SvgMultiPolygon_tessellateStroke(const SvgMultiPolygon* svgmultipolygon, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgNode_tessellateFill(const SvgNode* svgnode, AzSvgFillStyle  fill_style);
+        TessellatedSvgNode SvgNode_tessellateStroke(const SvgNode* svgnode, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgStyledNode_tessellate(const SvgStyledNode* svgstylednode);
+        TessellatedSvgNode SvgCircle_tessellateFill(const SvgCircle* svgcircle, AzSvgFillStyle  fill_style);
+        TessellatedSvgNode SvgCircle_tessellateStroke(const SvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgPath_tessellateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);
+        TessellatedSvgNode SvgPath_tessellateStroke(const SvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgRect_tessellateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
+        TessellatedSvgNode SvgRect_tessellateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode TessellatedSvgNode_empty();
+        TessellatedSvgNode TessellatedSvgNode_fromNodes(AzTessellatedSvgNodeVecRef  nodes);
         SvgParseOptions SvgParseOptions_default();
         SvgRenderOptions SvgRenderOptions_default();
         Xml Xml_fromStr(AzRefstr  xml_string);
@@ -9279,8 +9286,8 @@ namespace dll {
         Refstr String_asRefstr(const String* string);
         void AccessibilityStateVec_delete(AccessibilityStateVec* restrict instance);
         void MenuItemVec_delete(MenuItemVec* restrict instance);
-        TesselatedSvgNodeVecRef TesselatedSvgNodeVec_asRefVec(const TesselatedSvgNodeVec* tesselatedsvgnodevec);
-        void TesselatedSvgNodeVec_delete(TesselatedSvgNodeVec* restrict instance);
+        TessellatedSvgNodeVecRef TessellatedSvgNodeVec_asRefVec(const TessellatedSvgNodeVec* tessellatedsvgnodevec);
+        void TessellatedSvgNodeVec_delete(TessellatedSvgNodeVec* restrict instance);
         void StyleFontFamilyVec_delete(StyleFontFamilyVec* restrict instance);
         void XmlNodeVec_delete(XmlNodeVec* restrict instance);
         void FmtArgVec_delete(FmtArgVec* restrict instance);

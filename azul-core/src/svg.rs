@@ -8,6 +8,8 @@ use crate::gl::{
 use alloc::string::String;
 use azul_css::U32Vec;
 use core::fmt;
+use crate::xml::XmlError;
+use azul_css::{AzString, OptionAzString, StringVec, OptionLayoutSize, OptionColorU};
 pub use azul_css::{SvgCubicCurve, SvgPoint};
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
@@ -184,49 +186,58 @@ impl VertexLayoutDescription for SvgVertex {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct TesselatedSvgNode {
+pub struct TessellatedSvgNode {
     pub vertices: SvgVertexVec,
     pub indices: U32Vec,
 }
 
-impl_vec!(TesselatedSvgNode, TesselatedSvgNodeVec, TesselatedSvgNodeVecDestructor);
-impl_vec_debug!(TesselatedSvgNode, TesselatedSvgNodeVec);
-impl_vec_partialord!(TesselatedSvgNode, TesselatedSvgNodeVec);
-impl_vec_clone!(TesselatedSvgNode, TesselatedSvgNodeVec, TesselatedSvgNodeVecDestructor);
-impl_vec_partialeq!(TesselatedSvgNode, TesselatedSvgNodeVec);
+impl Default for TessellatedSvgNode {
+    fn default() -> Self {
+        Self {
+            vertices: Vec::new().into(),
+            indices: Vec::new().into(),
+        }
+    }
+}
 
-impl TesselatedSvgNode {
+impl_vec!(TessellatedSvgNode, TessellatedSvgNodeVec, TessellatedSvgNodeVecDestructor);
+impl_vec_debug!(TessellatedSvgNode, TessellatedSvgNodeVec);
+impl_vec_partialord!(TessellatedSvgNode, TessellatedSvgNodeVec);
+impl_vec_clone!(TessellatedSvgNode, TessellatedSvgNodeVec, TessellatedSvgNodeVecDestructor);
+impl_vec_partialeq!(TessellatedSvgNode, TessellatedSvgNodeVec);
+
+impl TessellatedSvgNode {
     pub fn empty() -> Self {
         Self::default()
     }
 }
 
-impl TesselatedSvgNodeVec {
-    pub fn get_ref(&self) -> TesselatedSvgNodeVecRef {
+impl TessellatedSvgNodeVec {
+    pub fn get_ref(&self) -> TessellatedSvgNodeVecRef {
         let slice = self.as_ref();
-        TesselatedSvgNodeVecRef {
+        TessellatedSvgNodeVecRef {
             ptr: slice.as_ptr(),
             len: slice.len(),
         }
     }
 }
 
-impl fmt::Debug for TesselatedSvgNodeVecRef {
+impl fmt::Debug for TessellatedSvgNodeVecRef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.as_slice().fmt(f)
     }
 }
 
-// C ABI wrapper over &[TesselatedSvgNode]
+// C ABI wrapper over &[TessellatedSvgNode]
 #[repr(C)]
-pub struct TesselatedSvgNodeVecRef {
-    pub ptr: *const TesselatedSvgNode,
+pub struct TessellatedSvgNodeVecRef {
+    pub ptr: *const TessellatedSvgNode,
     pub len: usize,
 }
 
-impl Clone for TesselatedSvgNodeVecRef {
+impl Clone for TessellatedSvgNodeVecRef {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
@@ -235,8 +246,8 @@ impl Clone for TesselatedSvgNodeVecRef {
     }
 }
 
-impl TesselatedSvgNodeVecRef {
-    pub fn as_slice<'a>(&'a self) -> &'a [TesselatedSvgNode] {
+impl TessellatedSvgNodeVecRef {
+    pub fn as_slice<'a>(&'a self) -> &'a [TessellatedSvgNode] {
         unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
@@ -249,7 +260,7 @@ impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 
 #[derive(Debug, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct TesselatedGPUSvgNode {
+pub struct TessellatedGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,
 }
 
@@ -366,7 +377,7 @@ pub struct SvgStrokeStyle {
     /// of the line. The width can be applied later on (eg in a vertex shader) by adding
     /// the vertex normal multiplied by the line with to each vertex position.
     ///
-    /// Default value: `true`.
+    /// Default value: `true`. NOTE: currently unused!
     pub apply_line_width: bool,
     /// Whether to apply a transform to the points in the path (warning: will be done on the CPU - expensive)
     pub transform: SvgTransform,
@@ -435,4 +446,173 @@ impl Default for SvgLineJoin {
     fn default() -> Self {
         SvgLineJoin::Miter
     }
+}
+
+#[allow(non_camel_case_types)]
+pub enum c_void { }
+
+pub type GlyphId = u16;
+
+#[derive(Clone, Debug)]
+#[repr(C)]
+pub struct SvgXmlNode {
+    pub node: *const c_void, // usvg::Node
+}
+
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct Svg {
+    tree: *const c_void, // *mut usvg::Tree,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum ShapeRendering {
+    OptimizeSpeed,
+    CrispEdges,
+    GeometricPrecision,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum ImageRendering {
+    OptimizeQuality,
+    OptimizeSpeed,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum TextRendering {
+    OptimizeSpeed,
+    OptimizeLegibility,
+    GeometricPrecision,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum FontDatabase {
+    Empty,
+    System,
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgRenderOptions {
+    pub target_size: OptionLayoutSize,
+    pub background_color: OptionColorU,
+    pub fit: SvgFitTo,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum SvgFitTo {
+    Original,
+    Width(u32),
+    Height(u32),
+    Zoom(f32),
+}
+
+impl Default for SvgFitTo {
+    fn default() -> Self { SvgFitTo::Original }
+}
+
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgParseOptions {
+    /// SVG image path. Used to resolve relative image paths.
+    pub relative_image_path: OptionAzString,
+    /// Target DPI. Impact units conversion. Default: 96.0
+    pub dpi: f32,
+    /// Default font family. Will be used when no font-family attribute is set in the SVG. Default: Times New Roman
+    pub default_font_family: AzString,
+    /// A default font size. Will be used when no font-size attribute is set in the SVG. Default: 12
+    pub font_size: f32,
+    /// A list of languages. Will be used to resolve a systemLanguage conditional attribute. Format: en, en-US. Default: [en]
+    pub languages: StringVec,
+    /// Specifies the default shape rendering method. Will be used when an SVG element's shape-rendering property is set to auto. Default: GeometricPrecision
+    pub shape_rendering: ShapeRendering,
+    /// Specifies the default text rendering method. Will be used when an SVG element's text-rendering property is set to auto. Default: OptimizeLegibility
+    pub text_rendering: TextRendering,
+    /// Specifies the default image rendering method. Will be used when an SVG element's image-rendering property is set to auto. Default: OptimizeQuality
+    pub image_rendering: ImageRendering,
+    /// Keep named groups. If set to true, all non-empty groups with id attribute will not be removed. Default: false
+    pub keep_named_groups: bool,
+    /// When empty, text elements will be skipped. Default: `System`
+    pub fontdb: FontDatabase,
+}
+
+impl Default for SvgParseOptions {
+    fn default() -> Self {
+        let lang_vec: Vec<AzString> = vec![String::from("en").into()];
+        SvgParseOptions {
+            relative_image_path: OptionAzString::None,
+            dpi: 96.0,
+            default_font_family: "Times New Roman".to_string().into(),
+            font_size: 12.0,
+            languages: lang_vec.into(),
+            shape_rendering: ShapeRendering::GeometricPrecision,
+            text_rendering: TextRendering::OptimizeLegibility,
+            image_rendering: ImageRendering::OptimizeQuality,
+            keep_named_groups: false,
+            fontdb: FontDatabase::System,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgXmlOptions {
+    pub use_single_quote: bool,
+    pub indent: Indent,
+    pub attributes_indent: Indent,
+}
+
+impl Default for SvgXmlOptions {
+    fn default() -> Self {
+        SvgXmlOptions {
+            use_single_quote: false,
+            indent: Indent::Spaces(2),
+            attributes_indent: Indent::Spaces(2),
+        }
+    }
+}
+
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[repr(C, u8)]
+pub enum SvgParseError {
+    NoParserAvailable,
+    InvalidFileSuffix,
+    FileOpenFailed,
+    NotAnUtf8Str,
+    MalformedGZip,
+    InvalidSize,
+    ParsingFailed(XmlError),
+}
+
+impl fmt::Display for SvgParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::SvgParseError::*;
+        match self {
+            NoParserAvailable => write!(f, "Library was compiled without SVG support (no parser available)"),
+            InvalidFileSuffix => write!(f, "Error parsing SVG: Invalid file suffix"),
+            FileOpenFailed => write!(f, "Error parsing SVG: Failed to open file"),
+            NotAnUtf8Str => write!(f, "Error parsing SVG: Not an UTF-8 String"),
+            MalformedGZip => write!(f, "Error parsing SVG: SVG is compressed with a malformed GZIP compression"),
+            InvalidSize => write!(f, "Error parsing SVG: Invalid size"),
+            ParsingFailed(e) => write!(f, "Error parsing SVG: Parsing SVG as XML failed: {}", e),
+        }
+    }
+}
+
+impl_result!(SvgXmlNode, SvgParseError, ResultSvgXmlNodeSvgParseError, copy = false, [Debug, Clone]);
+impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, Clone]);
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum Indent {
+    None,
+    Spaces(u8),
+    Tabs,
 }

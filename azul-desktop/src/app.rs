@@ -307,7 +307,7 @@ pub mod extra {
     #[cfg(feature = "xml")]
     pub fn styled_dom_from_file(path: &str) -> StyledDom {
         use azulc_lib::xml::XmlComponentMap;
-        azulc_lib::xml::DomXml::from_file(path, &mut XmlComponentMap::default()).parsed_dom
+        azulc_lib::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
     }
 
     #[cfg(not(feature = "xml"))]
@@ -320,6 +320,6 @@ pub mod extra {
     #[cfg(feature = "xml")]
     pub fn styled_dom_from_str(s: &str) -> StyledDom {
         use azulc_lib::xml::XmlComponentMap;
-        azulc_lib::xml::DomXml::from_str(s, &mut XmlComponentMap::default()).parsed_dom
+        azulc_lib::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
     }
 }

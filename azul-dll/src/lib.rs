@@ -1871,8 +1871,8 @@ pub type AzTextureTT = azul_impl::gl::Texture;
 pub use AzTextureTT as AzTexture;
 /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
 #[no_mangle] pub extern "C" fn AzTexture_allocateClipMask(gl: AzGl, size: AzLayoutSize) -> AzTexture { azul_impl::svg::allocate_clipmask_texture(gl, size) }
-/// Draws a vertex / index buffer (aka. `&TesselatedSvgNode`) to the texture
-#[no_mangle] pub extern "C" fn AzTexture_drawClipMask(texture: &mut AzTexture, node: AzTesselatedSvgNode) -> bool { azul_impl::svg::render_tesselated_node_gpu(texture, &node).is_some() }
+/// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
+#[no_mangle] pub extern "C" fn AzTexture_drawClipMask(texture: &mut AzTexture, node: AzTessellatedSvgNode) -> bool { azul_impl::svg::render_tessellated_node_gpu(texture, &node).is_some() }
 /// Applies an FXAA filter to the texture
 #[no_mangle] pub extern "C" fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { azul_impl::svg::apply_fxaa(texture).is_some() }
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
@@ -2550,16 +2550,16 @@ pub type AzSvgTT = azul_impl::svg::Svg;
 pub use AzSvgTT as AzSvg;
 /// Creates a new `Svg` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Svg::from_string()` constructor.
-#[no_mangle] pub extern "C" fn AzSvg_fromString(svg_string: AzString, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_string.as_ref().as_bytes(), parse_options).into() }
+#[no_mangle] pub extern "C" fn AzSvg_fromString(svg_string: AzString, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { match azul_impl::svg::svg_parse(svg_string.as_ref().as_bytes(), parse_options) { Ok(o) => azul_impl::svg::ResultSvgSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_impl::svg::ResultSvgSvgParseError::Err(e) } }
 /// Creates a new `Svg` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Svg::from_bytes()` constructor.
-#[no_mangle] pub extern "C" fn AzSvg_fromBytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
+#[no_mangle] pub extern "C" fn AzSvg_fromBytes(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { match azul_impl::svg::svg_parse(svg_bytes.as_slice(), parse_options) { Ok(o) => azul_impl::svg::ResultSvgSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_impl::svg::ResultSvgSvgParseError::Err(e) } }
 /// Equivalent to the Rust `Svg::get_root()` function.
-#[no_mangle] pub extern "C" fn AzSvg_getRoot(svg: &AzSvg) -> AzSvgXmlNode { svg.root() }
+#[no_mangle] pub extern "C" fn AzSvg_getRoot(svg: &AzSvg) -> AzSvgXmlNode { azul_impl::svg::svg_root(svg) }
 /// Equivalent to the Rust `Svg::render()` function.
-#[no_mangle] pub extern "C" fn AzSvg_render(svg: &AzSvg, options: AzSvgRenderOptions) -> AzOptionRawImage { svg.render(options).into() }
+#[no_mangle] pub extern "C" fn AzSvg_render(svg: &AzSvg, options: AzSvgRenderOptions) -> AzOptionRawImage { azul_impl::svg::svg_render(svg, options).into() }
 /// Equivalent to the Rust `Svg::to_string()` function.
-#[no_mangle] pub extern "C" fn AzSvg_toString(svg: &AzSvg, options: AzSvgStringFormatOptions) -> AzString { svg.to_string(options).into() }
+#[no_mangle] pub extern "C" fn AzSvg_toString(svg: &AzSvg, options: AzSvgStringFormatOptions) -> AzString { azul_impl::svg::svg_to_string(svg, options).into() }
 /// Destructor: Takes ownership of the `Svg` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvg_delete(object: &mut AzSvg) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -2570,11 +2570,11 @@ pub type AzSvgXmlNodeTT = azul_impl::svg::SvgXmlNode;
 pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Creates a new `SvgXmlNode` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgXmlNode::parse_from()` constructor.
-#[no_mangle] pub extern "C" fn AzSvgXmlNode_parseFrom(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError { azul_impl::svg::SvgXmlNode::parse(svg_bytes.as_slice(), parse_options).into() }
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_parseFrom(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError { match azul_impl::svg::svgxmlnode_parse(svg_bytes.as_slice(), parse_options) { Ok(o) => azul_impl::svg::ResultSvgXmlNodeSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_impl::svg::ResultSvgXmlNodeSvgParseError::Err(e) } }
 /// Equivalent to the Rust `SvgXmlNode::render()` function.
-#[no_mangle] pub extern "C" fn AzSvgXmlNode_render(svgxmlnode: &AzSvgXmlNode, options: AzSvgRenderOptions) -> AzOptionRawImage { svgxmlnode.render(options).into() }
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_render(svgxmlnode: &AzSvgXmlNode, options: AzSvgRenderOptions) -> AzOptionRawImage { azul_impl::svg::svgxmlnode_render(svgxmlnode, options).into() }
 /// Equivalent to the Rust `SvgXmlNode::to_string()` function.
-#[no_mangle] pub extern "C" fn AzSvgXmlNode_toString(svgxmlnode: &AzSvgXmlNode, options: AzSvgStringFormatOptions) -> AzString { svgxmlnode.to_string(options).into() }
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_toString(svgxmlnode: &AzSvgXmlNode, options: AzSvgStringFormatOptions) -> AzString { azul_impl::svg::svgxmlnode_to_string(svgxmlnode, options).into() }
 /// Destructor: Takes ownership of the `SvgXmlNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -2583,40 +2583,40 @@ pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
 pub type AzSvgMultiPolygonTT = azul_impl::svg::SvgMultiPolygon;
 pub use AzSvgMultiPolygonTT as AzSvgMultiPolygon;
-/// Equivalent to the Rust `SvgMultiPolygon::tesselate_fill()` function.
-#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tesselateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_multi_polygon_fill(svgmultipolygon, fill_style) }
-/// Equivalent to the Rust `SvgMultiPolygon::tesselate_stroke()` function.
-#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tesselateStroke(svgmultipolygon: &AzSvgMultiPolygon, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_multi_polygon_stroke(svgmultipolygon, stroke_style) }
+/// Equivalent to the Rust `SvgMultiPolygon::tessellate_fill()` function.
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_fill(svgmultipolygon, fill_style) }
+/// Equivalent to the Rust `SvgMultiPolygon::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateStroke(svgmultipolygon: &AzSvgMultiPolygon, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_stroke(svgmultipolygon, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgNode` struct
 pub type AzSvgNodeTT = azul_impl::svg::SvgNode;
 pub use AzSvgNodeTT as AzSvgNode;
-/// Equivalent to the Rust `SvgNode::tesselate_fill()` function.
-#[no_mangle] pub extern "C" fn AzSvgNode_tesselateFill(svgnode: &AzSvgNode, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_node_fill(svgnode, fill_style) }
-/// Equivalent to the Rust `SvgNode::tesselate_stroke()` function.
-#[no_mangle] pub extern "C" fn AzSvgNode_tesselateStroke(svgnode: &AzSvgNode, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_node_stroke(svgnode, stroke_style) }
+/// Equivalent to the Rust `SvgNode::tessellate_fill()` function.
+#[no_mangle] pub extern "C" fn AzSvgNode_tessellateFill(svgnode: &AzSvgNode, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_node_fill(svgnode, fill_style) }
+/// Equivalent to the Rust `SvgNode::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgNode_tessellateStroke(svgnode: &AzSvgNode, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_node_stroke(svgnode, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
 pub type AzSvgStyledNodeTT = azul_impl::svg::SvgStyledNode;
 pub use AzSvgStyledNodeTT as AzSvgStyledNode;
-/// Equivalent to the Rust `SvgStyledNode::tesselate()` function.
-#[no_mangle] pub extern "C" fn AzSvgStyledNode_tesselate(svgstylednode: &AzSvgStyledNode) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_styled_node(svgstylednode) }
+/// Equivalent to the Rust `SvgStyledNode::tessellate()` function.
+#[no_mangle] pub extern "C" fn AzSvgStyledNode_tessellate(svgstylednode: &AzSvgStyledNode) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_styled_node(svgstylednode) }
 
 /// Re-export of rust-allocated (stack based) `SvgCircle` struct
 pub type AzSvgCircleTT = azul_impl::svg::SvgCircle;
 pub use AzSvgCircleTT as AzSvgCircle;
-/// Equivalent to the Rust `SvgCircle::tesselate_fill()` function.
-#[no_mangle] pub extern "C" fn AzSvgCircle_tesselateFill(svgcircle: &AzSvgCircle, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_circle_fill(svgcircle, fill_style) }
-/// Equivalent to the Rust `SvgCircle::tesselate_stroke()` function.
-#[no_mangle] pub extern "C" fn AzSvgCircle_tesselateStroke(svgcircle: &AzSvgCircle, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_circle_stroke(svgcircle, stroke_style) }
+/// Equivalent to the Rust `SvgCircle::tessellate_fill()` function.
+#[no_mangle] pub extern "C" fn AzSvgCircle_tessellateFill(svgcircle: &AzSvgCircle, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_circle_fill(svgcircle, fill_style) }
+/// Equivalent to the Rust `SvgCircle::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgCircle_tessellateStroke(svgcircle: &AzSvgCircle, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_circle_stroke(svgcircle, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgPath` struct
 pub type AzSvgPathTT = azul_impl::svg::SvgPath;
 pub use AzSvgPathTT as AzSvgPath;
-/// Equivalent to the Rust `SvgPath::tesselate_fill()` function.
-#[no_mangle] pub extern "C" fn AzSvgPath_tesselateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_path_fill(svgpath, fill_style) }
-/// Equivalent to the Rust `SvgPath::tesselate_stroke()` function.
-#[no_mangle] pub extern "C" fn AzSvgPath_tesselateStroke(svgpath: &AzSvgPath, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_path_stroke(svgpath, stroke_style) }
+/// Equivalent to the Rust `SvgPath::tessellate_fill()` function.
+#[no_mangle] pub extern "C" fn AzSvgPath_tessellateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_fill(svgpath, fill_style) }
+/// Equivalent to the Rust `SvgPath::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgPath_tessellateStroke(svgpath: &AzSvgPath, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_stroke(svgpath, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
 pub type AzSvgPathElementTT = azul_impl::svg::SvgPathElement;
@@ -2641,26 +2641,26 @@ pub use AzSvgCubicCurveTT as AzSvgCubicCurve;
 /// Re-export of rust-allocated (stack based) `SvgRect` struct
 pub type AzSvgRectTT = azul_impl::svg::SvgRect;
 pub use AzSvgRectTT as AzSvgRect;
-/// Equivalent to the Rust `SvgRect::tesselate_fill()` function.
-#[no_mangle] pub extern "C" fn AzSvgRect_tesselateFill(svgrect: &AzSvgRect, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_rect_fill(svgrect, fill_style) }
-/// Equivalent to the Rust `SvgRect::tesselate_stroke()` function.
-#[no_mangle] pub extern "C" fn AzSvgRect_tesselateStroke(svgrect: &AzSvgRect, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode { azul_impl::svg::tesselate_rect_stroke(svgrect, stroke_style) }
+/// Equivalent to the Rust `SvgRect::tessellate_fill()` function.
+#[no_mangle] pub extern "C" fn AzSvgRect_tessellateFill(svgrect: &AzSvgRect, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_rect_fill(svgrect, fill_style) }
+/// Equivalent to the Rust `SvgRect::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgRect_tessellateStroke(svgrect: &AzSvgRect, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_rect_stroke(svgrect, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgVertex` struct
 pub type AzSvgVertexTT = azul_impl::svg::SvgVertex;
 pub use AzSvgVertexTT as AzSvgVertex;
 
-/// Re-export of rust-allocated (stack based) `TesselatedSvgNode` struct
-pub type AzTesselatedSvgNodeTT = azul_impl::svg::TesselatedSvgNode;
-pub use AzTesselatedSvgNodeTT as AzTesselatedSvgNode;
+/// Re-export of rust-allocated (stack based) `TessellatedSvgNode` struct
+pub type AzTessellatedSvgNodeTT = azul_impl::svg::TessellatedSvgNode;
+pub use AzTessellatedSvgNodeTT as AzTessellatedSvgNode;
 /// Returns an empty buffer vertices / indices
-#[no_mangle] pub extern "C" fn AzTesselatedSvgNode_empty() -> AzTesselatedSvgNode { AzTesselatedSvgNode::empty() }
-/// Creates a new TesselatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
-#[no_mangle] pub extern "C" fn AzTesselatedSvgNode_fromNodes(nodes: AzTesselatedSvgNodeVecRef) -> AzTesselatedSvgNode { azul_impl::svg::join_tesselated_nodes(nodes.as_slice()) }
+#[no_mangle] pub extern "C" fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode { AzTessellatedSvgNode::empty() }
+/// Creates a new TessellatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
+#[no_mangle] pub extern "C" fn AzTessellatedSvgNode_fromNodes(nodes: AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode { azul_impl::svg::join_tessellated_nodes(nodes.as_slice()) }
 
-/// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
-pub type AzTesselatedSvgNodeVecRefTT = azul_impl::svg::TesselatedSvgNodeVecRef;
-pub use AzTesselatedSvgNodeVecRefTT as AzTesselatedSvgNodeVecRef;
+/// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
+pub type AzTessellatedSvgNodeVecRefTT = azul_impl::svg::TessellatedSvgNodeVecRef;
+pub use AzTessellatedSvgNodeVecRefTT as AzTessellatedSvgNodeVecRef;
 
 /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
 pub type AzSvgParseOptionsTT = azul_impl::svg::SvgParseOptions;
@@ -2740,7 +2740,7 @@ pub use AzSvgDashPatternTT as AzSvgDashPattern;
 pub type AzXmlTT = azul_impl::xml::Xml;
 pub use AzXmlTT as AzXml;
 /// Parses an XML document with one or more root nodes
-#[no_mangle] pub extern "C" fn AzXml_fromStr(xml_string: AzRefstr) -> AzResultXmlXmlError { AzXml::parse(xml_string.as_str()).into() }
+#[no_mangle] pub extern "C" fn AzXml_fromStr(xml_string: AzRefstr) -> AzResultXmlXmlError { azul_impl::xml::parse_xml(xml_string.as_str()).into() }
 
 /// Re-export of rust-allocated (stack based) `XmlNode` struct
 pub type AzXmlNodeTT = azul_impl::xml::XmlNode;
@@ -3017,13 +3017,13 @@ pub use AzMenuItemVecTT as AzMenuItemVec;
 /// Destructor: Takes ownership of the `MenuItemVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMenuItemVec_delete(object: &mut AzMenuItemVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
-pub type AzTesselatedSvgNodeVecTT = azul_impl::svg::TesselatedSvgNodeVec;
-pub use AzTesselatedSvgNodeVecTT as AzTesselatedSvgNodeVec;
-/// Returns the `TesselatedSvgNodeVec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
-#[no_mangle] pub extern "C" fn AzTesselatedSvgNodeVec_asRefVec(tesselatedsvgnodevec: &AzTesselatedSvgNodeVec) -> AzTesselatedSvgNodeVecRef { tesselatedsvgnodevec.get_ref() }
-/// Destructor: Takes ownership of the `TesselatedSvgNodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzTesselatedSvgNodeVec_delete(object: &mut AzTesselatedSvgNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
+pub type AzTessellatedSvgNodeVecTT = azul_impl::svg::TessellatedSvgNodeVec;
+pub use AzTessellatedSvgNodeVecTT as AzTessellatedSvgNodeVec;
+/// Returns the `TessellatedSvgNodeVec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
+#[no_mangle] pub extern "C" fn AzTessellatedSvgNodeVec_asRefVec(tessellatedsvgnodevec: &AzTessellatedSvgNodeVec) -> AzTessellatedSvgNodeVecRef { tessellatedsvgnodevec.get_ref() }
+/// Destructor: Takes ownership of the `TessellatedSvgNodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTessellatedSvgNodeVec_delete(object: &mut AzTessellatedSvgNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
 pub type AzStyleFontFamilyVecTT = azul_impl::css::StyleFontFamilyVec;
@@ -3338,11 +3338,11 @@ pub type AzMenuItemVecDestructorTT = azul_core::window::MenuItemVecDestructor;
 pub use AzMenuItemVecDestructorTT as AzMenuItemVecDestructor;
 
 pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
-/// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
-pub type AzTesselatedSvgNodeVecDestructorTT = azul_impl::svg::TesselatedSvgNodeVecDestructor;
-pub use AzTesselatedSvgNodeVecDestructorTT as AzTesselatedSvgNodeVecDestructor;
+/// Re-export of rust-allocated (stack based) `TessellatedSvgNodeVecDestructor` struct
+pub type AzTessellatedSvgNodeVecDestructorTT = azul_impl::svg::TessellatedSvgNodeVecDestructor;
+pub use AzTessellatedSvgNodeVecDestructorTT as AzTessellatedSvgNodeVecDestructor;
 
-pub type AzTesselatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedSvgNodeVec);
+pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
 pub type AzXmlNodeVecDestructorTT = azul_impl::xml::XmlNodeVecDestructor;
 pub use AzXmlNodeVecDestructorTT as AzXmlNodeVecDestructor;
@@ -5481,6 +5481,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
     #[repr(C)]
     pub enum AzEncodeImageError {
+        EncoderNotAvailable,
         InsufficientMemory,
         DimensionError,
         InvalidData,
@@ -5891,16 +5892,16 @@ mod test_sizes {
     /// `AzMenuItemVecDestructorType` struct
     pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
 
-    /// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
+    /// Re-export of rust-allocated (stack based) `TessellatedSvgNodeVecDestructor` struct
     #[repr(C, u8)]
-    pub enum AzTesselatedSvgNodeVecDestructor {
+    pub enum AzTessellatedSvgNodeVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzTesselatedSvgNodeVecDestructorType),
+        External(AzTessellatedSvgNodeVecDestructorType),
     }
 
-    /// `AzTesselatedSvgNodeVecDestructorType` struct
-    pub type AzTesselatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedSvgNodeVec);
+    /// `AzTessellatedSvgNodeVecDestructorType` struct
+    pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
     #[repr(C, u8)]
@@ -8897,17 +8898,17 @@ mod test_sizes {
         CubicCurve(AzSvgCubicCurve),
     }
 
-    /// Re-export of rust-allocated (stack based) `TesselatedSvgNode` struct
+    /// Re-export of rust-allocated (stack based) `TessellatedSvgNode` struct
     #[repr(C)]
-    pub struct AzTesselatedSvgNode {
+    pub struct AzTessellatedSvgNode {
         pub vertices: AzSvgVertexVec,
         pub indices: AzU32Vec,
     }
 
-    /// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
+    /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
     #[repr(C)]
-    pub struct AzTesselatedSvgNodeVecRef {
-        pub(crate) ptr: *const AzTesselatedSvgNode,
+    pub struct AzTessellatedSvgNodeVecRef {
+        pub(crate) ptr: *const AzTessellatedSvgNode,
         pub len: usize,
     }
 
@@ -8961,13 +8962,13 @@ mod test_sizes {
         pub vec: AzU8Vec,
     }
 
-    /// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
+    /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
     #[repr(C)]
-    pub struct AzTesselatedSvgNodeVec {
-        pub(crate) ptr: *const AzTesselatedSvgNode,
+    pub struct AzTessellatedSvgNodeVec {
+        pub(crate) ptr: *const AzTessellatedSvgNode,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzTesselatedSvgNodeVecDestructor,
+        pub destructor: AzTessellatedSvgNodeVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -10172,6 +10173,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `XmlError` struct
     #[repr(C, u8)]
     pub enum AzXmlError {
+        NoParserAvailable,
         InvalidXmlPrefixUri(AzSvgParseErrorPosition),
         UnexpectedXmlUri(AzSvgParseErrorPosition),
         UnexpectedXmlnsUri(AzSvgParseErrorPosition),
@@ -10247,6 +10249,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `SvgParseError` struct
     #[repr(C, u8)]
     pub enum AzSvgParseError {
+        NoParserAvailable,
         InvalidFileSuffix,
         FileOpenFailed,
         NotAnUtf8Str,
@@ -10479,7 +10482,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"), (Layout::new::<AzTesselatedSvgNodeVecDestructor>(), "AzTesselatedSvgNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"), (Layout::new::<AzTessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVecDestructor>(), "AzInlineLineVecDestructor"), (Layout::new::<AzInlineLineVecDestructor>(), "AzInlineLineVecDestructor"));
@@ -10820,15 +10823,15 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::RawImageData>(), "AzRawImageData"), (Layout::new::<AzRawImageData>(), "AzRawImageData"));
         assert_eq!((Layout::new::<azul_impl::resources::LoadedFontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
-        assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNode>(), "AzTesselatedSvgNode"), (Layout::new::<AzTesselatedSvgNode>(), "AzTesselatedSvgNode"));
-        assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVecRef>(), "AzTesselatedSvgNodeVecRef"), (Layout::new::<AzTesselatedSvgNodeVecRef>(), "AzTesselatedSvgNodeVecRef"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNode>(), "AzTessellatedSvgNode"), (Layout::new::<AzTessellatedSvgNode>(), "AzTessellatedSvgNode"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVecRef>(), "AzTessellatedSvgNodeVecRef"), (Layout::new::<AzTessellatedSvgNodeVecRef>(), "AzTessellatedSvgNodeVecRef"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStrokeStyle>(), "AzSvgStrokeStyle"), (Layout::new::<AzSvgStrokeStyle>(), "AzSvgStrokeStyle"));
         assert_eq!((Layout::new::<azul_impl::xml::Xml>(), "AzXml"), (Layout::new::<AzXml>(), "AzXml"));
         assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
-        assert_eq!((Layout::new::<azul_impl::svg::TesselatedSvgNodeVec>(), "AzTesselatedSvgNodeVec"), (Layout::new::<AzTesselatedSvgNodeVec>(), "AzTesselatedSvgNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"), (Layout::new::<AzTessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));

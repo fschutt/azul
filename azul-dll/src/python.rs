@@ -2328,6 +2328,7 @@ pub enum AzRawImageFormat {
 /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
 #[repr(C)]
 pub enum AzEncodeImageError {
+    EncoderNotAvailable,
     InsufficientMemory,
     DimensionError,
     InvalidData,
@@ -2808,16 +2809,16 @@ pub enum AzMenuItemVecDestructor {
 /// `AzMenuItemVecDestructorType` struct
 pub type AzMenuItemVecDestructorType = extern "C" fn(&mut AzMenuItemVec);
 
-/// Re-export of rust-allocated (stack based) `TesselatedSvgNodeVecDestructor` struct
+/// Re-export of rust-allocated (stack based) `TessellatedSvgNodeVecDestructor` struct
 #[repr(C, u8)]
-pub enum AzTesselatedSvgNodeVecDestructor {
+pub enum AzTessellatedSvgNodeVecDestructor {
     DefaultRust,
     NoDestructor,
-    External(AzTesselatedSvgNodeVecDestructorType),
+    External(AzTessellatedSvgNodeVecDestructorType),
 }
 
-/// `AzTesselatedSvgNodeVecDestructorType` struct
-pub type AzTesselatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTesselatedSvgNodeVec);
+/// `AzTessellatedSvgNodeVecDestructorType` struct
+pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 
 /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
 #[repr(C, u8)]
@@ -6404,21 +6405,21 @@ pub enum AzSvgPathElement {
     CubicCurve(AzSvgCubicCurve),
 }
 
-/// Re-export of rust-allocated (stack based) `TesselatedSvgNode` struct
+/// Re-export of rust-allocated (stack based) `TessellatedSvgNode` struct
 #[repr(C)]
-#[pyclass(name = "TesselatedSvgNode")]
-pub struct AzTesselatedSvgNode {
+#[pyclass(name = "TessellatedSvgNode")]
+pub struct AzTessellatedSvgNode {
     #[pyo3(get, set)]
     pub vertices: AzSvgVertexVec,
     #[pyo3(get, set)]
     pub indices: AzU32Vec,
 }
 
-/// Rust wrapper over a `&[TesselatedSvgNode]` or `&Vec<TesselatedSvgNode>`
+/// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
 #[repr(C)]
-#[pyclass(name = "TesselatedSvgNodeVecRef")]
-pub struct AzTesselatedSvgNodeVecRef {
-    pub(crate) ptr: *const AzTesselatedSvgNode,
+#[pyclass(name = "TessellatedSvgNodeVecRef")]
+pub struct AzTessellatedSvgNodeVecRef {
+    pub(crate) ptr: *const AzTessellatedSvgNode,
     #[pyo3(get, set)]
     pub len: usize,
 }
@@ -6493,17 +6494,17 @@ pub struct AzString {
     pub vec: AzU8Vec,
 }
 
-/// Wrapper over a Rust-allocated `Vec<TesselatedSvgNode>`
+/// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
 #[repr(C)]
-#[pyclass(name = "TesselatedSvgNodeVec")]
-pub struct AzTesselatedSvgNodeVec {
-    pub(crate) ptr: *const AzTesselatedSvgNode,
+#[pyclass(name = "TessellatedSvgNodeVec")]
+pub struct AzTessellatedSvgNodeVec {
+    pub(crate) ptr: *const AzTessellatedSvgNode,
     #[pyo3(get, set)]
     pub len: usize,
     #[pyo3(get, set)]
     pub cap: usize,
     #[pyo3(get, set)]
-    pub destructor: AzTesselatedSvgNodeVecDestructorEnumWrapper,
+    pub destructor: AzTessellatedSvgNodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -8076,6 +8077,7 @@ pub struct AzNodeDataVec {
 /// Re-export of rust-allocated (stack based) `XmlError` struct
 #[repr(C, u8)]
 pub enum AzXmlError {
+    NoParserAvailable,
     InvalidXmlPrefixUri(AzSvgParseErrorPosition),
     UnexpectedXmlUri(AzSvgParseErrorPosition),
     UnexpectedXmlnsUri(AzSvgParseErrorPosition),
@@ -8174,6 +8176,7 @@ pub enum AzResultXmlXmlError {
 /// Re-export of rust-allocated (stack based) `SvgParseError` struct
 #[repr(C, u8)]
 pub enum AzSvgParseError {
+    NoParserAvailable,
     InvalidFileSuffix,
     FileOpenFailed,
     NotAnUtf8Str,
@@ -8759,11 +8762,11 @@ pub struct AzMenuItemVecDestructorEnumWrapper {
     pub inner: AzMenuItemVecDestructor,
 }
 
-/// `AzTesselatedSvgNodeVecDestructorEnumWrapper` struct
+/// `AzTessellatedSvgNodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TesselatedSvgNodeVecDestructor")]
-pub struct AzTesselatedSvgNodeVecDestructorEnumWrapper {
-    pub inner: AzTesselatedSvgNodeVecDestructor,
+#[pyclass(name = "TessellatedSvgNodeVecDestructor")]
+pub struct AzTessellatedSvgNodeVecDestructorEnumWrapper {
+    pub inner: AzTessellatedSvgNodeVecDestructor,
 }
 
 /// `AzXmlNodeVecDestructorEnumWrapper` struct
@@ -10476,8 +10479,8 @@ unsafe impl Send for AzNodeVec { }
 unsafe impl Send for AzParentWithNodeDepthVec { }
 unsafe impl Send for AzRenderImageCallbackInfo { }
 unsafe impl Send for AzLayoutCallbackInfo { }
-unsafe impl Send for AzTesselatedSvgNodeVecRef { }
-unsafe impl Send for AzTesselatedSvgNodeVec { }
+unsafe impl Send for AzTessellatedSvgNodeVecRef { }
+unsafe impl Send for AzTessellatedSvgNodeVec { }
 unsafe impl Send for AzStyleTransformVec { }
 unsafe impl Send for AzSvgPathElementVec { }
 unsafe impl Send for AzStringVec { }
@@ -10684,7 +10687,7 @@ impl Clone for AzThreadSenderDestructorFn { fn clone(&self) -> Self { let r: &az
 impl Clone for AzStyleFontFamilyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTesselatedSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TesselatedSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFmtArgVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::str::FmtArgVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineLineVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLineVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11025,15 +11028,15 @@ impl Clone for AzGetProgramBinaryReturn { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzRawImageDataEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::RawImageData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFontSource { fn clone(&self) -> Self { let r: &azul_impl::resources::LoadedFontSource = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElement = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTesselatedSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TesselatedSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTesselatedSvgNodeVecRef { fn clone(&self) -> Self { let r: &azul_impl::svg::TesselatedSvgNodeVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedSvgNodeVecRef { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgRenderOptions { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgRenderOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgStrokeStyle { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgStrokeStyle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXml { fn clone(&self) -> Self { let r: &azul_impl::xml::Xml = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInstantEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Instant = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadReceiveMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiveMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzString { fn clone(&self) -> Self { let r: &azul_impl::css::AzString = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTesselatedSvgNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::TesselatedSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedSvgNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTransformVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStringVec { fn clone(&self) -> Self { let r: &azul_impl::css::StringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11211,7 +11214,7 @@ impl Drop for AzNodeIdVec { fn drop(&mut self) { crate::AzNodeIdVec_delete(unsaf
 impl Drop for AzNodeVec { fn drop(&mut self) { crate::AzNodeVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzParentWithNodeDepthVec { fn drop(&mut self) { crate::AzParentWithNodeDepthVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzTexture { fn drop(&mut self) { crate::AzTexture_delete(unsafe { mem::transmute(self) }); } }
-impl Drop for AzTesselatedSvgNodeVec { fn drop(&mut self) { crate::AzTesselatedSvgNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzTessellatedSvgNodeVec { fn drop(&mut self) { crate::AzTessellatedSvgNodeVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStyleTransformVec { fn drop(&mut self) { crate::AzStyleTransformVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzSvgPathElementVec { fn drop(&mut self) { crate::AzSvgPathElementVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStringVec { fn drop(&mut self) { crate::AzStringVec_delete(unsafe { mem::transmute(self) }); } }
@@ -23095,7 +23098,7 @@ impl AzTexture {
             mem::transmute(size),
         )) }
     }
-    fn draw_clip_mask(&mut self, node: AzTesselatedSvgNode) -> bool {
+    fn draw_clip_mask(&mut self, node: AzTessellatedSvgNode) -> bool {
         unsafe { mem::transmute(crate::AzTexture_drawClipMask(
             mem::transmute(self),
             mem::transmute(node),
@@ -28577,6 +28580,8 @@ impl PyObjectProtocol for AzRawImageFormatEnumWrapper {
 #[pymethods]
 impl AzEncodeImageErrorEnumWrapper {
     #[classattr]
+    fn EncoderNotAvailable() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::EncoderNotAvailable } }
+    #[classattr]
     fn InsufficientMemory() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::InsufficientMemory } }
     #[classattr]
     fn DimensionError() -> AzEncodeImageErrorEnumWrapper { AzEncodeImageErrorEnumWrapper { inner: AzEncodeImageError::DimensionError } }
@@ -28852,14 +28857,14 @@ impl AzSvgMultiPolygon {
         }
     }
 
-    fn tesselate_fill(&self, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgMultiPolygon_tesselateFill(
+    fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_tessellateFill(
             mem::transmute(self),
             mem::transmute(fill_style),
         )) }
     }
-    fn tesselate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgMultiPolygon_tesselateStroke(
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_tessellateStroke(
             mem::transmute(self),
             mem::transmute(stroke_style),
         )) }
@@ -28924,8 +28929,8 @@ impl AzSvgStyledNode {
         }
     }
 
-    fn tesselate(&self) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgStyledNode_tesselate(
+    fn tessellate(&self) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgStyledNode_tessellate(
             mem::transmute(self),
         )) }
     }
@@ -28952,14 +28957,14 @@ impl AzSvgCircle {
         }
     }
 
-    fn tesselate_fill(&self, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgCircle_tesselateFill(
+    fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgCircle_tessellateFill(
             mem::transmute(self),
             mem::transmute(fill_style),
         )) }
     }
-    fn tesselate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgCircle_tesselateStroke(
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgCircle_tessellateStroke(
             mem::transmute(self),
             mem::transmute(stroke_style),
         )) }
@@ -28985,14 +28990,14 @@ impl AzSvgPath {
         }
     }
 
-    fn tesselate_fill(&self, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgPath_tesselateFill(
+    fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgPath_tessellateFill(
             mem::transmute(self),
             mem::transmute(fill_style),
         )) }
     }
-    fn tesselate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgPath_tesselateStroke(
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgPath_tessellateStroke(
             mem::transmute(self),
             mem::transmute(stroke_style),
         )) }
@@ -29148,14 +29153,14 @@ impl AzSvgRect {
         }
     }
 
-    fn tesselate_fill(&self, fill_style: AzSvgFillStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgRect_tesselateFill(
+    fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgRect_tessellateFill(
             mem::transmute(self),
             mem::transmute(fill_style),
         )) }
     }
-    fn tesselate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzSvgRect_tesselateStroke(
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgRect_tessellateStroke(
             mem::transmute(self),
             mem::transmute(stroke_style),
         )) }
@@ -29195,41 +29200,46 @@ impl PyObjectProtocol for AzSvgVertex {
 }
 
 #[pymethods]
-impl AzTesselatedSvgNode {
+impl AzTessellatedSvgNode {
     #[staticmethod]
-    fn empty() -> AzTesselatedSvgNode {
-        unsafe { mem::transmute(crate::AzTesselatedSvgNode_empty()) }
+    fn empty() -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzTessellatedSvgNode_empty()) }
     }
     #[staticmethod]
-    fn from_nodes(nodes: Vec<AzTesselatedSvgNode>) -> AzTesselatedSvgNode {
-        let nodes = pylist_tesselated_svg_node(&nodes);
-        unsafe { mem::transmute(crate::AzTesselatedSvgNode_fromNodes(
+    fn from_nodes(nodes: AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzTessellatedSvgNode_fromNodes(
             mem::transmute(nodes),
         )) }
     }
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzTesselatedSvgNode {
+impl PyObjectProtocol for AzTessellatedSvgNode {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
 #[pymethods]
-impl AzTesselatedSvgNodeVecRef {
+impl AzTessellatedSvgNodeVecRef {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzTesselatedSvgNodeVecRef {
+impl PyObjectProtocol for AzTessellatedSvgNodeVecRef {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -30838,16 +30848,32 @@ impl PyObjectProtocol for AzMenuItemVec {
 }
 
 #[pymethods]
-impl AzTesselatedSvgNodeVec {
+impl AzTessellatedSvgNodeVec {
+    /// Creates a new `TessellatedSvgNodeVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzTessellatedSvgNode>) -> Self {
+        let m: azul_impl::svg::TessellatedSvgNodeVec = azul_impl::svg::TessellatedSvgNodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the TessellatedSvgNode as a Python array
+    fn array(&self) -> Vec<AzTessellatedSvgNode> {
+        let m: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+    fn as_ref_vec(&self) -> AzTessellatedSvgNodeVecRef {
+        unsafe { mem::transmute(crate::AzTessellatedSvgNodeVec_asRefVec(
+            mem::transmute(self),
+        )) }
+    }
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzTesselatedSvgNodeVec {
+impl PyObjectProtocol for AzTessellatedSvgNodeVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -32156,32 +32182,32 @@ impl PyObjectProtocol for AzMenuItemVecDestructorEnumWrapper {
 }
 
 #[pymethods]
-impl AzTesselatedSvgNodeVecDestructorEnumWrapper {
+impl AzTessellatedSvgNodeVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::DefaultRust } }
+    fn DefaultRust() -> AzTessellatedSvgNodeVecDestructorEnumWrapper { AzTessellatedSvgNodeVecDestructorEnumWrapper { inner: AzTessellatedSvgNodeVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzTesselatedSvgNodeVecDestructorEnumWrapper { AzTesselatedSvgNodeVecDestructorEnumWrapper { inner: AzTesselatedSvgNodeVecDestructor::NoDestructor } }
+    fn NoDestructor() -> AzTessellatedSvgNodeVecDestructorEnumWrapper { AzTessellatedSvgNodeVecDestructorEnumWrapper { inner: AzTessellatedSvgNodeVecDestructor::NoDestructor } }
 
     fn r#match(&self) -> PyResult<Vec<PyObject>> {
-        use crate::python::AzTesselatedSvgNodeVecDestructor;
+        use crate::python::AzTessellatedSvgNodeVecDestructor;
         use pyo3::conversion::IntoPy;
         let gil = Python::acquire_gil();
         let py = gil.python();
         match &self.inner {
-            AzTesselatedSvgNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
-            AzTesselatedSvgNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
-            AzTesselatedSvgNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+            AzTessellatedSvgNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzTessellatedSvgNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzTessellatedSvgNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
         }
     }
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzTesselatedSvgNodeVecDestructorEnumWrapper {
+impl PyObjectProtocol for AzTessellatedSvgNodeVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TesselatedSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::svg::TessellatedSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -35770,6 +35796,8 @@ impl PyObjectProtocol for AzResultSvgSvgParseErrorEnumWrapper {
 #[pymethods]
 impl AzSvgParseErrorEnumWrapper {
     #[classattr]
+    fn NoParserAvailable() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::NoParserAvailable } }
+    #[classattr]
     fn InvalidFileSuffix() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::InvalidFileSuffix } }
     #[classattr]
     fn FileOpenFailed() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::FileOpenFailed } }
@@ -35788,6 +35816,7 @@ impl AzSvgParseErrorEnumWrapper {
         let gil = Python::acquire_gil();
         let py = gil.python();
         match &self.inner {
+            AzSvgParseError::NoParserAvailable => Ok(vec!["NoParserAvailable".into_py(py), ().into_py(py)]),
             AzSvgParseError::InvalidFileSuffix => Ok(vec!["InvalidFileSuffix".into_py(py), ().into_py(py)]),
             AzSvgParseError::FileOpenFailed => Ok(vec!["FileOpenFailed".into_py(py), ().into_py(py)]),
             AzSvgParseError::NotAnUtf8Str => Ok(vec!["NotAnUtf8Str".into_py(py), ().into_py(py)]),
@@ -35810,6 +35839,8 @@ impl PyObjectProtocol for AzSvgParseErrorEnumWrapper {
 
 #[pymethods]
 impl AzXmlErrorEnumWrapper {
+    #[classattr]
+    fn NoParserAvailable() -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::NoParserAvailable } }
     #[staticmethod]
     fn InvalidXmlPrefixUri(v: AzSvgParseErrorPosition) -> AzXmlErrorEnumWrapper { AzXmlErrorEnumWrapper { inner: AzXmlError::InvalidXmlPrefixUri(v) } }
     #[staticmethod]
@@ -35849,6 +35880,7 @@ impl AzXmlErrorEnumWrapper {
         let gil = Python::acquire_gil();
         let py = gil.python();
         match &self.inner {
+            AzXmlError::NoParserAvailable => Ok(vec!["NoParserAvailable".into_py(py), ().into_py(py)]),
             AzXmlError::InvalidXmlPrefixUri(v) => Ok(vec!["InvalidXmlPrefixUri".into_py(py), v.clone().into_py(py)]),
             AzXmlError::UnexpectedXmlUri(v) => Ok(vec!["UnexpectedXmlUri".into_py(py), v.clone().into_py(py)]),
             AzXmlError::UnexpectedXmlnsUri(v) => Ok(vec!["UnexpectedXmlnsUri".into_py(py), v.clone().into_py(py)]),
@@ -36737,8 +36769,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzSvgCubicCurve>()?;
     m.add_class::<AzSvgRect>()?;
     m.add_class::<AzSvgVertex>()?;
-    m.add_class::<AzTesselatedSvgNode>()?;
-    m.add_class::<AzTesselatedSvgNodeVecRef>()?;
+    m.add_class::<AzTessellatedSvgNode>()?;
+    m.add_class::<AzTessellatedSvgNodeVecRef>()?;
     m.add_class::<AzSvgParseOptions>()?;
     m.add_class::<AzShapeRenderingEnumWrapper>()?;
     m.add_class::<AzTextRenderingEnumWrapper>()?;
@@ -36808,7 +36840,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<AzAccessibilityStateVec>()?;
     m.add_class::<AzMenuItemVec>()?;
-    m.add_class::<AzTesselatedSvgNodeVec>()?;
+    m.add_class::<AzTessellatedSvgNodeVec>()?;
     m.add_class::<AzStyleFontFamilyVec>()?;
     m.add_class::<AzXmlNodeVec>()?;
     m.add_class::<AzFmtArgVec>()?;
@@ -36861,7 +36893,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzStyleFontFamilyVecDestructorEnumWrapper>()?;
     m.add_class::<AzAccessibilityStateVecDestructorEnumWrapper>()?;
     m.add_class::<AzMenuItemVecDestructorEnumWrapper>()?;
-    m.add_class::<AzTesselatedSvgNodeVecDestructorEnumWrapper>()?;
+    m.add_class::<AzTessellatedSvgNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzXmlNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzFmtArgVecDestructorEnumWrapper>()?;
     m.add_class::<AzInlineLineVecDestructorEnumWrapper>()?;
