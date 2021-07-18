@@ -1184,7 +1184,17 @@ impl AzNodeVec {
     }
 }
 
-
+impl<'a> NodeDataContainerRef<'a, AzNode> {
+    #[inline]
+    pub fn subtree_len(&self, parent_id: NodeId) -> usize {
+        let self_item_index = parent_id.index();
+        let next_item_index = match self[parent_id].next_sibling_id() {
+            None => self.len(),
+            Some(s) => s.index(),
+        };
+        next_item_index - self_item_index - 1
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]

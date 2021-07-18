@@ -328,6 +328,11 @@ impl<T> NodeDataContainer<T> {
     }
 
     #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.internal.len() == 0
+    }
+
+    #[inline(always)]
     pub fn as_ref<'a>(&'a self) -> NodeDataContainerRef<'a, T> {
         NodeDataContainerRef { internal: &self.internal[..] }
     }

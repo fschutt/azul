@@ -1292,7 +1292,7 @@ pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f3
 }
 
 #[inline]
-pub fn get_layout_displays<'a>(styled_dom: &StyledDom) -> NodeDataContainer<LayoutDisplay> {
+pub fn get_layout_displays<'a>(styled_dom: &StyledDom) -> NodeDataContainer<CssPropertyValue<LayoutDisplay>> {
     // Prevent flex-grow and flex-shrink to be less than 0
     let cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
@@ -1308,8 +1308,9 @@ pub fn get_layout_displays<'a>(styled_dom: &StyledDom) -> NodeDataContainer<Layo
                 &node_data_container.internal[node_id],
                 &NodeId::new(node_id),
                 &styled_node.state
-            ).and_then(|g| g.get_property().copied())
-            .unwrap_or_default()
+            )
+            .copied()
+            .unwrap_or(CssPropertyValue::Auto)
         }).collect()
     }
 }
@@ -1689,9 +1690,6 @@ pub fn do_the_layout_internal(
         Some(p.node_id.into_crate_internal()?)
     }).collect::<BTreeSet<_>>();
 
-    let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
-        .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
-
     let layout_position_info = get_layout_positions(&styled_dom);
     let layout_flex_grow_info = get_layout_flex_grows(&styled_dom);
     let layout_display_info = get_layout_displays(&styled_dom);
@@ -1700,10 +1698,19 @@ pub fn do_the_layout_internal(
     let layout_offsets = precalculate_all_offsets(&styled_dom);
     let layout_width_heights = precalculate_wh_config(&styled_dom);
 
+    let display_none_nodes = get_display_none_nodes(
+        &styled_dom.node_hierarchy.as_container(),
+        &layout_display_info.as_ref(),
+    );
+
     // Break all strings into words and / or resolve the TextIds
     let word_cache = create_word_cache(&styled_dom.node_data.as_container());
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
     let shaped_words = create_shaped_words(renderer_resources, &word_cache, &styled_dom);
+
+    let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
+        .filter(|n| !display_none_nodes[*n]) // if the word block is marked as display:none, ignore
+        .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
 
     // Layout all words as if there was no max-width constraint
     // (to get the texts "content width").
@@ -1721,15 +1728,19 @@ pub fn do_the_layout_internal(
     // Calculate the optional "intrinsic content widths" - i.e.
     // the width of a text or image, if no constraint would apply
     let mut content_widths_pre = styled_dom.node_data.as_container_mut()
-    .transform_multithread(|node_data, _| {
-        match node_data.get_node_type() {
-            NodeType::Image(i) => match i.get_data() {
-                DecodedImage::NullImage { width, .. } => Some(*width as f32),
-                DecodedImage::Gl(tex) => Some(tex.size.width as f32),
-                DecodedImage::Raw((desc, _)) => Some(desc.width as f32),
+    .transform_multithread(|node_data, node_id| {
+        if display_none_nodes[node_id.index()] {
+            None
+        } else {
+            match node_data.get_node_type() {
+                NodeType::Image(i) => match i.get_data() {
+                    DecodedImage::NullImage { width, .. } => Some(*width as f32),
+                    DecodedImage::Gl(tex) => Some(tex.size.width as f32),
+                    DecodedImage::Raw((desc, _)) => Some(desc.width as f32),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
+            }
         }
     });
     for (node_id, word_positions) in word_positions_no_max_width.iter() {
@@ -1744,6 +1755,9 @@ pub fn do_the_layout_internal(
         &styled_dom.non_leaf_nodes.as_ref(),
         rect_size.width,
     );
+
+    display_none_nodes.iter().zip(width_calculated_arena.as_ref_mut().internal.iter_mut())
+    .for_each(|(display_none, width)| if *display_none { *width = WidthCalculatedRect::default(); });
 
     solve_flex_layout_width(
         &mut width_calculated_arena,
@@ -1784,14 +1798,18 @@ pub fn do_the_layout_internal(
     let mut content_heights_pre = styled_dom.node_data.as_container_mut()
     .transform_multithread(|node_data, node_id| {
 
-        let (raw_width, raw_height) = match node_data.get_node_type() {
-            NodeType::Image(i) => match i.get_data() {
-                DecodedImage::NullImage { width, height, .. } => Some((*width as f32, *height as f32)),
-                DecodedImage::Gl(tex) => Some((tex.size.width as f32, tex.size.height as f32)),
-                DecodedImage::Raw((desc, _)) => Some((desc.width as f32, desc.height as f32)),
+        let (raw_width, raw_height) = if display_none_nodes[node_id.index()] {
+            None
+        } else {
+            match node_data.get_node_type() {
+                NodeType::Image(i) => match i.get_data() {
+                    DecodedImage::NullImage { width, height, .. } => Some((*width as f32, *height as f32)),
+                    DecodedImage::Gl(tex) => Some((tex.size.width as f32, tex.size.height as f32)),
+                    DecodedImage::Raw((desc, _)) => Some((desc.width as f32, desc.height as f32)),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
+            }
         }?;
 
         let current_width = width_calculated_arena.as_ref()[node_id].total();
@@ -1813,6 +1831,9 @@ pub fn do_the_layout_internal(
         rect_size.height,
     );
 
+    display_none_nodes.iter().zip(height_calculated_arena.as_ref_mut().internal.iter_mut())
+    .for_each(|(display_none, height)| if *display_none { *height = HeightCalculatedRect::default(); });
+
     solve_flex_layout_height(
         &mut height_calculated_arena,
         &layout_flex_grow_info.as_ref(),
@@ -1827,6 +1848,7 @@ pub fn do_the_layout_internal(
     let mut x_positions = NodeDataContainer {
         internal: vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.len()].into(),
     };
+
     get_x_positions(
         &mut x_positions,
         &width_calculated_arena.as_ref(),
@@ -1842,6 +1864,7 @@ pub fn do_the_layout_internal(
     let mut y_positions = NodeDataContainer {
         internal: vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()].into(),
     };
+
     get_y_positions(
         &mut y_positions,
         &height_calculated_arena.as_ref(),
@@ -1860,25 +1883,22 @@ pub fn do_the_layout_internal(
     let nodes_that_updated_positions = all_nodes_btreeset.clone();
     let nodes_that_need_to_redraw_text = all_nodes_btreeset.clone();
 
-    {
-        let layout_offsets_ref = layout_offsets.as_ref();
-        position_nodes(
-            &mut positioned_rects.as_ref_mut(),
-            &styled_dom,
-            AllOffsetsProvider::All(&layout_offsets_ref),
-            &width_calculated_arena.as_ref(),
-            &height_calculated_arena.as_ref(),
-            &x_positions.as_ref(),
-            &y_positions.as_ref(),
-            &nodes_that_updated_positions,
-            &nodes_that_need_to_redraw_text,
-            &layout_position_info.as_ref(),
-            &word_cache,
-            &shaped_words,
-            &word_positions_with_max_width,
-            document_id
-        );
-    }
+    position_nodes(
+        &mut positioned_rects.as_ref_mut(),
+        &styled_dom,
+        AllOffsetsProvider::All(&layout_offsets.as_ref()),
+        &width_calculated_arena.as_ref(),
+        &height_calculated_arena.as_ref(),
+        &x_positions.as_ref(),
+        &y_positions.as_ref(),
+        &nodes_that_updated_positions,
+        &nodes_that_need_to_redraw_text,
+        &layout_position_info.as_ref(),
+        &word_cache,
+        &shaped_words,
+        &word_positions_with_max_width,
+        document_id
+    );
 
     let mut overflowing_rects = ScrolledNodes::default();
     get_nodes_that_need_scroll_clip(
@@ -1922,6 +1942,42 @@ pub fn do_the_layout_internal(
         iframe_mapping: BTreeMap::new(),
         gpu_value_cache,
     }
+}
+
+/// resets the preferred width / height to 0px before the layout is calculate
+fn get_display_none_nodes<'a, 'b>(
+    node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
+    layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
+) -> Vec<bool> {
+
+    let mut items_that_should_be_set_to_zero = vec![false;layout_displays.internal.len()];
+    if layout_displays.internal.is_empty() ||
+       layout_displays.internal.len() != node_hierarchy.len() {
+        return items_that_should_be_set_to_zero;
+    }
+
+    let mut current = 0;
+    while current < items_that_should_be_set_to_zero.len() {
+        let display = layout_displays.internal[current].clone();
+
+        if display == CssPropertyValue::None ||
+           display == CssPropertyValue::Exact(LayoutDisplay::None) {
+
+            items_that_should_be_set_to_zero[current] = true;
+
+            // set all children as display:none
+            let subtree_len = node_hierarchy.subtree_len(NodeId::new(current));
+            for child_id in current..(current + subtree_len) {
+                items_that_should_be_set_to_zero[child_id] = true;
+            }
+
+            current += subtree_len + 1;
+        } else {
+            current += 1;
+        }
+    }
+
+    items_that_should_be_set_to_zero
 }
 
 /// Note: because this function is called both on layout() and relayout(),
@@ -2621,7 +2677,7 @@ pub fn do_the_relayout(
         .for_each(|(node_id, changed_props)| {
 
             if let Some(CssProperty::Display(new_display_state)) = changed_props.get(&CssPropertyType::Display).map(|p| &p.current_prop) {
-                layout_result.layout_displays.as_ref_mut()[*node_id] = new_display_state.get_property().cloned().unwrap_or_default();
+                layout_result.layout_displays.as_ref_mut()[*node_id] = new_display_state.clone();
             }
 
             if let Some(CssProperty::Position(new_position_state)) = changed_props.get(&CssPropertyType::Position).map(|p| &p.current_prop) {

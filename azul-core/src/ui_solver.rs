@@ -545,7 +545,7 @@ pub struct LayoutResult {
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
     pub layout_flex_grows: NodeDataContainer<f32>,
-    pub layout_displays: NodeDataContainer<LayoutDisplay>,
+    pub layout_displays: NodeDataContainer<CssPropertyValue<LayoutDisplay>>,
     pub layout_positions: NodeDataContainer<LayoutPosition>,
     pub layout_flex_directions: NodeDataContainer<LayoutFlexDirection>,
     pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,

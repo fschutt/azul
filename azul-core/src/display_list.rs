@@ -863,11 +863,10 @@ pub fn displaylist_handle_rect<'a>(
     let display = layout_result.styled_dom.get_css_property_cache()
         .get_display(&html_node, &rect_idx, &styled_node.state)
         .cloned()
-        .unwrap_or_default()
-        .get_property_or_default()
         .unwrap_or_default();
 
-    if display == LayoutDisplay::None {
+    if display == CssPropertyValue::None ||
+       display == CssPropertyValue::Exact(LayoutDisplay::None) {
         return None;
     }
 
