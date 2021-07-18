@@ -47,8 +47,8 @@ fn pylist_glfoat_to_rust(input: &mut Vec<f32>) -> AzGLfloatVecRefMut {
 fn pylist_str_to_rust(input: &Vec<AzRefstr>) -> AzRefstrVecRef {
     AzRefstrVecRef { ptr: input.as_ptr(), len: input.len() }
 }
-fn pylist_tesselated_svg_node(input: &Vec<AzTesselatedSvgNode>) -> AzTesselatedSvgNodeVecRef {
-    AzTesselatedSvgNodeVecRef { ptr: input.as_ptr(), len: input.len() }
+fn pylist_tessellated_svg_node(input: &Vec<AzTessellatedSvgNode>) -> AzTessellatedSvgNodeVecRef {
+    AzTessellatedSvgNodeVecRef { ptr: input.as_ptr(), len: input.len() }
 }
 
 impl From<String> for AzString {
