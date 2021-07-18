@@ -22,7 +22,7 @@ libm                    = { version = "0.2.1",   default-features = false       
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", optional = true }
 rayon                   = { version = "1.5.1",   default-features = false,  optional = true }
 gl-context-loader       = { version ="0.1.3", default-features = false }
-ahash                   = { version = "0.7.0", default-features = false }
+ahash                   = { version = "0.7.4", default-features = false }
 rust-fontconfig         = { version = "0.1.5", default-features = false }
 
 [features]
