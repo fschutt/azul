@@ -631,7 +631,7 @@ impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeData {
     /// `div`
     pub(crate) node_type: NodeType,
@@ -653,10 +653,20 @@ pub struct NodeData {
 
 impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
+
         self.node_type.hash(state);
         self.dataset.hash(state);
         self.ids_and_classes.as_ref().hash(state);
-        self.callbacks.as_ref().hash(state);
+
+        // NOTE: callbacks are NOT hashed regularly, otherwise
+        // they'd cause inconsistencies because of the scroll callback
+        for callback in self.callbacks.as_ref().iter() {
+            callback.event.hash(state);
+            callback.callback.hash(state);
+            callback.data.get_type_id().hash(state);
+        }
+
+
         self.inline_css_props.as_ref().hash(state);
         if let Some(ext) = self.extra.as_ref() {
             if let Some(c) = ext.clip_mask.as_ref() { c.hash(state); }
@@ -667,6 +677,7 @@ impl Hash for NodeData {
         }
     }
 }
+
 
 /// NOTE: NOT EXPOSED IN THE API! Stores extra,
 /// not commonly used information for the NodeData.
@@ -971,11 +982,13 @@ impl Default for NodeData {
     }
 }
 
+/*
 impl fmt::Debug for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
+*/
 
 impl fmt::Display for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1207,15 +1220,14 @@ impl NodeData {
         v.push(NodeDataInlineCssProperty::Focus(p));
         self.inline_css_props = v.into();
     }
+
+    /// Calculates a deterministic node hash for this node
     pub fn calculate_node_data_hash(&self) -> DomNodeHash {
-
-        use ahash::AHasher as HashAlgorithm;
-        use core::hash::{Hash, Hasher};
-
-        let mut hasher = HashAlgorithm::default();
+        use highway::{HighwayHasher, HighwayHash, Key};
+        let mut hasher = HighwayHasher::new(Key([0;4]));
         self.hash(&mut hasher);
-
-        DomNodeHash(hasher.finish())
+        let h = hasher.finalize64();
+        DomNodeHash(h)
     }
 
     #[inline(always)]

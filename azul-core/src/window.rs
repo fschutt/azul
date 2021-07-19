@@ -2873,13 +2873,10 @@ pub enum MenuPopupPosition {
 
 impl Menu {
     pub fn get_hash(&self) -> u64 {
-        use ahash::AHasher as HashAlgorithm;
-        use core::hash::{Hash, Hasher};
-
-        let mut hasher = HashAlgorithm::default();
+        use highway::{HighwayHasher, HighwayHash, Key};
+        let mut hasher = HighwayHasher::new(Key([0;4]));
         self.hash(&mut hasher);
-
-        hasher.finish()
+        hasher.finalize64()
     }
 }
 

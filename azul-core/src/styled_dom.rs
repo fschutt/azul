@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, hash::{Hash, Hasher}};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -613,13 +613,10 @@ impl ::core::fmt::Debug for StyleFontFamilyHash {
 
 impl StyleFontFamilyHash {
     pub(crate) fn new(family: &StyleFontFamily) -> Self {
-        use ahash::AHasher as HashAlgorithm;
-        use core::hash::{Hash, Hasher};
-
-        let mut hasher = HashAlgorithm::default();
+        use highway::{HighwayHasher, HighwayHash, Key};
+        let mut hasher = HighwayHasher::new(Key([0;4]));
         family.hash(&mut hasher);
-
-        Self(hasher.finish())
+        Self(hasher.finalize64())
     }
 }
 
@@ -635,15 +632,12 @@ impl ::core::fmt::Debug for StyleFontFamiliesHash {
 
 impl StyleFontFamiliesHash {
     pub fn new(families: &[StyleFontFamily]) -> Self {
-        use ahash::AHasher as HashAlgorithm;
-        use core::hash::{Hash, Hasher};
-
-        let mut hasher = HashAlgorithm::default();
-        for family in families {
-            family.hash(&mut hasher);
+        use highway::{HighwayHasher, HighwayHash, Key};
+        let mut hasher = HighwayHasher::new(Key([0;4]));
+        for f in families.iter() {
+            f.hash(&mut hasher);
         }
-
-        Self(hasher.finish())
+        Self(hasher.finalize64())
     }
 }
 
