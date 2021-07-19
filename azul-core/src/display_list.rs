@@ -1126,13 +1126,15 @@ pub fn displaylist_handle_rect<'a>(
     }
 
     match layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(Some(rect_idx))) {
-        Some(scroll_node) => Some(DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
-            parent_rect: scroll_node.parent_rect,
-            content_rect: scroll_node.child_rect,
-            scroll_id: scroll_node.parent_external_scroll_id,
-            scroll_tag: scroll_node.scroll_tag_id,
-            frame,
-        })),
+        Some(scroll_node) => {
+            Some(DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
+                parent_rect: scroll_node.parent_rect,
+                content_rect: scroll_node.child_rect,
+                scroll_id: scroll_node.parent_external_scroll_id,
+                scroll_tag: scroll_node.scroll_tag_id,
+                frame,
+            }))
+        },
         None => Some(DisplayListMsg::Frame(frame)),
     }
 }

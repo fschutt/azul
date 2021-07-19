@@ -998,8 +998,8 @@ fn wr_translate_image_mask(input: &DisplayListImageMask) -> WrImageMask {
 }
 
 #[inline]
-fn wr_translate_layouted_glyphs(input: Vec<GlyphInstance>) -> Vec<WrGlyphInstance> {
-    input.into_iter().map(|glyph| WrGlyphInstance {
+fn wr_translate_layouted_glyphs(input: &[GlyphInstance]) -> Vec<WrGlyphInstance> {
+    input.iter().map(|glyph| WrGlyphInstance {
         index: glyph.index,
         point: WrLayoutPoint::new(glyph.point.x, glyph.point.y),
     }).collect()
@@ -1815,29 +1815,32 @@ fn push_frame(
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>,
     current_hidpi_factor: f32,
 ) {
-    for content in frame.content {
-        push_display_list_content(
-            builder,
-            &frame.box_shadow,
-            content,
-            frame.size,
-            frame.border_radius,
-            frame.flags,
-            rect_spatial_id,
-            current_hidpi_factor,
-        );
-    }
+    let content_clip_id = push_display_list_content(
+        builder,
+        &frame.box_shadow,
+        &frame.content,
+        frame.size,
+        frame.border_radius,
+        frame.flags,
+        rect_spatial_id,
+        current_hidpi_factor,
+        Some(parent_clip_id),
+    );
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
 
     // If the rect has an overflow:* property set, clip the children accordingly
     let children_clip_id = match frame.clip_children {
-        Some(size) => {
-            let clip_rect = LogicalRect::new(LogicalPosition::zero(), size);
-            define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id)
-        },
-        None => WrClipId::root(builder.pipeline_id), // no clipping
+        Some(size) => content_clip_id,
+        None => parent_clip_id, // no clipping
     };
+
+    if frame.clip_children.is_some() {
+        println!("frame: {:#?}", frame);
+        println!("parent_clip_id: {:?}", parent_clip_id);
+        println!("content_clip_id: {:?}", content_clip_id);
+        println!("children_clip_id: {:?}", children_clip_id);
+    }
 
     // push the hit-testing tag if any
     if let Some(hit_tag) = frame.tag {
@@ -1853,7 +1856,16 @@ fn push_frame(
 
     // if let Some(image_mask) -> define_image_mask_clip()
     for child in frame.children {
-        push_display_list_msg(document_id, render_api, builder, child, rect_spatial_id, children_clip_id, positioned_items, current_hidpi_factor);
+        push_display_list_msg(
+            document_id,
+            render_api,
+            builder,
+            child,
+            rect_spatial_id,
+            children_clip_id,
+            positioned_items,
+            current_hidpi_factor,
+        );
     }
 }
 
@@ -1878,29 +1890,24 @@ fn push_scroll_frame(
     // if let Some(image_mask) = scroll_frame.frame.image_mask { push_image_mask_clip() }
 
     // Only children should scroll, not the frame itself!
-    for content in scroll_frame.frame.content {
-        push_display_list_content(
-            builder,
-            &scroll_frame.frame.box_shadow,
-            content,
-            scroll_frame.frame.size,
-            scroll_frame.frame.border_radius,
-            scroll_frame.frame.flags,
-            rect_spatial_id,
-            current_hidpi_factor,
-        );
-    }
+    let content_clip_id = push_display_list_content(
+        builder,
+        &scroll_frame.frame.box_shadow,
+        &scroll_frame.frame.content,
+        scroll_frame.frame.size,
+        scroll_frame.frame.border_radius,
+        scroll_frame.frame.flags,
+        rect_spatial_id,
+        current_hidpi_factor,
+        Some(parent_clip_id),
+    );
 
     // Push hit-testing + scrolling children
 
     // If the rect has an overflow:* property set, clip the children accordingly
     let children_clip_id = match scroll_frame.frame.clip_children {
-        Some(size) => {
-            let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
-            let clip_rect = LogicalRect::new(LogicalPosition::zero(), size);
-            define_border_radius_clip(builder, clip_rect, wr_border_radius, rect_spatial_id, parent_clip_id)
-        },
-        None => WrClipId::root(builder.pipeline_id), // no clipping
+        Some(size) => content_clip_id, // clip to the same bounds as the content
+        None => parent_clip_id, // clip to the same bounds as the parent
     };
 
     // scroll frame has the hit-testing clip as a parent
@@ -1956,7 +1963,7 @@ fn push_scroll_frame(
             scroll_frame_clip_info.spatial_id,
             scroll_frame_clip_info.clip_id,
             positioned_items,
-            current_hidpi_factor
+            current_hidpi_factor,
         );
     }
 }
@@ -1978,29 +1985,46 @@ fn define_border_radius_clip(
     // NOTE: only translate the size, position is always (0.0, 0.0)
     let wr_layout_size = wr_translate_logical_size(layout_rect.size);
     let wr_layout_rect = WrLayoutRect::from_size(wr_layout_size);
-    builder.define_clip_rounded_rect( // TODO: optimize - if border radius = 0,
-        &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
-        WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
-    )
+
+    let clip = if wr_border_radius.is_zero() {
+        builder.define_clip_rect( // TODO: optimize - if border radius = 0,
+            &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
+            wr_layout_rect,
+        )
+    } else {
+        builder.define_clip_rounded_rect( // TODO: optimize - if border radius = 0,
+            &WrSpaceAndClipInfo { spatial_id: rect_spatial_id, clip_id: parent_clip_id },
+            WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
+        )
+    };
+
+    println!("defining clip ID {:?} (parent={:?}): {} with border-radius {:?}", clip, parent_clip_id, layout_rect, wr_border_radius);
+
+    clip
 }
 
+// returns the clip of the content (i.e. the current rect)
 #[inline]
 fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
     box_shadow: &Option<BoxShadow>,
-    content: LayoutRectContent,
+    content: &[LayoutRectContent],
     rect_size: LogicalSize,
     border_radius: StyleBorderRadius,
     flags: PrimitiveFlags,
     rect_spatial_id: WrSpatialId,
     current_hidpi_factor: f32,
-) {
+    // clip of the parent item (if any) or None to use the root clip
+    // if frame.clip_children is set, this should be Some(clip_id)
+    parent_clip: Option<WrClipId>,
+) -> WrClipId {
     use azul_core::display_list::LayoutRectContent::*;
 
     let clip_rect = LogicalRect::new(LogicalPosition::zero(), rect_size);
+    let parent_clip_id = parent_clip.unwrap_or_else(|| WrClipId::root(builder.pipeline_id));
     let normal_info = WrCommonItemProperties {
         clip_rect: wr_translate_logical_rect(clip_rect),
-        clip_id: WrClipId::root(builder.pipeline_id), // default: no clipping
+        clip_id: parent_clip_id, // default: no clipping
         spatial_id: rect_spatial_id,
         flags: wr_translate_primitive_flags(flags),
     };
@@ -2011,54 +2035,60 @@ fn push_display_list_content(
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Outset {
             // If the content is a shadow, it needs to be clipped by the root
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, box_shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
+            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, box_shadow, border_radius, normal_info.spatial_id, parent_clip_id);
         }
     }
 
     let mut content_clip: Option<WrClipId> = None;
 
-    // Border and BoxShadow::Outset get a root clip, since they
-    // are outside of the rect contents
-    // All other content types get the regular clip
-    match content {
-        Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
-            let mut text_info = normal_info.clone();
-            if overflow.0 || overflow.1 {
-                text_info.clip_id = content_clip.get_or_insert_with(|| {
-                    define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
+    for content in content {
+        // Border and BoxShadow::Outset get a root clip, since they
+        // are outside of the rect contents
+        // All other content types get the regular clip
+        match content {
+            Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
+                let mut text_info = normal_info.clone();
+                if overflow.0 || overflow.1 {
+                    text_info.clip_id = content_clip.get_or_insert_with(|| {
+                        define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
+                    }).clone();
+                }
+                text::push_text(builder, &text_info, glyphs, *font_instance_key, *color, *glyph_options);
+            },
+            Background { content, size, offset, repeat  } => {
+                let mut background_info = normal_info.clone();
+                background_info.clip_id = content_clip.get_or_insert_with(|| {
+                    define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
                 }).clone();
-            }
-            text::push_text(builder, &text_info, glyphs, font_instance_key, color, glyph_options);
-        },
-        Background { content, size, offset, repeat  } => {
-            let mut background_info = normal_info.clone();
-            background_info.clip_id = content_clip.get_or_insert_with(|| {
-                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
-            }).clone();
-            background::push_background(builder, &background_info, content, size, offset, repeat);
-        },
-        Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            let mut image_info = normal_info.clone();
-            image_info.clip_id = content_clip.get_or_insert_with(|| {
-                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
-            }).clone();
-            image::push_image(builder, &image_info, size, offset, image_key, alpha_type, image_rendering, background_color);
-        },
-        Border { widths, colors, styles } => {
-            // no clip necessary because item will always be in parent bounds
-            border::push_border(builder, &normal_info, border_radius, widths, colors, styles, current_hidpi_factor);
-        },
+                background::push_background(builder, &background_info, content, *size, *offset, *repeat);
+            },
+            Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
+                let mut image_info = normal_info.clone();
+                image_info.clip_id = content_clip.get_or_insert_with(|| {
+                    define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
+                }).clone();
+                image::push_image(builder, &image_info, *size, *offset, *image_key, *alpha_type, *image_rendering, *background_color);
+            },
+            Border { widths, colors, styles } => {
+                // no clip necessary because item will always be in parent bounds
+                border::push_border(builder, &normal_info, border_radius, *widths, *colors, *styles, current_hidpi_factor);
+            },
+        }
     }
 
     if let Some(box_shadow) = box_shadow.as_ref() {
         // push outset box shadow before the item clip is pushed
         if box_shadow.clip_mode == CssBoxShadowClipMode::Inset {
             let inset_clip_id = content_clip.get_or_insert_with(|| {
-                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, normal_info.clip_id)
+                define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
             }).clone();
             box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, box_shadow, border_radius, normal_info.spatial_id, inset_clip_id);
         }
     }
+
+    return content_clip.get_or_insert_with(|| {
+        define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
+    }).clone();
 }
 
 mod text {
@@ -2077,7 +2107,7 @@ mod text {
     pub(in super) fn push_text(
          builder: &mut WrDisplayListBuilder,
          info: &WrCommonItemProperties,
-         glyphs: Vec<GlyphInstance>,
+         glyphs: &[GlyphInstance],
          font_instance_key: FontInstanceKey,
          color: ColorU,
          glyph_options: Option<GlyphOptions>,
@@ -2130,7 +2160,7 @@ mod background {
     pub(in super) fn push_background(
         builder: &mut WrDisplayListBuilder,
         info: &WrCommonItemProperties,
-        background: RectBackground,
+        background: &RectBackground,
         background_size: Option<StyleBackgroundSize>,
         background_position: Option<StyleBackgroundPosition>,
         background_repeat: Option<StyleBackgroundRepeat>,
@@ -2140,11 +2170,11 @@ mod background {
         let content_size = background.get_content_size();
 
         match background {
-            LinearGradient(g)    => push_linear_gradient_background(builder, &info, g, background_position, background_size, content_size),
-            RadialGradient(rg)   => push_radial_gradient_background(builder, &info, rg, background_position, background_size, content_size),
-            ConicGradient(cg)    => push_conic_gradient_background(builder, &info, cg, background_position, background_size, content_size),
-            Image((key, _))      => push_image_background(builder, &info, key, background_position, background_size, background_repeat, content_size),
-            Color(col)           => push_color_background(builder, &info, col, background_position, background_size, background_repeat, content_size),
+            LinearGradient(g)    => push_linear_gradient_background(builder, &info, g.clone(), background_position, background_size, content_size),
+            RadialGradient(rg)   => push_radial_gradient_background(builder, &info, rg.clone(), background_position, background_size, content_size),
+            ConicGradient(cg)    => push_conic_gradient_background(builder, &info, cg.clone(), background_position, background_size, content_size),
+            Image((key, _))      => push_image_background(builder, &info, *key, background_position, background_size, background_repeat, content_size),
+            Color(col)           => push_color_background(builder, &info, *col, background_position, background_size, background_repeat, content_size),
         }
     }
 

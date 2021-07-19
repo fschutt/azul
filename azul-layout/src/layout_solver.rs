@@ -1698,11 +1698,6 @@ pub fn do_the_layout_internal(
     let layout_offsets = precalculate_all_offsets(&styled_dom);
     let layout_width_heights = precalculate_wh_config(&styled_dom);
 
-    let display_none_nodes = get_display_none_nodes(
-        &styled_dom.node_hierarchy.as_container(),
-        &layout_display_info.as_ref(),
-    );
-
     // Break all strings into words and / or resolve the TextIds
     let word_cache = create_word_cache(&styled_dom.node_data.as_container());
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
@@ -1712,6 +1707,10 @@ pub fn do_the_layout_internal(
         .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
 
     // same as all_nodes_btreeset, but only for the words
+    let display_none_nodes = get_display_none_nodes(
+        &styled_dom.node_hierarchy.as_container(),
+        &layout_display_info.as_ref(),
+    );
     let all_word_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
         .filter(|n| !display_none_nodes[*n]) // if the word block is marked as display:none, ignore
         .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
@@ -1747,6 +1746,7 @@ pub fn do_the_layout_internal(
             }
         }
     });
+
     for (node_id, word_positions) in word_positions_no_max_width.iter() {
         content_widths_pre.as_ref_mut()[*node_id] = Some(word_positions.0.content_size.width);
     }
@@ -2550,6 +2550,9 @@ fn get_nodes_that_need_scroll_clip(
                 clip_nodes.insert(parent_id, positioned_rect.size);
                 all_direct_overflows.remove(&parent_id);
             },
+            (Visible, Visible) => {
+                all_direct_overflows.remove(&parent_id);
+            },
             _ => {
                 // modify the rect in the all_direct_overflows,
                 // then recalculate the rectangles for all parents
@@ -2558,22 +2561,24 @@ fn get_nodes_that_need_scroll_clip(
         }
     }
 
-    println!("all direct overflows: {:#?}", all_direct_overflows);
-
     // Insert all rectangles that need to scroll
     for (parent_id, (parent_rect, children_sum_rect)) in all_direct_overflows {
         use azul_core::callbacks::PipelineId;
+
         let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
         let parent_external_scroll_id = ExternalScrollId(parent_dom_hash.0, PipelineId(dom_id.inner as u32, document_id.id));
+
         let scroll_tag_id = match display_list_rects[parent_id].tag_id.as_ref() {
             Some(s) => ScrollTagId(s.into_crate_internal()),
             None => ScrollTagId(TagId::unique()),
         };
+
         let child_rect = LogicalRect::new(
             LogicalPosition::new(children_sum_rect.origin.x as f32, children_sum_rect.origin.y as f32),
             LogicalSize::new(children_sum_rect.size.width as f32, children_sum_rect.size.height as f32),
         );
-        overflowing_nodes.insert(AzNodeId::from_crate_internal(Some(parent_id)), OverflowingScrollNode {
+
+        let os = OverflowingScrollNode {
             parent_rect: LogicalRect::new(
                 LogicalPosition::new(parent_rect.origin.x as f32, parent_rect.origin.y as f32),
                 LogicalSize::new(parent_rect.size.width as f32, parent_rect.size.height as f32),
@@ -2583,8 +2588,10 @@ fn get_nodes_that_need_scroll_clip(
             parent_external_scroll_id,
             parent_dom_hash,
             scroll_tag_id,
-        });
-        // tags_to_node_ids.insert(scroll_tag_id, parent_id)
+        };
+
+        overflowing_nodes.insert(AzNodeId::from_crate_internal(Some(parent_id)), os);
+        tags_to_node_ids.insert(scroll_tag_id, AzNodeId::from_crate_internal(Some(parent_id)));
     }
 
     *scrolled_nodes = ScrolledNodes {
@@ -2671,6 +2678,8 @@ pub fn do_the_relayout(
 
     // recalc(&mut layout_result.preferred_widths);
 
+    let mut display_changed = false;
+
     // update the precalculated properties (position, flex-grow,
     // flex-direction, justify-content)
     if let Some(nodes_to_relayout) = nodes_to_relayout.as_ref() {
@@ -2679,6 +2688,7 @@ pub fn do_the_relayout(
         .for_each(|(node_id, changed_props)| {
 
             if let Some(CssProperty::Display(new_display_state)) = changed_props.get(&CssPropertyType::Display).map(|p| &p.current_prop) {
+                display_changed = true;
                 layout_result.layout_displays.as_ref_mut()[*node_id] = new_display_state.clone();
             }
 
@@ -2708,6 +2718,16 @@ pub fn do_the_relayout(
     let mut parents_that_need_to_recalc_height_of_children = BTreeSet::new();
     let mut parents_that_need_to_reposition_children_x = BTreeSet::new();
     let mut parents_that_need_to_reposition_children_y = BTreeSet::new();
+
+    /*
+    if display_changed {
+        // recalculate changed display:none nodes
+        let new_display_none_nodes = get_display_none_nodes(
+            &styled_dom.node_hierarchy.as_container(),
+            &layout_result.layout_displays.as_ref(),
+        );
+    }
+    */
 
     if root_size.width != layout_result.root_size.width {
         let root_id = layout_result.styled_dom.root.into_crate_internal().unwrap();

@@ -593,6 +593,8 @@ impl LayoutResult {
             None => return CachedDisplayList::empty(),
         };
 
+        println!("building display list - scrolled nodes: {:#?}", layout_result.scrollable_nodes);
+
         let rects_in_rendering_order = layout_result.styled_dom.get_rects_in_rendering_order();
         let referenced_content = DisplayListParametersRef {
             dom_id,
