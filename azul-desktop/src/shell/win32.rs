@@ -399,7 +399,7 @@ struct DwmFunctions {
     _dwmapi_dll_handle: HINSTANCE,
     DwmEnableBlurBehindWindow: Option<extern "system" fn(HWND, &DWM_BLURBEHIND) -> HRESULT>,
     DwmExtendFrameIntoClientArea: Option<extern "system" fn(HWND, &MARGINS) -> HRESULT>,
-    DwmDefWindowProc: Option<extern "system" fn(HWND, UINT, WPARAM, LPARAM, *mut LRESULT)>,
+    DwmDefWindowProc: Option<extern "system" fn(HWND, u32, WPARAM, LPARAM, *mut LRESULT)>,
 }
 
 impl fmt::Debug for DwmFunctions {
@@ -1497,6 +1497,8 @@ struct Window {
     thread_timer_running: Option<TIMERPTR>,
     /// Hash of the current system menu
     menu_hash: Option<u64>,
+    /// characters are combined via two following wparam messages
+    high_surrogate: Option<u16>,
 }
 
 impl fmt::Debug for Window {
@@ -1508,6 +1510,7 @@ impl fmt::Debug for Window {
         self.renderer.is_some().fmt(f)?;
         self.menu_callbacks.fmt(f)?;
         self.menu_hash.fmt(f)?;
+        self.high_surrogate.fmt(f)?;
         Ok(())
     }
 }
@@ -1994,6 +1997,7 @@ impl Window {
             menu_hash,
             timers: BTreeMap::new(),
             thread_timer_running: None,
+            high_surrogate: None,
         })
     }
 
@@ -2415,8 +2419,9 @@ unsafe extern "system" fn WindowProc(
         WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
         WM_QUIT, WM_HSCROLL, WM_VSCROLL,
         WM_KEYUP, WM_KEYDOWN, WM_SYSKEYUP, WM_SYSKEYDOWN,
-        WM_CHAR, WM_UNICHAR,
+        WM_CHAR, WM_SYSCHAR,
 
+        VK_F4,
         CREATESTRUCTW, GWLP_USERDATA,
     };
     use winapi::um::wingdi::wglMakeCurrent;
@@ -2558,6 +2563,8 @@ unsafe extern "system" fn WindowProc(
 
                 let mut new_windows = Vec::new();
                 let mut destroyed_windows = Vec::new();
+
+                // println!("AZ_REDO_HIT_TEST");
 
                 match windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
@@ -2785,73 +2792,86 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 return 0;
             },
-            WM_KEYDOWN => {
-                println!("WM_KEYDOWN: {:0x}", wparam);
-                /*
-                    if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
-                        current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
-                        current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
-                    }
-                    current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(*scancode);
-                */
-                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                    current_window.internal.current_window_state.keyboard_state.current_char = None.into();
-                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
-                }
-                mem::drop(app_borrow);
-                return 0;
-            },
-            WM_SYSKEYDOWN => {
-                println!("WM_SYSKEYDOWN: {:0x}", wparam);
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
-            },
-            WM_CHAR => {
-                if let Some(c) = char::from_u32(wparam as u32) {
-                    println!("WM_CHAR: \"{}\"", c);
+            WM_KEYDOWN | WM_SYSKEYDOWN => {
+                if msg == WM_SYSKEYDOWN && wparam as i32 == VK_F4 {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                } else {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                        if let Some((scancode, vk)) = event::process_key_params(wparam, lparam) {
+                            // println!("got virtual key: {:?}", vk);
+                            current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                            current_window.internal.current_window_state.keyboard_state.current_char = None.into();
+                            current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
+                            if let Some(vk) = vk {
+                                current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
+                                current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+                            }
+                            PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                            mem::drop(app_borrow);
+                            return 0;
+                        }
+                    }
+                }
+
+                mem::drop(app_borrow);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            },
+            WM_CHAR | WM_SYSCHAR => {
+
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+
+                    use std::char;
+
+                    let is_high_surrogate = 0xD800 <= wparam && wparam <= 0xDBFF;
+                    let is_low_surrogate = 0xDC00 <= wparam && wparam <= 0xDFFF;
+
+                    let mut c = None; // character
+                    if is_high_surrogate {
+                        current_window.high_surrogate = Some(wparam as u16);
+                    } else if is_low_surrogate {
+                        if let Some(high_surrogate) = current_window.high_surrogate {
+                            let pair = [high_surrogate, wparam as u16];
+                            if let Some(Ok(chr)) = char::decode_utf16(pair.iter().copied()).next() {
+                                c = Some(chr);
+                            }
+                        }
+                    } else {
+                        current_window.high_surrogate = None;
+                        if let Some(chr) = char::from_u32(wparam as u32) {
+                            c = Some(chr);
+                        }
+                    }
+
+                    if let Some(c) = c {
                         current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
                         current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
                         PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        mem::drop(app_borrow);
+                        return 0;
                     }
                 }
+
                 mem::drop(app_borrow);
-                return 0;
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
-            WM_UNICHAR => {
-                if let Some(c) = char::from_u32(wparam as u32) {
-                    println!("WM_UNICHAR: \"{}\"", c);
+            WM_KEYUP | WM_SYSKEYUP => {
+                use self::event::process_key_params;
+                if let Some((scancode, vk)) = process_key_params(wparam, lparam) {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                         current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                        current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
-                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                        current_window.internal.current_window_state.keyboard_state.current_char = None.into();
+                        current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
+                        if let Some(vk) = vk {
+                            current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
+                            current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
+                        }
+                        mem::drop(app_borrow);
+                        return 0;
                     }
                 }
                 mem::drop(app_borrow);
-                return 0;
-            },
-            WM_KEYUP => {
-                println!("WM_KEYUP: {:0x}", wparam);
-                /*
-                    if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
-                        current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
-                        current_window_state.keyboard_state.current_virtual_keycode = None.into();
-                    }
-                    current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(scancode);
-                */
-                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                    current_window.internal.current_window_state.keyboard_state.current_char = None.into();
-                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
-                }
-                mem::drop(app_borrow);
-                return 0;
-            },
-            WM_SYSKEYUP => {
-                println!("WM_SYSKEYUP: {:0x}", wparam);
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_MOUSELEAVE => {
 
@@ -3345,6 +3365,10 @@ unsafe extern "system" fn WindowProc(
     };
 }
 
+mod event {
+    include!("./win32-event.rs");
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum ProcessEventResult {
     DoNothing,
@@ -3389,11 +3413,15 @@ fn process_event(
         &window.internal.previous_window_state,
     );
 
+    // println!("EVENTS: {:#?}", events);
+
     // Get nodes for events
     let nodes_to_check = NodesToCheck::new(
         &window.internal.current_window_state.last_hit_test,
         &events
     );
+
+    // println!("nodes to check: {:#?}", nodes_to_check);
 
     // Invoke callbacks on nodes
     let callback_result = fc_cache.apply_closure(|fc_cache| {
@@ -3424,6 +3452,8 @@ fn process_event(
             &window.internal.renderer_resources,
         )
     });
+
+    // println!("callback result: {:#?}", callback_result);
 
     return process_callback_results(
         callback_result,

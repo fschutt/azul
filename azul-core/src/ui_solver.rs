@@ -1352,7 +1352,7 @@ impl DirectionalOverflowInfo {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub enum PositionInfo {
     Static(PositionInfoInner),
@@ -1361,6 +1361,7 @@ pub enum PositionInfo {
     Relative(PositionInfoInner),
 }
 
+/*
 impl ::core::fmt::Debug for PositionInfo {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         match self {
@@ -1371,7 +1372,7 @@ impl ::core::fmt::Debug for PositionInfo {
         }
     }
 }
-
+*/
 impl_option!(PositionInfo, OptionPositionInfo, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

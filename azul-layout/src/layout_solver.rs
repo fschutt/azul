@@ -1709,6 +1709,10 @@ pub fn do_the_layout_internal(
     let shaped_words = create_shaped_words(renderer_resources, &word_cache, &styled_dom);
 
     let all_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
+        .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
+
+    // same as all_nodes_btreeset, but only for the words
+    let all_word_nodes_btreeset = (0..styled_dom.node_data.as_container().len())
         .filter(|n| !display_none_nodes[*n]) // if the word block is marked as display:none, ignore
         .map(|n| NodeId::new(n)).collect::<BTreeSet<_>>();
 
@@ -1717,7 +1721,7 @@ pub fn do_the_layout_internal(
     let mut word_positions_no_max_width = BTreeMap::new();
     create_word_positions(
         &mut word_positions_no_max_width,
-        &all_nodes_btreeset,
+        &all_word_nodes_btreeset,
         renderer_resources,
         &word_cache,
         &shaped_words,
@@ -1912,8 +1916,6 @@ pub fn do_the_layout_internal(
         document_id,
     );
 
-    println!("do the layout: overflowing rects: {:?}", overflowing_rects);
-
     let mut gpu_value_cache = GpuValueCache::empty();
     let _ = gpu_value_cache.synchronize(&positioned_rects.as_ref(), &styled_dom);
 
@@ -1967,7 +1969,7 @@ fn get_display_none_nodes<'a, 'b>(
 
             // set all children as display:none
             let subtree_len = node_hierarchy.subtree_len(NodeId::new(current));
-            for child_id in current..(current + subtree_len) {
+            for child_id in current..=(current + subtree_len) {
                 items_that_should_be_set_to_zero[child_id] = true;
             }
 
@@ -3218,7 +3220,6 @@ pub fn do_the_relayout(
 
     if !nodes_that_changed_size.is_empty() {
         // TODO: optimize?
-        println!("do the relayout: get_nodes_that_need_scroll_clip");
         get_nodes_that_need_scroll_clip(
             &mut layout_result.scrollable_nodes,
             &layout_result.styled_dom.styled_nodes.as_container(),
