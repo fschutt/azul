@@ -2293,11 +2293,45 @@ extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> Upda
 }
 
 /// Default On::Scroll event handler
-extern "C" fn default_on_scroll(data: &mut RefAny, info: CallbackInfo) -> Update {
+extern "C" fn default_on_scroll(data: &mut RefAny, mut info: CallbackInfo) -> Update {
+
     let mut data = match data.downcast_mut::<DefaultScrollCallbackData>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    let mouse_state = info.get_current_mouse_state();
+
+    let (scroll_x, scroll_y) = match (mouse_state.scroll_y.into_option(), mouse_state.scroll_x.into_option()) {
+        (None, None) => return Update::DoNothing,
+        (x, y) => (x.unwrap_or(0.0), y.unwrap_or(0.0))
+    };
+
+    println!("default_on_scroll invoked! - scroll: {:?}", (scroll_x, scroll_y));
+
+    let hit_node_id = info.get_hit_node();
+
+    let new_scroll_position = match info.get_scroll_position(hit_node_id) {
+        Some(mut s) => {
+            println!("current scroll position: {:?}", s);
+            s.x += scroll_x;
+            s.y += scroll_y;
+            s
+        },
+        None => return Update::DoNothing,
+    };
+
+    println!("new scroll position: {:?}", new_scroll_position);
+    info.set_scroll_position(hit_node_id, new_scroll_position);
+
+    /*
+    if data.smooth_scroll {
+
+    } else {
+
+    }
+    */
+
     Update::DoNothing
 }
 

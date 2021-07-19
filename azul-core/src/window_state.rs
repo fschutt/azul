@@ -246,7 +246,7 @@ impl NodesToCheck {
         }).collect::<BTreeMap<_, _>>();
 
         NodesToCheck {
-            new_hit_node_ids: new_hit_node_ids,
+            new_hit_node_ids,
             old_hit_node_ids: events.old_hit_node_ids.clone(),
             onmouseenter_nodes,
             onmouseleave_nodes,

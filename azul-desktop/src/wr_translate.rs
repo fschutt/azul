@@ -796,6 +796,17 @@ pub(crate) fn fullhittest_new_webrender(
 
                 let az_node_id = AzNodeId::from_crate_internal(Some(node_id));
 
+                // NOTE: in order to filter the events correctly,
+                // a hit node has to ALWAYS be inserted into the regular_hit_test_nodes
+                //
+                // It may ADDITIONALLY inserted into the scroll_hit_test_nodes,
+                // but not as a replacement!
+                ret.hovered_nodes
+                .entry(*dom_id)
+                .or_insert_with(|| HitTest::empty())
+                .regular_hit_test_nodes
+                .insert(node_id, item);
+
                 if let Some(scroll_node) = layout_result.scrollable_nodes.overflowing_nodes.get(&az_node_id) {
                     ret.hovered_nodes
                     .entry(*dom_id)
@@ -806,12 +817,6 @@ pub(crate) fn fullhittest_new_webrender(
                         point_relative_to_item: item.point_relative_to_item,
                         scroll_node: scroll_node.clone(),
                     });
-                } else {
-                    ret.hovered_nodes
-                    .entry(*dom_id)
-                    .or_insert_with(|| HitTest::empty())
-                    .regular_hit_test_nodes
-                    .insert(node_id, item);
                 }
             }
         }

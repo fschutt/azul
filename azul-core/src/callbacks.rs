@@ -1159,7 +1159,7 @@ impl CallbackInfo {
 
     pub fn get_gl_context(&self) -> OptionGlContextPtr { self.internal_get_gl_context().clone() }
 
-    pub fn get_scroll_amount(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
+    pub fn get_scroll_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
         self.internal_get_current_scroll_states()
         .get(&node_id.dom)?
         .get(&node_id.node)
@@ -1171,7 +1171,7 @@ impl CallbackInfo {
         })
     }
 
-    pub fn set_scroll_amount(&mut self, node_id: DomNodeId, scroll_position: LogicalPosition) {
+    pub fn set_scroll_position(&mut self, node_id: DomNodeId, scroll_position: LogicalPosition) {
         self.internal_get_nodes_scrolled_in_callback()
         .entry(node_id.dom).or_insert_with(|| BTreeMap::new())
         .insert(node_id.node, scroll_position);

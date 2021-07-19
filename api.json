@@ -1167,7 +1167,7 @@
                                 {"node_id": "DomNodeId"}
                             ],
                             "returns": {"type": "OptionLogicalPosition"},
-                            "fn_body": "callbackinfo.get_scroll_amount(node_id).into()"
+                            "fn_body": "callbackinfo.get_scroll_position(node_id).into()"
                         },
                         "get_dataset": {
                             "doc": "Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.",
@@ -1329,7 +1329,7 @@
                                 {"node_id": "DomNodeId"},
                                 {"scroll_position": "LogicalPosition"}
                             ],
-                            "fn_body": "callbackinfo.set_scroll_amount(node_id, scroll_position)"
+                            "fn_body": "callbackinfo.set_scroll_position(node_id, scroll_position)"
                         },
                         "set_string_contents": {
                             "doc": "If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.",

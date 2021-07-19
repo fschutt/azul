@@ -329,7 +329,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getGlContext(callbackinfo: &AzCallbackInfo) -> AzOptionGl { callbackinfo.get_gl_context() }
 /// Returns the x / y offset that this node has been scrolled to by the user or `None` if the node has not been scrolled.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_getScrollPosition(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionLogicalPosition { callbackinfo.get_scroll_amount(node_id).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getScrollPosition(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionLogicalPosition { callbackinfo.get_scroll_position(node_id).into() }
 /// Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getDataset(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionRefAny { callbackinfo.get_dataset(node_id).into() }
 /// If the node is a `Text` node, returns a copy of the internal string contents.
@@ -365,7 +365,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setCssProperty(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, new_property: AzCssProperty) { callbackinfo.set_css_property(node_id, new_property);  }
 /// Sets the scroll position of the node
-#[no_mangle] pub extern "C" fn AzCallbackInfo_setScrollPosition(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, scroll_position: AzLogicalPosition) { callbackinfo.set_scroll_amount(node_id, scroll_position) }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_setScrollPosition(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, scroll_position: AzLogicalPosition) { callbackinfo.set_scroll_position(node_id, scroll_position) }
 /// If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_setStringContents(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId, string: AzString) { callbackinfo.set_string_contents(node_id, string) }
 /// Adds a new image identified by an ID to the image cache
