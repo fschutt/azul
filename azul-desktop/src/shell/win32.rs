@@ -2419,7 +2419,7 @@ unsafe extern "system" fn WindowProc(
         WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
         WM_QUIT, WM_HSCROLL, WM_VSCROLL,
         WM_KEYUP, WM_KEYDOWN, WM_SYSKEYUP, WM_SYSKEYDOWN,
-        WM_CHAR, WM_SYSCHAR,
+        WM_CHAR, WM_SYSCHAR, WHEEL_DELTA,
 
         VK_F4,
         CREATESTRUCTW, GWLP_USERDATA,
@@ -2958,28 +2958,19 @@ unsafe extern "system" fn WindowProc(
             WM_MOUSEWHEEL => {
                 println!("WM_MOUSEWHEEL!");
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
-
-                    let scroll_frames = current_window.internal.current_window_state.last_hit_test.hovered_nodes.iter()
-                    .filter_map(|(dom_id, hit_test)| {
-                        if !hit_test.scroll_hit_test_nodes.is_empty() {
-                            Some((dom_id, hit_test.scroll_hit_test_nodes.clone()))
-                        } else {
-                            None
-                        }
-                    }).collect::<BTreeMap<_, _>>();
-
-                    println!("current scroll frames: {:#?}", scroll_frames);
-                }
-                /*
-                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let value = (wparam >> 16) as i16;
+                    let value = value as i32;
+                    let value = value as f32 / WHEEL_DELTA as f32;
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state. ;
-                    // left_down = false;
+                    current_window.internal.current_window_state.mouse_state.scroll_y = Some(value).into();
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
-                }*/
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                    mem::drop(app_borrow);
+                    return 0;
+                } else {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
             },
             WM_DPICHANGED => {
                 mem::drop(app_borrow);
@@ -3413,7 +3404,7 @@ fn process_event(
         &window.internal.previous_window_state,
     );
 
-    // println!("EVENTS: {:#?}", events);
+    println!("EVENTS: {:#?}", events);
 
     // Get nodes for events
     let nodes_to_check = NodesToCheck::new(
@@ -3421,7 +3412,7 @@ fn process_event(
         &events
     );
 
-    // println!("nodes to check: {:#?}", nodes_to_check);
+    println!("nodes to check: {:#?}", nodes_to_check);
 
     // Invoke callbacks on nodes
     let callback_result = fc_cache.apply_closure(|fc_cache| {
@@ -3436,6 +3427,8 @@ fn process_event(
             hinstance: hinstance as *mut _,
         });
         let current_scroll_states = window.internal.get_current_scroll_states();
+
+        println!("invoking callbacks: scroll states = {:#?}", current_scroll_states);
 
         // Invoke user-defined callbacks in the UI
         callbacks.call(
@@ -3453,7 +3446,7 @@ fn process_event(
         )
     });
 
-    // println!("callback result: {:#?}", callback_result);
+    println!("callback result: {:#?}", callback_result);
 
     return process_callback_results(
         callback_result,

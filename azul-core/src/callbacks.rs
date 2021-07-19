@@ -411,10 +411,11 @@ pub type PipelineSourceId = u32;
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct ScrollPosition {
+    /// How big is the parent container
+    /// (so that things like "scroll to left edge" can be implemented)?
+    pub parent_rect: LogicalRect,
     /// How big is the scroll rect (i.e. the union of all children)?
     pub children_rect: LogicalRect,
-    /// How big is the parent container (so that things like "scroll to left edge" can be implemented)?
-    pub parent_rect: LogicalRect,
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]

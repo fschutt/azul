@@ -1904,21 +1904,15 @@ fn push_scroll_frame(
 
     // Push hit-testing + scrolling children
 
-    // If the rect has an overflow:* property set, clip the children accordingly
-    let children_clip_id = match scroll_frame.frame.clip_children {
-        Some(size) => content_clip_id, // clip to the same bounds as the content
-        None => parent_clip_id, // clip to the same bounds as the parent
-    };
-
     // scroll frame has the hit-testing clip as a parent
     let scroll_frame_clip_info = builder.define_scroll_frame(
         /* parent_space_and_clip */ &WrSpaceAndClipInfo {
-            clip_id: children_clip_id,
+            clip_id: content_clip_id,
             spatial_id: rect_spatial_id,
         },
         /* external_id */ wr_translate_external_scroll_id(scroll_frame.scroll_id),
-        /* content_rect */ wr_translate_logical_rect(scroll_frame.content_rect),
-        /* clip_rect */ wr_translate_logical_rect(scroll_frame.parent_rect),
+        /* content_rect */ WrLayoutRect::from_size(wr_translate_logical_size(scroll_frame.content_rect.size)),
+        /* clip_rect */ WrLayoutRect::from_size(wr_translate_logical_size(scroll_frame.parent_rect.size)),
         /* sensitivity */ WrScrollSensitivity::Script,
         /* external_scroll_offset */ WrLayoutVector2D::new(
             scroll_frame.content_rect.origin.x - scroll_frame.parent_rect.origin.x,
@@ -1997,8 +1991,6 @@ fn define_border_radius_clip(
             WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip),
         )
     };
-
-    println!("defining clip ID {:?} (parent={:?}): {} with border-radius {:?}", clip, parent_clip_id, layout_rect, wr_border_radius);
 
     clip
 }

@@ -31,4 +31,4 @@ css_parser = ["azul-css-parser"]
 # Enables multithreading functions (rayon)
 multithreading = ["rayon"]
 # Enables hashing for timing and threading
-std = ["multithreading"]
+std = ["multithreading", "css_parser"]

@@ -3,6 +3,7 @@ use core::{
     mem,
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
+    hash::{Hash, Hasher},
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -630,7 +631,7 @@ impl_vec_hash!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeData {
     /// `div`
     pub(crate) node_type: NodeType,
@@ -648,6 +649,23 @@ pub struct NodeData {
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI
     extra: Option<Box<NodeDataExt>>,
+}
+
+impl Hash for NodeData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.node_type.hash(state);
+        self.dataset.hash(state);
+        self.ids_and_classes.as_ref().hash(state);
+        self.callbacks.as_ref().hash(state);
+        self.inline_css_props.as_ref().hash(state);
+        if let Some(ext) = self.extra.as_ref() {
+            if let Some(c) = ext.clip_mask.as_ref() { c.hash(state); }
+            if let Some(c) = ext.tab_index.as_ref() { c.hash(state); }
+            if let Some(c) = ext.accessibility.as_ref() { c.hash(state); }
+            if let Some(c) = ext.menu_bar.as_ref() { c.hash(state); }
+            if let Some(c) = ext.context_menu.as_ref() { c.hash(state); }
+        }
+    }
 }
 
 /// NOTE: NOT EXPOSED IN THE API! Stores extra,
