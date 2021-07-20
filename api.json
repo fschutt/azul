@@ -1,5 +1,5 @@
 {
-    "nightly": {
+    "1.0.0-alpha1": {
         "app": {
             "doc": "`App` construction and configuration",
             "classes": {
