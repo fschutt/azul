@@ -2307,13 +2307,10 @@ extern "C" fn default_on_scroll(data: &mut RefAny, mut info: CallbackInfo) -> Up
         (x, y) => (x.unwrap_or(0.0), y.unwrap_or(0.0))
     };
 
-    println!("default_on_scroll invoked! - scroll: {:?}", (scroll_x, scroll_y));
-
     let hit_node_id = info.get_hit_node();
 
     let new_scroll_position = match info.get_scroll_position(hit_node_id) {
         Some(mut s) => {
-            println!("current scroll position: {:?}", s);
             s.x += scroll_x;
             s.y += scroll_y;
             s
@@ -2321,16 +2318,7 @@ extern "C" fn default_on_scroll(data: &mut RefAny, mut info: CallbackInfo) -> Up
         None => return Update::DoNothing,
     };
 
-    println!("new scroll position: {:?}", new_scroll_position);
     info.set_scroll_position(hit_node_id, new_scroll_position);
-
-    /*
-    if data.smooth_scroll {
-
-    } else {
-
-    }
-    */
 
     Update::DoNothing
 }

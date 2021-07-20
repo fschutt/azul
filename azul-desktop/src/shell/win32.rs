@@ -2050,7 +2050,6 @@ impl Window {
     // whether they were scrolled by the system or by the user and how far they
     // need to be scrolled
     fn do_system_scroll(&mut self, scroll: ScrollResult) {
-        println!("scroll: {:#?}", scroll); // TODO
         // for scrolled_node in scroll {
         //      self.render_api.scroll_node_with_id();
         //      let scrolled_rect = LogicalRect { origin: scroll_offset, size: visible.size };
@@ -2564,8 +2563,6 @@ unsafe extern "system" fn WindowProc(
                 let mut new_windows = Vec::new();
                 let mut destroyed_windows = Vec::new();
 
-                // println!("AZ_REDO_HIT_TEST");
-
                 match windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
 
@@ -2696,8 +2693,6 @@ unsafe extern "system" fn WindowProc(
 
                 use winapi::um::winuser::InvalidateRect;
 
-                println!("AZ_GPU_SCROLL_RENDER");
-
                 match app_borrow.windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
                         generate_frame(
@@ -2799,7 +2794,6 @@ unsafe extern "system" fn WindowProc(
                 } else {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                         if let Some((scancode, vk)) = event::process_key_params(wparam, lparam) {
-                            // println!("got virtual key: {:?}", vk);
                             current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
                             current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                             current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
@@ -2956,7 +2950,6 @@ unsafe extern "system" fn WindowProc(
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_MOUSEWHEEL => {
-                println!("WM_MOUSEWHEEL!");
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let value = (wparam >> 16) as i16;
                     let value = value as i32;
@@ -3404,15 +3397,11 @@ fn process_event(
         &window.internal.previous_window_state,
     );
 
-    println!("EVENTS: {:#?}", events);
-
     // Get nodes for events
     let nodes_to_check = NodesToCheck::new(
         &window.internal.current_window_state.last_hit_test,
         &events
     );
-
-    println!("nodes to check: {:#?}", nodes_to_check);
 
     // Invoke callbacks on nodes
     let callback_result = fc_cache.apply_closure(|fc_cache| {
@@ -3427,8 +3416,6 @@ fn process_event(
             hinstance: hinstance as *mut _,
         });
         let current_scroll_states = window.internal.get_current_scroll_states();
-
-        println!("invoking callbacks: scroll states = {:#?}", current_scroll_states);
 
         // Invoke user-defined callbacks in the UI
         callbacks.call(
@@ -3445,8 +3432,6 @@ fn process_event(
             &window.internal.renderer_resources,
         )
     });
-
-    println!("callback result: {:#?}", callback_result);
 
     return process_callback_results(
         callback_result,

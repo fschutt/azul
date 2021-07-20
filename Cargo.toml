@@ -21,7 +21,7 @@ debug = true
 [profile.release]
 opt-level = 's'
 lto = false
-panic = "abort"
+panic = "unwind"
 codegen-units = 16
 debug = false
 debug-assertions = false

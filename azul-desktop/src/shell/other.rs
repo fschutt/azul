@@ -570,7 +570,6 @@ fn run_inner(app: App) {
                 return;
             },
             Event::WindowEvent { event: GlutinWindowEvent::Command(c), window_id } => {
-                println!("got command from menu: {}", c);
 
                 let window = match active_windows.get_mut(&window_id) {
                     Some(s) => s,

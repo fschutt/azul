@@ -13,7 +13,6 @@ use pyo3::prelude::*;
 use pyo3::PyObjectProtocol;
 use pyo3::types::*;
 use pyo3::exceptions::PyException;
-use pyo3::pyclass::PyClassAlloc;
 type GLuint = u32; type AzGLuint = GLuint;
 type GLint = i32; type AzGLint = GLint;
 type GLint64 = i64; type AzGLint64 = GLint64;

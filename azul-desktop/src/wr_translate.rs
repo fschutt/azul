@@ -1840,13 +1840,6 @@ fn push_frame(
         None => parent_clip_id, // no clipping
     };
 
-    if frame.clip_children.is_some() {
-        println!("frame: {:#?}", frame);
-        println!("parent_clip_id: {:?}", parent_clip_id);
-        println!("content_clip_id: {:?}", content_clip_id);
-        println!("children_clip_id: {:?}", children_clip_id);
-    }
-
     // push the hit-testing tag if any
     if let Some(hit_tag) = frame.tag {
         builder.push_hit_test(&WrCommonItemProperties {

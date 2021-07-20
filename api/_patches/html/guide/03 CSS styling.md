@@ -1,172 +1,447 @@
 <h2>List of supported CSS attributes</h2>
 
-<p></p>
-This is a list of CSS attributes that are currently implemented. They work in
-the same way as on a regular web page, except if noted otherwise:
-
-
-You can limit the inheritance of properties either to direct children only (using `>`) or to all children
-(using ` `). I.e. `div#my_div.class` has a different effect than `div #my_div .class` or `div > #my_div > .class`.
-
-Notes:
-
-1. `image()` takes an ID instead of a URL. Images and fonts are external resources
-    that have to be cached. Use `app.add_image("id", my_image_data)` or
-    `app_state.add_image()`, then you can use the `"id"` in the CSS to select
-    your image.
-    If an image is not present on a displayed div (i.e. you added it to the CSS,
-    but forgot to add the image), the following happens:
-    - In debug mode, the app crashes with a descriptive error message
-    - In release mode, the app doesn't display the image and logs the error
-2.  `box-shadow-xxx` are non-standard extensions. They are used to clip a box-shadow to
-    only one border of a rectangle. The rule is:
-         - If `box-shadow` is specified, a regular box shadow is drawn
-         - If `box-shadow-top` and `box-shadow-bottom` are specified, the shadow appears on the
-           top and bottom of the rectangle. Same with a pair of `box-shadow-left` / `box-shadow-right`.
-         - It isn't possible to display a box shadow on 3 sides, only on one or two
-           opposite borders.
-         - If all 4 borders are specified, the value for `box-shadow-top` is taken.
-3.  Justified text is not (yet) supported
-4.  The pseudo selectors marked as [WIP] currently parse, but have no effect.
-
-## Creating CSS stylesheets
-
-When you create a window, you have to give it a certain CSS stylesheet.
-This stylesheet **cannot be modified during runtime**, which is an important
-limitation. You can, however, create "dynamic properties", which can be dynamically
-updated.
-
-Azul has four modes on how the CSS is created:
-
-TODO: The following APIs are outdated since #70 (refactoring CSS parsing into external crate)!
-
-- `Css::new_from_str(&str)` - parses and creates a stylesheet directly
-- `Css::native()` - creates the styles from the default, OS-native styles
-- `Css::override_native(&str)` - same as `Css::new_from_str`, but applies the user-defined
-styles on top of the OS-native styles, i.e. it "overrides" the OS-native styles with user-defined ones.
-
-If you use a stylesheet that is saved to a separate file, Azul provides two extra
-modes, which are, however, only available in **debug mode** (with `#[cfg(debug_assertions)]`).
-
-- `Css::hot_reload(FilePath)` - hot-reloads a stylesheet from a file every 500ms, good for RAD.
-- `Css::hot_reload_override_native(FilePath)` - same as `hot_reload`, but applies the user-defined
-styles on top of the OS-native styles, i.e. it "overrides" the OS-native styles with user-defined ones.
-
-If there are errors during parsing, the `hot_reload` function will print the error and use the
-last stylesheet that could be parsed correctly.
-
-## Protected class names
-
-In general, you should avoid defining any CSS classes in your stylesheet that start
-with `__azul-native-` if you use `Css::native()`, `override_native` or `hot_reload_override_native`.
-Otherwise, you will override built-in native styles, unless that's what you're going for,
-it's better to not name your classes this way.
-
-## Static and dynamic CSS Ids
-
-Azul knows about two types of CSS key-value pairs: static and dynamic. Because
-the CSS is only parsed once (at the start of the application), you cannot modify it
-during runtime. However, you can specify IDs for certain properties, in order to
-change the style of the application during runtime (for example to change the color
-of a button on a `On::Hover` or `On::MouseDown` event). This API is also used for
-animations (TODO) and `:hover`, `:focus` pseudo-selectors.
-
-A static CSS property looks like this:
-
-```css
-.my_class {
-    width: 500px;
-}
-```
-
-... while a dynamic property looks like this:
-
-```css
-.my_class {
-    width: [[ my_property_id | 500px ]];
-}
-```
-The difference is that you can use the ID (in this case: `"my_property_id"` to
-change the style dynamically from Rust):
-
-```rust
-use azul::prelude::{CssProperty, LayoutWidth};
-
-impl Layout for DataModel {
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
-        Dom::new(NodeType::Div)
-        .with_class("my_class")
-        .with_css_override("my_property_id", CssProperty::Width(LayoutWidth::px(700.0)))
+<style type="text/css">
+    .css-table {
+        min-width: 700px !important;
+        margin-top: 20px;
+        margin-bottom: 20px;
+        padding-left: 10px;
+        font-family: monospace;
     }
+    .css-row {
+        display: block;
+        padding-left:  5px;
+    }
+    .css-row:nth-child(even) {
+        background:  #efefef;
+    }
+    .css-row:nth-child(odd) {
+        background:  #fff;
+    }
+    .css-row-header {
+        background: black !important;
+        color: white;
+        box-shadow: 0px 2px 2px #efefef;
+    }
+    .css-col, .css-col-header {
+        font-family: monospace;
+        display: inline-block;
+        min-width: 200px;
+    }
+</style>
+
+<p>
+    This is a list of CSS attributes that are currently implemented. They work in
+    the same way as on a regular web page, except if noted otherwise:
+</p>
+
+<div class="css-table">
+    <div class="css-row css-row-header">
+        <div class="css-col-header">name</div>
+        <div class="css-col-header">example values</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">display</div>
+        <div class="css-col">block, inline-block, flex (default)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">float</div>
+        <div class="css-col">left, right, both</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">box-sizing</div>
+        <div class="css-col">border-box, content-box</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">color</div>
+        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">font-size</div>
+        <div class="css-col">10px, 5pt, 40%, 10em, 5rem</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">font-family</div>
+        <div class="css-col">sans-serif, serif, ..., "Times New Roman"</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">text-align</div>
+        <div class="css-col">left, center, right</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">letter-spacing</div>
+        <div class="css-col">0.0 - infinite</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">line-height</div>
+        <div class="css-col">0.0 - infinite</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">word-spacing</div>
+        <div class="css-col">0.0 - infinite</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">tab-width</div>
+        <div class="css-col">0.0 - infinite</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">cursor</div>
+        <div class="css-col">help, wait, crosshair, grab, default, ...</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">width</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">height</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">min-width</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">min-height</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">max-width</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">max-height</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">position</div>
+        <div class="css-col">static (default), relative, absolute, fixed</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">top</div>
+        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">right</div>
+        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">left</div>
+        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">bottom</div>
+        <div class="css-col">10px, 5%, 10rem, 5em (+position:absolute / fixed)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">flex-wrap</div>
+        <div class="css-col">wrap, no-wrap</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">flex-direction</div>
+        <div class="css-col">row, column, row-reverse, column-reverse</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">flex-grow</div>
+        <div class="css-col">0.0 - infinite</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">flex-shrink</div>
+        <div class="css-col">0.0 - infinite</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">justify-content</div>
+        <div class="css-col">stretch, center, flex-start, flex-end, space-between, space-around</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">align-items</div>
+        <div class="css-col">stretch, center, flex-start, flex-end</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">align-content</div>
+        <div class="css-col">stretch, center, flex-start, flex-end, space-between, space-around</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">overflow, overflow[-x, -y]</div>
+        <div class="css-col">auto (default), scroll, hidden, visible</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">padding[-top, ...]</div>
+        <div class="css-col">10px, 5%, 10rem, 5em </div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">margin[-top, ...]</div>
+        <div class="css-col">10px, 5%, 10rem, 5em </div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">background</div>
+        <div class="css-col">red, [linear-, radial-, conic-]gradient(), image(id)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">background-position</div>
+        <div class="css-col">10% 10%, 10px 10px, left top</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">background-size</div>
+        <div class="css-col">auto, cover, contain, 10% 40%, 100px 200px</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">background-repeat</div>
+        <div class="css-col">repeat, no-repeat</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-radius</div>
+        <div class="css-col">10px, 5%, 10rem, 5e</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-top-left-radius</div>
+        <div class="css-col">10px, 5%, 10rem, 5em</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-top-right-radius</div>
+        <div class="css-col">10px, 5%, 10rem, 5em </div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-bottom-left-radius</div>
+        <div class="css-col">10px, 5%, 10rem, 5em </div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-bottom-right-radius</div>
+        <div class="css-col">10px, 5%, 10rem, 5em </div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border, border-[top, ...]</div>
+        <div class="css-col">1px solid red, 10px dotted #efefef</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-top-width</div>
+        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-right-width</div>
+        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-left-width</div>
+        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-bottom-width</div>
+        <div class="css-col">10px, 10rem, 5em (NO PERCENTAGE)</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-top-style</div>
+        <div class="css-col">solid, dashed, dotted, ...</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-right-style</div>
+        <div class="css-col">solid, dashed, dotted, ...</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-left-style</div>
+        <div class="css-col">solid, dashed, dotted, ...</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-bottom-style</div>
+        <div class="css-col">solid, dashed, dotted, ...</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-top-color</div>
+        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-right-color</div>
+        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-left-color</div>
+        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">border-bottom-color</div>
+        <div class="css-col">red, green, ..., #efefef, rgb(), rgba(), hsl(), hsla()</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">opacity</div>
+        <div class="css-col">0.0 - 1.0</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">transform</div>
+        <div class="css-col">matrix(), translate(), scale(), rotate(), ...</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">perspective-origin</div>
+        <div class="css-col">100px 100px, 50% 50%</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">transform-origin</div>
+        <div class="css-col">100px 100px, 50% 50%</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">backface-visibility</div>
+        <div class="css-col">visible (default), hidden</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">box-shadow</div>
+        <div class="css-col">0px 0px 10px black inset</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">background-color</div>
+        <div class="css-col">red, green, #efefefaa, rgb(), rgba(), hsl(), hsla()</div>
+    </div>
+    <div class="css-row">
+        <div class="css-col">background-image</div>
+        <div class="css-col">id("my-id")</div>
+    </div>
+
+</div>
+
+<p>
+    You can limit the inheritance of properties either to direct children only (using <code>></code>) or to all children
+    (using <code> </code>). I.e. <code>div#my_div.class</code> has a different effect than <code>div #my_div .class</code>
+    or <code>div > #my_div > .class</code>.
+</p><br/>
+
+<p>
+    If you want to add images, you need to add them to the application first
+    (via <code>app.add_image(id, ImageRef)</code>), then you can reference the <code>id</code>
+    in your CSS background-content:
+</p>
+<code class="expand">const IMAGE: &[u8] = include_bytes!("my-image.png");
+
+struct Data { }
+
+extern "C" fn myLayoutFn(data: &mut RefAny, _: LayoutInfo) -> StyledDom {
+    let mut css = Css::from_str("div { background-image: id('my-id'); }");
+    Dom::div().style(&mut css)
 }
-```
 
-This will "override" the CSS property to 700 px on the specific div. If the `.with_css_override`
-isn't present, the width would be 500px wide (every `DynamicCssProperty` need a "default" case).
-If you want to specify the default width to be automatically inferred from how much space there
-is left in the parent node, you can use `auto` like this:
+fn main() {
+    let config = AppConfig::new(LayoutSolver::Default);
+    let mut app = App::new(RefAny::new(Data { }), config);
 
-```css
-.my_class {
-    width: [[ my_property_id | auto ]];
+    // load the image before the app starts
+    let decoded = RawImage::decode_image_bytes_any(IMAGE).unwrap();
+    let imageref = ImageRef::raw_image(image).unwrap();
+    app.add_image("my-id", imageref);
+
+    app.run(WindowCreateOptions::new(myLayoutFn));
 }
-```
 
-For example, this is useful if you want to have panels that expand an contract on clicking a button or
-if you want to drag content (so you need to overwrite `margin-top / margin-left to actually move the div)
-in the layout.
+// or load it dynamically inside of a callback:
+extern "C" fn loadImageOnClick(data: &mut RefAny, mut callbackinfo: CallbackInfo) -> Update {
+    let decoded = RawImage::decode_image_bytes_any(IMAGE).unwrap();
+    let imageref = ImageRef::raw_image(image).unwrap();
+    callbackinfo.add_image("my-id", imageref);
+    Update::DoNothing
+}</code>
+<br/>
 
-Notice that we don't have to un-set the width again. This is because dynamic
-CSS properties only stay active for one frame, and need to be re-applied on each
-frame - this is a concious design choice to not make the visual style depend on a
-sequence of actions that have to be executed and thereby make the style more
-unit-testing friendly.
+<p>If Azul can't find an image, the background will be rendered as transparent.</p>
 
-Also notice: If the `set_dynamic_property` gets a different type for your ID (let's say you
-typed `height` instead of `width`, it will not override the target value, but print an
-error (if logging is enabled)).
+<br/>
+<br/>
 
-## Layout system
+<h2>DOM styling</h2>
 
-The layout model follows closely to the CSS flexbox model (although many properties aren't implemented yet):
+<br/>
 
-- align the content across the main axis with `flex-direction`
-- If the width and height is not constrained, the rectangle will take up as much width
-  and height as possible, by default the width / height of the parent
-- Nest the layout to get more intricate and complicated layouts
-- When a rectangle is marked as `position: absolute`, it will search up the DOM tree for the nearest
-  `position: relative` or `position: absolute` rectangle and use the `top, left, right, bottom` properties
-  to position itself relative to that rectangle
-- Z-indexing is currently only determined by the stacking order, there is no `z-index` attribute yet
-- `inline` blocks are non-existent. The reason for this is that if you need inline blocks, you'll likely
-  need a bit more complicated layout. For this purpose, you can use absolute and relative positioning if you
-  want to lay rectangles behind the text and use the text metrics themselves to calculate the offsets.
-  For regular inline-block content, just use `flex-direction` with a wrapper div.
+<p>
+    A <code>Dom</code> object + a <code>Css</code> object results in a <code>StyledDom</code>.
+    A <code>StyledDom</code> can be restyled via <code>.restyle(Css)</code> if necessary,
+    however, this only exists so that the application can be restyled via global themes.
+</p>
+<p>
+    CSS properties can be set either on the nodes themselves (as inline properties),
+    or via a CSS stylesheet:
+</p>
 
-## Remarks
+<code class="expand">let mut dom = Dom::div().with_id("my_id").with_class("my_class");
+let styled_dom = dom.style(&mut Css::from_str("
+    #my_id { width: 100px; height: 100px; background: red; }
+"));
+</code>
+<br/>
+<br/>
 
-1. All measurements respect HiDPI screens and azul is fully HiDPI aware. Em values
-   are measured as `1em = 16px`
-2. CSS key-value pairs are parsed from top to bottom, and get overwritten in
-   that order, for example:
-   ```css
-   #my_div {
-       background: image("Cat01");
-       background: linear-gradient("105deg, red, blue");
-   }
-   ```
-   ... will draw a linear gradient, not the image, since the `linear-gradient` value
-   overwrote the `image` rule.
-3. Attributes in CSS paths are not (and aren't planned to be) supported,
-   since this is a fundamental difference between how HTML and the `layout()`
-   function work.
-5. `auto` as a value is only valid inside of dynamic CSS attributes, currently
-   values such as `auto` and `inherit` do not work as general values.
+<h2>Builtin CSS classes</h2>
 
-Animations are planned to be implemented with `@keyframes`, but this is not yet supported yet.
-You can create preliminary "animations" by using the dynamic CSS properties, but be aware that
-every repaint with dynamic CSS Ids requires a full re-layout, which can be performance intensive.
+<p>
+    CSS classes starting with <code>.__azul-native-</code> are reserved for builtin widgets.
+    You can use these classes in the <code>.restyle()</code> method to restyle native buttons
+    while retaining all the behaviour of the code:
+</p>
 
+<code class="expand">.__azul-native-button-container { } // style the container of the Button widget
+.__azul-native-button-content { } // style the text of the Button widget
+
+.__azul-native-checkbox-container { } // style the container of the CheckBox
+.__azul-native-checkbox-content { } // style the content of the CheckBox
+
+.__azul_native_color_input { } // style the content of the ColorInput
+
+.__azul-native-label { } // style the text of the Label widget
+
+.__azul-native-text-input-container { } // style the container of the TextInput widget
+.__azul-native-text-input-label { } // style the text of the TextInput widget
+</code><br/>
+<br/>
+
+<h2>Animating CSS properties</h2>
+
+<p>
+    In any callback you can animate CSS properties if they are animatable using
+    <code>callbackinfo.start_animation(nodeid, Animation)</code>. Azul does not
+    support animations via CSS. The <code>start_animation</code> function
+    returns a <code>TimerId</code>, which you can use to call <code>stop_timer</code>
+    when you want to stop the animation again. For UI transitions it generally
+    makes sense to set <code>relayout_on_finish</code>, which will call your
+    main <code>layout()</code> function again when the animation / transition
+    is finished.
+</p>
+
+<code class="expand">def on_click(data, info):
+    # TODO: ugly - need to create helper functions!
+    anim = Animation(
+        from=CssProperty.Opacity(OpacityValue.Exact(StyleOpacity(PercentageValue(FloatValue(0))))),
+        to=CssProperty.Opacity(OpacityValue.Exact(StyleOpacity(PercentageValue(FloatValue(1000))))),
+        duration=Duration.System(SystemTimeDiff(secs=1,nanos=0)),
+        repeat=AnimationRepeat.NoRepeat,
+        easing=AnimationEasing.EaseInOut,
+        relayout_on_finish=True
+    )
+    timer = info.start_animation(info.get_hit_node(), anim)</code><br/>
+
+<p>Additionally, you can also use <code>set_css_property(nodeid, CssProperty)</code> in order
+to change a CSS property once from a callback:</p>
+
+<code class="expand">def on_drag_start(data, info):
+    drag = info.get_mouse_state().current_drag
+    new_prop = CssProperty.Transform(TransformValue.Exact(StyleTransform.Position(new_x, new_y)))
+    info.set_css_property(info.get_hit_node(), new_prop)</code><br/>
+
+<p>Internally, Azul does nothing other than to start a timer with a callback function that only
+interpolates between the <code>Animation.from</code> and <code>Animation.to</code> CSS values.</p>
+<br/>
+
+<br/>
+
+<h2>Layout system</h2>
+
+<p>The layout system roughly follows the CSS flexbox model, although not quite:</p>
+
+<br/>
+<ul>
+    <li><p>First, all items are set to either their min-width, the intrinsic content width (text / image) or 0px.</p></li>
+    <li><p>Then, flex items are recursively expanded according to their flex-grow values, depending on how much space the parent has available</p></li>
+    <li><p><code>position:absolute</code> items are not expanded</p></li>
+    <li><p>After all sizes have been calculated, text is reflown if it doesn't fit in the bounds of the parent</p></li>
+    <li><p>Items are positioned on the screen, depending on the <code>flex-direction</code> value.</p></li>
+</ul>
+
+<p>
+    Azul is completely HiDPI aware, however, there is no em-cascading done yet.
+    Azul calculates <code>1em = 16px</code>.
+</p>
 
 <br/>
 <br/>

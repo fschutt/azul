@@ -1210,11 +1210,6 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
     let cur_vk_equal = current_window_state.keyboard_state.current_virtual_keycode == previous_window_state.keyboard_state.current_virtual_keycode;
     let cur_char_equal = current_window_state.keyboard_state.current_char == previous_window_state.keyboard_state.current_char;
 
-    use crate::window::VirtualKeyCode;
-    if current_window_state.keyboard_state.current_virtual_keycode == Some(VirtualKeyCode::Tab).into() {
-        println!("tab event: previous: {:#?}, now: {:#?}", previous_window_state.keyboard_state, current_window_state.keyboard_state);
-    }
-
     if !cur_vk_equal &&
         previous_window_state.keyboard_state.current_virtual_keycode.is_none() &&
         current_window_state.keyboard_state.current_virtual_keycode.is_some() {

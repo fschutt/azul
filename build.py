@@ -1056,7 +1056,6 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code += "use pyo3::PyObjectProtocol;\r\n"
     pyo3_code += "use pyo3::types::*;\r\n"
     pyo3_code += "use pyo3::exceptions::PyException;\r\n"
-    pyo3_code += "use pyo3::pyclass::PyClassAlloc;\r\n"
 
     # This should be done properly, but right now it works
 
@@ -2918,7 +2917,6 @@ def generate_api():
     write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
     write_file(generate_python_api(apiData, structs_map, functions_map.copy()), root_folder + "/azul-dll/src/python.rs")
     write_file(generate_cpp_api(apiData, structs_map), root_folder + "/api/cpp/azul.hpp")
-    # write_file(generate_cpp_api(apiData, structs_map, functions_map, forward_declarations), root_folder + "/api/python/azul.py")
 
 # Build the library with release settings
 def build_dll():
