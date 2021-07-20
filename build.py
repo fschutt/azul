@@ -3622,6 +3622,33 @@ def build_azulc():
     # enable features="image_loading, font_loading" to enable layouting
     os.system('cd "' + root_folder + '/azulc" && cargo build --bin azulc --no-default-features --features="xml std font_loading image_loading text_layout" --release')
 
+def generate_license():
+    # windows
+    os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json')
+    license_template = read_file(root_folder + "/LICENSE")
+    license_authors = read_file(root_folder + "/LICENSE-WINDOWS.json")
+    license_json = json.loads(license_authors)
+    license_authors_formatted = format_license_authors(license_json)
+    final_license_text = license_template.replace("$$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$", license_authors_formatted)
+    write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
+    remove_path(root_folder + "/LICENSE-WINDOWS.json")
+
+def format_license_authors(license_json):
+    license_txt = ""
+
+    for crate in license_json:
+        name = crate["name"]
+        version = crate["version"]
+        license = crate["license"]
+        a = crate["authors"]
+        authors = []
+        for author in a.split("|"):
+            # strip email for privacy reasons
+            authors.append(re.sub("<.*>", "", author).strip())
+
+        license_txt += name + " v" + version + " licensed " + license + "\r\n    by " + ", ".join(authors) + "\r\n"
+    return license_txt
+
 def full_test():
     os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --all-features')
     os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --examples')
@@ -3650,6 +3677,7 @@ def main():
     generate_api()
     print("generating documentation in /target/html...")
     generate_docs()
+    generate_license()
     print("building azulc (release mode)...")
     # build_azulc()
     print("building azul-dll (release mode)...")

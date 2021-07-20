@@ -1,354 +1,3 @@
-// The AZUL library (package "azul-dll") is provided under
-// the terms of the GNU Library General Public License (LGPL)
-// with the following modifications:
-// 
-// 1. Modifications to feature flags to enable / disable existing
-//    features in AZUL do not constitute a modified or derivative work.
-// 
-// 2. Static linking of applications and widgets to the AZUL library
-//    does not constitute a derivative work and does not require the
-//    author to provide source code for the application or widget,
-//    use the shared AZUL libraries, or link their applications or
-//    widgets against a user-supplied version of AZUL.
-// 
-// 3. You do not have to provide a copy of this license with programs
-//    that are linked to the AZUL library, nor do you have to identify
-//    the AZUL license in your program or documentation as required by
-//    section 6 of the LGPL.
-// 
-//    However, programs must still identify their use of AZUL. The
-//    following example statement can be included in user documentation
-//    to satisfy this requirement:
-// 
-//    [program] is based in part on the work of the AZUL GUI toolkit
-//    (https://azul.rs).
-// 
-// 4. ANTI-AUTOPGRADE-CLAUSE: This license is not implicitly
-//    compatible with future versions of the LGPL.
-// 
-// 5. In order to comply with the licenses used by the crates that this
-//    library depends on, the documentation must include the following
-//    section:
-// 
-// ----------------------------------------------------------------------
-// 
-// The AZUL GUI toolkit uses the following projects under the
-// following licenses:
-// 
-//     adler version 1.0.2:
-//         licensed 0BSD OR Apache-2.0 OR MIT by Jonas Schievink
-//     adler32 version 1.2.0:
-//         licensed Zlib by Remi Rampin
-//     ahash version 0.7.2:
-//         licensed Apache-2.0 OR MIT by Tom Kaitchuck
-//     alloc-no-stdlib version 2.0.1:
-//         licensed BSD-3-Clause by Daniel Reiter Horn
-//     allsorts-rental version 0.5.6:
-//         licensed Apache-2.0 OR MIT by Jameson Ernst
-//     allsorts_no_std version 0.5.2:
-//         licensed Apache-2.0 by YesLogic Pty. Ltd.
-//     app_units version 0.7.1:
-//         licensed MPL-2.0 by The Servo Project Developers
-//     arrayref version 0.3.6:
-//         licensed BSD-2-Clause by David Roundy
-//     arrayvec version 0.5.2:
-//         licensed Apache-2.0 OR MIT by bluss
-//     azul-core version 0.0.2:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azul-css version 0.0.1:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azul-css-parser version 0.0.1:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azul-desktop version 0.0.5:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azul-dll version 0.0.1:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azul-layout version 0.0.4:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azul-simplecss version 0.1.1:
-//         licensed MPL-2.0 by Reizner Evgeniy
-//     azul-text-layout version 0.0.5:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     azulc version 0.0.3:
-//         licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception by Felix Schütt
-//     backtrace version 0.3.56:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     base64 version 0.13.0:
-//         licensed Apache-2.0 OR MIT by Alice Maz, Marshall Pierce
-//     binary-space-partition version 0.1.2:
-//         licensed MPL-2.0 by Dzmitry Malyshau
-//     bincode version 1.3.1:
-//         licensed MIT by Ty Overby, Francesco Mazzoli, David Tolnay , Zoey Riordan
-//     bitflags version 1.2.1:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     bitreader version 0.3.3:
-//         licensed Apache-2.0 OR MIT by Ilkka Rauta
-//     brotli-decompressor version 2.3.1:
-//         licensed BSD-3-Clause OR MIT by Daniel Reiter Horn, The Brotli Authors
-//     bytemuck version 1.5.1:
-//         licensed Apache-2.0 OR MIT OR Zlib by Lokathor
-//     byteorder version 1.4.3:
-//         licensed MIT OR Unlicense by Andrew Gallant
-//     cfg-if version 0.1.10:
-//         licensed Apache-2.0 OR MIT by Alex Crichton
-//     cfg-if version 1.0.0:
-//         licensed Apache-2.0 OR MIT by Alex Crichton
-//     chrono version 0.4.19:
-//         licensed Apache-2.0 OR MIT by Kang Seonghoon, Brandon W Maister
-//     clipboard-win version 2.2.0:
-//         licensed MIT by Douman
-//     clipboard2 version 0.1.1:
-//         licensed MIT by Avi Weinstock, Felix Schütt
-//     color_quant version 1.1.0:
-//         licensed MIT by nwin
-//     convert_case version 0.4.0:
-//         licensed MIT by David Purdum
-//     crc32fast version 1.2.1:
-//         licensed Apache-2.0 OR MIT by Sam Rijs, Alex Crichton
-//     crossbeam-channel version 0.5.0:
-//         licensed Apache-2.0 OR MIT by The Crossbeam Project Developers
-//     crossbeam-deque version 0.8.0:
-//         licensed Apache-2.0 OR MIT by The Crossbeam Project Developers
-//     crossbeam-epoch version 0.9.3:
-//         licensed Apache-2.0 OR MIT by The Crossbeam Project Developers
-//     crossbeam-utils version 0.8.3:
-//         licensed Apache-2.0 OR MIT by The Crossbeam Project Developers
-//     cstr version 0.2.8:
-//         licensed MIT by Xidorn Quan
-//     data-url version 0.1.0:
-//         licensed Apache-2.0 OR MIT by Simon Sapin
-//     deflate version 0.8.6:
-//         licensed Apache-2.0 OR MIT by oyvindln
-//     derive_more version 0.99.13:
-//         licensed MIT by Jelte Fennema
-//     dwrote version 0.11.0:
-//         licensed MPL-2.0 by The Servo Project Developers, Vladimir Vukicevic
-//     either version 1.6.1:
-//         licensed Apache-2.0 OR MIT by bluss
-//     encoding_rs version 0.8.28:
-//         licensed Apache-2.0 OR MIT by Henri Sivonen
-//     etagere version 0.2.4:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     euclid version 0.20.14:
-//         licensed Apache-2.0 OR MIT by The Servo Project Developers
-//     euclid version 0.22.2:
-//         licensed Apache-2.0 OR MIT by The Servo Project Developers
-//     fern version 0.5.9:
-//         licensed MIT by David Ross
-//     flate2 version 1.0.20:
-//         licensed Apache-2.0 OR MIT by Alex Crichton, Josh Triplett
-//     float-cmp version 0.5.3:
-//         licensed MIT by Mike Dilger
-//     fxhash version 0.2.1:
-//         licensed Apache-2.0 OR MIT by cbreeden
-//     getrandom version 0.2.2:
-//         licensed Apache-2.0 OR MIT by The Rand Project Developers
-//     gif version 0.11.2:
-//         licensed Apache-2.0 OR MIT by nwin
-//     gleam version 0.13.1:
-//         licensed Apache-2.0 OR MIT by The Servo Project Developers
-//     glutin version 0.26.0:
-//         licensed Apache-2.0 by The glutin contributors, Pierre Krieger
-//     glutin_egl_sys version 0.1.5:
-//         licensed Apache-2.0 by The glutin contributors, Hal Gentz
-//     glutin_wgl_sys version 0.1.5:
-//         licensed Apache-2.0 by The glutin contributors, Hal Gentz
-//     glyph-names version 0.1.0:
-//         licensed BSD-3-Clause by YesLogic Pty. Ltd.
-//     image version 0.23.14:
-//         licensed MIT by The image-rs Developers
-//     instant version 0.1.9:
-//         licensed BSD-3-Clause by sebcrozet
-//     itertools version 0.8.2:
-//         licensed Apache-2.0 OR MIT by bluss
-//     jpeg-decoder version 0.1.22:
-//         licensed Apache-2.0 OR MIT by Ulf Nilsson
-//     kurbo version 0.8.0:
-//         licensed Apache-2.0 OR MIT by Raph Levien
-//     lazy_static version 1.4.0:
-//         licensed Apache-2.0 OR MIT by Marvin Löbel
-//     libc version 0.2.91:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     libloading version 0.6.7:
-//         licensed ISC by Simonas Kazlauskas
-//     libm version 0.2.1:
-//         licensed Apache-2.0 OR MIT by Jorge Aparicio
-//     lock_api version 0.4.2:
-//         licensed Apache-2.0 OR MIT by Amanieu d'Antras
-//     log version 0.4.14:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     lyon version 0.15.9:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     lyon_algorithms version 0.15.1:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     lyon_geom version 0.15.3:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     lyon_path version 0.15.2:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     lyon_tessellation version 0.15.9:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     malloc_size_of_derive version 0.1.2:
-//         licensed Apache-2.0 OR MIT by The Servo Project Developers
-//     matches version 0.1.8:
-//         licensed MIT by Simon Sapin
-//     memoffset version 0.6.2:
-//         licensed MIT by Gilad Naaman
-//     minidl version 0.1.1:
-//         licensed Apache-2.0 OR MIT by MaulingMonkey
-//     miniz_oxide version 0.3.7:
-//         licensed MIT by Frommi, oyvindln
-//     miniz_oxide version 0.4.4:
-//         licensed Apache-2.0 OR MIT OR Zlib by Frommi, oyvindln
-//     mmapio version 0.9.1:
-//         licensed Apache-2.0 OR MIT by henrylee2cn, dignifiedquire, Dan Burkert
-//     num-integer version 0.1.44:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     num-iter version 0.1.42:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     num-rational version 0.3.2:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     num-traits version 0.2.14:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     num_cpus version 1.13.0:
-//         licensed Apache-2.0 OR MIT by Sean McArthur
-//     once_cell version 1.7.2:
-//         licensed Apache-2.0 OR MIT by Aleksey Kladov
-//     owned_ttf_parser version 0.6.0:
-//         licensed Apache-2.0 by Alex Butler
-//     parking_lot version 0.11.1:
-//         licensed Apache-2.0 OR MIT by Amanieu d'Antras
-//     parking_lot_core version 0.8.3:
-//         licensed Apache-2.0 OR MIT by Amanieu d'Antras
-//     peek-poke version 0.2.0:
-//         licensed Apache-2.0 OR MIT by Dan Glastonbury
-//     peek-poke-derive version 0.2.1:
-//         licensed Apache-2.0 OR MIT by Dan Glastonbury
-//     pico-args version 0.4.0:
-//         licensed MIT by Evgeniy Reizner
-//     plane-split version 0.17.1:
-//         licensed MPL-2.0 by Dzmitry Malyshau
-//     png version 0.16.8:
-//         licensed Apache-2.0 OR MIT by nwin
-//     proc-macro2 version 1.0.24:
-//         licensed Apache-2.0 OR MIT by Alex Crichton, David Tolnay
-//     quote version 1.0.9:
-//         licensed Apache-2.0 OR MIT by David Tolnay
-//     raw-window-handle version 0.3.3:
-//         licensed MIT by Osspial
-//     rayon version 1.5.0:
-//         licensed Apache-2.0 OR MIT by Niko Matsakis, Josh Stone
-//     rayon-core version 1.9.0:
-//         licensed Apache-2.0 OR MIT by Niko Matsakis, Josh Stone
-//     rctree version 0.3.3:
-//         licensed MIT by Simon Sapin, Evgeniy Reizner
-//     rental-impl version 0.5.5:
-//         licensed Apache-2.0 OR MIT by Jameson Ernst
-//     resvg version 0.14.0:
-//         licensed MPL-2.0 by Reizner Evgeniy
-//     rgb version 0.8.25:
-//         licensed MIT by Kornel Lesiński
-//     roxmltree version 0.14.0:
-//         licensed Apache-2.0 OR MIT by Evgeniy Reizner
-//     rust-fontconfig version 0.1.3:
-//         licensed MIT by Felix Schütt
-//     rustc-demangle version 0.1.18:
-//         licensed Apache-2.0 OR MIT by Alex Crichton
-//     rustc-hash version 1.1.0:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     safe_arch version 0.5.2:
-//         licensed Apache-2.0 OR MIT OR Zlib by Lokathor
-//     scoped_threadpool version 0.1.9:
-//         licensed MIT by Marvin Löbel
-//     scopeguard version 1.1.0:
-//         licensed Apache-2.0 OR MIT by bluss
-//     serde version 1.0.125:
-//         licensed Apache-2.0 OR MIT by Erick Tryzelaar, David Tolnay
-//     serde_bytes version 0.11.5:
-//         licensed Apache-2.0 OR MIT by David Tolnay
-//     serde_derive version 1.0.125:
-//         licensed Apache-2.0 OR MIT by Erick Tryzelaar, David Tolnay
-//     sid version 0.6.1:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     simplecss version 0.2.0:
-//         licensed Apache-2.0 OR MIT by Reizner Evgeniy
-//     siphasher version 0.2.3:
-//         licensed Apache-2.0 OR MIT by Frank Denis
-//     smallvec version 1.6.1:
-//         licensed Apache-2.0 OR MIT by The Servo Project Developers
-//     stable_deref_trait version 1.2.0:
-//         licensed Apache-2.0 OR MIT by Robert Grosse
-//     strfmt version 0.1.6:
-//         licensed MIT by Garrett Berg
-//     svg_fmt version 0.4.1:
-//         licensed Apache-2.0 OR MIT by Nicolas Silva
-//     svgfilters version 0.3.0:
-//         licensed MPL-2.0 by Evgeniy Reizner
-//     svgtypes version 0.5.0:
-//         licensed Apache-2.0 OR MIT by Evgeniy Reizner
-//     syn version 1.0.64:
-//         licensed Apache-2.0 OR MIT by David Tolnay
-//     synstructure version 0.12.4:
-//         licensed MIT by Nika Layzell
-//     tiff version 0.6.1:
-//         licensed MIT by ccgn, bvssvni, nwin, TyOverby, HeroicKatora,
-//         Calum, CensoredUsername, Robzz, birktj
-//     time version 0.1.43:
-//         licensed Apache-2.0 OR MIT by The Rust Project Developers
-//     tiny-skia version 0.5.1:
-//         licensed BSD-3-Clause by Evgeniy Reizner
-//     tinyfiledialogs version 3.3.10:
-//         licensed zlib-acknowledgement by Guillaume Vareille, Josh Matthews
-//     tinyvec version 1.1.1:
-//         licensed Apache-2.0 OR MIT OR Zlib by Lokathor
-//     tinyvec_macros version 0.1.0:
-//         licensed Apache-2.0 OR MIT OR Zlib by Soveu
-//     tracy-rs version 0.1.2:
-//         licensed MPL-2.0 by Glenn Watson
-//     ttf-parser version 0.6.2:
-//         licensed Apache-2.0 OR MIT by Evgeniy Reizner
-//     ttf-parser version 0.11.0:
-//         licensed Apache-2.0 OR MIT by Evgeniy Reizner
-//     ucd-trie version 0.1.3:
-//         licensed Apache-2.0 OR MIT by Andrew Gallant
-//     unicode-general-category version 0.3.0:
-//         licensed Apache-2.0 by YesLogic Pty. Ltd.
-//     unicode-joining-type version 0.5.0:
-//         licensed Apache-2.0 by YesLogic Pty. Ltd.
-//     unicode-normalization version 0.1.17:
-//         licensed Apache-2.0 OR MIT by kwantam, Manish Goregaokar
-//     unicode-xid version 0.2.1:
-//         licensed Apache-2.0 OR MIT by erick.tryzelaar, kwantam
-//     usvg version 0.14.0:
-//         licensed MPL-2.0 by Evgeniy Reizner
-//     uuid version 0.8.2:
-//         licensed Apache-2.0 OR MIT by Ashley Mannix, Christopher Armstrong,
-//         Dylan DPC, Hunar Roop Kahlon
-//     webrender version 0.61.0:
-//         licensed MPL-2.0 by Glenn Watson
-//     webrender_api version 0.61.0:
-//         licensed MPL-2.0 by Glenn Watson
-//     webrender_build version 0.0.1:
-//         licensed MPL-2.0 by The Servo Project Developers
-//     weezl version 0.1.4:
-//         licensed Apache-2.0 OR MIT by HeroicKatora
-//     winapi version 0.3.9:
-//         licensed Apache-2.0 OR MIT by Peter Atashian
-//     winit version 0.24.0:
-//         licensed Apache-2.0 by The winit contributors, Pierre Krieger
-//     wio version 0.2.2:
-//         licensed Apache-2.0 OR MIT by Peter Atashian
-//     wr_malloc_size_of version 0.0.1:
-//         licensed Apache-2.0 OR MIT by The Servo Project Developers
-//     xmlparser version 0.13.3:
-//         licensed Apache-2.0 OR MIT by Evgeniy Reizner
-//     xmlwriter version 0.1.0:
-//         licensed MIT by Evgeniy Reizner
-// 
-// To generate the full text of the license for the license, please visit
-// https://spdx.org/licenses/ and replace the license author in the source
-// text in any given license with the name of the author.
-// 
-// ----------------------------------------------------------------------
 // 
 //                    GNU LESSER GENERAL PUBLIC LICENSE
 //                        Version 3, 29 June 2007
@@ -515,6 +164,45 @@
 // apply, that proxy's public statement of acceptance of any version is
 // permanent authorization for you to choose that version for the
 // Library.
+// 
+// ----------------------------------------------------------------------
+// 
+// The AZUL library (package "azul-dll") is provided under
+// the terms of the GNU Library General Public License (LGPL)
+// with the following modifications:
+// 
+// 1. Modifications to feature flags to enable / disable existing
+//    features in AZUL do not constitute a modified or derivative work.
+// 
+// 2. Static linking of applications and widgets to the AZUL library
+//    does not constitute a derivative work and does not require the
+//    author to provide source code for the application or widget,
+//    use the shared AZUL libraries, or link their applications or
+//    widgets against a user-supplied version of AZUL.
+// 
+// 3. This license is not implicitly compatible with future versions
+//    of the LGPL (invalidating section 6).
+// 
+// 4. You do not have to provide a copy of the LGPL license with programs
+//   that are linked to the AZUL library, nor do you have to identify
+//   the AZUL license in your program or documentation as required by
+//   section 6 of the LGPL.
+// 
+//   However, programs must still identify their use of AZUL. The
+//   following example statement can be included in user documentation
+//   to satisfy this requirement:
+// 
+// ----------------------------------------------------------------------
+// 
+// [program] is based in part on the work of the AZUL GUI toolkit
+// (https://azul.rs). The AZUL GUI toolkit uses the following libraries
+// under the following licenses:
+// 
+// $$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$
+// 
+// To generate the full text of the license for the license, please visit
+// https://spdx.org/licenses/ and replace the license author in the source
+// text in any given license with the name of the author.
 // #![no_std]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",

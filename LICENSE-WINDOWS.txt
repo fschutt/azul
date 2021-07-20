@@ -1,0 +1,487 @@
+
+                   GNU LESSER GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies of this
+ license document, but changing it is not allowed.
+
+
+  This version of the GNU Lesser General Public License incorporates
+the terms and conditions of version 3 of the GNU General Public
+License, supplemented by the additional permissions listed below.
+
+  0. Additional Definitions.
+
+  As used herein, "this License" refers to version 3 of the GNU Lesser
+General Public License, and the "GNU GPL" refers to version 3 of the
+GNU General Public License.
+
+  "The Library" refers to a covered work governed by this License,
+other than an Application or a Combined Work as defined below.
+
+  An "Application" is any work that makes use of an interface provided
+by the Library, but which is not otherwise based on the Library.
+Defining a subclass of a class defined by the Library is deemed a mode
+of using an interface provided by the Library.
+
+  A "Combined Work" is a work produced by combining or linking an
+Application with the Library.  The particular version of the Library
+with which the Combined Work was made is also called the "Linked
+Version".
+
+  The "Minimal Corresponding Source" for a Combined Work means the
+Corresponding Source for the Combined Work, excluding any source code
+for portions of the Combined Work that, considered in isolation, are
+based on the Application, and not on the Linked Version.
+
+  The "Corresponding Application Code" for a Combined Work means the
+object code and/or source code for the Application, including any data
+and utility programs needed for reproducing the Combined Work from the
+Application, but excluding the System Libraries of the Combined Work.
+
+  1. Exception to Section 3 of the GNU GPL.
+
+  You may convey a covered work under sections 3 and 4 of this License
+without being bound by section 3 of the GNU GPL.
+
+  2. Conveying Modified Versions.
+
+  If you modify a copy of the Library, and, in your modifications, a
+facility refers to a function or data to be supplied by an Application
+that uses the facility (other than as an argument passed when the
+facility is invoked), then you may convey a copy of the modified
+version:
+
+   a) under this License, provided that you make a good faith effort
+   to ensure that, in the event an Application does not supply the
+   function or data, the facility still operates, and performs
+   whatever part of its purpose remains meaningful, or
+
+   b) under the GNU GPL, with none of the additional permissions of
+   this License applicable to that copy.
+
+  3. Object Code Incorporating Material from Library Header Files.
+
+  The object code form of an Application may incorporate material from
+a header file that is part of the Library.  You may convey such object
+code under terms of your choice, provided that, if the incorporated
+material is not limited to numerical parameters, data structure
+layouts and accessors, or small macros, inline functions and templates
+(ten or fewer lines in length), you do both of the following:
+
+   a) Give prominent notice with each copy of the object code that the
+   Library is used in it and that the Library and its use are covered
+   by this License.
+
+   b) Accompany the object code with a copy of the GNU GPL and this
+   license document.
+
+  4. Combined Works.
+
+  You may convey a Combined Work under terms of your choice that,
+taken together, effectively do not restrict modification of the
+portions of the Library contained in the Combined Work and reverse
+engineering for debugging such modifications, if you also do each of
+the following:
+
+   a) Give prominent notice with each copy of the Combined Work that
+   the Library is used in it and that the Library and its use are
+   covered by this License.
+
+   b) Accompany the Combined Work with a copy of the GNU GPL and this
+   license document.
+
+   c) For a Combined Work that displays copyright notices during
+   execution, include the copyright notice for the Library among these
+   notices, as well as a reference directing the user to the copies of
+   the GNU GPL and this license document.
+
+   d) Do one of the following:
+
+       0) Convey the Minimal Corresponding Source under the terms of
+       this License, and the Corresponding Application Code in a form
+       suitable for, and under terms that permit, the user to
+       recombine or relink the Application with a modified version of
+       the Linked Version to produce a modified Combined Work, in the
+       manner specified by section 6 of the GNU GPL for conveying
+       Corresponding Source.
+
+       1) Use a suitable shared library mechanism for linking with the
+       Library.  A suitable mechanism is one that (a) uses at run time
+       a copy of the Library already present on the user's computer
+       system, and (b) will operate properly with a modified version
+       of the Library that is interface-compatible with the Linked
+       Version.
+
+   e) Provide Installation Information, but only if you would
+   otherwise be required to provide such information under section 6
+   of the GNU GPL, and only to the extent that such information is
+   necessary to install and execute a modified version of the Combined
+   Work produced by recombining or relinking the Application with a
+   modified version of the Linked Version. (If you use option 4d0, the
+   Installation Information must accompany the Minimal Corresponding
+   Source and Corresponding Application Code. If you use option 4d1,
+   you must provide the Installation Information in the manner
+   specified by section 6 of the GNU GPL for conveying Corresponding
+   Source.)
+
+  5. Combined Libraries.
+
+  You may place library facilities that are a work based on the
+Library side by side in a single library together with other library
+facilities that are not Applications and are not covered by this
+License, and convey such a combined library under terms of your
+choice, if you do both of the following:
+
+   a) Accompany the combined library with a copy of the same work
+   based on the Library, uncombined with any other library facilities,
+   conveyed under the terms of this License.
+
+   b) Give prominent notice with the combined library that part of it
+   is a work based on the Library, and explaining where to find the
+   accompanying uncombined form of the same work.
+
+  6. Revised Versions of the GNU Lesser General Public License.
+
+  The Free Software Foundation may publish revised and/or new versions
+of the GNU Lesser General Public License from time to time. Such new
+versions will be similar in spirit to the present version, but may
+differ in detail to address new problems or concerns.
+
+  Each version is given a distinguishing version number. If the
+Library as you received it specifies that a certain numbered version
+of the GNU Lesser General Public License "or any later version"
+applies to it, you have the option of following the terms and
+conditions either of that published version or of any later version
+published by the Free Software Foundation. If the Library as you
+received it does not specify a version number of the GNU Lesser
+General Public License, you may choose any version of the GNU Lesser
+General Public License ever published by the Free Software Foundation.
+
+  If the Library as you received it specifies that a proxy can decide
+whether future versions of the GNU Lesser General Public License shall
+apply, that proxy's public statement of acceptance of any version is
+permanent authorization for you to choose that version for the
+Library.
+
+----------------------------------------------------------------------
+
+The AZUL library (package "azul-dll") is provided under
+the terms of the GNU Library General Public License (LGPL)
+with the following modifications:
+
+1. Modifications to feature flags to enable / disable existing
+   features in AZUL do not constitute a modified or derivative work.
+
+2. Static linking of applications and widgets to the AZUL library
+   does not constitute a derivative work and does not require the
+   author to provide source code for the application or widget,
+   use the shared AZUL libraries, or link their applications or
+   widgets against a user-supplied version of AZUL.
+
+3. This license is not implicitly compatible with future versions
+   of the LGPL (invalidating section 6).
+
+4. You do not have to provide a copy of the LGPL license with programs
+  that are linked to the AZUL library, nor do you have to identify
+  the AZUL license in your program or documentation as required by
+  section 6 of the LGPL.
+
+  However, programs must still identify their use of AZUL. The
+  following example statement can be included in user documentation
+  to satisfy this requirement:
+
+----------------------------------------------------------------------
+
+[program] is based in part on the work of the AZUL GUI toolkit
+(https://azul.rs). The AZUL GUI toolkit uses the following libraries
+under the following licenses:
+
+addr2line v0.15.2 licensed Apache-2.0 OR MIT
+    by Nick Fitzgerald, Philip Craig, Jon Gjengset, Noah Bergbauer
+adler v1.0.2 licensed 0BSD OR Apache-2.0 OR MIT
+    by Jonas Schievink
+adler32 v1.2.0 licensed Zlib
+    by Remi Rampin
+alloc-no-stdlib v2.0.1 licensed BSD-3-Clause
+    by Daniel Reiter Horn
+allsorts-rental v0.5.6 licensed Apache-2.0 OR MIT
+    by Jameson Ernst
+allsorts_no_std v0.5.2 licensed Apache-2.0
+    by YesLogic Pty. Ltd.
+app_units v0.7.1 licensed MPL-2.0
+    by The Servo Project Developers
+arrayref v0.3.6 licensed BSD-2-Clause
+    by David Roundy
+arrayvec v0.5.2 licensed Apache-2.0 OR MIT
+    by bluss
+azul-core v0.0.2 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+azul-css v0.0.1 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+azul-css-parser v0.0.1 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+azul-desktop v0.0.5 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt, The winit contributors
+azul-dll v0.0.1 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+azul-layout v0.0.4 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+azul-peek-poke v0.2.0 licensed Apache-2.0 OR MIT
+    by Dan Glastonbury
+azul-peek-poke-derive v0.2.1 licensed Apache-2.0 OR MIT
+    by Dan Glastonbury
+azul-simplecss v0.1.1 licensed MPL-2.0
+    by Reizner Evgeniy
+azul-text-layout v0.0.5 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+azul-webrender v0.62.1 licensed MPL-2.0
+    by Glenn Watson
+azul-webrender-api v0.62.0 licensed MPL-2.0
+    by Glenn Watson
+azul-webrender-build v0.0.2 licensed MPL-2.0
+    by The Servo Project Developers
+azul-wr_malloc_size_of v0.0.1 licensed Apache-2.0 OR MIT
+    by The Servo Project Developers
+azulc v0.0.3 licensed LGPL-3.0-only WITH LGPL-3.0-linking-exception
+    by Felix Schütt
+backtrace v0.3.60 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+base64 v0.13.0 licensed Apache-2.0 OR MIT
+    by Alice Maz, Marshall Pierce
+binary-space-partition v0.1.2 licensed MPL-2.0
+    by Dzmitry Malyshau
+bincode v1.3.3 licensed MIT
+    by Ty Overby, Francesco Mazzoli, David Tolnay, Zoey Riordan
+bitflags v1.2.1 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+bitreader v0.3.4 licensed Apache-2.0 OR MIT
+    by Ilkka Rauta
+brotli-decompressor v2.3.1 licensed BSD-3-Clause OR MIT
+    by Daniel Reiter Horn, The Brotli Authors
+bytemuck v1.7.0 licensed Apache-2.0 OR MIT OR Zlib
+    by Lokathor
+byteorder v1.4.3 licensed MIT OR Unlicense
+    by Andrew Gallant
+cfg-if v1.0.0 licensed Apache-2.0 OR MIT
+    by Alex Crichton
+chrono v0.4.19 licensed Apache-2.0 OR MIT
+    by Kang Seonghoon, Brandon W Maister
+clipboard-win v2.2.0 licensed MIT
+    by Douman
+clipboard2 v0.1.1 licensed MIT
+    by Avi Weinstock, Felix Schütt
+color_quant v1.1.0 licensed MIT
+    by nwin
+convert_case v0.4.0 licensed MIT
+    by David Purdum
+crc32fast v1.2.1 licensed Apache-2.0 OR MIT
+    by Sam Rijs, Alex Crichton
+crossbeam-channel v0.5.1 licensed Apache-2.0 OR MIT
+    by The Crossbeam Project Developers
+crossbeam-deque v0.8.0 licensed Apache-2.0 OR MIT
+    by The Crossbeam Project Developers
+crossbeam-epoch v0.9.5 licensed Apache-2.0 OR MIT
+    by The Crossbeam Project Developers
+crossbeam-utils v0.8.5 licensed Apache-2.0 OR MIT
+    by The Crossbeam Project Developers
+cstr v0.2.8 licensed MIT
+    by Xidorn Quan
+data-url v0.1.0 licensed Apache-2.0 OR MIT
+    by Simon Sapin
+deflate v0.8.6 licensed Apache-2.0 OR MIT
+    by oyvindln
+derive_more v0.99.16 licensed MIT
+    by Jelte Fennema
+dwrote v0.11.0 licensed MPL-2.0
+    by The Servo Project Developers, Vladimir Vukicevic
+either v1.6.1 licensed Apache-2.0 OR MIT
+    by bluss
+encoding_rs v0.8.28 licensed Apache-2.0 OR MIT
+    by Henri Sivonen
+etagere v0.2.4 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+euclid v0.22.6 licensed Apache-2.0 OR MIT
+    by The Servo Project Developers
+fern v0.5.9 licensed MIT
+    by David Ross
+flate2 v1.0.20 licensed Apache-2.0 OR MIT
+    by Alex Crichton, Josh Triplett
+float-cmp v0.5.3 licensed MIT
+    by Mike Dilger
+float_next_after v0.1.5 licensed MIT
+    by Bronson Brown-deVost
+fxhash v0.2.1 licensed Apache-2.0 OR MIT
+    by cbreeden
+gif v0.11.2 licensed Apache-2.0 OR MIT
+    by nwin
+gimli v0.24.0 licensed Apache-2.0 OR MIT
+    by Nick Fitzgerald, Philip Craig
+gl-context-loader v0.1.4 licensed Apache-2.0 OR MIT
+    by Felix Schütt, The Servo Project Developers
+glyph-names v0.1.0 licensed BSD-3-Clause
+    by YesLogic Pty. Ltd.
+highway v0.6.4 licensed MIT
+    by Nick Babcock
+image v0.23.14 licensed MIT
+    by The image-rs Developers
+itertools v0.8.2 licensed Apache-2.0 OR MIT
+    by bluss
+jpeg-decoder v0.1.22 licensed Apache-2.0 OR MIT
+    by Ulf Nilsson
+kurbo v0.8.1 licensed Apache-2.0 OR MIT
+    by Raph Levien
+lazy_static v1.4.0 licensed Apache-2.0 OR MIT
+    by Marvin Löbel
+libc v0.2.98 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+libm v0.2.1 licensed Apache-2.0 OR MIT
+    by Jorge Aparicio
+log v0.4.14 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+lyon v0.17.5 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+lyon_algorithms v0.17.4 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+lyon_geom v0.17.4 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+lyon_path v0.17.4 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+lyon_tessellation v0.17.8 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+malloc_size_of_derive v0.1.2 licensed Apache-2.0 OR MIT
+    by The Servo Project Developers
+matches v0.1.8 licensed MIT
+    by Simon Sapin
+memchr v2.4.0 licensed MIT OR Unlicense
+    by Andrew Gallant, bluss
+memoffset v0.6.4 licensed MIT
+    by Gilad Naaman
+miniz_oxide v0.3.7 licensed MIT
+    by Frommi, oyvindln
+miniz_oxide v0.4.4 licensed Apache-2.0 OR MIT OR Zlib
+    by Frommi, oyvindln
+mmapio v0.9.1 licensed Apache-2.0 OR MIT
+    by henrylee2cn, dignifiedquire, Dan Burkert
+num-integer v0.1.44 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+num-iter v0.1.42 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+num-rational v0.3.2 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+num-traits v0.2.14 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+num_cpus v1.13.0 licensed Apache-2.0 OR MIT
+    by Sean McArthur
+object v0.25.3 licensed Apache-2.0 OR MIT
+    by Nick Fitzgerald, Philip Craig
+pico-args v0.4.2 licensed MIT
+    by Evgeniy Reizner
+plane-split v0.17.1 licensed MPL-2.0
+    by Dzmitry Malyshau
+png v0.16.8 licensed Apache-2.0 OR MIT
+    by nwin
+proc-macro2 v1.0.27 licensed Apache-2.0 OR MIT
+    by Alex Crichton, David Tolnay
+quote v1.0.9 licensed Apache-2.0 OR MIT
+    by David Tolnay
+raw-window-handle v0.3.3 licensed MIT
+    by Osspial
+rayon v1.5.1 licensed Apache-2.0 OR MIT
+    by Niko Matsakis, Josh Stone
+rayon-core v1.9.1 licensed Apache-2.0 OR MIT
+    by Niko Matsakis, Josh Stone
+rctree v0.3.3 licensed MIT
+    by Simon Sapin, Evgeniy Reizner
+rental-impl v0.5.5 licensed Apache-2.0 OR MIT
+    by Jameson Ernst
+resvg v0.14.1 licensed MPL-2.0
+    by Reizner Evgeniy
+rgb v0.8.27 licensed MIT
+    by Kornel Lesiński
+roxmltree v0.14.1 licensed Apache-2.0 OR MIT
+    by Evgeniy Reizner
+rust-fontconfig v0.1.5 licensed MIT
+    by Felix Schütt
+rustc-demangle v0.1.20 licensed Apache-2.0 OR MIT
+    by Alex Crichton
+rustc-hash v1.1.0 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+safe_arch v0.5.2 licensed Apache-2.0 OR MIT OR Zlib
+    by Lokathor
+scoped_threadpool v0.1.9 licensed MIT
+    by Marvin Löbel
+scopeguard v1.1.0 licensed Apache-2.0 OR MIT
+    by bluss
+serde v1.0.126 licensed Apache-2.0 OR MIT
+    by Erick Tryzelaar, David Tolnay
+serde_bytes v0.11.5 licensed Apache-2.0 OR MIT
+    by David Tolnay
+serde_derive v1.0.126 licensed Apache-2.0 OR MIT
+    by Erick Tryzelaar, David Tolnay
+sid v0.6.1 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+simplecss v0.2.0 licensed Apache-2.0 OR MIT
+    by Reizner Evgeniy
+siphasher v0.2.3 licensed Apache-2.0 OR MIT
+    by Frank Denis
+smallvec v1.6.1 licensed Apache-2.0 OR MIT
+    by The Servo Project Developers
+stable_deref_trait v1.2.0 licensed Apache-2.0 OR MIT
+    by Robert Grosse
+strfmt v0.1.6 licensed MIT
+    by Garrett Berg
+svg_fmt v0.4.1 licensed Apache-2.0 OR MIT
+    by Nicolas Silva
+svgfilters v0.3.0 licensed MPL-2.0
+    by Evgeniy Reizner
+svgtypes v0.5.0 licensed Apache-2.0 OR MIT
+    by Evgeniy Reizner
+syn v1.0.73 licensed Apache-2.0 OR MIT
+    by David Tolnay
+synstructure v0.12.5 licensed MIT
+    by Nika Layzell
+tiff v0.6.1 licensed MIT
+    by ccgn, bvssvni, nwin, TyOverby, HeroicKatora, Calum, CensoredUsername, Robzz, birktj
+time v0.1.43 licensed Apache-2.0 OR MIT
+    by The Rust Project Developers
+tiny-skia v0.5.1 licensed BSD-3-Clause
+    by Evgeniy Reizner
+tinyfiledialogs v3.8.3 licensed zlib-acknowledgement
+    by Guillaume Vareille, Josh Matthews
+tinyvec v1.3.0 licensed Apache-2.0 OR MIT OR Zlib
+    by Lokathor
+tinyvec_macros v0.1.0 licensed Apache-2.0 OR MIT OR Zlib
+    by Soveu
+tracy-rs v0.1.2 licensed MPL-2.0
+    by Glenn Watson
+ttf-parser v0.11.0 licensed Apache-2.0 OR MIT
+    by Evgeniy Reizner
+ucd-trie v0.1.3 licensed Apache-2.0 OR MIT
+    by Andrew Gallant
+unicode-general-category v0.3.0 licensed Apache-2.0
+    by YesLogic Pty. Ltd.
+unicode-joining-type v0.5.0 licensed Apache-2.0
+    by YesLogic Pty. Ltd.
+unicode-normalization v0.1.19 licensed Apache-2.0 OR MIT
+    by kwantam, Manish Goregaokar
+unicode-xid v0.2.2 licensed Apache-2.0 OR MIT
+    by erick.tryzelaar, kwantam, Manish Goregaokar
+usvg v0.14.1 licensed MPL-2.0
+    by Evgeniy Reizner
+weezl v0.1.5 licensed Apache-2.0 OR MIT
+    by HeroicKatora
+winapi v0.3.9 licensed Apache-2.0 OR MIT
+    by Peter Atashian
+wio v0.2.2 licensed Apache-2.0 OR MIT
+    by Peter Atashian
+xmlparser v0.13.3 licensed Apache-2.0 OR MIT
+    by Evgeniy Reizner
+xmlwriter v0.1.0 licensed MIT
+    by Evgeniy Reizner
+
+
+To generate the full text of the license for the license, please visit
+https://spdx.org/licenses/ and replace the license author in the source
+text in any given license with the name of the author.
