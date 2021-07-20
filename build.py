@@ -2695,14 +2695,14 @@ def generate_c_extra_functions(api_data):
                 if "type" in variant[variant_name]:
                     type_name = variant[variant_name]["type"]
 
-                    code += "bool " + prefix + class_name + "_matchRef(const " + prefix + class_name + "* value, const " + prefix + type_name + "** restrict out) {\r\n"
+                    code += "bool " + prefix + class_name + "_matchRef" + variant_name + "(const " + prefix + class_name + "* value, const " + prefix + type_name + "** restrict out) {\r\n"
                     code += "    const " + prefix + class_name + "Variant_" + variant_name + "* casted = (const " + prefix + class_name +"Variant_" + variant_name + "*)value;\r\n"
                     code += "    bool valid = casted->tag == " + prefix + class_name + "Tag_" + variant_name + ";\r\n"
                     code += "    if (valid) { *out = &casted->payload; } else { *out = 0; }\r\n"
                     code += "    return valid;\r\n"
                     code += "}\r\n\r\n"
 
-                    code += "bool " + prefix + class_name + "_matchMut(" + prefix + class_name + "* restrict value, " + prefix + type_name + "* restrict * restrict out) {\r\n"
+                    code += "bool " + prefix + class_name + "_matchMut" + variant_name + "(" + prefix + class_name + "* restrict value, " + prefix + type_name + "* restrict * restrict out) {\r\n"
                     code += "    " + prefix + class_name + "Variant_" + variant_name + "* restrict casted = (" + prefix + class_name +"Variant_" + variant_name + "* restrict)value;\r\n"
                     code += "    bool valid = casted->tag == " + prefix + class_name + "Tag_" + variant_name + ";\r\n"
                     code += "    if (valid) { *out = &casted->payload; } else { *out = 0; }\r\n"
@@ -3284,6 +3284,7 @@ def generate_docs():
     for version in all_versions:
 
         api_page_contents = ""
+        api_page_contents += read_file(root_folder + "/api/_patches/html/api-header.html")
         api_page_contents += "<ul>"
 
         if "doc" in apiData[version].keys():
@@ -3304,6 +3305,13 @@ def generate_docs():
 
             for class_name in module["classes"].keys():
                 c = module["classes"][class_name]
+                is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
+                treat_external_as_ptr = "external" in c.keys() and is_boxed_object
+                class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
+
+                destructor_warning = ""
+                if class_has_custom_destructor or treat_external_as_ptr:
+                    destructor_warning = "&nbsp;<span class=\"chd\">has destructor</span>"
 
                 if "enum_fields" in c.keys():
                     api_page_contents += "<li class=\"st e pbi\" id=\"st." + class_name + "\">"
@@ -3313,7 +3321,7 @@ def generate_docs():
                     if enum_is_union(c["enum_fields"]):
                         enum_type = "union enum"
 
-                    api_page_contents += "<h4>" + enum_type + " <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
+                    api_page_contents += "<h4>" + enum_type + " <a href=\"#st." + class_name + "\">" + class_name + "</a>" + destructor_warning + "</h4>"
                     for enum_variant in c["enum_fields"]:
                         enum_variant_name = list(enum_variant.keys())[0]
                         if "doc" in enum_variant[enum_variant_name]:
@@ -3334,7 +3342,7 @@ def generate_docs():
                     api_page_contents += "<li class=\"st s pbi\" id=\"st." + class_name + "\">"
                     if "doc" in c.keys():
                         api_page_contents += "<p class=\"class doc\">" + format_doc(c["doc"]) + "</p>"
-                    api_page_contents += "<h4>struct <a href=\"#st." + class_name + "\">" + class_name + "</a></h4>"
+                    api_page_contents += "<h4>struct <a href=\"#st." + class_name + "\">" + class_name + "</a>" + destructor_warning + "</h4>"
                     for struct_field in c["struct_fields"]:
                         struct_field_name = list(struct_field.keys())[0]
                         struct_type = struct_field[struct_field_name]["type"]
