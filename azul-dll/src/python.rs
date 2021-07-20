@@ -29225,12 +29225,6 @@ impl PyObjectProtocol for AzTessellatedSvgNode {
 
 #[pymethods]
 impl AzTessellatedSvgNodeVecRef {
-    #[new]
-    fn __new__() -> Self {
-        Self {
-        }
-    }
-
 }
 
 #[pyproto]

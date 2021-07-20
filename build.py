@@ -1413,9 +1413,18 @@ def generate_python_api(api_data, structs_map, functions_map):
                     if (not("constructors") in struct.keys() or len(struct["constructors"]) == 0) and not(class_name in not_default_constructable.keys()):
                         py_new_constructor = ""
                         py_func_args = ""
+
+                        # do not generate a __new__() constructor for struct
+                        # that have only "ptr + len" fields
+                        # this is a special rule for AzTessellatedSvgNodeVecRef
+                        maybe_is_ref_struct = len(struct["struct_fields"]) == 2
+                        is_ref_struct = False
+
                         for field in struct["struct_fields"]:
                             field_name = list(field.keys())[0]
                             if field_name == "ptr":
+                                if maybe_is_ref_struct:
+                                    is_ref_struct = True
                                 break # don't generate code
                             field_type = field[field_name]["type"]
                             analyzed_type = analyze_type(field_type)
@@ -1434,6 +1443,9 @@ def generate_python_api(api_data, structs_map, functions_map):
                                     py_new_constructor += "            " + field_name + ",\r\n"
                                 else:
                                     break
+
+                        if is_ref_struct: # only necessary for AzTessellatedSvgNodeVecRef
+                            break
 
                         if not(len(py_func_args) == 0):
                             py_func_args = py_func_args[:-2] # strip final ", "
