@@ -3380,9 +3380,10 @@ def generate_docs():
                 is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
                 treat_external_as_ptr = "external" in c.keys() and is_boxed_object
                 class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
+                class_has_recursive_destructor = has_recursive_destructor(apiData[version], c)
 
                 destructor_warning = ""
-                if class_has_custom_destructor or treat_external_as_ptr:
+                if class_has_custom_destructor or treat_external_as_ptr or class_has_recursive_destructor:
                     destructor_warning = "&nbsp;<span class=\"chd\">has destructor</span>"
 
                 if "enum_fields" in c.keys():
