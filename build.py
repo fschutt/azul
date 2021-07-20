@@ -2665,6 +2665,7 @@ def generate_c_functions(api_data,use_prefix=True,typedef_style="c"):
 
             c_is_stack_allocated = class_is_stack_allocated(c)
             class_can_be_copied = "derive" in c.keys() and "Copy" in c["derive"]
+            class_has_recursive_destructor = has_recursive_destructor(myapi_data, c)
             class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
             is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
             treat_external_as_ptr = "external" in c.keys() and is_boxed_object
@@ -2702,7 +2703,7 @@ def generate_c_functions(api_data,use_prefix=True,typedef_style="c"):
                 if class_can_be_copied:
                     # intentionally empty, no destructor necessary
                     pass
-                elif class_has_custom_destructor or treat_external_as_ptr:
+                elif class_has_custom_destructor or treat_external_as_ptr or class_has_recursive_destructor:
                     print_separator = True
                     code += "\r\n" + function_prefix + "void " + class_ptr_name + "_delete(" + class_ptr_name + "* restrict instance);"
 
