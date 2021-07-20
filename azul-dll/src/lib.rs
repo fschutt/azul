@@ -61,6 +61,8 @@ pub type AzWindowCreateOptionsTT = azul_core::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new window configuration with a custom layout callback
 #[no_mangle] pub extern "C" fn AzWindowCreateOptions_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { AzWindowCreateOptions::new(layout_callback) }
+/// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzWindowCreateOptions_delete(object: &mut AzWindowCreateOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
 pub type AzRendererOptionsTT = azul_core::window::RendererOptions;
@@ -157,18 +159,26 @@ pub use AzIconKeyTT as AzIconKey;
 /// Small (16x16x4) window icon, usually shown in the window titlebar
 pub type AzSmallWindowIconBytesTT = azul_core::window::SmallWindowIconBytes;
 pub use AzSmallWindowIconBytesTT as AzSmallWindowIconBytes;
+/// Destructor: Takes ownership of the `SmallWindowIconBytes` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSmallWindowIconBytes_delete(object: &mut AzSmallWindowIconBytes) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
 pub type AzLargeWindowIconBytesTT = azul_core::window::LargeWindowIconBytes;
 pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
+/// Destructor: Takes ownership of the `LargeWindowIconBytes` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLargeWindowIconBytes_delete(object: &mut AzLargeWindowIconBytes) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Window "favicon", usually shown in the top left of the window on Windows
 pub type AzWindowIconTT = azul_core::window::WindowIcon;
 pub use AzWindowIconTT as AzWindowIcon;
+/// Destructor: Takes ownership of the `WindowIcon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzWindowIcon_delete(object: &mut AzWindowIcon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Application taskbar icon, 256x256x4 bytes in size
 pub type AzTaskBarIconTT = azul_core::window::TaskBarIcon;
 pub use AzTaskBarIconTT as AzTaskBarIcon;
+/// Destructor: Takes ownership of the `TaskBarIcon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTaskBarIcon_delete(object: &mut AzTaskBarIcon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
 pub type AzVirtualKeyCodeTT = azul_core::window::VirtualKeyCode;
@@ -197,6 +207,8 @@ pub use AzDebugStateTT as AzDebugState;
 /// Current keyboard state, stores what keys / characters have been pressed
 pub type AzKeyboardStateTT = azul_core::window::KeyboardState;
 pub use AzKeyboardStateTT as AzKeyboardState;
+/// Destructor: Takes ownership of the `KeyboardState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzKeyboardState_delete(object: &mut AzKeyboardState) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Current icon of the mouse cursor
 pub type AzMouseCursorTypeTT = azul_core::window::MouseCursorType;
@@ -213,14 +225,20 @@ pub use AzMouseStateTT as AzMouseState;
 /// Platform-specific window configuration, i.e. WM options that are not cross-platform
 pub type AzPlatformSpecificOptionsTT = azul_core::window::PlatformSpecificOptions;
 pub use AzPlatformSpecificOptionsTT as AzPlatformSpecificOptions;
+/// Destructor: Takes ownership of the `PlatformSpecificOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzPlatformSpecificOptions_delete(object: &mut AzPlatformSpecificOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Window configuration specific to Win32
 pub type AzWindowsWindowOptionsTT = azul_core::window::WindowsWindowOptions;
 pub use AzWindowsWindowOptionsTT as AzWindowsWindowOptions;
+/// Destructor: Takes ownership of the `WindowsWindowOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzWindowsWindowOptions_delete(object: &mut AzWindowsWindowOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// CSD theme of the window title / button controls
 pub type AzWaylandThemeTT = azul_core::window::WaylandTheme;
 pub use AzWaylandThemeTT as AzWaylandTheme;
+/// Destructor: Takes ownership of the `WaylandTheme` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzWaylandTheme_delete(object: &mut AzWaylandTheme) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Renderer type of the current windows OpenGL context
 pub type AzRendererTypeTT = azul_core::window::RendererType;
@@ -229,10 +247,14 @@ pub use AzRendererTypeTT as AzRendererType;
 /// Key-value pair, used for setting WM hints values specific to GNOME
 pub type AzStringPairTT = azul_core::window::AzStringPair;
 pub use AzStringPairTT as AzStringPair;
+/// Destructor: Takes ownership of the `StringPair` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStringPair_delete(object: &mut AzStringPair) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
 pub type AzLinuxWindowOptionsTT = azul_core::window::LinuxWindowOptions;
 pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
+/// Destructor: Takes ownership of the `LinuxWindowOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLinuxWindowOptions_delete(object: &mut AzLinuxWindowOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
 pub type AzMacWindowOptionsTT = azul_core::window::MacWindowOptions;
@@ -265,6 +287,8 @@ pub use AzTouchStateTT as AzTouchState;
 /// Information about a single (or many) monitors, useful for dock widgets
 pub type AzMonitorTT = azul_core::window::Monitor;
 pub use AzMonitorTT as AzMonitor;
+/// Destructor: Takes ownership of the `Monitor` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMonitor_delete(object: &mut AzMonitor) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Describes a rendering configuration for a monitor
 pub type AzVideoModeTT = azul_core::window::VideoMode;
@@ -277,14 +301,20 @@ pub use AzWindowStateTT as AzWindowState;
 #[no_mangle] pub extern "C" fn AzWindowState_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { AzWindowState::new(layout_callback) }
 /// Creates a default WindowState with an empty layout callback - useful only if you use the Rust `WindowState { .. WindowState::default() }` intialization syntax.
 #[no_mangle] pub extern "C" fn AzWindowState_default() -> AzWindowState { AzWindowState::default() }
+/// Destructor: Takes ownership of the `WindowState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzWindowState_delete(object: &mut AzWindowState) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 pub use AzLayoutCallbackTT as AzLayoutCallback;
+/// Destructor: Takes ownership of the `LayoutCallback` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLayoutCallback_delete(object: &mut AzLayoutCallback) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// C-ABI stable wrapper over a `MarshaledLayoutCallback`
 pub type AzMarshaledLayoutCallbackTT = azul_impl::callbacks::MarshaledLayoutCallback;
 pub use AzMarshaledLayoutCallbackTT as AzMarshaledLayoutCallback;
+/// Destructor: Takes ownership of the `MarshaledLayoutCallback` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMarshaledLayoutCallback_delete(object: &mut AzMarshaledLayoutCallback) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
 pub type AzMarshaledLayoutCallbackInnerTT = azul_impl::callbacks::MarshaledLayoutCallbackInner;
@@ -396,6 +426,8 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_sendThreadMsg(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId, msg: AzThreadSendMsg) -> bool { callbackinfo.send_thread_msg(thread_id, msg) }
 /// Stops a thread at the nearest possible opportunity. Sends a `ThreadSendMsg::TerminateThread` message to the thread and joins the thread.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopThread(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId) -> bool { callbackinfo.stop_thread(thread_id) }
+/// Destructor: Takes ownership of the `CallbackInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_delete(object: &mut AzCallbackInfo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
 pub type AzUpdateImageTypeTT = azul_impl::callbacks::UpdateImageType;
@@ -440,18 +472,26 @@ pub type AzInlineTextTT = azul_impl::callbacks::InlineText;
 pub use AzInlineTextTT as AzInlineText;
 /// Hit-tests the inline text, returns detailed information about which glyph / word / line, etc. the position (usually the mouse cursor) is currently over. Result may be empty (no hits) or contain more than one result (cursor is hovering over multiple overlapping glyphs at once).
 #[no_mangle] pub extern "C" fn AzInlineText_hitTest(inlinetext: &AzInlineText, position: AzLogicalPosition) -> AzInlineTextHitVec { inlinetext.hit_test(position).into() }
+/// Destructor: Takes ownership of the `InlineText` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineText_delete(object: &mut AzInlineText) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `InlineLine` struct
 pub type AzInlineLineTT = azul_impl::callbacks::InlineLine;
 pub use AzInlineLineTT as AzInlineLine;
+/// Destructor: Takes ownership of the `InlineLine` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineLine_delete(object: &mut AzInlineLine) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `InlineWord` struct
 pub type AzInlineWordTT = azul_core::callbacks::InlineWord;
 pub use AzInlineWordTT as AzInlineWord;
+/// Destructor: Takes ownership of the `InlineWord` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineWord_delete(object: &mut AzInlineWord) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
 pub type AzInlineTextContentsTT = azul_core::callbacks::InlineTextContents;
 pub use AzInlineTextContentsTT as AzInlineTextContents;
+/// Destructor: Takes ownership of the `InlineTextContents` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInlineTextContents_delete(object: &mut AzInlineTextContents) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `InlineGlyph` struct
 pub type AzInlineGlyphTT = azul_core::callbacks::InlineGlyph;
@@ -464,14 +504,20 @@ pub use AzInlineTextHitTT as AzInlineTextHit;
 /// Defines the keyboard input focus target
 pub type AzFocusTargetTT = azul_impl::callbacks::FocusTarget;
 pub use AzFocusTargetTT as AzFocusTarget;
+/// Destructor: Takes ownership of the `FocusTarget` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFocusTarget_delete(object: &mut AzFocusTarget) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// CSS path to set the keyboard input focus
 pub type AzFocusTargetPathTT = azul_impl::callbacks::FocusTargetPath;
 pub use AzFocusTargetPathTT as AzFocusTargetPath;
+/// Destructor: Takes ownership of the `FocusTargetPath` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFocusTargetPath_delete(object: &mut AzFocusTargetPath) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Animation struct to start a new animation
 pub type AzAnimationTT = azul_impl::callbacks::Animation;
 pub use AzAnimationTT as AzAnimation;
+/// Destructor: Takes ownership of the `Animation` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzAnimation_delete(object: &mut AzAnimation) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// How should an animation repeat (loop, ping-pong, etc.)
 pub type AzAnimationRepeatTT = azul_impl::callbacks::AnimationRepeat;
@@ -497,6 +543,8 @@ pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
 /// <img src="../images/scrollbounds.png"/>
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
 pub use AzIFrameCallbackReturnTT as AzIFrameCallbackReturn;
+/// Destructor: Takes ownership of the `IFrameCallbackReturn` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzIFrameCallbackReturn_delete(object: &mut AzIFrameCallbackReturn) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
 pub type AzRenderImageCallbackTT = azul_impl::callbacks::RenderImageCallback;
@@ -526,6 +574,8 @@ pub use AzRenderImageCallbackInfoTT as AzRenderImageCallbackInfo;
 #[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getFirstChild(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_first_child(node_id).into() }
 /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
 #[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_getLastChild(renderimagecallbackinfo: &mut AzRenderImageCallbackInfo, node_id: AzDomNodeId) -> AzOptionDomNodeId { renderimagecallbackinfo.get_last_child(node_id).into() }
+/// Destructor: Takes ownership of the `RenderImageCallbackInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzRenderImageCallbackInfo_delete(object: &mut AzRenderImageCallbackInfo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TimerCallback` struct
 pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
@@ -535,6 +585,8 @@ pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTim
 /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
 pub type AzTimerCallbackInfoTT = azul_impl::callbacks::TimerCallbackInfo;
 pub use AzTimerCallbackInfoTT as AzTimerCallbackInfo;
+/// Destructor: Takes ownership of the `TimerCallbackInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTimerCallbackInfo_delete(object: &mut AzTimerCallbackInfo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
 pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
@@ -595,6 +647,8 @@ pub use AzLayoutCallbackInfoTT as AzLayoutCallbackInfo;
 #[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getSystemFonts(layoutcallbackinfo: &AzLayoutCallbackInfo) -> AzStringPairVec { layoutcallbackinfo.get_system_fonts().into() }
 /// Returns an `ImageRef` referenced by a CSS ID
 #[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_getImage(layoutcallbackinfo: &AzLayoutCallbackInfo, id: AzString) -> AzOptionImageRef { layoutcallbackinfo.get_image(&id).into() }
+/// Destructor: Takes ownership of the `LayoutCallbackInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLayoutCallbackInfo_delete(object: &mut AzLayoutCallbackInfo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
@@ -706,14 +760,20 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn AzDom_getHtmlStringDebug(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", false).into() }
 /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
 #[no_mangle] pub extern "C" fn AzDom_style(dom: &mut AzDom, css: AzCss) -> AzStyledDom { let mut css = css; dom.style(&mut css) }
+/// Destructor: Takes ownership of the `Dom` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDom_delete(object: &mut AzDom) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `IFrameNode` struct
 pub type AzIFrameNodeTT = azul_impl::dom::IFrameNode;
 pub use AzIFrameNodeTT as AzIFrameNode;
+/// Destructor: Takes ownership of the `IFrameNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzIFrameNode_delete(object: &mut AzIFrameNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CallbackData` struct
 pub type AzCallbackDataTT = azul_impl::dom::CallbackData;
 pub use AzCallbackDataTT as AzCallbackData;
+/// Destructor: Takes ownership of the `CallbackData` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCallbackData_delete(object: &mut AzCallbackData) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
@@ -774,10 +834,14 @@ pub use AzNodeDataTT as AzNodeData;
 #[no_mangle] pub extern "C" fn AzNodeData_setContextMenu(nodedata: &mut AzNodeData, context_menu: AzMenu) { nodedata.set_context_menu(context_menu) }
 /// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
 #[no_mangle] pub extern "C" fn AzNodeData_hash(nodedata: &AzNodeData) -> u64 { nodedata.calculate_node_data_hash().0 }
+/// Destructor: Takes ownership of the `NodeData` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeData_delete(object: &mut AzNodeData) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// List of core DOM node types built-into by `azul`
 pub type AzNodeTypeTT = azul_impl::dom::NodeType;
 pub use AzNodeTypeTT as AzNodeType;
+/// Destructor: Takes ownership of the `NodeType` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeType_delete(object: &mut AzNodeType) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 pub type AzOnTT = azul_impl::dom::On;
@@ -816,6 +880,8 @@ pub use AzApplicationEventFilterTT as AzApplicationEventFilter;
 /// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
 pub type AzAccessibilityInfoTT = azul_impl::dom::AccessibilityInfo;
 pub use AzAccessibilityInfoTT as AzAccessibilityInfo;
+/// Destructor: Takes ownership of the `AccessibilityInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzAccessibilityInfo_delete(object: &mut AzAccessibilityInfo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
 pub type AzAccessibilityRoleTT = azul_impl::dom::AccessibilityRole;
@@ -832,14 +898,20 @@ pub use AzTabIndexTT as AzTabIndex;
 /// Re-export of rust-allocated (stack based) `IdOrClass` struct
 pub type AzIdOrClassTT = azul_impl::dom::IdOrClass;
 pub use AzIdOrClassTT as AzIdOrClass;
+/// Destructor: Takes ownership of the `IdOrClass` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzIdOrClass_delete(object: &mut AzIdOrClass) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `NodeDataInlineCssProperty` struct
 pub type AzNodeDataInlineCssPropertyTT = azul_impl::dom::NodeDataInlineCssProperty;
 pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
+/// Destructor: Takes ownership of the `NodeDataInlineCssProperty` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeDataInlineCssProperty_delete(object: &mut AzNodeDataInlineCssProperty) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
 pub type AzMenuTT = azul_core::window::Menu;
 pub use AzMenuTT as AzMenu;
+/// Destructor: Takes ownership of the `Menu` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMenu_delete(object: &mut AzMenu) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Position of where the context menu should pop up
 pub type AzMenuPopupPositionTT = azul_core::window::MenuPopupPosition;
@@ -850,6 +922,8 @@ pub type AzMenuItemTT = azul_core::window::MenuItem;
 pub use AzMenuItemTT as AzMenuItem;
 /// Creates a new menu item
 #[no_mangle] pub extern "C" fn AzMenuItem_new(label: AzString, callback: AzOptionMenuCallback) -> AzMenuItem { AzMenuItem::String(AzStringMenuItem { label, accelerator: None.into(), callback, state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() }) }
+/// Destructor: Takes ownership of the `MenuItem` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMenuItem_delete(object: &mut AzMenuItem) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Regular labeled menu item
 pub type AzStringMenuItemTT = azul_core::window::StringMenuItem;
@@ -860,18 +934,26 @@ pub use AzStringMenuItemTT as AzStringMenuItem;
 #[no_mangle] pub extern "C" fn AzStringMenuItem_addChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) { let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); }
 /// Adds a child submenu to the current menu
 #[no_mangle] pub extern "C" fn AzStringMenuItem_withChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem }
+/// Destructor: Takes ownership of the `StringMenuItem` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStringMenuItem_delete(object: &mut AzStringMenuItem) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Combination of virtual key codes that have to be pressed together
 pub type AzVirtualKeyCodeComboTT = azul_core::window::VirtualKeyCodeCombo;
 pub use AzVirtualKeyCodeComboTT as AzVirtualKeyCodeCombo;
+/// Destructor: Takes ownership of the `VirtualKeyCodeCombo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzVirtualKeyCodeCombo_delete(object: &mut AzVirtualKeyCodeCombo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
 pub type AzMenuCallbackTT = azul_core::window::MenuCallback;
 pub use AzMenuCallbackTT as AzMenuCallback;
+/// Destructor: Takes ownership of the `MenuCallback` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMenuCallback_delete(object: &mut AzMenuCallback) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Icon of a menu entry
 pub type AzMenuItemIconTT = azul_core::window::MenuItemIcon;
 pub use AzMenuItemIconTT as AzMenuItemIcon;
+/// Destructor: Takes ownership of the `MenuItemIcon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzMenuItemIcon_delete(object: &mut AzMenuItemIcon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Describes the state of a menu item
 pub type AzMenuItemStateTT = azul_core::window::MenuItemState;
@@ -880,22 +962,32 @@ pub use AzMenuItemStateTT as AzMenuItemState;
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
 pub use AzCssRuleBlockTT as AzCssRuleBlock;
+/// Destructor: Takes ownership of the `CssRuleBlock` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCssRuleBlock_delete(object: &mut AzCssRuleBlock) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
 pub type AzCssDeclarationTT = azul_impl::css::CssDeclaration;
 pub use AzCssDeclarationTT as AzCssDeclaration;
+/// Destructor: Takes ownership of the `CssDeclaration` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCssDeclaration_delete(object: &mut AzCssDeclaration) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
 pub type AzDynamicCssPropertyTT = azul_impl::css::DynamicCssProperty;
 pub use AzDynamicCssPropertyTT as AzDynamicCssProperty;
+/// Destructor: Takes ownership of the `DynamicCssProperty` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDynamicCssProperty_delete(object: &mut AzDynamicCssProperty) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CssPath` struct
 pub type AzCssPathTT = azul_impl::css::CssPath;
 pub use AzCssPathTT as AzCssPath;
+/// Destructor: Takes ownership of the `CssPath` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCssPath_delete(object: &mut AzCssPath) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
 pub type AzCssPathSelectorTT = azul_impl::css::CssPathSelector;
 pub use AzCssPathSelectorTT as AzCssPathSelector;
+/// Destructor: Takes ownership of the `CssPathSelector` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCssPathSelector_delete(object: &mut AzCssPathSelector) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `NodeTypeKey` struct
 pub type AzNodeTypeKeyTT = azul_impl::css::NodeTypeTag;
@@ -916,6 +1008,8 @@ pub use AzCssNthChildPatternTT as AzCssNthChildPattern;
 /// Re-export of rust-allocated (stack based) `Stylesheet` struct
 pub type AzStylesheetTT = azul_impl::css::Stylesheet;
 pub use AzStylesheetTT as AzStylesheet;
+/// Destructor: Takes ownership of the `Stylesheet` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStylesheet_delete(object: &mut AzStylesheet) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `Css` struct
 pub type AzCssTT = azul_impl::css::Css;
@@ -924,6 +1018,8 @@ pub use AzCssTT as AzCss;
 #[no_mangle] pub extern "C" fn AzCss_empty() -> AzCss { AzCss::empty() }
 /// Returns a CSS style parsed from a `String`
 #[no_mangle] pub extern "C" fn AzCss_fromString(s: AzString) -> AzCss { azul_impl::css::from_str(s.as_str()).unwrap_or_default() }
+/// Destructor: Takes ownership of the `Css` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCss_delete(object: &mut AzCss) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
 pub type AzCssPropertyTypeTT = azul_impl::css::CssPropertyType;
@@ -1129,6 +1225,8 @@ pub use AzExtendModeTT as AzExtendMode;
 /// Re-export of rust-allocated (stack based) `LinearGradient` struct
 pub type AzLinearGradientTT = azul_impl::css::LinearGradient;
 pub use AzLinearGradientTT as AzLinearGradient;
+/// Destructor: Takes ownership of the `LinearGradient` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLinearGradient_delete(object: &mut AzLinearGradient) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `Shape` struct
 pub type AzShapeTT = azul_impl::css::Shape;
@@ -1141,14 +1239,20 @@ pub use AzRadialGradientSizeTT as AzRadialGradientSize;
 /// Re-export of rust-allocated (stack based) `RadialGradient` struct
 pub type AzRadialGradientTT = azul_impl::css::RadialGradient;
 pub use AzRadialGradientTT as AzRadialGradient;
+/// Destructor: Takes ownership of the `RadialGradient` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzRadialGradient_delete(object: &mut AzRadialGradient) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ConicGradient` struct
 pub type AzConicGradientTT = azul_impl::css::ConicGradient;
 pub use AzConicGradientTT as AzConicGradient;
+/// Destructor: Takes ownership of the `ConicGradient` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzConicGradient_delete(object: &mut AzConicGradient) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundContent` struct
 pub type AzStyleBackgroundContentTT = azul_impl::css::StyleBackgroundContent;
 pub use AzStyleBackgroundContentTT as AzStyleBackgroundContent;
+/// Destructor: Takes ownership of the `StyleBackgroundContent` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleBackgroundContent_delete(object: &mut AzStyleBackgroundContent) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
 pub type AzBackgroundPositionHorizontalTT = azul_impl::css::BackgroundPositionHorizontal;
@@ -1241,10 +1345,14 @@ pub use AzLayoutBorderTopWidthTT as AzLayoutBorderTopWidth;
 /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
 pub type AzScrollbarInfoTT = azul_impl::css::ScrollbarInfo;
 pub use AzScrollbarInfoTT as AzScrollbarInfo;
+/// Destructor: Takes ownership of the `ScrollbarInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzScrollbarInfo_delete(object: &mut AzScrollbarInfo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ScrollbarStyle` struct
 pub type AzScrollbarStyleTT = azul_impl::css::ScrollbarStyle;
 pub use AzScrollbarStyleTT as AzScrollbarStyle;
+/// Destructor: Takes ownership of the `ScrollbarStyle` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzScrollbarStyle_delete(object: &mut AzScrollbarStyle) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleCursor` struct
 pub type AzStyleCursorTT = azul_impl::css::StyleCursor;
@@ -1253,6 +1361,8 @@ pub use AzStyleCursorTT as AzStyleCursor;
 /// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
 pub type AzStyleFontFamilyTT = azul_impl::css::StyleFontFamily;
 pub use AzStyleFontFamilyTT as AzStyleFontFamily;
+/// Destructor: Takes ownership of the `StyleFontFamily` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleFontFamily_delete(object: &mut AzStyleFontFamily) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleFontSize` struct
 pub type AzStyleFontSizeTT = azul_impl::css::StyleFontSize;
@@ -1461,22 +1571,32 @@ pub use AzLayoutOverflowValueTT as AzLayoutOverflowValue;
 /// Re-export of rust-allocated (stack based) `ScrollbarStyleValue` struct
 pub type AzScrollbarStyleValueTT = azul_impl::css::ScrollbarStyleValue;
 pub use AzScrollbarStyleValueTT as AzScrollbarStyleValue;
+/// Destructor: Takes ownership of the `ScrollbarStyleValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzScrollbarStyleValue_delete(object: &mut AzScrollbarStyleValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundContentVecValue` struct
 pub type AzStyleBackgroundContentVecValueTT = azul_impl::css::StyleBackgroundContentVecValue;
 pub use AzStyleBackgroundContentVecValueTT as AzStyleBackgroundContentVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundContentVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleBackgroundContentVecValue_delete(object: &mut AzStyleBackgroundContentVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionVecValue` struct
 pub type AzStyleBackgroundPositionVecValueTT = azul_impl::css::StyleBackgroundPositionVecValue;
 pub use AzStyleBackgroundPositionVecValueTT as AzStyleBackgroundPositionVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundPositionVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleBackgroundPositionVecValue_delete(object: &mut AzStyleBackgroundPositionVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatVecValue` struct
 pub type AzStyleBackgroundRepeatVecValueTT = azul_impl::css::StyleBackgroundRepeatVecValue;
 pub use AzStyleBackgroundRepeatVecValueTT as AzStyleBackgroundRepeatVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundRepeatVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleBackgroundRepeatVecValue_delete(object: &mut AzStyleBackgroundRepeatVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeVecValue` struct
 pub type AzStyleBackgroundSizeVecValueTT = azul_impl::css::StyleBackgroundSizeVecValue;
 pub use AzStyleBackgroundSizeVecValueTT as AzStyleBackgroundSizeVecValue;
+/// Destructor: Takes ownership of the `StyleBackgroundSizeVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleBackgroundSizeVecValue_delete(object: &mut AzStyleBackgroundSizeVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
 pub type AzStyleBorderBottomColorValueTT = azul_impl::css::StyleBorderBottomColorValue;
@@ -1549,6 +1669,8 @@ pub use AzStyleCursorValueTT as AzStyleCursorValue;
 /// Re-export of rust-allocated (stack based) `StyleFontFamilyVecValue` struct
 pub type AzStyleFontFamilyVecValueTT = azul_impl::css::StyleFontFamilyVecValue;
 pub use AzStyleFontFamilyVecValueTT as AzStyleFontFamilyVecValue;
+/// Destructor: Takes ownership of the `StyleFontFamilyVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleFontFamilyVecValue_delete(object: &mut AzStyleFontFamilyVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
 pub type AzStyleFontSizeValueTT = azul_impl::css::StyleFontSizeValue;
@@ -1585,6 +1707,8 @@ pub use AzStyleOpacityValueTT as AzStyleOpacityValue;
 /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
 pub type AzStyleTransformVecValueTT = azul_impl::css::StyleTransformVecValue;
 pub use AzStyleTransformVecValueTT as AzStyleTransformVecValue;
+/// Destructor: Takes ownership of the `StyleTransformVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleTransformVecValue_delete(object: &mut AzStyleTransformVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformOriginValue` struct
 pub type AzStyleTransformOriginValueTT = azul_impl::css::StyleTransformOriginValue;
@@ -1609,6 +1733,8 @@ pub use AzCssPropertyTT as AzCssProperty;
 #[no_mangle] pub extern "C" fn AzCssProperty_getKeyValueString(cssproperty: &AzCssProperty) -> AzString { cssproperty.format_css().into() }
 /// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
 #[no_mangle] pub extern "C" fn AzCssProperty_interpolate(cssproperty: &AzCssProperty, other: AzCssProperty, t: f32, context: AzInterpolateContext) -> AzCssProperty { cssproperty.interpolate(&other, t, &context) }
+/// Destructor: Takes ownership of the `CssProperty` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCssProperty_delete(object: &mut AzCssProperty) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `Button` struct
 pub type AzButtonTT = crate::widgets::button::Button;
@@ -1621,10 +1747,14 @@ pub use AzButtonTT as AzButton;
 #[no_mangle] pub extern "C" fn AzButton_withOnClick(button: &mut AzButton, data: AzRefAny, callback: AzCallbackType) -> AzButton { let mut button = button.swap_with_default(); button.set_on_click(data, callback); button }
 /// Equivalent to the Rust `Button::dom()` function.
 #[no_mangle] pub extern "C" fn AzButton_dom(button: &mut AzButton) -> AzDom { button.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `Button` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzButton_delete(object: &mut AzButton) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
 pub type AzButtonOnClickTT = crate::widgets::button::ButtonOnClick;
 pub use AzButtonOnClickTT as AzButtonOnClick;
+/// Destructor: Takes ownership of the `ButtonOnClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzButtonOnClick_delete(object: &mut AzButtonOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CheckBox` struct
 pub type AzCheckBoxTT = crate::widgets::check_box::CheckBox;
@@ -1637,14 +1767,20 @@ pub use AzCheckBoxTT as AzCheckBox;
 #[no_mangle] pub extern "C" fn AzCheckBox_withOnToggle(checkbox: &mut AzCheckBox, data: AzRefAny, callback: AzCheckBoxOnToggleCallbackType) -> AzCheckBox { let mut checkbox = checkbox.swap_with_default(); checkbox.set_on_toggle(data, callback); checkbox }
 /// Equivalent to the Rust `CheckBox::dom()` function.
 #[no_mangle] pub extern "C" fn AzCheckBox_dom(checkbox: &mut AzCheckBox) -> AzDom { checkbox.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `CheckBox` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCheckBox_delete(object: &mut AzCheckBox) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CheckBoxStateWrapper` struct
 pub type AzCheckBoxStateWrapperTT = crate::widgets::check_box::CheckBoxStateWrapper;
 pub use AzCheckBoxStateWrapperTT as AzCheckBoxStateWrapper;
+/// Destructor: Takes ownership of the `CheckBoxStateWrapper` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCheckBoxStateWrapper_delete(object: &mut AzCheckBoxStateWrapper) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
 pub type AzCheckBoxOnToggleTT = crate::widgets::check_box::CheckBoxOnToggle;
 pub use AzCheckBoxOnToggleTT as AzCheckBoxOnToggle;
+/// Destructor: Takes ownership of the `CheckBoxOnToggle` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCheckBoxOnToggle_delete(object: &mut AzCheckBoxOnToggle) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
 pub type AzCheckBoxOnToggleCallbackTT = crate::widgets::check_box::CheckBoxOnToggleCallback;
@@ -1663,6 +1799,8 @@ pub use AzLabelTT as AzLabel;
 #[no_mangle] pub extern "C" fn AzLabel_new(text: AzString) -> AzLabel { AzLabel::new(text) }
 /// Equivalent to the Rust `Label::dom()` function.
 #[no_mangle] pub extern "C" fn AzLabel_dom(label: &mut AzLabel) -> AzDom { label.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `Label` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLabel_delete(object: &mut AzLabel) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ColorInput` struct
 pub type AzColorInputTT = crate::widgets::color_input::ColorInput;
@@ -1676,10 +1814,14 @@ pub use AzColorInputTT as AzColorInput;
 #[no_mangle] pub extern "C" fn AzColorInput_withOnValueChange(colorinput: &mut AzColorInput, data: AzRefAny, callback: AzColorInputOnValueChangeCallbackType) -> AzColorInput { let mut colorinput = colorinput.swap_with_default(); colorinput.set_on_value_change(data, callback); colorinput }
 /// Equivalent to the Rust `ColorInput::dom()` function.
 #[no_mangle] pub extern "C" fn AzColorInput_dom(colorinput: &mut AzColorInput) -> AzDom { colorinput.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `ColorInput` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzColorInput_delete(object: &mut AzColorInput) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
 pub type AzColorInputStateWrapperTT = crate::widgets::color_input::ColorInputStateWrapper;
 pub use AzColorInputStateWrapperTT as AzColorInputStateWrapper;
+/// Destructor: Takes ownership of the `ColorInputStateWrapper` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzColorInputStateWrapper_delete(object: &mut AzColorInputStateWrapper) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ColorInputState` struct
 pub type AzColorInputStateTT = crate::widgets::color_input::ColorInputState;
@@ -1688,6 +1830,8 @@ pub use AzColorInputStateTT as AzColorInputState;
 /// Re-export of rust-allocated (stack based) `ColorInputOnValueChange` struct
 pub type AzColorInputOnValueChangeTT = crate::widgets::color_input::ColorInputOnValueChange;
 pub use AzColorInputOnValueChangeTT as AzColorInputOnValueChange;
+/// Destructor: Takes ownership of the `ColorInputOnValueChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzColorInputOnValueChange_delete(object: &mut AzColorInputOnValueChange) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ColorInputOnValueChangeCallback` struct
 pub type AzColorInputOnValueChangeCallbackTT = crate::widgets::color_input::ColorInputOnValueChangeCallback;
@@ -1726,14 +1870,20 @@ pub use AzTextInputTT as AzTextInput;
 #[no_mangle] pub extern "C" fn AzTextInput_withLabelStyle(textinput: &mut AzTextInput, label_style: AzNodeDataInlineCssPropertyVec) -> AzTextInput { let mut textinput = textinput.swap_with_default(); textinput.set_label_style(label_style); textinput }
 /// Equivalent to the Rust `TextInput::dom()` function.
 #[no_mangle] pub extern "C" fn AzTextInput_dom(textinput: &mut AzTextInput) -> AzDom { textinput.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `TextInput` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTextInput_delete(object: &mut AzTextInput) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
 pub type AzTextInputStateWrapperTT = crate::widgets::text_input::TextInputStateWrapper;
 pub use AzTextInputStateWrapperTT as AzTextInputStateWrapper;
+/// Destructor: Takes ownership of the `TextInputStateWrapper` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTextInputStateWrapper_delete(object: &mut AzTextInputStateWrapper) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextInputState` struct
 pub type AzTextInputStateTT = crate::widgets::text_input::TextInputState;
 pub use AzTextInputStateTT as AzTextInputState;
+/// Destructor: Takes ownership of the `TextInputState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTextInputState_delete(object: &mut AzTextInputState) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextInputSelection` struct
 pub type AzTextInputSelectionTT = crate::widgets::text_input::TextInputSelection;
@@ -1746,6 +1896,8 @@ pub use AzTextInputSelectionRangeTT as AzTextInputSelectionRange;
 /// Re-export of rust-allocated (stack based) `TextInputOnTextInput` struct
 pub type AzTextInputOnTextInputTT = crate::widgets::text_input::TextInputOnTextInput;
 pub use AzTextInputOnTextInputTT as AzTextInputOnTextInput;
+/// Destructor: Takes ownership of the `TextInputOnTextInput` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTextInputOnTextInput_delete(object: &mut AzTextInputOnTextInput) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextInputOnTextInputCallback` struct
 pub type AzTextInputOnTextInputCallbackTT = crate::widgets::text_input::TextInputOnTextInputCallback;
@@ -1755,6 +1907,8 @@ pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &AzTe
 /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDown` struct
 pub type AzTextInputOnVirtualKeyDownTT = crate::widgets::text_input::TextInputOnVirtualKeyDown;
 pub use AzTextInputOnVirtualKeyDownTT as AzTextInputOnVirtualKeyDown;
+/// Destructor: Takes ownership of the `TextInputOnVirtualKeyDown` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTextInputOnVirtualKeyDown_delete(object: &mut AzTextInputOnVirtualKeyDown) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDownCallback` struct
 pub type AzTextInputOnVirtualKeyDownCallbackTT = crate::widgets::text_input::TextInputOnVirtualKeyDownCallback;
@@ -1764,6 +1918,8 @@ pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, 
 /// Re-export of rust-allocated (stack based) `TextInputOnFocusLost` struct
 pub type AzTextInputOnFocusLostTT = crate::widgets::text_input::TextInputOnFocusLost;
 pub use AzTextInputOnFocusLostTT as AzTextInputOnFocusLost;
+/// Destructor: Takes ownership of the `TextInputOnFocusLost` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTextInputOnFocusLost_delete(object: &mut AzTextInputOnFocusLost) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextInputOnFocusLostCallback` struct
 pub type AzTextInputOnFocusLostCallbackTT = crate::widgets::text_input::TextInputOnFocusLostCallback;
@@ -1786,10 +1942,14 @@ pub use AzNumberInputTT as AzNumberInput;
 #[no_mangle] pub extern "C" fn AzNumberInput_new(number: f32) -> AzNumberInput { AzNumberInput::new(number) }
 /// Equivalent to the Rust `NumberInput::dom()` function.
 #[no_mangle] pub extern "C" fn AzNumberInput_dom(numberinput: &mut AzNumberInput) -> AzDom { numberinput.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `NumberInput` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNumberInput_delete(object: &mut AzNumberInput) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `NumberInputStateWrapper` struct
 pub type AzNumberInputStateWrapperTT = crate::widgets::number_input::NumberInputStateWrapper;
 pub use AzNumberInputStateWrapperTT as AzNumberInputStateWrapper;
+/// Destructor: Takes ownership of the `NumberInputStateWrapper` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNumberInputStateWrapper_delete(object: &mut AzNumberInputStateWrapper) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `NumberInputState` struct
 pub type AzNumberInputStateTT = crate::widgets::number_input::NumberInputState;
@@ -1798,6 +1958,8 @@ pub use AzNumberInputStateTT as AzNumberInputState;
 /// Re-export of rust-allocated (stack based) `NumberInputOnValueChange` struct
 pub type AzNumberInputOnValueChangeTT = crate::widgets::number_input::NumberInputOnValueChange;
 pub use AzNumberInputOnValueChangeTT as AzNumberInputOnValueChange;
+/// Destructor: Takes ownership of the `NumberInputOnValueChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNumberInputOnValueChange_delete(object: &mut AzNumberInputOnValueChange) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `NumberInputOnValueChangeCallback` struct
 pub type AzNumberInputOnValueChangeCallbackTT = crate::widgets::number_input::NumberInputOnValueChangeCallback;
@@ -1815,6 +1977,8 @@ pub use AzCascadeInfoTT as AzCascadeInfo;
 /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
 pub type AzCssPropertySourceTT = azul_impl::styled_dom::CssPropertySource;
 pub use AzCssPropertySourceTT as AzCssPropertySource;
+/// Destructor: Takes ownership of the `CssPropertySource` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzCssPropertySource_delete(object: &mut AzCssPropertySource) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `StyledNodeState` struct
 pub type AzStyledNodeStateTT = azul_impl::styled_dom::StyledNodeState;
@@ -1831,6 +1995,8 @@ pub use AzTagIdTT as AzTagId;
 /// Re-export of rust-allocated (stack based) `TagIdToNodeIdMapping` struct
 pub type AzTagIdToNodeIdMappingTT = azul_impl::styled_dom::TagIdToNodeIdMapping;
 pub use AzTagIdToNodeIdMappingTT as AzTagIdToNodeIdMapping;
+/// Destructor: Takes ownership of the `TagIdToNodeIdMapping` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTagIdToNodeIdMapping_delete(object: &mut AzTagIdToNodeIdMapping) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
 pub type AzParentWithNodeDepthTT = azul_impl::styled_dom::ParentWithNodeDepth;
@@ -1865,6 +2031,8 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringTest(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", true).into() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
 #[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringDebug(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", false).into() }
+/// Destructor: Takes ownership of the `StyledDom` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyledDom_delete(object: &mut AzStyledDom) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `Texture` struct
 pub type AzTextureTT = azul_impl::gl::Texture;
@@ -2353,14 +2521,20 @@ pub use AzVertexAttributeTypeTT as AzVertexAttributeType;
 /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
 pub type AzVertexAttributeTT = azul_impl::gl::VertexAttribute;
 pub use AzVertexAttributeTT as AzVertexAttribute;
+/// Destructor: Takes ownership of the `VertexAttribute` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzVertexAttribute_delete(object: &mut AzVertexAttribute) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `VertexLayout` struct
 pub type AzVertexLayoutTT = azul_impl::gl::VertexLayout;
 pub use AzVertexLayoutTT as AzVertexLayout;
+/// Destructor: Takes ownership of the `VertexLayout` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzVertexLayout_delete(object: &mut AzVertexLayout) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
 pub type AzVertexArrayObjectTT = azul_impl::gl::VertexArrayObject;
 pub use AzVertexArrayObjectTT as AzVertexArrayObject;
+/// Destructor: Takes ownership of the `VertexArrayObject` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzVertexArrayObject_delete(object: &mut AzVertexArrayObject) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
 pub type AzIndexBufferFormatTT = azul_impl::gl::IndexBufferFormat;
@@ -2369,6 +2543,8 @@ pub use AzIndexBufferFormatTT as AzIndexBufferFormat;
 /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
 pub type AzVertexBufferTT = azul_impl::gl::VertexBuffer;
 pub use AzVertexBufferTT as AzVertexBuffer;
+/// Destructor: Takes ownership of the `VertexBuffer` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzVertexBuffer_delete(object: &mut AzVertexBuffer) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `GlType` struct
 pub type AzGlTypeTT = azul_impl::gl::AzGlType;
@@ -2377,6 +2553,8 @@ pub use AzGlTypeTT as AzGlType;
 /// Re-export of rust-allocated (stack based) `DebugMessage` struct
 pub type AzDebugMessageTT = azul_impl::gl::AzDebugMessage;
 pub use AzDebugMessageTT as AzDebugMessage;
+/// Destructor: Takes ownership of the `DebugMessage` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDebugMessage_delete(object: &mut AzDebugMessage) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// C-ABI stable reexport of `&[u8]`
 pub type AzU8VecRefTT = azul_impl::gl::U8VecRef;
@@ -2429,10 +2607,14 @@ pub use AzRefstrTT as AzRefstr;
 /// C-ABI stable reexport of `(U8Vec, u32)`
 pub type AzGetProgramBinaryReturnTT = azul_impl::gl::GetProgramBinaryReturn;
 pub use AzGetProgramBinaryReturnTT as AzGetProgramBinaryReturn;
+/// Destructor: Takes ownership of the `GetProgramBinaryReturn` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzGetProgramBinaryReturn_delete(object: &mut AzGetProgramBinaryReturn) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 pub type AzGetActiveAttribReturnTT = azul_impl::gl::GetActiveAttribReturn;
 pub use AzGetActiveAttribReturnTT as AzGetActiveAttribReturn;
+/// Destructor: Takes ownership of the `GetActiveAttribReturn` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzGetActiveAttribReturn_delete(object: &mut AzGetActiveAttribReturn) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// C-ABI stable reexport of `*const gleam::gl::GLsync`
 pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
@@ -2445,6 +2627,8 @@ pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 pub type AzGetActiveUniformReturnTT = azul_impl::gl::GetActiveUniformReturn;
 pub use AzGetActiveUniformReturnTT as AzGetActiveUniformReturn;
+/// Destructor: Takes ownership of the `GetActiveUniformReturn` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzGetActiveUniformReturn_delete(object: &mut AzGetActiveUniformReturn) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TextureFlags` struct
 pub type AzTextureFlagsTT = azul_impl::gl::TextureFlags;
@@ -2503,10 +2687,14 @@ pub use AzRawImageTT as AzRawImage;
 #[no_mangle] pub extern "C" fn AzRawImage_encodeGif(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_gif(rawimage) }
 /// Encodes the RawImage in the TIFF image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodeTiff(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_tiff(rawimage) }
+/// Destructor: Takes ownership of the `RawImage` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzRawImage_delete(object: &mut AzRawImage) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ImageMask` struct
 pub type AzImageMaskTT = azul_impl::resources::ImageMask;
 pub use AzImageMaskTT as AzImageMask;
+/// Destructor: Takes ownership of the `ImageMask` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzImageMask_delete(object: &mut AzImageMask) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
 pub type AzRawImageFormatTT = azul_impl::resources::RawImageFormat;
@@ -2523,6 +2711,8 @@ pub use AzDecodeImageErrorTT as AzDecodeImageError;
 /// Re-export of rust-allocated (stack based) `RawImageData` struct
 pub type AzRawImageDataTT = azul_impl::resources::RawImageData;
 pub use AzRawImageDataTT as AzRawImageData;
+/// Destructor: Takes ownership of the `RawImageData` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzRawImageData_delete(object: &mut AzRawImageData) {  unsafe { core::ptr::drop_in_place(object); } }
 
 pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
 /// Re-export of rust-allocated (stack based) `FontMetrics` struct
@@ -2532,6 +2722,8 @@ pub use AzFontMetricsTT as AzFontMetrics;
 /// Source data of a font file (bytes)
 pub type AzFontSourceTT = azul_impl::resources::LoadedFontSource;
 pub use AzFontSourceTT as AzFontSource;
+/// Destructor: Takes ownership of the `FontSource` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFontSource_delete(object: &mut AzFontSource) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Atomically reference-counted parsed font data
 pub type AzFontRefTT = azul_impl::css::FontRef;
@@ -2587,6 +2779,8 @@ pub use AzSvgMultiPolygonTT as AzSvgMultiPolygon;
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_fill(svgmultipolygon, fill_style) }
 /// Equivalent to the Rust `SvgMultiPolygon::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateStroke(svgmultipolygon: &AzSvgMultiPolygon, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_stroke(svgmultipolygon, stroke_style) }
+/// Destructor: Takes ownership of the `SvgMultiPolygon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_delete(object: &mut AzSvgMultiPolygon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgNode` struct
 pub type AzSvgNodeTT = azul_impl::svg::SvgNode;
@@ -2595,12 +2789,16 @@ pub use AzSvgNodeTT as AzSvgNode;
 #[no_mangle] pub extern "C" fn AzSvgNode_tessellateFill(svgnode: &AzSvgNode, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_node_fill(svgnode, fill_style) }
 /// Equivalent to the Rust `SvgNode::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgNode_tessellateStroke(svgnode: &AzSvgNode, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_node_stroke(svgnode, stroke_style) }
+/// Destructor: Takes ownership of the `SvgNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgNode_delete(object: &mut AzSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
 pub type AzSvgStyledNodeTT = azul_impl::svg::SvgStyledNode;
 pub use AzSvgStyledNodeTT as AzSvgStyledNode;
 /// Equivalent to the Rust `SvgStyledNode::tessellate()` function.
 #[no_mangle] pub extern "C" fn AzSvgStyledNode_tessellate(svgstylednode: &AzSvgStyledNode) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_styled_node(svgstylednode) }
+/// Destructor: Takes ownership of the `SvgStyledNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgStyledNode_delete(object: &mut AzSvgStyledNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgCircle` struct
 pub type AzSvgCircleTT = azul_impl::svg::SvgCircle;
@@ -2617,6 +2815,8 @@ pub use AzSvgPathTT as AzSvgPath;
 #[no_mangle] pub extern "C" fn AzSvgPath_tessellateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_fill(svgpath, fill_style) }
 /// Equivalent to the Rust `SvgPath::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgPath_tessellateStroke(svgpath: &AzSvgPath, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_stroke(svgpath, stroke_style) }
+/// Destructor: Takes ownership of the `SvgPath` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgPath_delete(object: &mut AzSvgPath) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
 pub type AzSvgPathElementTT = azul_impl::svg::SvgPathElement;
@@ -2657,10 +2857,14 @@ pub use AzTessellatedSvgNodeTT as AzTessellatedSvgNode;
 #[no_mangle] pub extern "C" fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode { AzTessellatedSvgNode::empty() }
 /// Creates a new TessellatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
 #[no_mangle] pub extern "C" fn AzTessellatedSvgNode_fromNodes(nodes: AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode { azul_impl::svg::join_tessellated_nodes(nodes.as_slice()) }
+/// Destructor: Takes ownership of the `TessellatedSvgNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTessellatedSvgNode_delete(object: &mut AzTessellatedSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
 pub type AzTessellatedSvgNodeVecRefTT = azul_impl::svg::TessellatedSvgNodeVecRef;
 pub use AzTessellatedSvgNodeVecRefTT as AzTessellatedSvgNodeVecRef;
+/// Destructor: Takes ownership of the `TessellatedSvgNodeVecRef` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTessellatedSvgNodeVecRef_delete(object: &mut AzTessellatedSvgNodeVecRef) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
 pub type AzSvgParseOptionsTT = azul_impl::svg::SvgParseOptions;
@@ -2668,6 +2872,8 @@ pub use AzSvgParseOptionsTT as AzSvgParseOptions;
 /// Creates a new `SvgParseOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgParseOptions::default()` constructor.
 #[no_mangle] pub extern "C" fn AzSvgParseOptions_default() -> AzSvgParseOptions { AzSvgParseOptions::default() }
+/// Destructor: Takes ownership of the `SvgParseOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgParseOptions_delete(object: &mut AzSvgParseOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ShapeRendering` struct
 pub type AzShapeRenderingTT = azul_impl::svg::ShapeRendering;
@@ -2741,10 +2947,14 @@ pub type AzXmlTT = azul_impl::xml::Xml;
 pub use AzXmlTT as AzXml;
 /// Parses an XML document with one or more root nodes
 #[no_mangle] pub extern "C" fn AzXml_fromStr(xml_string: AzRefstr) -> AzResultXmlXmlError { azul_impl::xml::parse_xml(xml_string.as_str()).into() }
+/// Destructor: Takes ownership of the `Xml` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXml_delete(object: &mut AzXml) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `XmlNode` struct
 pub type AzXmlNodeTT = azul_impl::xml::XmlNode;
 pub use AzXmlNodeTT as AzXmlNode;
+/// Destructor: Takes ownership of the `XmlNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXmlNode_delete(object: &mut AzXmlNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// **Reference-counted** file handle
 pub type AzFileTT = azul_impl::file::File;
@@ -2805,6 +3015,8 @@ pub use AzFileDialogTT as AzFileDialog;
 /// Re-export of rust-allocated (stack based) `FileTypeList` struct
 pub type AzFileTypeListTT = azul_impl::dialogs::FileTypeList;
 pub use AzFileTypeListTT as AzFileTypeList;
+/// Destructor: Takes ownership of the `FileTypeList` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFileTypeList_delete(object: &mut AzFileTypeList) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
 pub type AzColorPickerDialogTT = azul_impl::dialogs::ColorPickerDialog;
@@ -2835,6 +3047,8 @@ pub use AzInstantTT as AzInstant;
 #[no_mangle] pub extern "C" fn AzInstant_addDuration(instant: &mut AzInstant, duration: AzDuration) -> AzInstant { instant.add_optional_duration(Some(&duration)) }
 /// Linearly interpolates between [start, end] if the `self` Instant lies between start and end. Returns values between 0.0 and 1.0
 #[no_mangle] pub extern "C" fn AzInstant_linearInterpolate(instant: &AzInstant, start: AzInstant, end: AzInstant) -> f32 { instant.linear_interpolate(start, end) }
+/// Destructor: Takes ownership of the `Instant` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInstant_delete(object: &mut AzInstant) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `InstantPtr` struct
 pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
@@ -2886,6 +3100,8 @@ pub use AzTimerTT as AzTimer;
 #[no_mangle] pub extern "C" fn AzTimer_withInterval(timer: &AzTimer, interval: AzDuration) -> AzTimer { timer.clone().with_interval(interval) }
 /// Equivalent to the Rust `Timer::with_timeout()` function.
 #[no_mangle] pub extern "C" fn AzTimer_withTimeout(timer: &AzTimer, timeout: AzDuration) -> AzTimer { timer.clone().with_timeout(timeout) }
+/// Destructor: Takes ownership of the `Timer` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTimer_delete(object: &mut AzTimer) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Should a timer terminate or not - used to remove active timers
 pub type AzTerminateTimerTT = azul_impl::task::TerminateTimer;
@@ -2926,14 +3142,20 @@ pub use AzThreadReceiverTT as AzThreadReceiver;
 /// Re-export of rust-allocated (stack based) `ThreadSendMsg` struct
 pub type AzThreadSendMsgTT = azul_impl::task::ThreadSendMsg;
 pub use AzThreadSendMsgTT as AzThreadSendMsg;
+/// Destructor: Takes ownership of the `ThreadSendMsg` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzThreadSendMsg_delete(object: &mut AzThreadSendMsg) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ThreadReceiveMsg` struct
 pub type AzThreadReceiveMsgTT = azul_impl::task::ThreadReceiveMsg;
 pub use AzThreadReceiveMsgTT as AzThreadReceiveMsg;
+/// Destructor: Takes ownership of the `ThreadReceiveMsg` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzThreadReceiveMsg_delete(object: &mut AzThreadReceiveMsg) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
 pub type AzThreadWriteBackMsgTT = azul_impl::task::ThreadWriteBackMsg;
 pub use AzThreadWriteBackMsgTT as AzThreadWriteBackMsg;
+/// Destructor: Takes ownership of the `ThreadWriteBackMsg` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzThreadWriteBackMsg_delete(object: &mut AzThreadWriteBackMsg) {  unsafe { core::ptr::drop_in_place(object); } }
 
 pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallback) -> AzThread;
 /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
@@ -2988,10 +3210,14 @@ pub use AzThreadSenderDestructorFnTT as AzThreadSenderDestructorFn;
 /// Re-export of rust-allocated (stack based) `FmtValue` struct
 pub type AzFmtValueTT = azul_impl::str::FmtValue;
 pub use AzFmtValueTT as AzFmtValue;
+/// Destructor: Takes ownership of the `FmtValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFmtValue_delete(object: &mut AzFmtValue) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `FmtArg` struct
 pub type AzFmtArgTT = azul_impl::str::FmtArg;
 pub use AzFmtArgTT as AzFmtArg;
+/// Destructor: Takes ownership of the `FmtArg` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFmtArg_delete(object: &mut AzFmtArg) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `String` struct
 pub type AzStringTT = azul_impl::css::AzString;
@@ -3004,6 +3230,8 @@ pub use AzStringTT as AzString;
 #[no_mangle] pub extern "C" fn AzString_trim(string: &AzString) -> AzString { string.as_str().trim().to_string().into() }
 /// Returns a reference to the string - NOTE: the returned value is a reference to `self`, you MUST NOT drop the `String` object that the `Refstr` references
 #[no_mangle] pub extern "C" fn AzString_asRefstr(string: &AzString) -> AzRefstr { string.as_str().into() }
+/// Destructor: Takes ownership of the `String` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzString_delete(object: &mut AzString) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
 pub type AzAccessibilityStateVecTT = azul_impl::dom::AccessibilityStateVec;
@@ -3586,26 +3814,38 @@ pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
 /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
 pub type AzOptionColorInputOnValueChangeTT = crate::widgets::color_input::OptionColorInputOnValueChange;
 pub use AzOptionColorInputOnValueChangeTT as AzOptionColorInputOnValueChange;
+/// Destructor: Takes ownership of the `OptionColorInputOnValueChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionColorInputOnValueChange_delete(object: &mut AzOptionColorInputOnValueChange) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionButtonOnClick` struct
 pub type AzOptionButtonOnClickTT = crate::widgets::button::OptionButtonOnClick;
 pub use AzOptionButtonOnClickTT as AzOptionButtonOnClick;
+/// Destructor: Takes ownership of the `OptionButtonOnClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionButtonOnClick_delete(object: &mut AzOptionButtonOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
 pub type AzOptionCheckBoxOnToggleTT = crate::widgets::check_box::OptionCheckBoxOnToggle;
 pub use AzOptionCheckBoxOnToggleTT as AzOptionCheckBoxOnToggle;
+/// Destructor: Takes ownership of the `OptionCheckBoxOnToggle` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionCheckBoxOnToggle_delete(object: &mut AzOptionCheckBoxOnToggle) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTextInputOnTextInput` struct
 pub type AzOptionTextInputOnTextInputTT = crate::widgets::text_input::OptionTextInputOnTextInput;
 pub use AzOptionTextInputOnTextInputTT as AzOptionTextInputOnTextInput;
+/// Destructor: Takes ownership of the `OptionTextInputOnTextInput` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionTextInputOnTextInput_delete(object: &mut AzOptionTextInputOnTextInput) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTextInputOnVirtualKeyDown` struct
 pub type AzOptionTextInputOnVirtualKeyDownTT = crate::widgets::text_input::OptionTextInputOnVirtualKeyDown;
 pub use AzOptionTextInputOnVirtualKeyDownTT as AzOptionTextInputOnVirtualKeyDown;
+/// Destructor: Takes ownership of the `OptionTextInputOnVirtualKeyDown` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionTextInputOnVirtualKeyDown_delete(object: &mut AzOptionTextInputOnVirtualKeyDown) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTextInputOnFocusLost` struct
 pub type AzOptionTextInputOnFocusLostTT = crate::widgets::text_input::OptionTextInputOnFocusLost;
 pub use AzOptionTextInputOnFocusLostTT as AzOptionTextInputOnFocusLost;
+/// Destructor: Takes ownership of the `OptionTextInputOnFocusLost` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionTextInputOnFocusLost_delete(object: &mut AzOptionTextInputOnFocusLost) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTextInputSelection` struct
 pub type AzOptionTextInputSelectionTT = crate::widgets::text_input::OptionTextInputSelection;
@@ -3614,22 +3854,32 @@ pub use AzOptionTextInputSelectionTT as AzOptionTextInputSelection;
 /// Re-export of rust-allocated (stack based) `OptionNumberInputOnValueChange` struct
 pub type AzOptionNumberInputOnValueChangeTT = crate::widgets::number_input::OptionNumberInputOnValueChange;
 pub use AzOptionNumberInputOnValueChangeTT as AzOptionNumberInputOnValueChange;
+/// Destructor: Takes ownership of the `OptionNumberInputOnValueChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNumberInputOnValueChange_delete(object: &mut AzOptionNumberInputOnValueChange) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionMenuItemIcon` struct
 pub type AzOptionMenuItemIconTT = azul_core::window::OptionMenuItemIcon;
 pub use AzOptionMenuItemIconTT as AzOptionMenuItemIcon;
+/// Destructor: Takes ownership of the `OptionMenuItemIcon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionMenuItemIcon_delete(object: &mut AzOptionMenuItemIcon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionMenuCallback` struct
 pub type AzOptionMenuCallbackTT = azul_core::window::OptionMenuCallback;
 pub use AzOptionMenuCallbackTT as AzOptionMenuCallback;
+/// Destructor: Takes ownership of the `OptionMenuCallback` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionMenuCallback_delete(object: &mut AzOptionMenuCallback) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
 pub type AzOptionVirtualKeyCodeComboTT = azul_core::window::OptionVirtualKeyCodeCombo;
 pub use AzOptionVirtualKeyCodeComboTT as AzOptionVirtualKeyCodeCombo;
+/// Destructor: Takes ownership of the `OptionVirtualKeyCodeCombo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionVirtualKeyCodeCombo_delete(object: &mut AzOptionVirtualKeyCodeCombo) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
 pub type AzOptionCssPropertyTT = azul_impl::css::OptionCssProperty;
 pub use AzOptionCssPropertyTT as AzOptionCssProperty;
+/// Destructor: Takes ownership of the `OptionCssProperty` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionCssProperty_delete(object: &mut AzOptionCssProperty) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionPositionInfo` struct
 pub type AzOptionPositionInfoTT = azul_impl::ui_solver::OptionPositionInfo;
@@ -3658,22 +3908,32 @@ pub use AzOptionU32TT as AzOptionU32;
 /// Re-export of rust-allocated (stack based) `OptionImageRef` struct
 pub type AzOptionImageRefTT = azul_impl::resources::OptionImageRef;
 pub use AzOptionImageRefTT as AzOptionImageRef;
+/// Destructor: Takes ownership of the `OptionImageRef` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionImageRef_delete(object: &mut AzOptionImageRef) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionFontRef` struct
 pub type AzOptionFontRefTT = azul_impl::css::OptionFontRef;
 pub use AzOptionFontRefTT as AzOptionFontRef;
+/// Destructor: Takes ownership of the `OptionFontRef` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionFontRef_delete(object: &mut AzOptionFontRef) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionSystemClipboard` struct
 pub type AzOptionSystemClipboardTT = azul_impl::app::OptionClipboard;
 pub use AzOptionSystemClipboardTT as AzOptionSystemClipboard;
+/// Destructor: Takes ownership of the `OptionSystemClipboard` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionSystemClipboard_delete(object: &mut AzOptionSystemClipboard) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionFileTypeList` struct
 pub type AzOptionFileTypeListTT = azul_impl::dialogs::OptionFileTypeList;
 pub use AzOptionFileTypeListTT as AzOptionFileTypeList;
+/// Destructor: Takes ownership of the `OptionFileTypeList` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionFileTypeList_delete(object: &mut AzOptionFileTypeList) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionWindowState` struct
 pub type AzOptionWindowStateTT = azul_core::window::OptionWindowState;
 pub use AzOptionWindowStateTT as AzOptionWindowState;
+/// Destructor: Takes ownership of the `OptionWindowState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionWindowState_delete(object: &mut AzOptionWindowState) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionMouseState` struct
 pub type AzOptionMouseStateTT = azul_core::window::OptionMouseState;
@@ -3682,22 +3942,32 @@ pub use AzOptionMouseStateTT as AzOptionMouseState;
 /// Re-export of rust-allocated (stack based) `OptionKeyboardState` struct
 pub type AzOptionKeyboardStateTT = azul_core::window::OptionKeyboardState;
 pub use AzOptionKeyboardStateTT as AzOptionKeyboardState;
+/// Destructor: Takes ownership of the `OptionKeyboardState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionKeyboardState_delete(object: &mut AzOptionKeyboardState) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionStringVec` struct
 pub type AzOptionStringVecTT = azul_impl::css::OptionStringVec;
 pub use AzOptionStringVecTT as AzOptionStringVec;
+/// Destructor: Takes ownership of the `OptionStringVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionStringVec_delete(object: &mut AzOptionStringVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionFile` struct
 pub type AzOptionFileTT = azul_impl::file::OptionFile;
 pub use AzOptionFileTT as AzOptionFile;
+/// Destructor: Takes ownership of the `OptionFile` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionFile_delete(object: &mut AzOptionFile) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionGl` struct
 pub type AzOptionGlTT = azul_impl::gl::OptionGlContextPtr;
 pub use AzOptionGlTT as AzOptionGl;
+/// Destructor: Takes ownership of the `OptionGl` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionGl_delete(object: &mut AzOptionGl) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionThreadReceiveMsg` struct
 pub type AzOptionThreadReceiveMsgTT = azul_impl::task::OptionThreadReceiveMsg;
 pub use AzOptionThreadReceiveMsgTT as AzOptionThreadReceiveMsg;
+/// Destructor: Takes ownership of the `OptionThreadReceiveMsg` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionThreadReceiveMsg_delete(object: &mut AzOptionThreadReceiveMsg) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
 pub type AzOptionPercentageValueTT = azul_impl::css::OptionPercentageValue;
@@ -3718,6 +3988,8 @@ pub use AzOptionCallbackTT as AzOptionCallback;
 /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
 pub type AzOptionThreadSendMsgTT = azul_impl::task::OptionThreadSendMsg;
 pub use AzOptionThreadSendMsgTT as AzOptionThreadSendMsg;
+/// Destructor: Takes ownership of the `OptionThreadSendMsg` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionThreadSendMsg_delete(object: &mut AzOptionThreadSendMsg) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionLayoutRect` struct
 pub type AzOptionLayoutRectTT = azul_impl::css::OptionLayoutRect;
@@ -3726,10 +3998,14 @@ pub use AzOptionLayoutRectTT as AzOptionLayoutRect;
 /// Re-export of rust-allocated (stack based) `OptionRefAny` struct
 pub type AzOptionRefAnyTT = azul_impl::callbacks::OptionRefAny;
 pub use AzOptionRefAnyTT as AzOptionRefAny;
+/// Destructor: Takes ownership of the `OptionRefAny` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionRefAny_delete(object: &mut AzOptionRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionInlineText` struct
 pub type AzOptionInlineTextTT = azul_impl::callbacks::OptionInlineText;
 pub use AzOptionInlineTextTT as AzOptionInlineText;
+/// Destructor: Takes ownership of the `OptionInlineText` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionInlineText_delete(object: &mut AzOptionInlineText) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
 pub type AzOptionLayoutPointTT = azul_impl::css::OptionLayoutPoint;
@@ -3758,6 +4034,8 @@ pub use AzOptionColorUTT as AzOptionColorU;
 /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
 pub type AzOptionRawImageTT = azul_impl::resources::OptionRawImage;
 pub use AzOptionRawImageTT as AzOptionRawImage;
+/// Destructor: Takes ownership of the `OptionRawImage` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionRawImage_delete(object: &mut AzOptionRawImage) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
 pub type AzOptionSvgDashPatternTT = azul_impl::svg::OptionSvgDashPattern;
@@ -3766,10 +4044,14 @@ pub use AzOptionSvgDashPatternTT as AzOptionSvgDashPattern;
 /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
 pub type AzOptionWaylandThemeTT = azul_core::window::OptionWaylandTheme;
 pub use AzOptionWaylandThemeTT as AzOptionWaylandTheme;
+/// Destructor: Takes ownership of the `OptionWaylandTheme` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionWaylandTheme_delete(object: &mut AzOptionWaylandTheme) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
 pub type AzOptionTaskBarIconTT = azul_core::window::OptionTaskBarIcon;
 pub use AzOptionTaskBarIconTT as AzOptionTaskBarIcon;
+/// Destructor: Takes ownership of the `OptionTaskBarIcon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionTaskBarIcon_delete(object: &mut AzOptionTaskBarIcon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
 pub type AzOptionHwndHandleTT = azul_core::window::OptionHwndHandle;
@@ -3786,10 +4068,14 @@ pub use AzOptionPhysicalPositionI32TT as AzOptionPhysicalPositionI32;
 /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
 pub type AzOptionWindowIconTT = azul_core::window::OptionWindowIcon;
 pub use AzOptionWindowIconTT as AzOptionWindowIcon;
+/// Destructor: Takes ownership of the `OptionWindowIcon` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionWindowIcon_delete(object: &mut AzOptionWindowIcon) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionString` struct
 pub type AzOptionStringTT = azul_impl::css::OptionAzString;
 pub use AzOptionStringTT as AzOptionString;
+/// Destructor: Takes ownership of the `OptionString` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionString_delete(object: &mut AzOptionString) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
 pub type AzOptionX11VisualTT = azul_core::window::OptionX11Visual;
@@ -3822,14 +4108,20 @@ pub use AzOptionVirtualKeyCodeTT as AzOptionVirtualKeyCode;
 /// Re-export of rust-allocated (stack based) `OptionDom` struct
 pub type AzOptionDomTT = azul_impl::dom::OptionDom;
 pub use AzOptionDomTT as AzOptionDom;
+/// Destructor: Takes ownership of the `OptionDom` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionDom_delete(object: &mut AzOptionDom) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTexture` struct
 pub type AzOptionTextureTT = azul_impl::gl::OptionTexture;
 pub use AzOptionTextureTT as AzOptionTexture;
+/// Destructor: Takes ownership of the `OptionTexture` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionTexture_delete(object: &mut AzOptionTexture) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
 pub type AzOptionImageMaskTT = azul_impl::resources::OptionImageMask;
 pub use AzOptionImageMaskTT as AzOptionImageMask;
+/// Destructor: Takes ownership of the `OptionImageMask` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionImageMask_delete(object: &mut AzOptionImageMask) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
 pub type AzOptionTabIndexTT = azul_impl::dom::OptionTabIndex;
@@ -3846,6 +4138,8 @@ pub use AzOptionDurationTT as AzOptionDuration;
 /// Re-export of rust-allocated (stack based) `OptionInstant` struct
 pub type AzOptionInstantTT = azul_impl::task::OptionInstant;
 pub use AzOptionInstantTT as AzOptionInstant;
+/// Destructor: Takes ownership of the `OptionInstant` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionInstant_delete(object: &mut AzOptionInstant) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionUsize` struct
 pub type AzOptionUsizeTT = azul_impl::gl::OptionUsize;
@@ -3854,6 +4148,8 @@ pub use AzOptionUsizeTT as AzOptionUsize;
 /// Re-export of rust-allocated (stack based) `OptionU8Vec` struct
 pub type AzOptionU8VecTT = azul_impl::css::OptionU8Vec;
 pub use AzOptionU8VecTT as AzOptionU8Vec;
+/// Destructor: Takes ownership of the `OptionU8Vec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionU8Vec_delete(object: &mut AzOptionU8Vec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
 pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
@@ -3862,62 +4158,92 @@ pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
 /// Re-export of rust-allocated (stack based) `ResultXmlXmlError` struct
 pub type AzResultXmlXmlErrorTT = azul_impl::xml::ResultXmlXmlError;
 pub use AzResultXmlXmlErrorTT as AzResultXmlXmlError;
+/// Destructor: Takes ownership of the `ResultXmlXmlError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzResultXmlXmlError_delete(object: &mut AzResultXmlXmlError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ResultRawImageDecodeImageError` struct
 pub type AzResultRawImageDecodeImageErrorTT = azul_impl::resources::decode::ResultRawImageDecodeImageError;
 pub use AzResultRawImageDecodeImageErrorTT as AzResultRawImageDecodeImageError;
+/// Destructor: Takes ownership of the `ResultRawImageDecodeImageError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzResultRawImageDecodeImageError_delete(object: &mut AzResultRawImageDecodeImageError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ResultU8VecEncodeImageError` struct
 pub type AzResultU8VecEncodeImageErrorTT = azul_impl::resources::encode::ResultU8VecEncodeImageError;
 pub use AzResultU8VecEncodeImageErrorTT as AzResultU8VecEncodeImageError;
+/// Destructor: Takes ownership of the `ResultU8VecEncodeImageError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzResultU8VecEncodeImageError_delete(object: &mut AzResultU8VecEncodeImageError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ResultSvgXmlNodeSvgParseError` struct
 pub type AzResultSvgXmlNodeSvgParseErrorTT = azul_impl::svg::ResultSvgXmlNodeSvgParseError;
 pub use AzResultSvgXmlNodeSvgParseErrorTT as AzResultSvgXmlNodeSvgParseError;
+/// Destructor: Takes ownership of the `ResultSvgXmlNodeSvgParseError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzResultSvgXmlNodeSvgParseError_delete(object: &mut AzResultSvgXmlNodeSvgParseError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
 pub type AzResultSvgSvgParseErrorTT = azul_impl::svg::ResultSvgSvgParseError;
 pub use AzResultSvgSvgParseErrorTT as AzResultSvgSvgParseError;
+/// Destructor: Takes ownership of the `ResultSvgSvgParseError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzResultSvgSvgParseError_delete(object: &mut AzResultSvgSvgParseError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgParseError` struct
 pub type AzSvgParseErrorTT = azul_impl::svg::SvgParseError;
 pub use AzSvgParseErrorTT as AzSvgParseError;
+/// Destructor: Takes ownership of the `SvgParseError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgParseError_delete(object: &mut AzSvgParseError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `XmlError` struct
 pub type AzXmlErrorTT = azul_impl::xml::XmlError;
 pub use AzXmlErrorTT as AzXmlError;
+/// Destructor: Takes ownership of the `XmlError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXmlError_delete(object: &mut AzXmlError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
 pub type AzDuplicatedNamespaceErrorTT = azul_impl::xml::DuplicatedNamespaceError;
 pub use AzDuplicatedNamespaceErrorTT as AzDuplicatedNamespaceError;
+/// Destructor: Takes ownership of the `DuplicatedNamespaceError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDuplicatedNamespaceError_delete(object: &mut AzDuplicatedNamespaceError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
 pub type AzUnknownNamespaceErrorTT = azul_impl::xml::UnknownNamespaceError;
 pub use AzUnknownNamespaceErrorTT as AzUnknownNamespaceError;
+/// Destructor: Takes ownership of the `UnknownNamespaceError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzUnknownNamespaceError_delete(object: &mut AzUnknownNamespaceError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
 pub type AzUnexpectedCloseTagErrorTT = azul_impl::xml::UnexpectedCloseTagError;
 pub use AzUnexpectedCloseTagErrorTT as AzUnexpectedCloseTagError;
+/// Destructor: Takes ownership of the `UnexpectedCloseTagError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzUnexpectedCloseTagError_delete(object: &mut AzUnexpectedCloseTagError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
 pub type AzUnknownEntityReferenceErrorTT = azul_impl::xml::UnknownEntityReferenceError;
 pub use AzUnknownEntityReferenceErrorTT as AzUnknownEntityReferenceError;
+/// Destructor: Takes ownership of the `UnknownEntityReferenceError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzUnknownEntityReferenceError_delete(object: &mut AzUnknownEntityReferenceError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
 pub type AzDuplicatedAttributeErrorTT = azul_impl::xml::DuplicatedAttributeError;
 pub use AzDuplicatedAttributeErrorTT as AzDuplicatedAttributeError;
+/// Destructor: Takes ownership of the `DuplicatedAttributeError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDuplicatedAttributeError_delete(object: &mut AzDuplicatedAttributeError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `XmlParseError` struct
 pub type AzXmlParseErrorTT = azul_impl::xml::XmlParseError;
 pub use AzXmlParseErrorTT as AzXmlParseError;
+/// Destructor: Takes ownership of the `XmlParseError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXmlParseError_delete(object: &mut AzXmlParseError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `XmlTextError` struct
 pub type AzXmlTextErrorTT = azul_impl::xml::XmlTextError;
 pub use AzXmlTextErrorTT as AzXmlTextError;
+/// Destructor: Takes ownership of the `XmlTextError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXmlTextError_delete(object: &mut AzXmlTextError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
 pub type AzXmlStreamErrorTT = azul_impl::xml::XmlStreamError;
 pub use AzXmlStreamErrorTT as AzXmlStreamError;
+/// Destructor: Takes ownership of the `XmlStreamError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzXmlStreamError_delete(object: &mut AzXmlStreamError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
 pub type AzNonXmlCharErrorTT = azul_impl::xml::NonXmlCharError;
@@ -3930,6 +4256,8 @@ pub use AzInvalidCharErrorTT as AzInvalidCharError;
 /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
 pub type AzInvalidCharMultipleErrorTT = azul_impl::xml::InvalidCharMultipleError;
 pub use AzInvalidCharMultipleErrorTT as AzInvalidCharMultipleError;
+/// Destructor: Takes ownership of the `InvalidCharMultipleError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInvalidCharMultipleError_delete(object: &mut AzInvalidCharMultipleError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
 pub type AzInvalidQuoteErrorTT = azul_impl::xml::InvalidQuoteError;
@@ -3942,6 +4270,8 @@ pub use AzInvalidSpaceErrorTT as AzInvalidSpaceError;
 /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
 pub type AzInvalidStringErrorTT = azul_impl::xml::InvalidStringError;
 pub use AzInvalidStringErrorTT as AzInvalidStringError;
+/// Destructor: Takes ownership of the `InvalidStringError` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInvalidStringError_delete(object: &mut AzInvalidStringError) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
 pub type AzSvgParseErrorPositionTT = azul_impl::xml::XmlTextPos;

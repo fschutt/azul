@@ -494,7 +494,7 @@ def generate_rust_dll(api_data):
             class_has_ord = "derive" in c.keys() and "Ord" in c["derive"]
             class_can_be_hashed = "derive" in c.keys() and "Hash" in c["derive"]
 
-            class_has_custom_destructor = "custom_destructor" in c.keys() and c["custom_destructor"]
+            class_has_custom_destructor = ("custom_destructor" in c.keys() and c["custom_destructor"])
             class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"].keys()) > 0)
             is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
             treat_external_as_ptr = "external" in c.keys() and is_boxed_object
@@ -509,6 +509,8 @@ def generate_rust_dll(api_data):
                 code += "pub type " + class_ptr_name + " = " + generate_rust_callback_fn_type(myapi_data, c["callback_typedef"]) + ";"
                 structs_map[class_ptr_name] = { "callback_typedef": c["callback_typedef"] }
                 continue
+
+            class_has_recursive_destructor = has_recursive_destructor(myapi_data, c)
 
             struct_doc = ""
             if "doc" in c.keys():
@@ -526,7 +528,16 @@ def generate_rust_dll(api_data):
                 if class_is_const:
                     code += "pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    structs_map[class_ptr_name] = {"external": external_path, "clone": class_can_be_cloned, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
+                    structs_map[class_ptr_name] = {
+                        "external": external_path,
+                        "clone": class_can_be_cloned,
+                        "is_boxed_object": is_boxed_object,
+                        "custom_destructor": class_has_custom_destructor,
+                        "recursive_destructor": class_has_recursive_destructor,
+                        "derive": struct_derive,
+                        "doc": struct_doc,
+                        "struct": [{"ptr": {"type": "*mut c_void" }}]
+                    }
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                         code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -534,9 +545,27 @@ def generate_rust_dll(api_data):
                         code += "#[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
                     if "struct_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"external": external_path, "clone": class_can_be_cloned, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
+                        structs_map[class_ptr_name] = {
+                            "external": external_path,
+                            "clone": class_can_be_cloned,
+                            "is_boxed_object": is_boxed_object,
+                            "custom_destructor": class_has_custom_destructor,
+                            "recursive_destructor": class_has_recursive_destructor,
+                            "derive": struct_derive,
+                            "doc": struct_doc, "struct":
+                            c["struct_fields"]
+                        }
                     elif "enum_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"external": external_path, "clone": class_can_be_cloned, "is_boxed_object": is_boxed_object, "custom_destructor": class_has_custom_destructor, "derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
+                        structs_map[class_ptr_name] = {
+                            "external": external_path,
+                            "clone": class_can_be_cloned,
+                            "is_boxed_object": is_boxed_object,
+                            "custom_destructor": class_has_custom_destructor,
+                            "recursive_destructor": class_has_recursive_destructor,
+                            "derive": struct_derive,
+                            "doc": struct_doc,
+                            "enum": c["enum_fields"]
+                        }
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -621,10 +650,11 @@ def generate_rust_dll(api_data):
                 if class_can_be_copied:
                     # intentionally empty, no destructor necessary
                     pass
-                elif class_has_custom_destructor or treat_external_as_ptr:
+                elif class_has_custom_destructor or treat_external_as_ptr or class_has_recursive_destructor:
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                    rust_functions_map[str(class_ptr_name + "_delete")] = ["object: &mut " + class_ptr_name, ""];
+                    if class_has_custom_destructor or treat_external_as_ptr:
+                        rust_functions_map[str(class_ptr_name + "_delete")] = ["object: &mut " + class_ptr_name, ""];
                     code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_delete(object: &mut " + class_ptr_name + ") { "
                     code += " unsafe { core::ptr::drop_in_place(object); } "
                     code += "}\r\n"
@@ -647,6 +677,49 @@ def generate_rust_dll(api_data):
     code += generate_size_test(myapi_data, structs_map)
 
     return [code, structs_map, rust_functions_map, forward_delcarations]
+
+# Searches recursively for all fields on a class whether
+# any of the fields have a destructor
+#
+# This is because in C you generally want to call MyObject_delete() in order to have it
+#
+# @returns bool
+def has_recursive_destructor(myapi_data, c):
+
+    class_is_callback_typedef = "callback_typedef" in c.keys() and (len(c["callback_typedef"].keys()) > 0)
+
+    if class_is_callback_typedef:
+        return False
+
+    class_has_custom_destructor = ("custom_destructor" in c.keys() and c["custom_destructor"])
+    is_boxed_object = "is_boxed_object" in c.keys() and c["is_boxed_object"]
+    treat_external_as_ptr = "external" in c.keys() and is_boxed_object
+
+    if class_has_custom_destructor or treat_external_as_ptr:
+        return True
+
+    # loop through fields and recurse
+    if "struct_fields" in c.keys():
+        for field in c["struct_fields"]:
+            field_name = list(field.keys())[0]
+            field_type = field[field_name]["type"]
+            field_type_analyzed = analyze_type(field_type)
+            if is_primitive_arg(field_type_analyzed[1]):
+                continue
+            if has_recursive_destructor(myapi_data, quick_get_class(myapi_data, field_type_analyzed[1])):
+                return True
+    elif "enum_fields" in c.keys():
+        for enum_name in c["enum_fields"]:
+            variant_name = list(enum_name.keys())[0]
+            variant = enum_name[variant_name]
+            if "type" in variant.keys():
+                field_type_analyzed = analyze_type(variant["type"])
+                if is_primitive_arg(field_type_analyzed[1]):
+                    continue
+                if has_recursive_destructor(myapi_data, quick_get_class(myapi_data, field_type_analyzed[1])):
+                    return True
+    return False
+
 
 # In order to statically link without code changes,
 # all crate-internal types have to be listed as:
