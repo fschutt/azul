@@ -2987,7 +2987,7 @@ def generate_api():
     forward_declarations = rust_dll_result[3]
 
     write_file(rust_dll_result[0], root_folder + "/azul-dll/src/lib.rs")
-    write_file(generate_rust_api(apiData, structs_map, functions_map.copy()), root_folder + "/api/rust/lib.rs")
+    write_file(generate_rust_api(apiData, structs_map, functions_map.copy()), root_folder + "/api/rust/src/lib.rs")
     write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
     write_file(generate_python_api(apiData, structs_map, functions_map.copy()), root_folder + "/azul-dll/src/python.rs")
     write_file(generate_cpp_api(apiData, structs_map), root_folder + "/api/cpp/azul.hpp")
@@ -3629,6 +3629,7 @@ def generate_license():
     license_authors = read_file(root_folder + "/LICENSE-WINDOWS.json")
     license_json = json.loads(license_authors)
     license_authors_formatted = format_license_authors(license_json)
+    remove_unused_crates(license_json, root_folder + "/../azul-v1.0-alpha1")
     final_license_text = license_template.replace("$$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$", license_authors_formatted)
     write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
     remove_path(root_folder + "/LICENSE-WINDOWS.json")
@@ -3648,6 +3649,50 @@ def format_license_authors(license_json):
 
         license_txt += name + " v" + version + " licensed " + license + "\r\n    by " + ", ".join(authors) + "\r\n"
     return license_txt
+
+# cargo vendor vendors a lot of unused crates for some reason
+# this reduces the dependencies.zip file to a more reasonable size
+# use WinDirState to see what files are taking up the most space
+def remove_unused_crates(license_json, vendor_path):
+    license_txt = ""
+    added = [
+        "azul-dll",
+        "azul-desktop",
+        "azulc",
+        "azul-css",
+        "azul-core",
+        "azul-layout",
+        "azul-text-layout",
+        "azul-css-parser",
+    ]
+    vendored_crates = os.listdir(vendor_path)
+    for crate in license_json:
+        name = crate["name"]
+        if not(name in added):
+            if name in vendored_crates:
+                vendored_crates.remove(name)
+
+    # vendored_crates now contains the list of vendored
+    # directories that are not used by this build
+    for folder in vendored_crates:
+        remove_path(vendor_path + "/" + folder)
+
+    blacklisted_folder_names = ["test", "tests", "doc", "benches", "examples", "ci", "fixtures"]
+    blacklisted_file_endings = [".xml", ".csv"]
+
+    # remove all "test" "tests", "doc", "benches" and "examples" "ci" directories
+    for v in os.listdir(vendor_path):
+        for f in os.listdir(vendor_path + "/" + v):
+            if f in blacklisted_folder_names:
+                remove_path(vendor_path + "/" + v + "/" + f)
+
+    # as well as any ".json", ".xml" and ".csv" files
+    for root, dirs, files in os.walk(vendor_path):
+        for file in files:
+            for b in blacklisted_file_endings:
+                if file.endswith(b):
+                    print("removing " + os.path.join(root, file))
+                    os.remove(os.path.join(root, file))
 
 def full_test():
     os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --all-features')

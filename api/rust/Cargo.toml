@@ -1,55 +1,52 @@
 [package]
 name = "azul"
-version = "0.0.1"
+version = "1.0.0-alpha1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
-    Azul GUI is a free, functional, immediate-mode GUI framework
-    for rapid development of desktop applications written in Rust,
-    supported by the Mozilla WebRender rendering engine
+    Azul GUI is a free, functional, reactive GUI framework
+    for rapid development of desktop applications written in Rust and C,
+    using the Mozilla WebRender rendering engine.
 '''
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
 categories = ["gui"]
-repository = "https://github.com/maps4print/azul"
-readme = "../README.md"
+repository = "https://github.com/fschutt/azul"
+readme = "../../README.md"
 exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
 build = "build.rs"
 links = "azul"
 
-[lib]
-path = "lib.rs"
-
 [dependencies]
-azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, features = ["rlib"], optional = true }
+# azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, features = ["rlib"], optional = true }
 
-[features]
-default = []
-link_static = [
-    "azul-dll",
-    # enable all features of azul-dll
-    "azul-dll/std",
-    "azul-dll/logging",
-    "azul-dll/css_parser",
-    "azul-dll/font_loading",
-    "azul-dll/text_layout",
-    "azul-dll/svg",
-    "azul-dll/xml",
-    "azul-dll/image_loading",
-    "azul-dll/gif",
-    "azul-dll/jpeg",
-    "azul-dll/png",
-    "azul-dll/tiff",
-    "azul-dll/bmp",
-    "azul-dll/ico",
-    "azul-dll/tga",
-    "azul-dll/hdr",
-    "azul-dll/dxt",
-    "azul-dll/webp",
-    "azul-dll/pnm",
-]
-# currently blocked on gleam, allsorts, rayon and webrender not being no_std
-no_std = ["link_static", "azul-dll/css_parser", "azul-dll/text_layout"]
-minifb = ["azul-dll/std", "link_static"]
+# [features]
+# default = []
+# link_static = [
+#     "azul-dll",
+#     # enable all features of azul-dll
+#     "azul-dll/std",
+#     "azul-dll/logging",
+#     "azul-dll/css_parser",
+#     "azul-dll/font_loading",
+#     "azul-dll/text_layout",
+#     "azul-dll/svg",
+#     "azul-dll/xml",
+#     "azul-dll/image_loading",
+#     "azul-dll/gif",
+#     "azul-dll/jpeg",
+#     "azul-dll/png",
+#     "azul-dll/tiff",
+#     "azul-dll/bmp",
+#     "azul-dll/ico",
+#     "azul-dll/tga",
+#     "azul-dll/hdr",
+#     "azul-dll/dxt",
+#     "azul-dll/webp",
+#     "azul-dll/pnm",
+# ]
+# # currently blocked on gleam, allsorts, rayon and webrender not being no_std
+# no_std = ["link_static", "azul-dll/css_parser", "azul-dll/text_layout"]
+# minifb = ["azul-dll/std", "link_static"]#

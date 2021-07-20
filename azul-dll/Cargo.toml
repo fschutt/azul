@@ -30,10 +30,10 @@ panic = "unwind"
 debug = false
 
 [profile.release]
-opt-level = 's'
-lto = false
-panic = "unwind"
-codegen-units = 16
+opt-level = 3
+lto = true
+panic = "abort"
+codegen-units = 1
 debug = false
 debug-assertions = false
 overflow-checks = false
