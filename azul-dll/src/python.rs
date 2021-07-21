@@ -22492,6 +22492,11 @@ impl AzTextInputState {
         }
     }
 
+    fn get_text(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzTextInputState_getText(
+            mem::transmute(self),
+        )) })
+    }
 }
 
 #[pyproto]
@@ -22719,6 +22724,42 @@ impl AzNumberInput {
     fn new(number: f32) -> AzNumberInput {
         unsafe { mem::transmute(crate::AzNumberInput_new(
             mem::transmute(number),
+        )) }
+    }
+    fn set_placeholder_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzNumberInput_setPlaceholderStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_placeholder_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzNumberInput {
+        unsafe { mem::transmute(crate::AzNumberInput_withPlaceholderStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_container_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzNumberInput_setContainerStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_container_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzNumberInput {
+        unsafe { mem::transmute(crate::AzNumberInput_withContainerStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_label_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzNumberInput_setLabelStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_label_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzNumberInput {
+        unsafe { mem::transmute(crate::AzNumberInput_withLabelStyle(
+            mem::transmute(self),
+            mem::transmute(style),
         )) }
     }
     fn dom(&mut self) -> AzDom {

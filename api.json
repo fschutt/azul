@@ -5444,7 +5444,16 @@
                         {"max_len": {"type": "usize"}},
                         {"selection": {"type": "OptionTextInputSelection"}},
                         {"cursor_pos": {"type": "usize"}}
-                    ]
+                    ],
+                    "functions": {
+                        "get_text": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "textinputstate.get_text().into()"
+                        }
+                    }
                 },
                 "TextInputSelection": {
                     "external": "crate::widgets::text_input::TextInputSelection",
@@ -5558,6 +5567,119 @@
                         }
                     },
                     "functions": {
+                        "set_on_text_input": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "TextInputOnTextInputCallbackType"}
+                            ],
+                            "fn_body": "numberinput.set_on_text_input(data, callback)"
+                        },
+                        "with_on_text_input": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "TextInputOnTextInputCallbackType"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_text_input(data, callback); numberinput"
+                        },
+                        "set_on_virtual_key_down": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "TextInputOnVirtualKeyDownCallbackType"}
+                            ],
+                            "fn_body": "numberinput.set_on_virtual_key_down(data, callback)"
+                        },
+                        "with_on_virtual_key_down": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "TextInputOnVirtualKeyDownCallbackType"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_virtual_key_down(data, callback); numberinput"
+                        },
+                        "set_on_focus_lost": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "TextInputOnFocusLostCallbackType"}
+                            ],
+                            "fn_body": "numberinput.set_on_focus_lost(data, callback)"
+                        },
+                        "with_on_focus_lost": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "TextInputOnFocusLostCallbackType"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_focus_lost(data, callback); numberinput"
+                        },
+                        "set_placeholder_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "numberinput.set_placeholder_style(style)"
+                        },
+                        "with_placeholder_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_placeholder_style(style); numberinput"
+                        },
+                        "set_container_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "numberinput.set_container_style(style)"
+                        },
+                        "with_container_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_container_style(style); numberinput"
+                        },
+                        "set_label_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "numberinput.set_label_style(style)"
+                        },
+                        "with_label_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_label_style(style); numberinput"
+                        },
+                        "set_on_value_change": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "NumberInputOnValueChangeCallbackType"}
+                            ],
+                            "fn_body": "numberinput.set_on_value_change(data, callback)"
+                        },
+                        "with_on_value_change": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "NumberInputOnValueChangeCallbackType"}
+                            ],
+                            "returns": {"type": "NumberInput"},
+                            "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_value_change(data, callback); numberinput"
+                        },
                         "dom": {
                             "fn_args": [
                                 {"self": "refmut"}

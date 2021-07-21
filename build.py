@@ -1194,6 +1194,14 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("widgets", "TextInput", "with_on_virtual_key_down"),
         ("widgets", "TextInput", "set_on_focus_lost"),
         ("widgets", "TextInput", "with_on_focus_lost"),
+        ("widgets", "NumberInput", "set_on_value_change"),
+        ("widgets", "NumberInput", "with_on_value_change"),
+        ("widgets", "NumberInput", "with_on_text_input"),
+        ("widgets", "NumberInput", "with_on_virtual_key_down"),
+        ("widgets", "NumberInput", "with_on_focus_lost"),
+        ("widgets", "NumberInput", "set_on_text_input"),
+        ("widgets", "NumberInput", "set_on_virtual_key_down"),
+        ("widgets", "NumberInput", "set_on_focus_lost"),
 
         # unnecessary due to Python string wrappers
         ("str", "String", "as_refstr"),

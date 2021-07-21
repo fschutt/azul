@@ -8793,7 +8793,22 @@ mod dll {
         pub(crate) fn AzTextInput_setLabelStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec);
         pub(crate) fn AzTextInput_withLabelStyle(_:  &mut AzTextInput, _:  AzNodeDataInlineCssPropertyVec) -> AzTextInput;
         pub(crate) fn AzTextInput_dom(_:  &mut AzTextInput) -> AzDom;
+        pub(crate) fn AzTextInputState_getText(_:  &AzTextInputState) -> AzString;
         pub(crate) fn AzNumberInput_new(_:  f32) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setOnTextInput(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType);
+        pub(crate) fn AzNumberInput_withOnTextInput(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setOnVirtualKeyDown(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType);
+        pub(crate) fn AzNumberInput_withOnVirtualKeyDown(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setOnFocusLost(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnFocusLostCallbackType);
+        pub(crate) fn AzNumberInput_withOnFocusLost(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnFocusLostCallbackType) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setPlaceholderStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzNumberInput_withPlaceholderStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setContainerStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzNumberInput_withContainerStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setLabelStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzNumberInput_withLabelStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setOnValueChange(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnValueChangeCallbackType);
+        pub(crate) fn AzNumberInput_withOnValueChange(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnValueChangeCallbackType) -> AzNumberInput;
         pub(crate) fn AzNumberInput_dom(_:  &mut AzNumberInput) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
@@ -11662,6 +11677,11 @@ pub mod widgets {
     /// `TextInputState` struct
     
 #[doc(inline)] pub use crate::dll::AzTextInputState as TextInputState;
+    impl TextInputState {
+        /// Calls the `TextInputState::get_text` function.
+        pub fn get_text(&self)  -> crate::str::String { unsafe { crate::dll::AzTextInputState_getText(self) } }
+    }
+
     /// `TextInputSelection` struct
     
 #[doc(inline)] pub use crate::dll::AzTextInputSelection as TextInputSelection;
@@ -11707,6 +11727,34 @@ pub mod widgets {
     impl NumberInput {
         /// Creates a new `NumberInput` instance.
         pub fn new(number: f32) -> Self { unsafe { crate::dll::AzNumberInput_new(number) } }
+        /// Calls the `NumberInput::set_on_text_input` function.
+        pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnTextInput(self, data, callback) } }
+        /// Calls the `NumberInput::with_on_text_input` function.
+        pub fn with_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnTextInput(self, data, callback) } }
+        /// Calls the `NumberInput::set_on_virtual_key_down` function.
+        pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnVirtualKeyDown(self, data, callback) } }
+        /// Calls the `NumberInput::with_on_virtual_key_down` function.
+        pub fn with_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnVirtualKeyDown(self, data, callback) } }
+        /// Calls the `NumberInput::set_on_focus_lost` function.
+        pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnFocusLost(self, data, callback) } }
+        /// Calls the `NumberInput::with_on_focus_lost` function.
+        pub fn with_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnFocusLost(self, data, callback) } }
+        /// Calls the `NumberInput::set_placeholder_style` function.
+        pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setPlaceholderStyle(self, style) } }
+        /// Calls the `NumberInput::with_placeholder_style` function.
+        pub fn with_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withPlaceholderStyle(self, style) } }
+        /// Calls the `NumberInput::set_container_style` function.
+        pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setContainerStyle(self, style) } }
+        /// Calls the `NumberInput::with_container_style` function.
+        pub fn with_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withContainerStyle(self, style) } }
+        /// Calls the `NumberInput::set_label_style` function.
+        pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setLabelStyle(self, style) } }
+        /// Calls the `NumberInput::with_label_style` function.
+        pub fn with_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withLabelStyle(self, style) } }
+        /// Calls the `NumberInput::set_on_value_change` function.
+        pub fn set_on_value_change(&mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnValueChange(self, data, callback) } }
+        /// Calls the `NumberInput::with_on_value_change` function.
+        pub fn with_on_value_change(&mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnValueChange(self, data, callback) } }
         /// Calls the `NumberInput::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzNumberInput_dom(self) } }
     }

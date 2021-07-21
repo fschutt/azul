@@ -1882,6 +1882,8 @@ pub use AzTextInputStateWrapperTT as AzTextInputStateWrapper;
 /// Re-export of rust-allocated (stack based) `TextInputState` struct
 pub type AzTextInputStateTT = crate::widgets::text_input::TextInputState;
 pub use AzTextInputStateTT as AzTextInputState;
+/// Equivalent to the Rust `TextInputState::get_text()` function.
+#[no_mangle] pub extern "C" fn AzTextInputState_getText(textinputstate: &AzTextInputState) -> AzString { textinputstate.get_text().into() }
 /// Destructor: Takes ownership of the `TextInputState` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTextInputState_delete(object: &mut AzTextInputState) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -1940,6 +1942,34 @@ pub use AzNumberInputTT as AzNumberInput;
 /// Creates a new `NumberInput` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `NumberInput::new()` constructor.
 #[no_mangle] pub extern "C" fn AzNumberInput_new(number: f32) -> AzNumberInput { AzNumberInput::new(number) }
+/// Equivalent to the Rust `NumberInput::set_on_text_input()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setOnTextInput(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnTextInputCallbackType) { numberinput.set_on_text_input(data, callback) }
+/// Equivalent to the Rust `NumberInput::with_on_text_input()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withOnTextInput(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnTextInputCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_text_input(data, callback); numberinput }
+/// Equivalent to the Rust `NumberInput::set_on_virtual_key_down()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setOnVirtualKeyDown(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnVirtualKeyDownCallbackType) { numberinput.set_on_virtual_key_down(data, callback) }
+/// Equivalent to the Rust `NumberInput::with_on_virtual_key_down()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withOnVirtualKeyDown(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnVirtualKeyDownCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_virtual_key_down(data, callback); numberinput }
+/// Equivalent to the Rust `NumberInput::set_on_focus_lost()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setOnFocusLost(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnFocusLostCallbackType) { numberinput.set_on_focus_lost(data, callback) }
+/// Equivalent to the Rust `NumberInput::with_on_focus_lost()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withOnFocusLost(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnFocusLostCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_focus_lost(data, callback); numberinput }
+/// Equivalent to the Rust `NumberInput::set_placeholder_style()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setPlaceholderStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) { numberinput.set_placeholder_style(style) }
+/// Equivalent to the Rust `NumberInput::with_placeholder_style()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withPlaceholderStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_placeholder_style(style); numberinput }
+/// Equivalent to the Rust `NumberInput::set_container_style()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setContainerStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) { numberinput.set_container_style(style) }
+/// Equivalent to the Rust `NumberInput::with_container_style()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withContainerStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_container_style(style); numberinput }
+/// Equivalent to the Rust `NumberInput::set_label_style()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setLabelStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) { numberinput.set_label_style(style) }
+/// Equivalent to the Rust `NumberInput::with_label_style()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withLabelStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_label_style(style); numberinput }
+/// Equivalent to the Rust `NumberInput::set_on_value_change()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_setOnValueChange(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzNumberInputOnValueChangeCallbackType) { numberinput.set_on_value_change(data, callback) }
+/// Equivalent to the Rust `NumberInput::with_on_value_change()` function.
+#[no_mangle] pub extern "C" fn AzNumberInput_withOnValueChange(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzNumberInputOnValueChangeCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_value_change(data, callback); numberinput }
 /// Equivalent to the Rust `NumberInput::dom()` function.
 #[no_mangle] pub extern "C" fn AzNumberInput_dom(numberinput: &mut AzNumberInput) -> AzDom { numberinput.swap_with_default().dom() }
 /// Destructor: Takes ownership of the `NumberInput` pointer and deletes it.

@@ -91,11 +91,11 @@ impl NumberInput {
         self.text_input.set_on_virtual_key_down(data, callback);
     }
 
-    pub fn set_on_focus_lost(mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
+    pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) {
         self.text_input.set_on_focus_lost(data, callback);
     }
 
-    pub fn set_placeholder_style(mut self, style: NodeDataInlineCssPropertyVec) {
+    pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.text_input.placeholder_style = style;
     }
 
@@ -108,11 +108,11 @@ impl NumberInput {
     }
 
     // Function called when the input has been parsed as a number
-    pub fn set_on_value_change(mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType) {
+    pub fn set_on_value_change(&mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType) {
         self.state.on_value_change = Some(NumberInputOnValueChange {
             callback: NumberInputOnValueChangeCallback { cb: callback },
             data
-    }).into();
+        }).into();
     }
 
     pub fn swap_with_default(&mut self) -> Self {
