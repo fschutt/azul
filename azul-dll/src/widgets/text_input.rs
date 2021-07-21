@@ -484,7 +484,7 @@ impl TextInputState {
                     // TODO: insert character at the cursor location!
                     self.text.insert(self.cursor_pos, c as u32);
                 }
-                self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len() - 1);
+                self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
             },
             Some(TextInputSelection::All) => {
                 self.text = vec![c as u32].into();
@@ -532,7 +532,7 @@ impl TextInputState {
                 self.selection = None.into();
             },
             VirtualKeyCode::End => {
-                self.cursor_pos = self.text.len().saturating_sub(1);
+                self.cursor_pos = self.text.len();
                 self.selection = None.into();
             },
             VirtualKeyCode::Tab => {

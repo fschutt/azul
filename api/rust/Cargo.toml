@@ -22,6 +22,12 @@ links = "azul"
 [dependencies]
 # azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, features = ["rlib"], optional = true }
 
+[features]
+docs_rs = []
+
+[package.metadata.docs.rs]
+features = ["docs_rs"]
+
 # [features]
 # default = []
 # link_static = [

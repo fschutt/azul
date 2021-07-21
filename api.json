@@ -5727,7 +5727,13 @@
                         ],
                         "returns": {"type": "Update"}
                     }
-                }
+                },
+                "ProgressBar": {
+
+                },
+                "ProgressBarState": {
+
+                },
             }
         },
         "style": {
