@@ -80,6 +80,8 @@ pub mod label;
 pub mod text_input;
 /// Same as text input, but only allows numeric input
 pub mod number_input;
+/// Progress bar widget
+pub mod progressbar;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

@@ -1922,6 +1922,16 @@ mod dll {
     /// `AzNumberInputOnValueChangeCallbackType` struct
     pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
+    /// Re-export of rust-allocated (stack based) `ProgressBarState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzProgressBarState {
+        pub percent_done: f32,
+        pub display_percentage: bool,
+    }
+
     /// Re-export of rust-allocated (stack based) `Node` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8399,6 +8409,18 @@ mod dll {
         pub state: AzNumberInputStateWrapper,
     }
 
+    /// Re-export of rust-allocated (stack based) `ProgressBar` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzProgressBar {
+        pub state: AzProgressBarState,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub bar_style: AzNodeDataInlineCssPropertyVec,
+        pub label_style: AzNodeDataInlineCssPropertyVec,
+    }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
     pub struct AzCssDeclarationVec {
@@ -8810,6 +8832,14 @@ mod dll {
         pub(crate) fn AzNumberInput_setOnValueChange(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnValueChangeCallbackType);
         pub(crate) fn AzNumberInput_withOnValueChange(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnValueChangeCallbackType) -> AzNumberInput;
         pub(crate) fn AzNumberInput_dom(_:  &mut AzNumberInput) -> AzDom;
+        pub(crate) fn AzProgressBar_new(_:  f32) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_setContainerStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzProgressBar_withContainerStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_setBarStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzProgressBar_withBarStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_setLabelStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
+        pub(crate) fn AzProgressBar_withLabelStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_dom(_:  &mut AzProgressBar) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -11774,6 +11804,31 @@ pub mod widgets {
     /// `NumberInputOnValueChangeCallbackType` struct
     
 #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallbackType as NumberInputOnValueChangeCallbackType;
+    /// `ProgressBar` struct
+    
+#[doc(inline)] pub use crate::dll::AzProgressBar as ProgressBar;
+    impl ProgressBar {
+        /// Creates a new `ProgressBar` instance.
+        pub fn new(percent_done: f32) -> Self { unsafe { crate::dll::AzProgressBar_new(percent_done) } }
+        /// Calls the `ProgressBar::set_container_style` function.
+        pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzProgressBar_setContainerStyle(self, style) } }
+        /// Calls the `ProgressBar::with_container_style` function.
+        pub fn with_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withContainerStyle(self, style) } }
+        /// Calls the `ProgressBar::set_bar_style` function.
+        pub fn set_bar_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzProgressBar_setBarStyle(self, style) } }
+        /// Calls the `ProgressBar::with_bar_style` function.
+        pub fn with_bar_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withBarStyle(self, style) } }
+        /// Calls the `ProgressBar::set_label_style` function.
+        pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzProgressBar_setLabelStyle(self, style) } }
+        /// Calls the `ProgressBar::with_label_style` function.
+        pub fn with_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withLabelStyle(self, style) } }
+        /// Calls the `ProgressBar::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzProgressBar_dom(self) } }
+    }
+
+    /// `ProgressBarState` struct
+    
+#[doc(inline)] pub use crate::dll::AzProgressBarState as ProgressBarState;
 }
 
 pub mod style {

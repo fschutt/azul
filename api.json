@@ -5729,11 +5729,83 @@
                     }
                 },
                 "ProgressBar": {
-
+                    "external": "crate::widgets::progressbar::ProgressBar",
+                    "struct_fields": [
+                        {"state": {"type": "ProgressBarState"}},
+                        {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"bar_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"label_style": {"type": "NodeDataInlineCssPropertyVec"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"percent_done": "f32"}
+                            ],
+                            "fn_body": "AzProgressBar::new(percent_done)"
+                        }
+                    },
+                    "functions": {
+                        "set_container_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "progressbar.set_container_style(style);"
+                        },
+                        "with_container_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "ProgressBar"},
+                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_container_style(style); progressbar"
+                        },
+                        "set_bar_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "progressbar.set_bar_style(style);"
+                        },
+                        "with_bar_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "ProgressBar"},
+                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_bar_style(style); progressbar"
+                        },
+                        "set_label_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "fn_body": "progressbar.set_label_style(style);"
+                        },
+                        "with_label_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "NodeDataInlineCssPropertyVec"}
+                            ],
+                            "returns": {"type": "ProgressBar"},
+                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_label_style(style); progressbar"
+                        },
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "progressbar.swap_with_default().dom()"
+                        }
+                    }
                 },
                 "ProgressBarState": {
-
-                },
+                    "external": "crate::widgets::progressbar::ProgressBarState",
+                    "struct_fields": [
+                        {"percent_done": {"type": "f32"}},
+                        {"display_percentage": {"type": "bool"}}
+                    ]
+                }
             }
         },
         "style": {

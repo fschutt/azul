@@ -2080,6 +2080,16 @@ pub struct AzNumberInputOnValueChangeCallback {
 /// `AzNumberInputOnValueChangeCallbackType` struct
 pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
+/// Re-export of rust-allocated (stack based) `ProgressBarState` struct
+#[repr(C)]
+#[pyclass(name = "ProgressBarState")]
+pub struct AzProgressBarState {
+    #[pyo3(get, set)]
+    pub percent_done: f32,
+    #[pyo3(get, set)]
+    pub display_percentage: bool,
+}
+
 /// Re-export of rust-allocated (stack based) `Node` struct
 #[repr(C)]
 #[pyclass(name = "Node")]
@@ -8047,6 +8057,20 @@ pub struct AzNumberInput {
     pub state: AzNumberInputStateWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `ProgressBar` struct
+#[repr(C)]
+#[pyclass(name = "ProgressBar")]
+pub struct AzProgressBar {
+    #[pyo3(get, set)]
+    pub state: AzProgressBarState,
+    #[pyo3(get, set)]
+    pub container_style: AzNodeDataInlineCssPropertyVec,
+    #[pyo3(get, set)]
+    pub bar_style: AzNodeDataInlineCssPropertyVec,
+    #[pyo3(get, set)]
+    pub label_style: AzNodeDataInlineCssPropertyVec,
+}
+
 /// Wrapper over a Rust-allocated `CssDeclaration`
 #[repr(C)]
 #[pyclass(name = "CssDeclarationVec")]
@@ -10609,6 +10633,7 @@ impl Clone for AzTextInputOnFocusLostCallback { fn clone(&self) -> Self { let r:
 impl Clone for AzTextInputValidEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputValid = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputState { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnValueChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzProgressBarState { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfo { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeState { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11152,6 +11177,7 @@ impl Clone for AzLabel { fn clone(&self) -> Self { let r: &crate::widgets::label
 impl Clone for AzColorInput { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInput { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInput { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzProgressBar { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclarationVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataVec { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -22858,6 +22884,89 @@ impl PyObjectProtocol for AzNumberInputOnValueChangeCallback {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzProgressBar {
+    #[new]
+    fn new(percent_done: f32) -> AzProgressBar {
+        unsafe { mem::transmute(crate::AzProgressBar_new(
+            mem::transmute(percent_done),
+        )) }
+    }
+    fn set_container_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzProgressBar_setContainerStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_container_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar {
+        unsafe { mem::transmute(crate::AzProgressBar_withContainerStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_bar_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzProgressBar_setBarStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_bar_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar {
+        unsafe { mem::transmute(crate::AzProgressBar_withBarStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_label_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
+        unsafe { mem::transmute(crate::AzProgressBar_setLabelStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_label_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar {
+        unsafe { mem::transmute(crate::AzProgressBar_withLabelStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzProgressBar_dom(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzProgressBar {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzProgressBarState {
+    #[new]
+    fn __new__(percent_done: f32, display_percentage: bool) -> Self {
+        Self {
+            percent_done,
+            display_percentage,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzProgressBarState {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -36734,6 +36843,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNumberInputState>()?;
     m.add_class::<AzNumberInputOnValueChange>()?;
     m.add_class::<AzNumberInputOnValueChangeCallback>()?;
+    m.add_class::<AzProgressBar>()?;
+    m.add_class::<AzProgressBarState>()?;
 
     m.add_class::<AzNode>()?;
     m.add_class::<AzCascadeInfo>()?;

@@ -385,13 +385,15 @@ impl TextInput {
         s
     }
 
-    pub fn dom(self) -> Dom {
+    pub fn dom(mut self) -> Dom {
 
         use azul_desktop::dom::{
             CallbackData, EventFilter,
             HoverEventFilter, FocusEventFilter,
             IdOrClass::Class, TabIndex,
         };
+
+        self.state.inner.cursor_pos = self.state.inner.text.len();
 
         let label_text: String = self.state.inner.text.iter().filter_map(|s| {
             core::char::from_u32(*s)

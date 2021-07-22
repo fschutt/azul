@@ -10,8 +10,9 @@ struct WidgetShowcase {
 extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
     let mut dom = Dom::body();
     dom.add_child(Button::new("Hello".into()).dom());
-    dom.add_child(TextInput::new("".into()).dom());
     dom.add_child(CheckBox::new(false).dom());
+    dom.add_child(ProgressBar::new(50.0).dom());
+    dom.add_child(TextInput::new("Input text...".into()).dom());
     dom.add_child(NumberInput::new(5.0).dom());
     return dom.style(Css::empty());
 }

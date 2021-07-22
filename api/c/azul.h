@@ -1492,6 +1492,12 @@ struct AzNumberInputOnValueChangeCallback {
 };
 typedef struct AzNumberInputOnValueChangeCallback AzNumberInputOnValueChangeCallback;
 
+struct AzProgressBarState {
+    float percent_done;
+    bool  display_percentage;
+};
+typedef struct AzProgressBarState AzProgressBarState;
+
 struct AzNode {
     size_t parent;
     size_t previous_sibling;
@@ -9277,6 +9283,14 @@ struct AzNumberInput {
 };
 typedef struct AzNumberInput AzNumberInput;
 
+struct AzProgressBar {
+    AzProgressBarState state;
+    AzNodeDataInlineCssPropertyVec container_style;
+    AzNodeDataInlineCssPropertyVec bar_style;
+    AzNodeDataInlineCssPropertyVec label_style;
+};
+typedef struct AzProgressBar AzProgressBar;
+
 struct AzCssDeclarationVec {
     AzCssDeclaration* ptr;
     size_t len;
@@ -10985,6 +10999,15 @@ extern DLLIMPORT AzDom AzNumberInput_dom(AzNumberInput* restrict numberinput);
 extern DLLIMPORT void AzNumberInput_delete(AzNumberInput* restrict instance);
 extern DLLIMPORT void AzNumberInputStateWrapper_delete(AzNumberInputStateWrapper* restrict instance);
 extern DLLIMPORT void AzNumberInputOnValueChange_delete(AzNumberInputOnValueChange* restrict instance);
+extern DLLIMPORT AzProgressBar AzProgressBar_new(float percent_done);
+extern DLLIMPORT void AzProgressBar_setContainerStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT AzProgressBar AzProgressBar_withContainerStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT void AzProgressBar_setBarStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT AzProgressBar AzProgressBar_withBarStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT void AzProgressBar_setLabelStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT AzProgressBar AzProgressBar_withLabelStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT AzDom AzProgressBar_dom(AzProgressBar* restrict progressbar);
+extern DLLIMPORT void AzProgressBar_delete(AzProgressBar* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);

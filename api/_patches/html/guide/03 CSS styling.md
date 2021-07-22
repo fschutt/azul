@@ -383,6 +383,10 @@ let styled_dom = dom.style(&mut Css::from_str("
 
 .__azul-native-text-input-container { } // style the container of the TextInput widget
 .__azul-native-text-input-label { } // style the text of the TextInput widget
+
+__azul-native-progressbar-container { } // style the ProgressBar container
+__azul-native-progressbar-bar { } // style the ProgressBar bar
+__azul-native-progressbar-label { } // style the ProgressBar label
 </code><br/>
 <br/>
 

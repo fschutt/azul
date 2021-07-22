@@ -365,6 +365,10 @@ impl ColorU {
     pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
     pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: Self::ALPHA_TRANSPARENT };
 
+    pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+
     pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             r: libm::roundf(self.r as f32 + (other.r as f32 - self.r as f32) * t) as u8,
