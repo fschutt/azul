@@ -1,11 +1,9 @@
 # Azul - Desktop GUI framework
 
-## WARNING: The features advertised in this README may not work yet.
-
 <!-- [START badges] -->
-[![Build Status Linux / macOS](https://travis-ci.org/maps4print/azul.svg?branch=master)](https://travis-ci.org/maps4print/azul)
+[![Build Status Linux / macOS](https://travis-ci.org/fschutt/azul.svg?branch=master)](https://travis-ci.org/fschutt/azul)
 [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
-[![Coverage Status](https://coveralls.io/repos/github/maps4print/azul/badge.svg?branch=master)](https://coveralls.io/github/maps4print/azul?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
 [![LICENSE](https://img.shields.io/badge/license-LGPL%203.0%20+%20static%20linking-blue.svg)](LICENSE)
 [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.45%20stable-blue.svg)]()
 <!-- [END badges] -->
@@ -39,6 +37,71 @@ boxed type (`RefAny`), which can be downcasted to a concrete type if
 necessary. Widget-local data that needs to be retained between frames is
 stored on the DOM nodes themselves, similar to how the HTML `dataset`
 property can be used to store widget data.
+
+## Current progress
+
+The latest release for Windows can be found [here](https://github.com/fschutt/azul/releases/tag/1.0.0-alpha1).
+
+Currenly I am using this framework to build cross-platform GUI applications: while the framework
+isn't finished yet, it is at least possible to build native, good-looking applications
+for Windows - for example, here is an Excel clone that 
+[I am working on](https://gist.github.com/fschutt/8c8a139a772031bed2c4d5d62668c234):
+
+![image](https://user-images.githubusercontent.com/12084016/126752996-1ec1f221-2b01-4f01-99c6-794640228d59.png)
+
+Creating this demo took about two hours. As you can see, the layout system is already 
+quite mature. To run this XML file, download the 
+[examples.zip](https://github.com/fschutt/azul/releases/download/1.0.0-alpha1/examples.zip) 
+folder and exchange the "ui.xml" file for the linked file and restart the xml.exe demo. 
+The XML itself can be hot-reloaded and **later be compiled into native Rust code** - giving you both 
+a fast design iteration time and native performance.
+
+The application currently takes ~40MB to run and of course almost no CPU at all.
+
+Azul currently features:
+
+- Text input / text entry (see "widgets" demo)
+- Animations @ 60+ FPS (using [webrender](https://github.com/servo/webrender))
+- CSS support [see list of supported CSS keys](https://azul.rs/guide/1.0.0-alpha1/CSSstyling)
+- De- / encoding images and fonts (TTF, WOFF, OTF).
+- Cross-platform text shaping (via [allsorts](https://github.com/yeslogic/allsorts)) 
+- Parsing and rendering SVG (via [resvg](https://github.com/RazrFalcon/resvg))
+- Rendering / embedding OpenGL content (using OpenGL textures)
+- Tesselating shapes into triangles (via [lyon](https://github.com/nical/lyon))
+- Asynchronously managing running background threads for File I/O
+- Parsing XML (via [xmlparser](https://github.com/RazrFalcon/xmlparser))
+- Stable API
+
+Currently available widgets:
+
+- `Button`
+- `TextInput` (bug: has no cursor / text selection yet)
+- `CheckBox`
+- `ColorInput` (opens a native color picker dialog)
+- `NumberInput` (same as `TextInput`, but only accepts numeric input)
+
+All widgets are stylable via CSS. Widgets in progress:
+
+- `ProgressBar`
+- `Slider`
+- `Dropdown`
+- `RadioSelect`
+- `RibbonBar`
+
+Additionally, Azul features cross-platform `MsgBox` and `FileDialog` dialogs.
+
+Caveats: 
+
+- Currently Azul only works on Windows because of rendering problems on X11 and Cocoa
+- Text shaping for non-Latin fonts as well as fallback fonts are rudimentary / non-existent
+- Scrolling, especially smooth scrolling is not yet implemented entirely
+- Scroll bars are not automatically inserted
+- Rich Text Layout has to be calculated manually, not done automatically
+- C++ API is a work in progress
+- Layout engine may have bugs (but those can usually be worked around)
+- Binary ABI is not entirely stable yet
+- Infinite scrolling / lazy loading of DOM content is not yet supported
+- Menus / context menus don't work yet (stub API)
 
 ## Installation
 
@@ -82,7 +145,7 @@ Building the library from source requires clang as well as
 the prerequisites listed above.
 
 ```sh
-git clone https://github.com/maps4print/azul
+git clone https://github.com/fschutt/azul
 cd azul-dll
 cargo build --release
 ```
@@ -105,7 +168,7 @@ Note: The widgets are custom to each programming language. All callbacks
 have to use `extern "C"` in order to be compatible with the library.
 The binary layout of all API types is described in the[`api.json` file](./api.json).
 
-[See the /examples folder for example code in different languages](https://github.com/maps4print/azul/tree/master/examples)
+[See the /examples folder for example code in different languages](https://github.com/fschutt/azul/tree/master/examples)
 
 ![Hello World Application](https://i.imgur.com/KkqB2E5.png)
 
