@@ -654,8 +654,8 @@ impl<'a> fmt::Display for DomXmlParseError<'a> {
             Xml(e) => write!(f, "Error parsing XML: {}", e),
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got.as_str(), expected.as_str()),
             RenderDom(e) => write!(f, "Error rendering DOM: {}", e),
-            Component(c) => write!(f, "Error parsing component in <head> node: {}", c),
-            Css(c) => write!(f, "Error parsing CSS in <head> node: {}", c),
+            Component(c) => write!(f, "Error parsing component in <head> node:\r\n{}", c),
+            Css(c) => write!(f, "Error parsing CSS in <head> node:\r\n{}", c),
         }
     }
 }

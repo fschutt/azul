@@ -6,22 +6,24 @@ use std::fs;
 use std::path::Path;
 use std::process::exit;
 
-use azul_core::window::LogicalSize;
-use azul_core::styled_dom::StyledDom;
-use azul_core::app_resources::{Epoch, AppResources};
-use azul_core::callbacks::PipelineId;
-use azul_core::ui_solver::LayoutResult;
-use azul_core::display_list::GlTextureCache;
 use azul_core::{
-    app_resources::{IdNamespace, LoadImageFn, LoadFontFn},
-    display_list::SolvedLayout,
     gl::OptionGlContextPtr,
     window::FullWindowState,
-    display_list::{CachedDisplayList, RenderCallbacks},
+    xml::{XmlComponentMap, XmlNode},
+    window::LogicalSize,
+    styled_dom::{StyledDom, DomId},
+    callbacks::{PipelineId, DocumentId},
+    ui_solver::LayoutResult,
+    app_resources::{
+        IdNamespace, LoadFontFn,
+        Epoch, RendererResources,
+        ImageCache,
+    },
+    display_list::{
+        SolvedLayout, GlTextureCache,
+        CachedDisplayList, RenderCallbacks
+    },
 };
-
-use azulc_lib::xml_parser::XmlComponentMap;
-use azulc_lib::xml_parser::XmlNode;
 
 #[derive(PartialEq)]
 enum Action {
@@ -118,7 +120,8 @@ fn main() {
 
 fn process(action: Action, file: Option<&String>) {
 
-    use azulc_lib::xml_parser::*;
+    use azul_core::xml::*;
+    use azulc_lib::xml::parse_xml_string;
 
     if action == Action::PrintHelp {
         print_help();
@@ -170,7 +173,7 @@ fn process(action: Action, file: Option<&String>) {
             println!("{:#?}", styled_dom);
         },
         Action::PrintHtmlCode => {
-            println!("{}", styled_dom.get_html_string("", ""));
+            println!("{}", styled_dom.get_html_string("", "", false));
         },
         Action::PrintRustCode => {
             match get_rust_code(root_nodes.as_ref()) {
@@ -199,36 +202,50 @@ fn process(action: Action, file: Option<&String>) {
         Action::PrintDebugLayout(size) => {
             let pipeline_id = PipelineId::new();
             let epoch = Epoch(0);
+            let document_id = DocumentId {
+                namespace_id: IdNamespace(0),
+                id: 0,
+            };
             let mut fake_window_state = FullWindowState::default();
             fake_window_state.size.dimensions = size;
-            let mut app_resources = AppResources::new();
-            let layout = solve_layout(styled_dom, size, pipeline_id, epoch, &fake_window_state, &mut app_resources);
+            let mut renderer_resources = RendererResources::default();
+            let layout = solve_layout(styled_dom, size, document_id, epoch, &fake_window_state, &mut renderer_resources);
             let layout_debug = layout_result_print_layout(&layout);
             println!("{}", layout_debug);
         },
         Action::PrintScrollClips(size) => {
-            let pipeline_id = PipelineId::new();
+            let document_id = DocumentId {
+                namespace_id: IdNamespace(0),
+                id: 0,
+            };
             let epoch = Epoch(0);
             let mut fake_window_state = FullWindowState::default();
             fake_window_state.size.dimensions = size;
-            let mut app_resources = AppResources::new();
-            let layout = solve_layout(styled_dom, size, pipeline_id, epoch, &fake_window_state, &mut app_resources);
+            let mut renderer_resources = RendererResources::default();
+            let layout = solve_layout(styled_dom, size, document_id, epoch, &fake_window_state, &mut renderer_resources);
             println!("{:#?}", layout.scrollable_nodes);
         },
         Action::PrintDisplayList(size) => {
-            let pipeline_id = PipelineId::new();
             let epoch = Epoch(0);
+            let document_id = DocumentId {
+                namespace_id: IdNamespace(0),
+                id: 0,
+            };
+            let dom_id = DomId { inner: 0 };
             let mut fake_window_state = FullWindowState::default();
             fake_window_state.size.dimensions = size;
-            let mut app_resources = AppResources::new();
-            let layout = solve_layout(styled_dom, size, pipeline_id, epoch, &fake_window_state, &mut app_resources);
-            let display_list = CachedDisplayList::new(
+            let mut renderer_resources = RendererResources::default();
+            let image_cache = ImageCache::default();
+            let layout = solve_layout(styled_dom, size, document_id, epoch, &fake_window_state, &mut renderer_resources);
+            let display_list = LayoutResult::get_cached_display_list(
+                &document_id,
+                dom_id,
                 epoch,
-                pipeline_id,
-                &fake_window_state,
                 &[layout],
+                &fake_window_state,
                 &GlTextureCache::default(),
-                &app_resources,
+                &renderer_resources,
+                &image_cache,
             );
 
             println!("{:#?}", display_list.root);
@@ -241,40 +258,34 @@ fn process(action: Action, file: Option<&String>) {
 fn solve_layout(
     styled_dom: StyledDom,
     size: LogicalSize,
-    pipeline_id: PipelineId,
+    document_id: DocumentId,
     epoch: Epoch,
     fake_window_state: &FullWindowState,
-    app_resources: &mut AppResources
+    renderer_resources: &mut RendererResources
 ) -> LayoutResult {
 
-    let gl_context = OptionGlContextPtr::None;
-
     let fc_cache = azulc_lib::font_loading::build_font_cache();
-
-    // Important!
-    app_resources.add_pipeline(pipeline_id);
-
-    let mut resource_updates = Vec::new();
+    let image_cache = ImageCache::default();
     let callbacks = RenderCallbacks {
-        insert_into_active_gl_textures: azul_core::gl::insert_into_active_gl_textures,
+        insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
-        load_font_fn: LoadFontFn { cb: azulc_lib::font_loading::font_source_get_bytes }, // needs feature="font_loading"
-        load_image_fn: LoadImageFn { cb: azulc_lib::image_loading::image_source_get_bytes }, // needs feature="image_loading"
-        parse_font_fn: azul_layout::text_layout::parse_font_fn, // needs feature="text_layout"
+        load_font_fn: azulc_lib::font_loading::font_source_get_bytes, // needs feature="font_loading"
+        parse_font_fn: azul_layout::parse_font_fn, // needs feature="text_layout"
     };
 
     // Solve the layout (the extra parameters are necessary because of IFrame recursion)
+    let mut resource_updates = Vec::new();
     let mut solved_layout = SolvedLayout::new(
         styled_dom,
         epoch,
-        pipeline_id,
+        &document_id,
         &fake_window_state,
-        &gl_context,
         &mut resource_updates,
         IdNamespace(0),
-        app_resources,
-        callbacks,
+        &image_cache,
         &fc_cache,
+        &callbacks,
+        renderer_resources,
     );
 
     solved_layout.layout_results.remove(0)
@@ -319,7 +330,7 @@ fn layout_result_print_layout(result: &LayoutResult) -> String {
 }
 
 fn get_rust_code(root_nodes: &[XmlNode]) -> Result<String, String> {
-    azulc_lib::xml_parser::str_to_rust_code(root_nodes, "", &mut XmlComponentMap::default()).map_err(|e| format!("{}", e))
+    azul_core::xml::str_to_rust_code(root_nodes, "", &mut XmlComponentMap::default()).map_err(|e| format!("{}", e))
 }
 
 fn get_c_code(root_nodes: &[XmlNode]) -> Result<String, String> {

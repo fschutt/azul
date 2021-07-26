@@ -25,3 +25,5 @@ pub use layout_solver::{
 
 #[cfg(feature = "text_layout")]
 pub use layout_solver::callback_info_shape_text;
+#[cfg(feature = "text_layout")]
+pub use azul_text_layout::parse_font_fn;
