@@ -30,7 +30,9 @@ pub mod font;
 #[cfg(feature = "image_loading")]
 pub mod image;
 /// Module for compiling CSS to Rust code
-pub mod css;
+pub mod css {
+    pub use azul_core::css::*;
+}
 /// Re-export of the `azul-layout` crate
 pub mod layout {
     pub use azul_layout::*;

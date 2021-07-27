@@ -23,6 +23,8 @@ pub mod macros;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
 #[macro_use]
 pub mod callbacks;
+/// Contains functions to format a CSS stylesheet to a Rust string
+pub mod css;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod app_resources;
 /// Layout and display list creation algorithm, z-index reordering of a `CachedDisplayList`

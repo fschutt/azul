@@ -1631,6 +1631,19 @@ pub struct CssMatcher {
 }
 
 impl CssMatcher {
+    fn get_hash(&self) -> u64 {
+        use std::hash::Hash;
+        use highway::{HighwayHasher, HighwayHash, Key};
+
+        let mut hasher = HighwayHasher::new(Key([0;4]));
+        for p in self.path.iter() {
+            p.hash(&mut hasher);
+        }
+        hasher.finalize64()
+    }
+}
+
+impl CssMatcher {
     fn matches(&self, path: &CssPath) -> bool {
 
         use azul_css::CssPathSelector::*;
@@ -1640,54 +1653,89 @@ impl CssMatcher {
         if path.selectors.as_ref().is_empty() { return false; }
 
         // self_matcher is only ever going to contain "Children" selectors, never "DirectChildren"
-        let path_groups = CssGroupIterator::new(path.selectors.as_ref()).collect::<Vec<_>>();
+        let mut path_groups = CssGroupIterator::new(path.selectors.as_ref()).collect::<Vec<_>>();
+        path_groups.reverse();
 
-        let mut path_group_idx = 0;
-        let mut last_group_matched = false;
+        if path_groups.is_empty() { return false; }
+        let mut self_groups = CssGroupIterator::new(self.path.as_ref()).collect::<Vec<_>>();
+        self_groups.reverse();
+        if self_groups.is_empty() { return false; }
 
-        for (self_group_idx, self_group) in CssGroupIterator::new(self.path.as_ref()).enumerate() {
+        if self.indices_in_parent.len() != self_groups.len() { return false; }
+        if self.children_length.len() != self_groups.len() { return false; }
 
-            let idx_in_parent = match self.indices_in_parent.get(self_group_idx) {
-                Some(s) => *s,
-                None => return last_group_matched,
-            };
-            let children_length = match self.children_length.get(self_group_idx) {
-                Some(s) => *s,
-                None => return last_group_matched,
-            };
+        // self_groups = [ // HTML
+        //     "body",
+        //     "div.__azul_native-ribbon-container"
+        //     "div.__azul_native-ribbon-tabs"
+        //     "p.home"
+        // ]
+        //
+        // path_groups = [ // CSS
+        //     ".__azul_native-ribbon-tabs"
+        //     "div.after-tabs"
+        // ]
 
-            let path_group = match path_groups.get(path_group_idx) {
-                Some(s) => s,
-                None => return last_group_matched,
-            };
+        // get the first path group and see if it matches anywhere in the self group
+        let mut cur_selfgroup_scan = 0;
+        let mut cur_pathgroup_scan = 0;
+        let mut valid = false;
+        let mut path_group = path_groups[cur_pathgroup_scan].clone();
 
-            match path_group.1 {
-                CssGroupSplitReason::DirectChildren => {
-                    // current group HAS TO match
-                    if group_matches(&path_group.0, &self_group.0, (idx_in_parent, children_length)) {
-                        path_group_idx += 1;
-                        last_group_matched = true;
-                    } else {
-                        return false;
-                    }
-                },
-                CssGroupSplitReason::Children => {
-                    // current group MAY match
-                    if !group_matches(&path_group.0, &self_group.0, (idx_in_parent, children_length)) {
-                        last_group_matched = false;
-                    } else {
-                        last_group_matched = true;
-                    }
-                    path_group_idx += 1;
+        while cur_selfgroup_scan < self_groups.len() {
+            let mut advance = None;
+
+            // scan all remaining path groups
+            for (id, cg) in self_groups[cur_selfgroup_scan..].iter().enumerate() {
+
+                let gm = group_matches(
+                    &path_group.0,
+                    &self_groups[cur_selfgroup_scan + id].0,
+                    self.indices_in_parent[cur_selfgroup_scan + id],
+                    self.children_length[cur_selfgroup_scan + id],
+                );
+
+                if gm {
+                    // ok: ".__azul_native-ribbon-tabs" was found within self_groups
+                    // advance the self_groups by n
+                    advance = Some(id + 1);
+                    break;
                 }
+            }
+
+            match advance {
+                Some(n) => {
+                    // group was found in remaining items
+                    // advance cur_pathgroup_scan by 1 and cur_selfgroup_scan by n
+                    cur_pathgroup_scan += 1;
+                    if cur_pathgroup_scan >= path_groups.len() {
+                        // last group was found
+                        return cur_selfgroup_scan + n >= self_groups.len();
+                    } else {
+                        path_group = path_groups[cur_pathgroup_scan].clone();
+                    }
+
+                    cur_selfgroup_scan += n;
+                },
+                None => {
+                    return false;
+                }, // group was not found in remaining items
             }
         }
 
-        return last_group_matched;
+        // only return true if all path_groups matched
+        return cur_pathgroup_scan == path_groups.len() - 1;
     }
 }
 
-fn group_matches(a: &[&CssPathSelector], b: &[&CssPathSelector], (idx_in_parent, parent_children): (usize, usize)) -> bool {
+// does p.home match div.after-tabs?
+// a: div.after-tabs
+fn group_matches(
+    a: &[&CssPathSelector],
+    b: &[&CssPathSelector],
+    idx_in_parent: usize,
+    parent_children: usize
+) -> bool {
 
     use azul_css::CssPathSelector::*;
     use azul_css::CssPathPseudoSelector;
@@ -1745,6 +1793,8 @@ pub fn compile_body_node_to_rust_code<'a>(
     mut matcher: CssMatcher,
 ) -> Result<String, CompileError<'a>> {
 
+    use azul_css::CssDeclaration;
+
     let t = "";
     let t2 = "    ";
     let mut dom_string = String::from("Dom::body()");
@@ -1756,7 +1806,25 @@ pub fn compile_body_node_to_rust_code<'a>(
     let classes = body_node.attributes.get_key("class").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
     matcher.path.extend(classes.into_iter().map(|class| CssPathSelector::Class(class.to_string().into())));
 
-    let css_blocks_to_apply = get_css_blocks(css, &matcher);
+    let matcher_hash = matcher.get_hash();
+    let css_blocks_for_this_node = get_css_blocks(css, &matcher);
+    if !css_blocks_for_this_node.is_empty() {
+        use crate::css::format_static_css_prop;
+
+        let css_strings = css_blocks_for_this_node.iter().map(|css_block| {
+
+            let formatted = css_block.declarations.as_ref().iter().map(|s| match s {
+                CssDeclaration::Static(s) => format_static_css_prop(s, 0),
+                CssDeclaration::Dynamic(d) => format_static_css_prop(&d.default_value, 0),
+            }).collect::<Vec<String>>();
+
+            format!("// {}\r\n{}", css_block.path, formatted.join("\r\n"))
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n");
+
+        css_blocks.insert(format!("CSS_MATCH_{:09}", matcher_hash), css_strings);
+    }
 
     if !body_node.children.as_ref().is_empty() {
         dom_string.push_str(&format!("\r\n.with_children(DomVec::from_const_slice(&[\r\n"));
@@ -1790,8 +1858,8 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssRuleBlock> {
 
     for stylesheet in css.stylesheets.as_ref() {
         for css_block in stylesheet.rules.as_ref() {
-            if matcher.matches(&css_block.path) {
-                println!("{} matched:\r\n{}\r\n", CssPath { selectors: matcher.path.clone().into() }, css_block.path);
+            let m = matcher.matches(&css_block.path);
+            if m {
                 blocks.push(css_block.clone());
             }
         }
@@ -1853,6 +1921,8 @@ pub fn compile_node_to_rust_code_inner<'a>(
     css: &Css,
     mut matcher: CssMatcher,
 ) -> Result<String, CompileError<'a>> {
+
+    use azul_css::CssDeclaration;
 
     let t = String::from("    ").repeat(tabs - 1);
     let t2 = String::from("    ").repeat(tabs);
@@ -1930,7 +2000,26 @@ pub fn compile_node_to_rust_code_inner<'a>(
     let classes = node.attributes.get_key("class").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
     matcher.path.extend(classes.into_iter().map(|class| CssPathSelector::Class(class.to_string().into())));
 
-    let css_blocks_to_apply = get_css_blocks(css, &matcher);
+    let matcher_hash = matcher.get_hash();
+    let css_blocks_for_this_node = get_css_blocks(css, &matcher);
+    if !css_blocks_for_this_node.is_empty() {
+        use crate::css::format_static_css_prop;
+
+        let css_strings = css_blocks_for_this_node.iter().map(|css_block| {
+
+            let formatted = css_block.declarations.as_ref().iter().map(|s| match s {
+                CssDeclaration::Static(s) => format_static_css_prop(s, 0),
+                CssDeclaration::Dynamic(d) => format_static_css_prop(&d.default_value, 0),
+            }).collect::<Vec<String>>();
+
+            format!("// {}\r\n{}", css_block.path, formatted.join("\r\n"))
+        })
+        .collect::<Vec<_>>()
+        .join("\r\n");
+
+        css_blocks.insert(format!("CSS_MATCH_{:09}", matcher_hash), css_strings);
+    }
+
 
     // The dom string is the function name
     let mut dom_string = format!("{}{}::render({}{})", t2, component_name, text_as_first_arg, instantiated_function_arguments);
