@@ -2,7 +2,11 @@
 
 use core::fmt;
 use alloc::collections::BTreeMap;
-use azul_css::{AzString, Css, U8Vec, OptionAzString};
+use azul_css::{
+    AzString, Css, U8Vec, OptionAzString,
+    NodeTypeTag, CssPathSelector, CssRuleBlock,
+    CssPath,
+};
 use crate::window::{AzStringPair, StringPairVec};
 use crate::styled_dom::StyledDom;
 use crate::dom::Dom;
@@ -561,11 +565,18 @@ impl<'a> From<CssParseError<'a>> for DomXmlParseError<'a> {
 pub enum CompileError<'a> {
     Dom(RenderDomError<'a>),
     Xml(DomXmlParseError<'a>),
+    Css(CssParseError<'a>),
 }
 
 impl<'a> From<ComponentError> for CompileError<'a> {
     fn from(e: ComponentError) -> Self {
         CompileError::Dom(RenderDomError::Component(e))
+    }
+}
+
+impl<'a> From<CssParseError<'a>> for CompileError<'a> {
+    fn from(e: CssParseError<'a>) -> Self {
+        CompileError::Css(e)
     }
 }
 
@@ -575,6 +586,7 @@ impl<'a> fmt::Display for CompileError<'a> {
         match self {
             Dom(d) => write!(f, "{}", d),
             Xml(s) => write!(f, "{}", s),
+            Css(s) => write!(f, "{}", s),
         }
     }
 }
@@ -1016,6 +1028,7 @@ pub fn str_to_rust_code<'a>(
 
     let html_node = get_html_node(&root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
+    let mut global_style = Css::empty();
 
     if let Some(head_node) = html_node.children.as_ref().iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
         for node in head_node.children.as_ref() {
@@ -1028,11 +1041,28 @@ pub fn str_to_rust_code<'a>(
                 Err(e) => return Err(CompileError::Xml(e.into())), // Error during parsing the XML component, bail
             }
         }
+
+        if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
+            if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
+                let parsed_css = azul_css_parser::new_from_str(&text)?;
+                global_style = parsed_css;
+            }
+        }
     }
+
+    global_style.sort_by_specificity();
 
     let mut css_blocks = BTreeMap::new();
     let app_source = compile_body_node_to_rust_code(
-        &body_node, component_map, &mut css_blocks,
+        &body_node,
+        component_map,
+        &mut css_blocks,
+        &global_style,
+        CssMatcher {
+            path: Vec::new(),
+            indices_in_parent: vec![0],
+            children_length: vec![body_node.children.as_ref().len()],
+        }
     )?;
 
     let app_source = app_source
@@ -1505,6 +1535,14 @@ pub fn render_component_inner<'a>(
     let component_name = normalize_casing(&component_name);
     let xml_node = renderer.get_xml_node();
 
+    let mut css = match find_node_by_type(xml_node.children.as_ref(), "style")
+    .and_then(|style_node| style_node.text.as_ref().map(|s| s.as_str())) {
+        Some(text) => azul_css_parser::new_from_str(&text)?,
+        None => Css::empty(),
+    };
+
+    css.sort_by_specificity();
+
     // Arguments of the current node
     let available_function_args = renderer.get_available_arguments();
     let mut filtered_xml_attributes = available_function_args.clone(); // <- important, only for Rust code compilation
@@ -1525,10 +1563,22 @@ pub fn render_component_inner<'a>(
     let mut dom_string = renderer.compile_to_rust_code(component_map, &filtered_xml_attributes, &text.into())?;
     set_stringified_attributes(&mut dom_string, &xml_node.attributes, &filtered_xml_attributes.args, tabs);
 
+    // TODO
+    let matcher = CssMatcher {
+        path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
+        indices_in_parent: Vec::new(),
+        children_length: Vec::new(),
+    };
+
     let mut css_blocks = BTreeMap::new();
     if !xml_node.children.as_ref().is_empty() {
         dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_const_slice(&[\r\n", t));
-        for child_node in xml_node.children.as_ref().iter() {
+        for (child_idx, child_node) in xml_node.children.as_ref().iter().enumerate() {
+
+            let mut matcher = matcher.clone();
+            matcher.indices_in_parent.push(child_idx);
+            matcher.children_length.push(xml_node.children.as_ref().len());
+
             dom_string.push_str(
                 &format!("{}{},", t1,
                 compile_node_to_rust_code_inner(
@@ -1536,7 +1586,9 @@ pub fn render_component_inner<'a>(
                     component_map,
                     &filtered_xml_attributes,
                     tabs + 1,
-                    &mut css_blocks
+                    &mut css_blocks,
+                    &css,
+                    matcher,
                 )?));
         }
         dom_string.push_str(&format!("\r\n{}]))", t));
@@ -1571,24 +1623,158 @@ pub fn compile_components_to_rust_code(
     Ok(map)
 }
 
+#[derive(Clone)]
+pub struct CssMatcher {
+    path: Vec<CssPathSelector>,
+    indices_in_parent: Vec<usize>,
+    children_length: Vec<usize>,
+}
+
+impl CssMatcher {
+    fn matches(&self, path: &CssPath) -> bool {
+
+        use azul_css::CssPathSelector::*;
+        use crate::style::{CssGroupIterator, CssGroupSplitReason};
+
+        if self.path.is_empty() { return false; }
+        if path.selectors.as_ref().is_empty() { return false; }
+
+        // self_matcher is only ever going to contain "Children" selectors, never "DirectChildren"
+        let path_groups = CssGroupIterator::new(path.selectors.as_ref()).collect::<Vec<_>>();
+
+        let mut path_group_idx = 0;
+        let mut last_group_matched = false;
+
+        for (self_group_idx, self_group) in CssGroupIterator::new(self.path.as_ref()).enumerate() {
+
+            let idx_in_parent = match self.indices_in_parent.get(self_group_idx) {
+                Some(s) => *s,
+                None => return last_group_matched,
+            };
+            let children_length = match self.children_length.get(self_group_idx) {
+                Some(s) => *s,
+                None => return last_group_matched,
+            };
+
+            let path_group = match path_groups.get(path_group_idx) {
+                Some(s) => s,
+                None => return last_group_matched,
+            };
+
+            match path_group.1 {
+                CssGroupSplitReason::DirectChildren => {
+                    // current group HAS TO match
+                    if group_matches(&path_group.0, &self_group.0, (idx_in_parent, children_length)) {
+                        path_group_idx += 1;
+                        last_group_matched = true;
+                    } else {
+                        return false;
+                    }
+                },
+                CssGroupSplitReason::Children => {
+                    // current group MAY match
+                    if !group_matches(&path_group.0, &self_group.0, (idx_in_parent, children_length)) {
+                        last_group_matched = false;
+                    } else {
+                        last_group_matched = true;
+                    }
+                    path_group_idx += 1;
+                }
+            }
+        }
+
+        return last_group_matched;
+    }
+}
+
+fn group_matches(a: &[&CssPathSelector], b: &[&CssPathSelector], (idx_in_parent, parent_children): (usize, usize)) -> bool {
+
+    use azul_css::CssPathSelector::*;
+    use azul_css::CssPathPseudoSelector;
+    use azul_css::CssNthChildSelector;
+
+    for selector in a {
+        match selector {
+
+            // always matches
+            Global => { }
+            PseudoSelector(CssPathPseudoSelector::Hover) => { },
+            PseudoSelector(CssPathPseudoSelector::Active) => { },
+            PseudoSelector(CssPathPseudoSelector::Focus) => { },
+
+            Type(tag) => {
+                if !b.iter().any(|t| **t == Type(tag.clone())) { return false; }
+            },
+            Class(class) => {
+                if !b.iter().any(|t| **t == Class(class.clone())) { return false; }
+            },
+            Id(id) => {
+                if !b.iter().any(|t| **t == Id(id.clone())) { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::First) => {
+                if idx_in_parent != 0 { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::Last) => {
+                if idx_in_parent != parent_children.saturating_sub(1) { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Number(i))) => {
+                if idx_in_parent != *i as usize { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Even)) => {
+                if idx_in_parent % 2 != 0 { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Odd)) => {
+                if idx_in_parent % 2 == 0 { return false; }
+            },
+            PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(p))) => {
+                if idx_in_parent.saturating_sub(p.offset as usize) % p.repeat as usize != 0 { return false; }
+            },
+
+            _ => return false, // can't happen
+        }
+    }
+
+    true
+}
+
 pub fn compile_body_node_to_rust_code<'a>(
     body_node: &'a XmlNode,
     component_map: &'a XmlComponentMap,
     css_blocks: &mut BTreeMap<String, String>,
+    css: &Css,
+    mut matcher: CssMatcher,
 ) -> Result<String, CompileError<'a>> {
+
     let t = "";
     let t2 = "    ";
     let mut dom_string = String::from("Dom::body()");
+    let node_type = CssPathSelector::Type(NodeTypeTag::Body);
+    matcher.path.push(node_type);
+
+    let ids = body_node.attributes.get_key("id").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
+    matcher.path.extend(ids.into_iter().map(|id| CssPathSelector::Id(id.to_string().into())));
+    let classes = body_node.attributes.get_key("class").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
+    matcher.path.extend(classes.into_iter().map(|class| CssPathSelector::Class(class.to_string().into())));
+
+    let css_blocks_to_apply = get_css_blocks(css, &matcher);
 
     if !body_node.children.as_ref().is_empty() {
         dom_string.push_str(&format!("\r\n.with_children(DomVec::from_const_slice(&[\r\n"));
-        for child_node in body_node.children.as_ref().iter() {
+        for (child_idx, child_node) in body_node.children.as_ref().iter().enumerate() {
+
+            let mut matcher = matcher.clone();
+            matcher.path.push(CssPathSelector::Children);
+            matcher.indices_in_parent.push(child_idx);
+            matcher.children_length.push(body_node.children.len());
+
             dom_string.push_str(&format!("{}{},\r\n", t, compile_node_to_rust_code_inner(
                 child_node,
                 component_map,
                 &FilteredComponentArguments::default(),
                 1,
-                css_blocks
+                css_blocks,
+                css,
+                matcher,
             )?));
         }
         dom_string.push_str(&format!("{}]))", t));
@@ -1596,6 +1782,22 @@ pub fn compile_body_node_to_rust_code<'a>(
 
     let dom_string = dom_string.trim();
     Ok(dom_string.to_string())
+}
+
+fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssRuleBlock> {
+
+    let mut blocks = Vec::new();
+
+    for stylesheet in css.stylesheets.as_ref() {
+        for css_block in stylesheet.rules.as_ref() {
+            if matcher.matches(&css_block.path) {
+                println!("{} matched:\r\n{}\r\n", CssPath { selectors: matcher.path.clone().into() }, css_block.path);
+                blocks.push(css_block.clone());
+            }
+        }
+    }
+
+    blocks
 }
 
 fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
@@ -1648,6 +1850,8 @@ pub fn compile_node_to_rust_code_inner<'a>(
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
     css_blocks: &mut BTreeMap<String, String>,
+    css: &Css,
+    mut matcher: CssMatcher,
 ) -> Result<String, CompileError<'a>> {
 
     let t = String::from("    ").repeat(tabs - 1);
@@ -1695,22 +1899,38 @@ pub fn compile_node_to_rust_code_inner<'a>(
         args.into_iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ")
     };
 
-    let text_as_first_arg =
-        if filtered_xml_attributes.accepts_text {
-            let node_text = node.text.clone().into_option().unwrap_or_default();
-            let node_text = format_args_for_rust_code(node_text.trim());
-            let trailing_comma = if !instantiated_function_arguments.is_empty() { ", " } else { "" };
+    let text_as_first_arg = if filtered_xml_attributes.accepts_text {
+        let node_text = node.text.clone().into_option().unwrap_or_default();
+        let node_text = format_args_for_rust_code(node_text.trim());
+        let trailing_comma = if !instantiated_function_arguments.is_empty() { ", " } else { "" };
 
-            // __TODO__
-            // let node_text = format_args_for_rust_code(&node_text, &parent_xml_attributes.args);
-            //   "{text}" => "text"
-            //   "{href}" => "href"
-            //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
+        // __TODO__
+        // let node_text = format_args_for_rust_code(&node_text, &parent_xml_attributes.args);
+        //   "{text}" => "text"
+        //   "{href}" => "href"
+        //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
 
-            format!("{}{}", node_text, trailing_comma)
-        } else {
-            String::new()
-        };
+        format!("{}{}", node_text, trailing_comma)
+    } else {
+        String::new()
+    };
+
+    let node_type = CssPathSelector::Type(match component_name.as_str() {
+        "body" => NodeTypeTag::Body,
+        "div" => NodeTypeTag::Div,
+        "br" => NodeTypeTag::Br,
+        "p" => NodeTypeTag::P,
+        "img" => NodeTypeTag::Img,
+        other => return Err(CompileError::Dom(RenderDomError::Component(ComponentError::UnknownComponent(other.to_string().into())))),
+    });
+
+    matcher.path.push(node_type);
+    let ids = node.attributes.get_key("id").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
+    matcher.path.extend(ids.into_iter().map(|id| CssPathSelector::Id(id.to_string().into())));
+    let classes = node.attributes.get_key("class").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
+    matcher.path.extend(classes.into_iter().map(|class| CssPathSelector::Class(class.to_string().into())));
+
+    let css_blocks_to_apply = get_css_blocks(css, &matcher);
 
     // The dom string is the function name
     let mut dom_string = format!("{}{}::render({}{})", t2, component_name, text_as_first_arg, instantiated_function_arguments);
@@ -1718,7 +1938,20 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
     let mut children_string = node.children.as_ref()
     .iter()
-    .map(|c| compile_node_to_rust_code_inner(c, component_map, &filtered_xml_attributes, tabs + 1, css_blocks))
+    .enumerate()
+    .map(|(child_idx, c)| {
+
+        let mut matcher = matcher.clone();
+        matcher.path.push(CssPathSelector::Children);
+        matcher.indices_in_parent.push(child_idx);
+        matcher.children_length.push(node.children.len());
+
+        compile_node_to_rust_code_inner(
+            c, component_map,
+            &filtered_xml_attributes, tabs + 1,
+            css_blocks, css, matcher
+        )
+    })
     .collect::<Result<Vec<_>, _>>()?
     .join(&format!(",\r\n"));
 
