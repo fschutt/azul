@@ -806,7 +806,7 @@ impl XmlComponent for TextRenderer {
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
-        Ok(String::from("Dom::label(text)"))
+        Ok(String::from("Dom::text(text)"))
     }
 
     fn get_xml_node<'a>(&'a self) -> &'a XmlNode { &self.node }
@@ -1080,7 +1080,7 @@ pub fn str_to_rust_code<'a>(
         .collect::<Vec<String>>()
         .join("\r\n");
 
-        format!("    static {}_PROPERTIES: &[NodeDataInlineCssProperty] = &[\r\n{}\r\n{}];\r\n{}static {}: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice({}_PROPERTIES);", k, v, t, t, k, k)
+        format!("    static {}_PROPERTIES: &[NodeDataInlineCssProperty] = &[\r\n{}\r\n{}];\r\n{}const {}: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice({}_PROPERTIES);", k, v, t, t, k, k)
     }).collect::<Vec<_>>()
     .join(&format!("{}\r\n\r\n", t));
 
@@ -1090,13 +1090,13 @@ use azul::{
     app::{App, AppConfig, LayoutSolver},
     css::Css,
     style::StyledDom,
-    callbacks::RefAny,
-    window::WindowCreateOptions,
+    callbacks::{RefAny, LayoutCallbackInfo},
+    window::{WindowCreateOptions, WindowFrame},
 };
 
 struct Data { }
 
-extern \"C\" fn render(_: &mut RefAny, _: LayoutInfo) -> StyledDom {
+extern \"C\" fn render(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
     crate::ui::render()
     .style(Css::empty()) // styles are applied inline
 }
@@ -1112,16 +1112,25 @@ fn main() {
         "//! Auto-generated UI source code\r\n{}\r\n{}\r\n\r\n{}{}",
         imports,
         compile_components(compile_components_to_rust_code(component_map)?),
-        format!("pub mod ui {{\r\n\r\n
+        format!("#[allow(unused_imports)]\r\npub mod ui {{
+
     pub use crate::components::*;
+
     use azul::css::*;
     use azul::str::String as AzString;
-    use azul::vec::{{DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec}};\r\n
+    use azul::vec::{{
+        DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec,
+        StyleBackgroundSizeVec, StyleBackgroundRepeatVec,
+        StyleBackgroundContentVec, StyleTransformVec,
+        StyleFontFamilyVec, StyleBackgroundPositionVec
+    }};
     use azul::dom::{{
         Dom,
         IdOrClass::{{Id, Class}},
         NodeDataInlineCssProperty,
-    }};\r\n\r\n{}\r\n\r\n    pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}", css_blocks, app_source),
+    }};\r\n\r\n{}
+
+    pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}", css_blocks, app_source),
         main_func,
     );
 
@@ -1142,7 +1151,7 @@ pub fn compile_components(
 
         // let css_blocks = ...
 
-        format!("pub mod {} {{\r\n    use azul::dom::Dom;\r\n    use azul::str::String as AzString;\r\n{}\r\n}}", name, f)
+        format!("#[allow(unused_imports)]\r\npub mod {} {{\r\n    use azul::dom::Dom;\r\n    use azul::str::String as AzString;\r\n{}\r\n}}", name, f)
     }).collect::<Vec<String>>()
     .join("\r\n\r\n");
 
@@ -1906,7 +1915,7 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
 fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
     use self::DynamicItem::*;
     if input.is_empty() {
-        String::from("\"\"")
+        String::from("AzString::from_const_str(\"\")")
     } else if input.len() == 1 {
         // common: there is only one "dynamic item" - skip the "format!()" macro
         match &input[0] {
@@ -1937,7 +1946,7 @@ fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
         }
 
         formatted_str.push_str(&variables.join(", "));
-        formatted_str.push(')');
+        formatted_str.push_str(").into()");
         formatted_str
     }
 }
