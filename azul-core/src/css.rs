@@ -1,5 +1,6 @@
 //! Module for printing the CSS to Rust code
 
+use core::hash::Hash;
 use alloc::string::String;
 use alloc::vec::Vec;
 use azul_css::*;
@@ -111,6 +112,19 @@ fn print_declaraction(decl: &CssDeclaration, tabs: usize) -> String {
     match decl {
         CssDeclaration::Static(s) => format!("CssDeclaration::Static({})", format_static_css_prop(s, tabs)),
         CssDeclaration::Dynamic(d) => format!("CssDeclaration::Dynamic({})", format_dynamic_css_prop(d, tabs)),
+    }
+}
+
+trait GetHash {
+    fn get_hash(&self) -> u64;
+}
+
+impl<T: Hash> GetHash for T {
+    fn get_hash(&self) -> u64 {
+        use highway::{HighwayHasher, HighwayHash, Key};
+        let mut hasher = HighwayHasher::new(Key([0;4]));
+        self.hash(&mut hasher);
+        hasher.finalize64()
     }
 }
 
@@ -377,17 +391,7 @@ impl_enum_fmt!(BorderStyle,
 
 impl FormatAsRustCode for StyleBackgroundSizeVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-
-        let t = String::from("    ").repeat(tabs);
-        let content = self.iter()
-            .map(|bgs| format_style_background_size(bgs))
-            .collect::<Vec<_>>()
-            .join(&format!(",\r\n{}", t));
-
-        let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleBackgroundSizeVec::from_const_slice(&[\r\n{}{}\r\n{}])",
-            t1, content, t,
-        )
+        format!("StyleBackgroundSizeVec::from_const_slice(STYLE_BACKGROUND_SIZE_VEC_{})", self.get_hash())
     }
 }
 
@@ -438,16 +442,7 @@ impl_enum_fmt!(StyleBackgroundRepeat,
 
 impl FormatAsRustCode for StyleBackgroundRepeatVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        let t = String::from("    ").repeat(tabs);
-        let content = self.iter()
-            .map(|bgr| bgr.format_as_rust_code(tabs + 1))
-            .collect::<Vec<_>>()
-            .join(&format!(",\r\n{}", t));
-
-        let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleBackgroundSizeVec::from_const_slice(&[\r\n{}{}\r\n{}])",
-            t1, content, t,
-        )
+        format!("StyleBackgroundRepeatVec::from_const_slice(STYLE_BACKGROUND_REPEAT_VEC_{})", self.get_hash())
     }
 }
 
@@ -553,16 +548,7 @@ impl_enum_fmt!(StyleBackfaceVisibility,
 
 impl FormatAsRustCode for StyleBackgroundContentVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        let t = String::from("    ").repeat(tabs);
-        let content = self.iter()
-            .map(|bgc| format_style_background_content(bgc, tabs + 1))
-            .collect::<Vec<_>>()
-            .join(&format!(",\r\n{}", t));
-
-        let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleBackgroundContentVec::from_const_slice(&[\r\n{}{}\r\n{}])",
-            t1, content, t,
-        )
+        format!("StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_VEC_{})", self.get_hash())
     }
 }
 
@@ -588,10 +574,10 @@ fn format_direction(d: &Direction, tabs: usize) -> String {
 fn format_linear_gradient(l: &LinearGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: NormalizedLinearColorStopVec::from_const_slice(&[\r\n{}{}\r\n{}]),\r\n{}}}",
+    format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_VEC_{}),\r\n{}}}",
         t1, format_direction(&l.direction, tabs + 1), t1,
         l.extend_mode.format_as_rust_code(tabs + 1), t1,
-        t1, format_linear_color_stops(l.stops.as_ref(), tabs), t1, t,
+        l.stops.get_hash(), t,
     )
 }
 
@@ -599,23 +585,22 @@ fn format_conic_gradient(r: &ConicGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
-    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: NormalizedLinearColorStopVec::from_const_slice(&[\r\n{}{}\r\n{}]),\r\n{}}}",
+    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: RadialColorStopVec::from_const_slice(RADIAL_COLOR_STOP_VEC_{}),\r\n{}}}",
         t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
         format_style_background_position(&r.center, tabs + 1), t1,
         format_angle_value(&r.angle), t1,
-        t1, format_radial_color_stops(r.stops.as_ref(), tabs + 1), t1,
-        t,
+        r.stops.get_hash(), t,
     )
 }
 
 fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: RadialColorStopVec::from_const_slice(&[\r\n{}{}\r\n{}]),\r\n{}}}",
+    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: RadialColorStopVec::from_const_slice(LINEAR_COLOR_STOP_VEC_{}),\r\n{}}}",
         t1, r.shape.format_as_rust_code(tabs + 1), t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
-        t1, format_linear_color_stops(r.stops.as_ref(), tabs + 1), t1, t,
+        r.stops.get_hash(), t,
     )
 }
 
@@ -651,11 +636,7 @@ fn format_radial_color_stop(g: &NormalizedRadialColorStop) -> String {
 
 impl FormatAsRustCode for StyleTransformVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        let t = String::from("    ").repeat(tabs);
-        let t1 = String::from("    ").repeat(tabs + 1);
-        format!("StyleTransformVec::from_const_slice(&[\r\n{}{}\r\n{}])",
-            t1, format_style_transforms(self.as_ref(), tabs + 1), t,
-        )
+        format!("StyleTransformVec::from_const_slice(STYLE_TRANSFORM_VEC_{})", self.get_hash())
     }
 }
 
@@ -724,11 +705,7 @@ fn format_font_ids(font_ids: &[StyleFontFamily], tabs: usize) -> String {
 
 impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        let t = String::from("    ").repeat(tabs);
-        let t2 = String::from("    ").repeat(tabs + 1);
-        format!("StyleFontFamilyVec::from_const_slice(&[\r\n{}{}\r\n{}])",
-            t2, format_font_ids(self.as_ref(), tabs + 1), t,
-        )
+        format!("StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_VEC_{})", self.get_hash())
     }
 }
 
@@ -738,8 +715,8 @@ impl FormatAsRustCode for StyleFontFamily {
         use azul_css::StyleFontFamily::*;
         let t = String::from("    ").repeat(tabs);
         match self {
-            System(id) => format!("StyleFontFamily::System(AzString::from_const_str(\"{}\"))", id),
-            File(path) => format!("StyleFontFamily::File(AzString::from_const_str(\"{}\"))", path),
+            System(id) => format!("StyleFontFamily::System(STRING_{})", id.get_hash()),
+            File(path) => format!("StyleFontFamily::File(STRING_{})", path.get_hash()),
             Ref(font_ref) => format!("StyleFontFamily::Ref({:0x})", font_ref.data as usize),
         }
     }
@@ -747,16 +724,7 @@ impl FormatAsRustCode for StyleFontFamily {
 
 impl FormatAsRustCode for StyleBackgroundPositionVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        let t = String::from("    ").repeat(tabs);
-        let content = self.iter()
-            .map(|bgp| format_style_background_position(bgp, tabs))
-            .collect::<Vec<_>>()
-            .join(&format!(",\r\n{}", t));
-
-        let t2 = String::from("    ").repeat(tabs + 1);
-        format!("StyleBackgroundPositionVec::from_const_slice(&[\r\n{}{}\r\n{}])",
-            t2, content, t,
-        )
+        format!("StyleBackgroundPositionVec::from_const_slice(STYLE_BACKGROUND_POSITION_VEC_{})", self.get_hash())
     }
 }
 
