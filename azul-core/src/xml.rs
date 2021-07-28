@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use azul_css::{
     AzString, Css, U8Vec, OptionAzString,
     NodeTypeTag, CssPathSelector, CssRuleBlock,
-    CssPath,
+    CssPath, CssPathPseudoSelector,
 };
 use crate::window::{AzStringPair, StringPairVec};
 use crate::styled_dom::StyledDom;
@@ -1073,21 +1073,31 @@ pub fn str_to_rust_code<'a>(
 
     let t = "    ";
     let css_blocks = css_blocks.iter().map(|(k, v)| {
+
         let v = v
         .lines()
-        .map(|l| format!("{}{}", t, l))
+        .map(|l| format!("{}{}{}", t, t, l))
         .collect::<Vec<String>>()
         .join("\r\n");
-        format!("static {}_PROPERTIES: &[CssProperty] = &[\r\n{}\r\n];\r\n{}static {}: CssPropertyVec = CssPropertyVec::from_const_slice(&{}_PROPERTIES);", k, v, t, k, k)
+
+        format!("    static {}_PROPERTIES: &[NodeDataInlineCssProperty] = &[\r\n{}\r\n{}];\r\n{}static {}: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice({}_PROPERTIES);", k, v, t, t, k, k)
     }).collect::<Vec<_>>()
     .join(&format!("{}\r\n\r\n", t));
 
     let main_func = "
 
+use azul::{
+    app::{App, AppConfig, LayoutSolver},
+    css::Css,
+    style::StyledDom,
+    callbacks::RefAny,
+    window::WindowCreateOptions,
+};
+
 struct Data { }
 
 extern \"C\" fn render(_: &mut RefAny, _: LayoutInfo) -> StyledDom {
-    ui::render()
+    crate::ui::render()
     .style(Css::empty()) // styles are applied inline
 }
 
@@ -1102,7 +1112,16 @@ fn main() {
         "//! Auto-generated UI source code\r\n{}\r\n{}\r\n\r\n{}{}",
         imports,
         compile_components(compile_components_to_rust_code(component_map)?),
-        format!("pub mod ui {{\r\n\r\n    pub use crate::components::*;\r\n\r\n{}    pub const fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}", css_blocks, app_source),
+        format!("pub mod ui {{\r\n\r\n
+    pub use crate::components::*;
+    use azul::css::*;
+    use azul::str::String as AzString;
+    use azul::vec::{{DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec}};\r\n
+    use azul::dom::{{
+        Dom,
+        IdOrClass::{{Id, Class}},
+        NodeDataInlineCssProperty,
+    }};\r\n\r\n{}\r\n\r\n    pub fn render() -> Dom {{\r\n{}\r\n    }}\r\n}}", css_blocks, app_source),
         main_func,
     );
 
@@ -1123,7 +1142,7 @@ pub fn compile_components(
 
         // let css_blocks = ...
 
-        format!("pub mod {} {{\r\n{}\r\n}}", name, f)
+        format!("pub mod {} {{\r\n    use azul::dom::Dom;\r\n    use azul::str::String as AzString;\r\n{}\r\n}}", name, f)
     }).collect::<Vec<String>>()
     .join("\r\n\r\n");
 
@@ -1785,6 +1804,11 @@ fn group_matches(
     true
 }
 
+struct CssBlock {
+    ending: Option<CssPathPseudoSelector>,
+    block: CssRuleBlock,
+}
+
 pub fn compile_body_node_to_rust_code<'a>(
     body_node: &'a XmlNode,
     component_map: &'a XmlComponentMap,
@@ -1809,21 +1833,30 @@ pub fn compile_body_node_to_rust_code<'a>(
     let matcher_hash = matcher.get_hash();
     let css_blocks_for_this_node = get_css_blocks(css, &matcher);
     if !css_blocks_for_this_node.is_empty() {
+
         use crate::css::format_static_css_prop;
 
         let css_strings = css_blocks_for_this_node.iter().map(|css_block| {
 
-            let formatted = css_block.declarations.as_ref().iter().map(|s| match s {
-                CssDeclaration::Static(s) => format_static_css_prop(s, 0),
-                CssDeclaration::Dynamic(d) => format_static_css_prop(&d.default_value, 0),
+            let wrapper = match css_block.ending {
+                Some(CssPathPseudoSelector::Hover) => "Hover",
+                Some(CssPathPseudoSelector::Active) => "Active",
+                Some(CssPathPseudoSelector::Focus) => "Focus",
+                _ => "Normal",
+            };
+
+            let formatted = css_block.block.declarations.as_ref().iter().map(|s| match &s {
+                CssDeclaration::Static(s) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(s, 1)),
+                CssDeclaration::Dynamic(d) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(&d.default_value, 1)),
             }).collect::<Vec<String>>();
 
-            format!("// {}\r\n{}", css_block.path, formatted.join("\r\n"))
+            format!("// {}\r\n{}", css_block.block.path, formatted.join(",\r\n"))
         })
         .collect::<Vec<_>>()
-        .join("\r\n");
+        .join(",\r\n");
 
         css_blocks.insert(format!("CSS_MATCH_{:09}", matcher_hash), css_strings);
+        dom_string.push_str(&format!("\r\n{}.with_inline_css_props(CSS_MATCH_{:09})", t2, matcher_hash));
     }
 
     if !body_node.children.as_ref().is_empty() {
@@ -1852,15 +1885,17 @@ pub fn compile_body_node_to_rust_code<'a>(
     Ok(dom_string.to_string())
 }
 
-fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssRuleBlock> {
+fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
 
     let mut blocks = Vec::new();
 
     for stylesheet in css.stylesheets.as_ref() {
         for css_block in stylesheet.rules.as_ref() {
-            let m = matcher.matches(&css_block.path);
-            if m {
-                blocks.push(css_block.clone());
+            if matcher.matches(&css_block.path) {
+                blocks.push(CssBlock {
+                    ending: None, // TODO
+                    block: css_block.clone(),
+                });
             }
         }
     }
@@ -1994,6 +2029,9 @@ pub fn compile_node_to_rust_code_inner<'a>(
         other => return Err(CompileError::Dom(RenderDomError::Component(ComponentError::UnknownComponent(other.to_string().into())))),
     });
 
+    // The dom string is the function name
+    let mut dom_string = format!("{}{}::render({}{})", t2, component_name, text_as_first_arg, instantiated_function_arguments);
+
     matcher.path.push(node_type);
     let ids = node.attributes.get_key("id").map(|s| s.split_whitespace().collect::<Vec<_>>()).unwrap_or_default();
     matcher.path.extend(ids.into_iter().map(|id| CssPathSelector::Id(id.to_string().into())));
@@ -2007,22 +2045,27 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
         let css_strings = css_blocks_for_this_node.iter().map(|css_block| {
 
-            let formatted = css_block.declarations.as_ref().iter().map(|s| match s {
-                CssDeclaration::Static(s) => format_static_css_prop(s, 0),
-                CssDeclaration::Dynamic(d) => format_static_css_prop(&d.default_value, 0),
+            let wrapper = match css_block.ending {
+                Some(CssPathPseudoSelector::Hover) => "Hover",
+                Some(CssPathPseudoSelector::Active) => "Active",
+                Some(CssPathPseudoSelector::Focus) => "Focus",
+                _ => "Normal",
+            };
+
+            let formatted = css_block.block.declarations.as_ref().iter().map(|s| match &s {
+                CssDeclaration::Static(s) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(s, 1)),
+                CssDeclaration::Dynamic(d) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(&d.default_value, 1)),
             }).collect::<Vec<String>>();
 
-            format!("// {}\r\n{}", css_block.path, formatted.join("\r\n"))
+            format!("// {}\r\n{}", css_block.block.path, formatted.join(",\r\n"))
         })
         .collect::<Vec<_>>()
-        .join("\r\n");
+        .join(",\r\n");
 
         css_blocks.insert(format!("CSS_MATCH_{:09}", matcher_hash), css_strings);
+        dom_string.push_str(&format!("\r\n{}.with_inline_css_props(CSS_MATCH_{:09})", t2, matcher_hash));
     }
 
-
-    // The dom string is the function name
-    let mut dom_string = format!("{}{}::render({}{})", t2, component_name, text_as_first_arg, instantiated_function_arguments);
     set_stringified_attributes(&mut dom_string, &node.attributes, &filtered_xml_attributes.args, tabs);
 
     let mut children_string = node.children.as_ref()

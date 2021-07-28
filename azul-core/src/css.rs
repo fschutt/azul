@@ -118,88 +118,88 @@ trait FormatAsRustCode {
     fn format_as_rust_code(&self, _tabs: usize) -> String;
 }
 
-fn print_css_property_value<T: FormatAsRustCode>(prop_val: &CssPropertyValue<T>, tabs: usize) -> String {
-    match prop_val {
-        CssPropertyValue::Auto => format!("CssPropertyValue::Auto"),
-        CssPropertyValue::None => format!("CssPropertyValue::None"),
-        CssPropertyValue::Initial => format!("CssPropertyValue::Initial"),
-        CssPropertyValue::Inherit => format!("CssPropertyValue::Inherit"),
-        CssPropertyValue::Exact(t) => format!("CssPropertyValue::Exact({})", t.format_as_rust_code(tabs)),
+pub(crate) fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
+    match prop {
+        CssProperty::TextColor(p) => format!("CssProperty::TextColor({})", print_css_property_value(p, tabs, "StyleTextColor")),
+        CssProperty::FontSize(p) => format!("CssProperty::FontSize({})", print_css_property_value(p, tabs, "StyleFontSize")),
+        CssProperty::FontFamily(p) => format!("CssProperty::FontFamily({})", print_css_property_value(p, tabs, "StyleFontFamily")),
+        CssProperty::TextAlign(p) => format!("CssProperty::TextAlign({})", print_css_property_value(p, tabs, "StyleTextAlign")),
+        CssProperty::LetterSpacing(p) => format!("CssProperty::LetterSpacing({})", print_css_property_value(p, tabs, "StyleLetterSpacing")),
+        CssProperty::LineHeight(p) => format!("CssProperty::LineHeight({})", print_css_property_value(p, tabs, "StyleLineHeight")),
+        CssProperty::WordSpacing(p) => format!("CssProperty::WordSpacing({})", print_css_property_value(p, tabs, "StyleWordSpacing")),
+        CssProperty::TabWidth(p) => format!("CssProperty::TabWidth({})", print_css_property_value(p, tabs, "StyleTabWidth")),
+        CssProperty::Cursor(p) => format!("CssProperty::Cursor({})", print_css_property_value(p, tabs, "StyleCursor")),
+        CssProperty::Display(p) => format!("CssProperty::Display({})", print_css_property_value(p, tabs, "LayoutDisplay")),
+        CssProperty::Float(p) => format!("CssProperty::Float({})", print_css_property_value(p, tabs, "LayoutFloat")),
+        CssProperty::BoxSizing(p) => format!("CssProperty::BoxSizing({})", print_css_property_value(p, tabs, "LayoutBoxSizing")),
+        CssProperty::Width(p) => format!("CssProperty::Width({})", print_css_property_value(p, tabs, "LayoutWidth")),
+        CssProperty::Height(p) => format!("CssProperty::Height({})", print_css_property_value(p, tabs, "LayoutHeight")),
+        CssProperty::MinWidth(p) => format!("CssProperty::MinWidth({})", print_css_property_value(p, tabs, "LayoutMinWidth")),
+        CssProperty::MinHeight(p) => format!("CssProperty::MinHeight({})", print_css_property_value(p, tabs, "LayoutMinHeight")),
+        CssProperty::MaxWidth(p) => format!("CssProperty::MaxWidth({})", print_css_property_value(p, tabs, "LayoutMaxWidth")),
+        CssProperty::MaxHeight(p) => format!("CssProperty::MaxHeight({})", print_css_property_value(p, tabs, "LayoutMaxHeight")),
+        CssProperty::Position(p) => format!("CssProperty::Position({})", print_css_property_value(p, tabs, "LayoutPosition")),
+        CssProperty::Top(p) => format!("CssProperty::Top({})", print_css_property_value(p, tabs, "LayoutTop")),
+        CssProperty::Right(p) => format!("CssProperty::Right({})", print_css_property_value(p, tabs, "LayoutRight")),
+        CssProperty::Left(p) => format!("CssProperty::Left({})", print_css_property_value(p, tabs, "LayoutLeft")),
+        CssProperty::Bottom(p) => format!("CssProperty::Bottom({})", print_css_property_value(p, tabs, "LayoutBottom")),
+        CssProperty::FlexWrap(p) => format!("CssProperty::FlexWrap({})", print_css_property_value(p, tabs, "LayoutFlexWrap")),
+        CssProperty::FlexDirection(p) => format!("CssProperty::FlexDirection({})", print_css_property_value(p, tabs, "LayoutFlexDirection")),
+        CssProperty::FlexGrow(p) => format!("CssProperty::FlexGrow({})", print_css_property_value(p, tabs, "LayoutFlexGrow")),
+        CssProperty::FlexShrink(p) => format!("CssProperty::FlexShrink({})", print_css_property_value(p, tabs, "LayoutFlexShrink")),
+        CssProperty::JustifyContent(p) => format!("CssProperty::JustifyContent({})", print_css_property_value(p, tabs, "LayoutJustifyContent")),
+        CssProperty::AlignItems(p) => format!("CssProperty::AlignItems({})", print_css_property_value(p, tabs, "LayoutAlignItems")),
+        CssProperty::AlignContent(p) => format!("CssProperty::AlignContent({})", print_css_property_value(p, tabs, "LayoutAlignContent")),
+        CssProperty::BackgroundContent(p) => format!("CssProperty::BackgroundContent({})", print_css_property_value(p, tabs, "StyleBackgroundContent")),
+        CssProperty::BackgroundPosition(p) => format!("CssProperty::BackgroundPosition({})", print_css_property_value(p, tabs, "StyleBackgroundPosition")),
+        CssProperty::BackgroundSize(p) => format!("CssProperty::BackgroundSize({})", print_css_property_value(p, tabs, "StyleBackgroundSize")),
+        CssProperty::BackgroundRepeat(p) => format!("CssProperty::BackgroundRepeat({})", print_css_property_value(p, tabs, "StyleBackgroundRepeat")),
+        CssProperty::OverflowX(p) => format!("CssProperty::OverflowX({})", print_css_property_value(p, tabs, "LayoutOverflowX")),
+        CssProperty::OverflowY(p) => format!("CssProperty::OverflowY({})", print_css_property_value(p, tabs, "LayoutOverflowY")),
+        CssProperty::PaddingTop(p) => format!("CssProperty::PaddingTop({})", print_css_property_value(p, tabs, "LayoutPaddingTop")),
+        CssProperty::PaddingLeft(p) => format!("CssProperty::PaddingLeft({})", print_css_property_value(p, tabs, "LayoutPaddingLeft")),
+        CssProperty::PaddingRight(p) => format!("CssProperty::PaddingRight({})", print_css_property_value(p, tabs, "LayoutPaddingRight")),
+        CssProperty::PaddingBottom(p) => format!("CssProperty::PaddingBottom({})", print_css_property_value(p, tabs, "LayoutPaddingBottom")),
+        CssProperty::MarginTop(p) => format!("CssProperty::MarginTop({})", print_css_property_value(p, tabs, "LayoutMarginTop")),
+        CssProperty::MarginLeft(p) => format!("CssProperty::MarginLeft({})", print_css_property_value(p, tabs, "LayoutMarginLeft")),
+        CssProperty::MarginRight(p) => format!("CssProperty::MarginRight({})", print_css_property_value(p, tabs, "LayoutMarginRight")),
+        CssProperty::MarginBottom(p) => format!("CssProperty::MarginBottom({})", print_css_property_value(p, tabs, "LayoutMarginBottom")),
+        CssProperty::BorderTopLeftRadius(p) => format!("CssProperty::BorderTopLeftRadius({})", print_css_property_value(p, tabs, "StyleBorderTopLeftRadius")),
+        CssProperty::BorderTopRightRadius(p) => format!("CssProperty::BorderTopRightRadius({})", print_css_property_value(p, tabs, "StyleBorderTopRightRadius")),
+        CssProperty::BorderBottomLeftRadius(p) => format!("CssProperty::BorderBottomLeftRadius({})", print_css_property_value(p, tabs, "StyleBorderBottomLeftRadius")),
+        CssProperty::BorderBottomRightRadius(p) => format!("CssProperty::BorderBottomRightRadius({})", print_css_property_value(p, tabs, "StyleBorderBottomRightRadius")),
+        CssProperty::BorderTopColor(p) => format!("CssProperty::BorderTopColor({})", print_css_property_value(p, tabs, "StyleBorderTopColor")),
+        CssProperty::BorderRightColor(p) => format!("CssProperty::BorderRightColor({})", print_css_property_value(p, tabs, "StyleBorderRightColor")),
+        CssProperty::BorderLeftColor(p) => format!("CssProperty::BorderLeftColor({})", print_css_property_value(p, tabs, "StyleBorderLeftColor")),
+        CssProperty::BorderBottomColor(p) => format!("CssProperty::BorderBottomColor({})", print_css_property_value(p, tabs, "StyleBorderBottomColor")),
+        CssProperty::BorderTopStyle(p) => format!("CssProperty::BorderTopStyle({})", print_css_property_value(p, tabs, "StyleBorderTopStyle")),
+        CssProperty::BorderRightStyle(p) => format!("CssProperty::BorderRightStyle({})", print_css_property_value(p, tabs, "StyleBorderRightStyle")),
+        CssProperty::BorderLeftStyle(p) => format!("CssProperty::BorderLeftStyle({})", print_css_property_value(p, tabs, "StyleBorderLeftStyle")),
+        CssProperty::BorderBottomStyle(p) => format!("CssProperty::BorderBottomStyle({})", print_css_property_value(p, tabs, "StyleBorderBottomStyle")),
+        CssProperty::BorderTopWidth(p) => format!("CssProperty::BorderTopWidth({})", print_css_property_value(p, tabs, "LayoutBorderTopWidth")),
+        CssProperty::BorderRightWidth(p) => format!("CssProperty::BorderRightWidth({})", print_css_property_value(p, tabs, "LayoutBorderRightWidth")),
+        CssProperty::BorderLeftWidth(p) => format!("CssProperty::BorderLeftWidth({})", print_css_property_value(p, tabs, "LayoutBorderLeftWidth")),
+        CssProperty::BorderBottomWidth(p) => format!("CssProperty::BorderBottomWidth({})", print_css_property_value(p, tabs, "LayoutBorderBottomWidth")),
+        CssProperty::BoxShadowLeft(p) => format!("CssProperty::BoxShadowLeft({})", print_css_property_value(p, tabs, "StyleBoxShadowLeft")),
+        CssProperty::BoxShadowRight(p) => format!("CssProperty::BoxShadowRight({})", print_css_property_value(p, tabs, "StyleBoxShadowRight")),
+        CssProperty::BoxShadowTop(p) => format!("CssProperty::BoxShadowTop({})", print_css_property_value(p, tabs, "StyleBoxShadowTop")),
+        CssProperty::BoxShadowBottom(p) => format!("CssProperty::BoxShadowBottom({})", print_css_property_value(p, tabs, "StyleBoxShadowBottom")),
+        CssProperty::ScrollbarStyle(p) => format!("CssProperty::ScrollbarStyle({})", print_css_property_value(p, tabs, "ScrollbarStyle")),
+        CssProperty::Opacity(p) => format!("CssProperty::Opacity({})", print_css_property_value(p, tabs, "StyleOpacity")),
+        CssProperty::Transform(p) => format!("CssProperty::Transform({})", print_css_property_value(p, tabs, "StyleTransform")),
+        CssProperty::TransformOrigin(p) => format!("CssProperty::TransformOrigin({})", print_css_property_value(p, tabs, "StyleTransformOrigin")),
+        CssProperty::PerspectiveOrigin(p) => format!("CssProperty::PerspectiveOrigin({})", print_css_property_value(p, tabs, "StylePerspectiveOrigin")),
+        CssProperty::BackfaceVisibility(p) => format!("CssProperty::BackfaceVisibility({})", print_css_property_value(p, tabs, "StyleBackfaceVisibility")),
     }
 }
 
-pub(crate) fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
-    match prop {
-        CssProperty::TextColor(p) => format!("CssProperty::TextColor({})", print_css_property_value(p, tabs)),
-        CssProperty::FontSize(p) => format!("CssProperty::FontSize({})", print_css_property_value(p, tabs)),
-        CssProperty::FontFamily(p) => format!("CssProperty::FontFamily({})", print_css_property_value(p, tabs)),
-        CssProperty::TextAlign(p) => format!("CssProperty::TextAlign({})", print_css_property_value(p, tabs)),
-        CssProperty::LetterSpacing(p) => format!("CssProperty::LetterSpacing({})", print_css_property_value(p, tabs)),
-        CssProperty::LineHeight(p) => format!("CssProperty::LineHeight({})", print_css_property_value(p, tabs)),
-        CssProperty::WordSpacing(p) => format!("CssProperty::WordSpacing({})", print_css_property_value(p, tabs)),
-        CssProperty::TabWidth(p) => format!("CssProperty::TabWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::Cursor(p) => format!("CssProperty::Cursor({})", print_css_property_value(p, tabs)),
-        CssProperty::Display(p) => format!("CssProperty::Display({})", print_css_property_value(p, tabs)),
-        CssProperty::Float(p) => format!("CssProperty::Float({})", print_css_property_value(p, tabs)),
-        CssProperty::BoxSizing(p) => format!("CssProperty::BoxSizing({})", print_css_property_value(p, tabs)),
-        CssProperty::Width(p) => format!("CssProperty::Width({})", print_css_property_value(p, tabs)),
-        CssProperty::Height(p) => format!("CssProperty::Height({})", print_css_property_value(p, tabs)),
-        CssProperty::MinWidth(p) => format!("CssProperty::MinWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::MinHeight(p) => format!("CssProperty::MinHeight({})", print_css_property_value(p, tabs)),
-        CssProperty::MaxWidth(p) => format!("CssProperty::MaxWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::MaxHeight(p) => format!("CssProperty::MaxHeight({})", print_css_property_value(p, tabs)),
-        CssProperty::Position(p) => format!("CssProperty::Position({})", print_css_property_value(p, tabs)),
-        CssProperty::Top(p) => format!("CssProperty::Top({})", print_css_property_value(p, tabs)),
-        CssProperty::Right(p) => format!("CssProperty::Right({})", print_css_property_value(p, tabs)),
-        CssProperty::Left(p) => format!("CssProperty::Left({})", print_css_property_value(p, tabs)),
-        CssProperty::Bottom(p) => format!("CssProperty::Bottom({})", print_css_property_value(p, tabs)),
-        CssProperty::FlexWrap(p) => format!("CssProperty::FlexWrap({})", print_css_property_value(p, tabs)),
-        CssProperty::FlexDirection(p) => format!("CssProperty::FlexDirection({})", print_css_property_value(p, tabs)),
-        CssProperty::FlexGrow(p) => format!("CssProperty::FlexGrow({})", print_css_property_value(p, tabs)),
-        CssProperty::FlexShrink(p) => format!("CssProperty::FlexShrink({})", print_css_property_value(p, tabs)),
-        CssProperty::JustifyContent(p) => format!("CssProperty::JustifyContent({})", print_css_property_value(p, tabs)),
-        CssProperty::AlignItems(p) => format!("CssProperty::AlignItems({})", print_css_property_value(p, tabs)),
-        CssProperty::AlignContent(p) => format!("CssProperty::AlignContent({})", print_css_property_value(p, tabs)),
-        CssProperty::BackgroundContent(p) => format!("CssProperty::BackgroundContent({})", print_css_property_value(p, tabs)),
-        CssProperty::BackgroundPosition(p) => format!("CssProperty::BackgroundPosition({})", print_css_property_value(p, tabs)),
-        CssProperty::BackgroundSize(p) => format!("CssProperty::BackgroundSize({})", print_css_property_value(p, tabs)),
-        CssProperty::BackgroundRepeat(p) => format!("CssProperty::BackgroundRepeat({})", print_css_property_value(p, tabs)),
-        CssProperty::OverflowX(p) => format!("CssProperty::OverflowX({})", print_css_property_value(p, tabs)),
-        CssProperty::OverflowY(p) => format!("CssProperty::OverflowY({})", print_css_property_value(p, tabs)),
-        CssProperty::PaddingTop(p) => format!("CssProperty::PaddingTop({})", print_css_property_value(p, tabs)),
-        CssProperty::PaddingLeft(p) => format!("CssProperty::PaddingLeft({})", print_css_property_value(p, tabs)),
-        CssProperty::PaddingRight(p) => format!("CssProperty::PaddingRight({})", print_css_property_value(p, tabs)),
-        CssProperty::PaddingBottom(p) => format!("CssProperty::PaddingBottom({})", print_css_property_value(p, tabs)),
-        CssProperty::MarginTop(p) => format!("CssProperty::MarginTop({})", print_css_property_value(p, tabs)),
-        CssProperty::MarginLeft(p) => format!("CssProperty::MarginLeft({})", print_css_property_value(p, tabs)),
-        CssProperty::MarginRight(p) => format!("CssProperty::MarginRight({})", print_css_property_value(p, tabs)),
-        CssProperty::MarginBottom(p) => format!("CssProperty::MarginBottom({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderTopLeftRadius(p) => format!("CssProperty::BorderTopLeftRadius({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderTopRightRadius(p) => format!("CssProperty::BorderTopRightRadius({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderBottomLeftRadius(p) => format!("CssProperty::BorderBottomLeftRadius({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderBottomRightRadius(p) => format!("CssProperty::BorderBottomRightRadius({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderTopColor(p) => format!("CssProperty::BorderTopColor({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderRightColor(p) => format!("CssProperty::BorderRightColor({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderLeftColor(p) => format!("CssProperty::BorderLeftColor({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderBottomColor(p) => format!("CssProperty::BorderBottomColor({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderTopStyle(p) => format!("CssProperty::BorderTopStyle({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderRightStyle(p) => format!("CssProperty::BorderRightStyle({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderLeftStyle(p) => format!("CssProperty::BorderLeftStyle({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderBottomStyle(p) => format!("CssProperty::BorderBottomStyle({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderTopWidth(p) => format!("CssProperty::BorderTopWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderRightWidth(p) => format!("CssProperty::BorderRightWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderLeftWidth(p) => format!("CssProperty::BorderLeftWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::BorderBottomWidth(p) => format!("CssProperty::BorderBottomWidth({})", print_css_property_value(p, tabs)),
-        CssProperty::BoxShadowLeft(p) => format!("CssProperty::BoxShadowLeft({})", print_css_property_value(p, tabs)),
-        CssProperty::BoxShadowRight(p) => format!("CssProperty::BoxShadowRight({})", print_css_property_value(p, tabs)),
-        CssProperty::BoxShadowTop(p) => format!("CssProperty::BoxShadowTop({})", print_css_property_value(p, tabs)),
-        CssProperty::BoxShadowBottom(p) => format!("CssProperty::BoxShadowBottom({})", print_css_property_value(p, tabs)),
-        CssProperty::ScrollbarStyle(p) => format!("CssProperty::ScrollbarStyle({})", print_css_property_value(p, tabs)),
-        CssProperty::Opacity(p) => format!("CssProperty::Opacity({})", print_css_property_value(p, tabs)),
-        CssProperty::Transform(p) => format!("CssProperty::Transform({})", print_css_property_value(p, tabs)),
-        CssProperty::TransformOrigin(p) => format!("CssProperty::TransformOrigin({})", print_css_property_value(p, tabs)),
-        CssProperty::PerspectiveOrigin(p) => format!("CssProperty::PerspectiveOrigin({})", print_css_property_value(p, tabs)),
-        CssProperty::BackfaceVisibility(p) => format!("CssProperty::BackfaceVisibility({})", print_css_property_value(p, tabs)),
+fn print_css_property_value<T: FormatAsRustCode>(prop_val: &CssPropertyValue<T>, tabs: usize, property_value_type: &'static str) -> String {
+    match prop_val {
+        CssPropertyValue::Auto => format!("{}Value::Auto", property_value_type),
+        CssPropertyValue::None => format!("{}Value::None", property_value_type),
+        CssPropertyValue::Initial => format!("{}Value::Initial", property_value_type),
+        CssPropertyValue::Inherit => format!("{}Value::Inherit", property_value_type),
+        CssPropertyValue::Exact(t) => format!("{}Value::Exact({})", property_value_type, t.format_as_rust_code(tabs)),
     }
 }
 
@@ -264,7 +264,7 @@ impl_percentage_value_fmt!(StyleOpacity);
 macro_rules! impl_pixel_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{} {{ {} }}", stringify!($struct_name), format_pixel_value(&self.inner))
+            format!("{} {{ inner: {} }}", stringify!($struct_name), format_pixel_value(&self.inner))
         }
     }
 )}
@@ -306,7 +306,7 @@ impl_pixel_value_fmt!(LayoutLeft);
 macro_rules! impl_color_value_fmt {($struct_name:ty) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_color_value(&self.inner))
+            format!("{} {{ inner: {} }}", stringify!($struct_name), format_color_value(&self.inner))
         }
     }
 )}
@@ -708,8 +708,9 @@ fn format_font_ids(font_ids: &[StyleFontFamily], tabs: usize) -> String {
 impl FormatAsRustCode for StyleFontFamilyVec {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
+        let t2 = String::from("    ").repeat(tabs + 1);
         format!("vec![\r\n{}{}\r\n{}].into()",
-            t, format_font_ids(self.as_ref(), tabs + 1), t,
+            t2, format_font_ids(self.as_ref(), tabs + 1), t,
         )
     }
 }
@@ -720,7 +721,7 @@ impl FormatAsRustCode for StyleFontFamily {
         use azul_css::StyleFontFamily::*;
         let t = String::from("    ").repeat(tabs);
         match self {
-            System(id) => format!("StyleFontFamily::Native(AzString::from_const_str(\"{}\"))", id),
+            System(id) => format!("StyleFontFamily::System(AzString::from_const_str(\"{}\"))", id),
             File(path) => format!("StyleFontFamily::File(AzString::from_const_str(\"{}\"))", path),
             Ref(font_ref) => format!("StyleFontFamily::Ref({:0x})", font_ref.data as usize),
         }
@@ -767,25 +768,25 @@ fn format_background_position_vertical(b: &BackgroundPositionVertical) -> String
 
 impl FormatAsRustCode for StyleBorderTopStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderTopStyle({})", &self.inner.format_as_rust_code(tabs))
+        format!("StyleBorderTopStyle {{ inner: {} }}", &self.inner.format_as_rust_code(tabs))
     }
 }
 
 impl FormatAsRustCode for StyleBorderRightStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderRightStyle({})", &self.inner.format_as_rust_code(tabs))
+        format!("StyleBorderRightStyle {{ inner: {} }}", &self.inner.format_as_rust_code(tabs))
     }
 }
 
 impl FormatAsRustCode for StyleBorderLeftStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderLeftStyle({})", &self.inner.format_as_rust_code(tabs))
+        format!("StyleBorderLeftStyle {{ inner: {} }}", &self.inner.format_as_rust_code(tabs))
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderBottomStyle({})", &self.inner.format_as_rust_code(tabs))
+        format!("StyleBorderBottomStyle {{ inner: {} }}", &self.inner.format_as_rust_code(tabs))
     }
 }
 
