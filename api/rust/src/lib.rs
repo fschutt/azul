@@ -203,7 +203,7 @@
 // To generate the full text of the license for the license, please visit
 // https://spdx.org/licenses/ and replace the license author in the source
 // text in any given license with the name of the author.
-// #![no_std]
+#![no_std]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",

@@ -1338,9 +1338,14 @@ pub fn set_stringified_attributes(
     }
 
     if !ids_and_classes.is_empty() {
+        use crate::css::GetHash;
+        let id = ids_and_classes.get_hash();
         dom_string.push_str(
-            &format!("\r\n{}.with_ids_and_classes(IdOrClassVec::from_const_slice(&[\r\n{}{}]))",
-            t0, ids_and_classes, t0
+            &format!("\r\n{t0}.with_ids_and_classes({{\r\n{t}const IDS_AND_CLASSES_{id}: &[IdOrClass] = &[\r\n{t}{ids_and_classes}\r\n{t}];\r\n{t}IdOrClassVec::from_const_slice(IDS_AND_CLASSES_{id})\r\n{t0}}})",
+            t0=t0,
+            t=t,
+            ids_and_classes=ids_and_classes,
+            id=id
         ));
     }
 
@@ -1615,7 +1620,7 @@ pub fn render_component_inner<'a>(
     let mut css_blocks = BTreeMap::new();
     let mut extra_blocks = VecContents::default();
     if !xml_node.children.as_ref().is_empty() {
-        dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_const_slice(&[\r\n", t));
+        dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_vec(vec![\r\n", t));
         for (child_idx, child_node) in xml_node.children.as_ref().iter().enumerate() {
 
             let mut matcher = matcher.clone();
@@ -1896,7 +1901,7 @@ pub fn compile_body_node_to_rust_code<'a>(
     if !body_node.children.as_ref().is_empty() {
         use crate::css::GetHash;
         let children_hash = body_node.children.as_ref().get_hash();
-        dom_string.push_str(&format!("\r\n.with_children({{\r\n{}const DOM_{}_ITEMS: &[Dom] = &[\r\n", t2, children_hash));
+        dom_string.push_str(&format!("\r\n.with_children(DomVec::from_vec(vec![\r\n"));
 
         for (child_idx, child_node) in body_node.children.as_ref().iter().enumerate() {
 
@@ -1916,7 +1921,7 @@ pub fn compile_body_node_to_rust_code<'a>(
                 matcher,
             )?));
         }
-        dom_string.push_str(&format!("{}];\r\n{}DomVec::from_const_slice(DOM_{}_ITEMS) }})", t, t, children_hash));
+        dom_string.push_str(&format!("\r\n{}]))", t));
     }
 
     let dom_string = dom_string.trim();
@@ -2135,7 +2140,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     .join(&format!(",\r\n"));
 
     if !children_string.is_empty() {
-        dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_const_slice(&[\r\n{}\r\n{}]))", t2, children_string, t2));
+        dom_string.push_str(&format!("\r\n{}.with_children(DomVec::from_vec(vec![\r\n{}\r\n{}]))", t2, children_string, t2));
     }
 
     Ok(dom_string)
