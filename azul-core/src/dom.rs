@@ -644,6 +644,8 @@ pub struct NodeData {
     pub(crate) callbacks: CallbackDataVec,
     /// Stores the inline CSS properties, same as in HTML
     pub(crate) inline_css_props: NodeDataInlineCssPropertyVec,
+    /// Tab index (commonly used property)
+    pub(crate) tab_index: OptionTabIndex,
     /// Stores "extra", not commonly used data of the node: accessibility, clip-mask, tab-index, etc.
     ///
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
@@ -670,7 +672,6 @@ impl Hash for NodeData {
         self.inline_css_props.as_ref().hash(state);
         if let Some(ext) = self.extra.as_ref() {
             if let Some(c) = ext.clip_mask.as_ref() { c.hash(state); }
-            if let Some(c) = ext.tab_index.as_ref() { c.hash(state); }
             if let Some(c) = ext.accessibility.as_ref() { c.hash(state); }
             if let Some(c) = ext.menu_bar.as_ref() { c.hash(state); }
             if let Some(c) = ext.context_menu.as_ref() { c.hash(state); }
@@ -686,10 +687,6 @@ impl Hash for NodeData {
 pub struct NodeDataExt {
     /// Optional clip mask for this DOM node
     pub(crate) clip_mask: Option<ImageMask>,
-    /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
-    /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
-    /// `On::FocusLost` (equivalent to onblur), etc. events.
-    pub(crate) tab_index: Option<TabIndex>,
     /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA)
     pub(crate) accessibility: Option<Box<AccessibilityInfo>>,
     /// Menu bar that should be displayed at the top of this nodes rect
@@ -842,6 +839,7 @@ impl Clone for NodeData {
             ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
             inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
             callbacks: self.callbacks.clone(),
+            tab_index: self.tab_index,
             extra: self.extra.clone(),
         }
     }
@@ -1040,6 +1038,7 @@ impl NodeData {
             ids_and_classes: IdOrClassVec::from_const_slice(&[]),
             callbacks: CallbackDataVec::from_const_slice(&[]),
             inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
+            tab_index: OptionTabIndex::None,
             extra: None,
         }
     }
@@ -1121,7 +1120,7 @@ impl NodeData {
     #[inline]
     pub fn get_clip_mask(&self) -> Option<&ImageMask> { self.extra.as_ref().and_then(|e| e.clip_mask.as_ref()) }
     #[inline]
-    pub fn get_tab_index(&self) -> Option<&TabIndex> { self.extra.as_ref().and_then(|e| e.tab_index.as_ref()) }
+    pub fn get_tab_index(&self) -> Option<&TabIndex> { self.tab_index.as_ref() }
     #[inline]
     pub fn get_accessibility_info(&self) -> Option<&Box<AccessibilityInfo>> { self.extra.as_ref().and_then(|e| e.accessibility.as_ref()) }
     #[inline]
@@ -1145,10 +1144,7 @@ impl NodeData {
         .clip_mask = Some(clip_mask);
     }
     #[inline]
-    pub fn set_tab_index(&mut self, tab_index: TabIndex) {
-        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
-        .tab_index = Some(tab_index);
-    }
+    pub fn set_tab_index(&mut self, tab_index: TabIndex) { self.tab_index = Some(tab_index).into(); }
     #[inline]
     pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo) {
         self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
@@ -1259,6 +1255,7 @@ impl NodeData {
             ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
             inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
             callbacks: self.callbacks.clone(),
+            tab_index: self.tab_index,
             extra: self.extra.clone(),
         }
     }

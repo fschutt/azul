@@ -8431,6 +8431,7 @@ namespace dll {
         IdOrClassVec ids_and_classes;
         CallbackDataVec callbacks;
         NodeDataInlineCssPropertyVec inline_css_props;
+        OptionTabIndex tab_index;
         void* extra;
         NodeData& operator=(const NodeData&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         NodeData(const NodeData&) = delete; /* disable copy constructor, use explicit .clone() */

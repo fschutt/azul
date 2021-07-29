@@ -7973,6 +7973,8 @@ pub struct AzNodeData {
     pub callbacks: AzCallbackDataVec,
     #[pyo3(get, set)]
     pub inline_css_props: AzNodeDataInlineCssPropertyVec,
+    #[pyo3(get, set)]
+    pub tab_index: AzOptionTabIndexEnumWrapper,
     pub extra: *const c_void,
 }
 

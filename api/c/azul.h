@@ -9220,6 +9220,7 @@ struct AzNodeData {
     AzIdOrClassVec ids_and_classes;
     AzCallbackDataVec callbacks;
     AzNodeDataInlineCssPropertyVec inline_css_props;
+    AzOptionTabIndex tab_index;
     void* extra;
 };
 typedef struct AzNodeData AzNodeData;

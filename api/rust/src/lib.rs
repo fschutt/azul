@@ -8329,6 +8329,7 @@ mod dll {
         pub ids_and_classes: AzIdOrClassVec,
         pub callbacks: AzCallbackDataVec,
         pub inline_css_props: AzNodeDataInlineCssPropertyVec,
+        pub tab_index: AzOptionTabIndex,
         pub extra: *const c_void,
     }
 
@@ -10092,6 +10093,56 @@ pub mod dom {
     impl From<On> for AzEventFilter {
         fn from(on: On) -> AzEventFilter {
             on.into_event_filter()
+        }
+    }
+
+    impl NodeData {
+        pub const fn const_new(node_type: NodeType) -> Self {
+            use crate::option::{OptionRefAny, OptionTabIndex};
+            Self {
+                node_type,
+                dataset: OptionRefAny::None,
+                ids_and_classes: IdOrClassVec::from_const_slice(&[]),
+                callbacks: CallbackDataVec::from_const_slice(&[]),
+                inline_css_props: NodeDataInlineCssPropertyVec::from_const_slice(&[]),
+                tab_index: OptionTabIndex::None,
+                extra: ::core::ptr::null_mut(),
+            }
+        }
+
+        pub const fn const_body() -> Self {
+            Self::const_new(NodeType::Body)
+        }
+
+        pub const fn const_div() -> Self {
+            Self::const_new(NodeType::Div)
+        }
+
+        pub const fn const_text(text: AzString) -> Self {
+            Self::const_new(NodeType::Text(text))
+        }
+    }
+
+    impl Dom {
+
+        pub const fn const_new(node_data: NodeData) -> Self {
+            Dom {
+                root: node_data,
+                children: DomVec::from_const_slice(&[]),
+                total_children: 0,
+            }
+        }
+
+        pub const fn const_body() -> Self {
+            Self::const_new(NodeData::const_body())
+        }
+
+        pub const fn const_div() -> Self {
+            Self::const_new(NodeData::const_div())
+        }
+
+        pub const fn const_text(text: AzString) -> Self {
+            Self::const_new(NodeData::const_text(text))
         }
     }    use crate::str::String;
     use crate::image::{ImageMask, ImageRef};

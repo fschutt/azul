@@ -2500,6 +2500,7 @@
                         {"ids_and_classes": {"type": "IdOrClassVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
                         {"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
                         {"inline_css_props": {"type": "NodeDataInlineCssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
+                        {"tab_index": {"type": "OptionTabIndex", "doc": "Tab index / focusable property for this DOM node"}},
                         {"extra": {"type": "*const c_void", "doc": "Extra data relevant for this node: Necessary to extend the NodeData without breaking ABI as well as to efficiently store less commonly set options. Default set to `nullptr` (= `None` internally)"}}
                     ],
                     "constructors": {

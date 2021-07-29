@@ -10487,6 +10487,7 @@ mod test_sizes {
         pub ids_and_classes: AzIdOrClassVec,
         pub callbacks: AzCallbackDataVec,
         pub inline_css_props: AzNodeDataInlineCssPropertyVec,
+        pub tab_index: AzOptionTabIndex,
         pub extra: *const c_void,
     }
 
