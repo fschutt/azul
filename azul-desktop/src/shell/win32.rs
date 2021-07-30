@@ -1863,9 +1863,7 @@ impl Window {
                 callbacks,
                 hash,
             } = WindowsMenuBar::new(menu_bar);
-            unsafe {
-                SetMenu(hwnd, _native_ptr);
-            }
+            unsafe { SetMenu(hwnd, _native_ptr); }
             menu_callbacks = callbacks;
             menu_hash = Some(hash);
         }

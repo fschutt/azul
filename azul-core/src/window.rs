@@ -981,7 +981,8 @@ impl WindowInternal {
         let lr = self.layout_results.get(0)?;
         let ndc = lr.styled_dom.node_data.as_container();
         let nd = ndc.get_extended_lifetime(NodeId::ZERO)?;
-        nd.get_menu_bar()
+        let mb = nd.get_menu_bar();
+        mb
     }
 
     /// Returns the current context menu on the nearest hit node
@@ -2855,7 +2856,7 @@ pub struct LargeWindowIconBytes {
 
 // Window icon that usually appears in the top-left corner of the window
 #[derive(Debug, Clone)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum WindowIcon {
     Small(SmallWindowIconBytes),
     /// 32x32x4 bytes icon
@@ -2995,7 +2996,7 @@ impl Menu {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum MenuItem {
     /// Regular menu item
     String(StringMenuItem),
@@ -3066,7 +3067,7 @@ pub struct MenuCallback {
 impl_option!(MenuCallback, OptionMenuCallback, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum MenuItemIcon {
     /// Menu item shows a checkbox (either checked or not)
     Checkbox(bool),

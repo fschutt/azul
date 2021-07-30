@@ -671,7 +671,7 @@ pub enum ImmediateFontId {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum RawImageData {
     // 8-bit image data
     U8(U8Vec),

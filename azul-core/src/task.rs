@@ -675,7 +675,7 @@ impl Timer {
 ///
 /// The thread can ignore the event.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum ThreadSendMsg {
     /// The thread should terminate at the nearest
     TerminateThread,

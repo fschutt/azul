@@ -938,9 +938,9 @@ pub use AzStringMenuItemTT as AzStringMenuItem;
 #[no_mangle] pub extern "C" fn AzStringMenuItem_setCallback(stringmenuitem: &mut AzStringMenuItem, data: AzRefAny, callback: AzCallbackType) { stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); }
 /// Adds a callback to the menu item
 #[no_mangle] pub extern "C" fn AzStringMenuItem_withCallback(stringmenuitem: &mut AzStringMenuItem, data: AzRefAny, callback: AzCallbackType) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); stringmenuitem }
-/// Adds a child submenu to the current menu
+/// Adds a single child submenu to the current menu
 #[no_mangle] pub extern "C" fn AzStringMenuItem_addChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) { let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); }
-/// Adds a child submenu to the current menu
+/// Adds a single child submenu to the current menu
 #[no_mangle] pub extern "C" fn AzStringMenuItem_withChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem }
 /// Sets the children of this menu
 #[no_mangle] pub extern "C" fn AzStringMenuItem_setChildren(stringmenuitem: &mut AzStringMenuItem, children: AzMenuItemVec) { stringmenuitem.children = children; }

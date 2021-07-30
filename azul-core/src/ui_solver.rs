@@ -1353,7 +1353,7 @@ impl DirectionalOverflowInfo {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum PositionInfo {
     Static(PositionInfoInner),
     Fixed(PositionInfoInner),

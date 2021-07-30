@@ -924,7 +924,7 @@ impl NodeDataVec {
 unsafe impl Send for NodeData { }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum TabIndex {
     /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`
     /// (both have the effect of making the element focusable).

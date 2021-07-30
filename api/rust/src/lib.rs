@@ -10414,9 +10414,9 @@ pub mod menu {
         pub fn set_callback(&mut self, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzStringMenuItem_setCallback(self, data, callback) } }
         /// Adds a callback to the menu item
         pub fn with_callback(&mut self, data: RefAny, callback: CallbackType)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withCallback(self, data, callback) } }
-        /// Adds a child submenu to the current menu
+        /// Adds a single child submenu to the current menu
         pub fn add_child(&mut self, child: MenuItem)  { unsafe { crate::dll::AzStringMenuItem_addChild(self, child) } }
-        /// Adds a child submenu to the current menu
+        /// Adds a single child submenu to the current menu
         pub fn with_child(&mut self, child: MenuItem)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChild(self, child) } }
         /// Sets the children of this menu
         pub fn set_children(&mut self, children: MenuItemVec)  { unsafe { crate::dll::AzStringMenuItem_setChildren(self, children) } }

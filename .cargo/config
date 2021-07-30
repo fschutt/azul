@@ -8,7 +8,6 @@ rustflags = [
 [target.'cfg(all(target_arch="x86_64", target_os="windows"))']
 rustflags = [
     "-Clink-args=/DEBUG:NONE",
-    "--remap-path-prefix=*=",
     "-Ctarget-feature=-crt-static",
     # "-Clink-args=/SUBSYSTEM:WINDOWS,5.02 /ENTRY:mainCRTStartup",
 ]

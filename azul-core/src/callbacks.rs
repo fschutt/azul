@@ -1594,7 +1594,7 @@ pub enum AnimationRepeat {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum AnimationRepeatCount {
     Times(usize),
     Infinite,
