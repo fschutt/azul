@@ -1011,6 +1011,12 @@ namespace dll {
     };
     
     
+    enum class ContextMenuMouseButton {
+       Right,
+       Middle,
+       Left,
+    };
+    
     enum class MenuPopupPosition {
        BottomLeftOfCursor,
        BottomRightOfCursor,
@@ -6309,6 +6315,7 @@ namespace dll {
     struct Menu {
         MenuItemVec items;
         MenuPopupPosition position;
+        ContextMenuMouseButton context_mouse_btn;
         Menu& operator=(const Menu&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Menu(const Menu&) = delete; /* disable copy constructor, use explicit .clone() */
         Menu() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -9089,6 +9096,8 @@ namespace dll {
         String StyledDom_getHtmlStringDebug(const StyledDom* styleddom);
         void StyledDom_setMenuBar(StyledDom* restrict styleddom, AzMenu  menu);
         StyledDom StyledDom_withMenuBar(StyledDom* restrict styleddom, AzMenu  menu);
+        void StyledDom_setContextMenu(StyledDom* restrict styleddom, AzMenu  menu);
+        StyledDom StyledDom_withContextMenu(StyledDom* restrict styleddom, AzMenu  menu);
         void StyledDom_delete(StyledDom* restrict instance);
         Texture Texture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
         bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);

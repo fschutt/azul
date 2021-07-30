@@ -1111,6 +1111,13 @@ union AzTabIndex {
 };
 typedef union AzTabIndex AzTabIndex;
 
+enum AzContextMenuMouseButton {
+   AzContextMenuMouseButton_Right,
+   AzContextMenuMouseButton_Middle,
+   AzContextMenuMouseButton_Left,
+};
+typedef enum AzContextMenuMouseButton AzContextMenuMouseButton;
+
 enum AzMenuPopupPosition {
    AzMenuPopupPosition_BottomLeftOfCursor,
    AzMenuPopupPosition_BottomRightOfCursor,
@@ -6951,6 +6958,7 @@ typedef union AzEventFilter AzEventFilter;
 struct AzMenu {
     AzMenuItemVec items;
     AzMenuPopupPosition position;
+    AzContextMenuMouseButton context_mouse_btn;
 };
 typedef struct AzMenu AzMenu;
 
@@ -11031,6 +11039,8 @@ extern DLLIMPORT AzString AzStyledDom_getHtmlStringTest(const AzStyledDom* style
 extern DLLIMPORT AzString AzStyledDom_getHtmlStringDebug(const AzStyledDom* styleddom);
 extern DLLIMPORT void AzStyledDom_setMenuBar(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT AzStyledDom AzStyledDom_withMenuBar(AzStyledDom* restrict styleddom, AzMenu  menu);
+extern DLLIMPORT void AzStyledDom_setContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);
+extern DLLIMPORT AzStyledDom AzStyledDom_withContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT void AzStyledDom_delete(AzStyledDom* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTessellatedSvgNode  node);

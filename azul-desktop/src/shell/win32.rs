@@ -1493,15 +1493,13 @@ struct Window {
     /// Hit-tester, lazily initialized and updated every time the display list changes layout
     hit_tester: AsyncHitTester,
     /// ID -> Callback map for the window menu (default: empty map)
-    menu_callbacks: BTreeMap<u16, MenuCallback>,
+    menu_bar: Option<WindowsMenuBar>,
     /// ID -> Context menu callbacks (cleared when the context menu closes)
     context_menu: Option<CurrentContextMenu>,
     /// Timer ID -> Win32 timer map
     timers: BTreeMap<TimerId, TIMERPTR>,
     /// If threads is non-empty, the window will receive a WM_TIMER every 16ms
     thread_timer_running: Option<TIMERPTR>,
-    /// Hash of the current system menu
-    menu_hash: Option<u64>,
     /// characters are combined via two following wparam messages
     high_surrogate: Option<u16>,
 }
@@ -1513,8 +1511,8 @@ impl fmt::Debug for Window {
         self.gl_context.fmt(f)?;
         self.gl_context_ptr.fmt(f)?;
         self.renderer.is_some().fmt(f)?;
-        self.menu_callbacks.fmt(f)?;
-        self.menu_hash.fmt(f)?;
+        self.menu_bar.fmt(f)?;
+        self.context_menu.fmt(f)?;
         self.high_surrogate.fmt(f)?;
         Ok(())
     }
@@ -1533,6 +1531,7 @@ impl Drop for Window {
     }
 }
 
+#[derive(Debug)]
 struct CurrentContextMenu {
     callbacks: BTreeMap<u16, MenuCallback>,
     hit_dom_node: DomNodeId,
@@ -1855,17 +1854,11 @@ impl Window {
 
         // Since the menu bar affects the window size, set it first,
         // before querying the window size again
-        let mut menu_callbacks = BTreeMap::new();
-        let mut menu_hash = None;
-        if let Some(menu_bar) = internal.get_menu_bar() {
-            let WindowsMenuBar {
-                _native_ptr,
-                callbacks,
-                hash,
-            } = WindowsMenuBar::new(menu_bar);
-            unsafe { SetMenu(hwnd, _native_ptr); }
-            menu_callbacks = callbacks;
-            menu_hash = Some(hash);
+        let mut menu_bar = None;
+        if let Some(m) = internal.get_menu_bar() {
+            let mb = WindowsMenuBar::new(m);
+            unsafe { SetMenu(hwnd, mb._native_ptr); }
+            menu_bar = Some(mb);
         }
 
         // If size_to_content is set, query the content size and adjust!
@@ -2001,9 +1994,8 @@ impl Window {
             render_api,
             renderer: Some(renderer),
             hit_tester: AsyncHitTester::Requested(hit_tester),
-            menu_callbacks,
+            menu_bar,
             context_menu: None,
-            menu_hash,
             timers: BTreeMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
@@ -2066,6 +2058,34 @@ impl Window {
         //
         //      }
         // }
+    }
+
+    fn set_menu_bar(hwnd: HWND, old: &mut Option<WindowsMenuBar>, menu_bar: Option<&Box<Menu>>) {
+
+        use winapi::um::winuser::SetMenu;
+
+        let hash = old.as_ref().map(|o| o.hash);
+
+        match (hash, menu_bar) {
+            (Some(_), None) => {
+                unsafe { SetMenu(hwnd, ptr::null_mut()); }
+                *old = None;
+            },
+            (None, Some(new)) => {
+                let new_menu_bar = WindowsMenuBar::new(new);
+                unsafe { SetMenu(hwnd, new_menu_bar._native_ptr); }
+                *old = Some(new_menu_bar);
+            }
+            (Some(hash), Some(new)) => {
+                if hash != new.get_hash() {
+                    let new_menu_bar = WindowsMenuBar::new(new);
+                    unsafe { SetMenu(hwnd, new_menu_bar._native_ptr); }
+                    *old = Some(new_menu_bar);
+                }
+            },
+            (None, None) => { }
+        }
+
     }
 }
 
@@ -2306,6 +2326,7 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
     return Ok((hRC, extra_functions));
 }
 
+#[derive(Debug)]
 struct WindowsMenuBar {
     _native_ptr: HMENU,
     /// Map from Command -> callback to call
@@ -2503,6 +2524,13 @@ unsafe extern "system" fn WindowProc(
                             }
                         );
                     });
+
+                    current_window.context_menu = None;
+                    Window::set_menu_bar(
+                        hwnd,
+                        &mut current_window.menu_bar,
+                        current_window.internal.get_menu_bar()
+                    );
 
                     // rebuild the display list and send it
                     rebuild_display_list(
@@ -2908,23 +2936,6 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.mouse_state.right_down = true;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
-                /*
-                use winapi::um::winuser::{
-                    CreatePopupMenu, InsertMenuW, TrackPopupMenu, SetForegroundWindow,
-                    GetCursorPos,
-                    MF_BYPOSITION, MF_STRING, TPM_TOPALIGN, TPM_LEFTALIGN
-                };
-                use winapi::shared::windef::POINT;
-                let mut pos: POINT = POINT { x: 0, y: 0 };
-                GetCursorPos(&mut pos);
-                let hPopupMenu = CreatePopupMenu();
-                let mut a = encode_wide("Exit");
-                let mut b = encode_wide("Play");
-                InsertMenuW(hPopupMenu, 0, MF_BYPOSITION | MF_STRING, 0, a.as_mut_ptr());
-                InsertMenuW(hPopupMenu, 0, MF_BYPOSITION | MF_STRING, 0, b.as_mut_ptr());
-                SetForegroundWindow(hwnd);
-                TrackPopupMenu(hPopupMenu, TPM_TOPALIGN | TPM_LEFTALIGN, pos.x, pos.y, 0, hwnd, ptr::null_mut())
-                */
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
@@ -2932,6 +2943,48 @@ unsafe extern "system" fn WindowProc(
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
+
+                    // open context menu
+                    if let Some((context_menu, hit, node_id)) = current_window.internal.get_context_menu() {
+
+                        use winapi::um::winuser::{
+                            CreatePopupMenu, TrackPopupMenu, SetForegroundWindow,
+                            TPM_TOPALIGN, TPM_LEFTALIGN,
+                        };
+
+                        let mut hPopupMenu = CreatePopupMenu();
+                        let mut callbacks = BTreeMap::new();
+
+                        WindowsMenuBar::recursive_construct_menu(
+                            &mut hPopupMenu,
+                            &context_menu.items.as_ref(),
+                            &mut callbacks,
+                        );
+
+                        let align = match context_menu.position {
+                            _ => TPM_TOPALIGN | TPM_LEFTALIGN, // TODO
+                        };
+
+                        let pos = match context_menu.position {
+                            _ => hit.point_in_viewport, // TODO
+                        };
+
+                        current_window.context_menu = Some(CurrentContextMenu {
+                            callbacks,
+                            hit_dom_node: node_id,
+                        });
+
+                        SetForegroundWindow(hwnd);
+                        TrackPopupMenu(
+                            hPopupMenu,
+                            align,
+                            libm::roundf(pos.x) as i32,
+                            libm::roundf(pos.y) as i32,
+                            0,
+                            hwnd,
+                            ptr::null_mut()
+                        );
+                    }
                     current_window.internal.current_window_state.mouse_state.right_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
@@ -3365,12 +3418,12 @@ unsafe extern "system" fn WindowProc(
 
                     let call_callback_result = {
 
-                        let mc = &mut current_window.menu_callbacks;
+                        let mb = &mut current_window.menu_bar;
                         let internal = &mut current_window.internal;
                         let context_menu = current_window.context_menu.as_mut();
                         let gl_context_ptr = &current_window.gl_context_ptr;
 
-                        if let Some(menu_callback) = mc.get_mut(&loword) {
+                        if let Some(menu_callback) = mb.as_mut().and_then(|m| m.callbacks.get_mut(&loword)) {
                             Some(fc_cache.apply_closure(|fc_cache| {
                                 internal.invoke_menu_callback(
                                     menu_callback,

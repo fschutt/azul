@@ -1616,6 +1616,14 @@ pub enum AzTabIndex {
     NoKeyboardFocus,
 }
 
+/// Determines whether this context menu should pop up on a left, right or middle click
+#[repr(C)]
+pub enum AzContextMenuMouseButton {
+    Right,
+    Middle,
+    Left,
+}
+
 /// Position of where the context menu should pop up
 #[repr(C)]
 pub enum AzMenuPopupPosition {
@@ -6170,6 +6178,8 @@ pub struct AzMenu {
     pub items: AzMenuItemVec,
     #[pyo3(get, set)]
     pub position: AzMenuPopupPositionEnumWrapper,
+    #[pyo3(get, set)]
+    pub context_mouse_btn: AzContextMenuMouseButtonEnumWrapper,
 }
 
 /// Combination of virtual key codes that have to be pressed together
@@ -8444,6 +8454,13 @@ pub struct AzTabIndexEnumWrapper {
     pub inner: AzTabIndex,
 }
 
+/// `AzContextMenuMouseButtonEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "ContextMenuMouseButton")]
+pub struct AzContextMenuMouseButtonEnumWrapper {
+    pub inner: AzContextMenuMouseButton,
+}
+
 /// `AzMenuPopupPositionEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "MenuPopupPosition")]
@@ -10596,6 +10613,7 @@ impl Clone for AzApplicationEventFilterEnumWrapper { fn clone(&self) -> Self { l
 impl Clone for AzAccessibilityRoleEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityRole = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTabIndexEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::TabIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzContextMenuMouseButtonEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::ContextMenuMouseButton = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuPopupPositionEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuPopupPosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeKeyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NodeTypeTag = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -16064,6 +16082,36 @@ impl PyObjectProtocol for AzMenu {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_core::window::Menu = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzContextMenuMouseButtonEnumWrapper {
+    #[classattr]
+    fn Right() -> AzContextMenuMouseButtonEnumWrapper { AzContextMenuMouseButtonEnumWrapper { inner: AzContextMenuMouseButton::Right } }
+    #[classattr]
+    fn Middle() -> AzContextMenuMouseButtonEnumWrapper { AzContextMenuMouseButtonEnumWrapper { inner: AzContextMenuMouseButton::Middle } }
+    #[classattr]
+    fn Left() -> AzContextMenuMouseButtonEnumWrapper { AzContextMenuMouseButtonEnumWrapper { inner: AzContextMenuMouseButton::Left } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzContextMenuMouseButtonEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_core::window::ContextMenuMouseButton = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_core::window::ContextMenuMouseButton = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzContextMenuMouseButtonEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
     }
 }
 
@@ -23250,6 +23298,18 @@ impl AzStyledDom {
     }
     fn with_menu_bar(&mut self, menu: AzMenu) -> AzStyledDom {
         unsafe { mem::transmute(crate::AzStyledDom_withMenuBar(
+            mem::transmute(self),
+            mem::transmute(menu),
+        )) }
+    }
+    fn set_context_menu(&mut self, menu: AzMenu) -> () {
+        unsafe { mem::transmute(crate::AzStyledDom_setContextMenu(
+            mem::transmute(self),
+            mem::transmute(menu),
+        )) }
+    }
+    fn with_context_menu(&mut self, menu: AzMenu) -> AzStyledDom {
+        unsafe { mem::transmute(crate::AzStyledDom_withContextMenu(
             mem::transmute(self),
             mem::transmute(menu),
         )) }
@@ -36652,6 +36712,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNodeDataInlineCssPropertyEnumWrapper>()?;
 
     m.add_class::<AzMenu>()?;
+    m.add_class::<AzContextMenuMouseButtonEnumWrapper>()?;
     m.add_class::<AzMenuPopupPositionEnumWrapper>()?;
     m.add_class::<AzMenuItemEnumWrapper>()?;
     m.add_class::<AzStringMenuItem>()?;

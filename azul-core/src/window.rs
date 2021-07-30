@@ -16,7 +16,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap, FastBTreeSet,
-    callbacks::{Callback, UpdateImageType},
+    callbacks::{Callback, UpdateImageType, HitTestItem},
     window_state::RelayoutFn,
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
@@ -320,6 +320,17 @@ pub struct MouseState {
     pub scroll_x: OptionF32,
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame (READONLY)
     pub scroll_y: OptionF32,
+}
+
+impl MouseState {
+    pub fn matches(&self, context: &ContextMenuMouseButton) -> bool {
+        use self::ContextMenuMouseButton::*;
+        match context {
+            Left => self.left_down,
+            Right => self.right_down,
+            Middle => self.middle_down,
+        }
+    }
 }
 
 impl_option!(MouseState, OptionMouseState, [Debug, Copy, Clone, PartialEq, PartialOrd]);
@@ -987,15 +998,19 @@ impl WindowInternal {
 
     /// Returns the current context menu on the nearest hit node
     /// or None if no context menu was found
-    pub fn get_context_menu<'a>(&'a self, hit_test: &FullHitTest) -> Option<&'a Box<Menu>> {
+    pub fn get_context_menu<'a>(&'a self) -> Option<(&'a Box<Menu>, HitTestItem, DomNodeId)> {
         let mut context_menu = None;
+        let hit_test = &self.current_window_state.last_hit_test;
 
         for (dom_id, hit_test) in hit_test.hovered_nodes.iter() {
             let layout_result = self.layout_results.get(dom_id.inner)?;
-            for node_id in hit_test.regular_hit_test_nodes.keys() {
+            for (node_id, hit) in hit_test.regular_hit_test_nodes.iter() {
                 let ndc = layout_result.styled_dom.node_data.as_container();
                 if let Some(cm) = ndc.get_extended_lifetime(*node_id).and_then(|node| node.get_context_menu()) {
-                    context_menu = Some(cm);
+                    if self.current_window_state.mouse_state.matches(&cm.context_mouse_btn) {
+                        let domnode = DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*node_id)) };
+                        context_menu = Some((cm, hit.clone(), domnode));
+                    }
                 }
             }
         }
@@ -2945,6 +2960,21 @@ impl Hash for TaskBarIcon {
 pub struct Menu {
     pub items: MenuItemVec,
     pub position: MenuPopupPosition,
+    pub context_mouse_btn: ContextMenuMouseButton,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[repr(C)]
+pub enum ContextMenuMouseButton {
+    Right,
+    Middle,
+    Left,
+}
+
+impl Default for ContextMenuMouseButton {
+    fn default() -> Self {
+        ContextMenuMouseButton::Right
+    }
 }
 
 impl Menu {

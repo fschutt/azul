@@ -2277,6 +2277,12 @@ impl StyledDom {
         }
     }
 
+    pub fn set_context_menu(&mut self, menu: Menu) {
+        if let Some(root) = self.root.into_crate_internal() {
+            self.node_data.as_mut()[root.index()].set_context_menu(menu)
+        }
+    }
+
     // Computes the diff between the two DOMs
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
 }

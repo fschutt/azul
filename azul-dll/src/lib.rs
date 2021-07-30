@@ -911,13 +911,17 @@ pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 pub type AzMenuTT = azul_core::window::Menu;
 pub use AzMenuTT as AzMenu;
 /// Creates an new, empty Menu
-#[no_mangle] pub extern "C" fn AzMenu_new(items: AzMenuItemVec) -> AzMenu { AzMenu { items, position: AzMenuPopupPosition::AutoCursor } }
+#[no_mangle] pub extern "C" fn AzMenu_new(items: AzMenuItemVec) -> AzMenu { AzMenu { items, position: AzMenuPopupPosition::AutoCursor, context_mouse_btn: AzContextMenuMouseButton::Right } }
 /// Sets the popup position of the menu, ignored on menu bars
 #[no_mangle] pub extern "C" fn AzMenu_setPopupPosition(menu: &mut AzMenu, position: AzMenuPopupPosition) { menu.position = position; }
 /// Sets the popup position of the menu, ignored on menu bars (builder method)
 #[no_mangle] pub extern "C" fn AzMenu_withPopupPosition(menu: &mut AzMenu, position: AzMenuPopupPosition) -> AzMenu { let mut menu = menu.swap_with_default(); menu.position = position; menu }
 /// Destructor: Takes ownership of the `Menu` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMenu_delete(object: &mut AzMenu) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Determines whether this context menu should pop up on a left, right or middle click
+pub type AzContextMenuMouseButtonTT = azul_core::window::ContextMenuMouseButton;
+pub use AzContextMenuMouseButtonTT as AzContextMenuMouseButton;
 
 /// Position of where the context menu should pop up
 pub type AzMenuPopupPositionTT = azul_core::window::MenuPopupPosition;
@@ -2105,8 +2109,12 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringDebug(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", false).into() }
 /// Adds a menu to the root node
 #[no_mangle] pub extern "C" fn AzStyledDom_setMenuBar(styleddom: &mut AzStyledDom, menu: AzMenu) { styleddom.set_menu_bar(menu) }
-/// Adds a menu to the root node
+/// Adds a menu to the root node (builder method)
 #[no_mangle] pub extern "C" fn AzStyledDom_withMenuBar(styleddom: &mut AzStyledDom, menu: AzMenu) -> AzStyledDom { let mut styleddom = styleddom.swap_with_default(); styleddom.set_menu_bar(menu); styleddom }
+/// Adds a context menu to the root node
+#[no_mangle] pub extern "C" fn AzStyledDom_setContextMenu(styleddom: &mut AzStyledDom, menu: AzMenu) { styleddom.set_context_menu(menu) }
+/// Adds a context menu to the root node (builder method)
+#[no_mangle] pub extern "C" fn AzStyledDom_withContextMenu(styleddom: &mut AzStyledDom, menu: AzMenu) -> AzStyledDom { let mut styleddom = styleddom.swap_with_default(); styleddom.set_context_menu(menu); styleddom }
 /// Destructor: Takes ownership of the `StyledDom` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzStyledDom_delete(object: &mut AzStyledDom) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -5249,6 +5257,14 @@ mod test_sizes {
         Auto,
         OverrideInParent(u32),
         NoKeyboardFocus,
+    }
+
+    /// Determines whether this context menu should pop up on a left, right or middle click
+    #[repr(C)]
+    pub enum AzContextMenuMouseButton {
+        Right,
+        Middle,
+        Left,
     }
 
     /// Position of where the context menu should pop up
@@ -9117,6 +9133,7 @@ mod test_sizes {
     pub struct AzMenu {
         pub items: AzMenuItemVec,
         pub position: AzMenuPopupPosition,
+        pub context_mouse_btn: AzContextMenuMouseButton,
     }
 
     /// Combination of virtual key codes that have to be pressed together
@@ -10789,6 +10806,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityRole>(), "AzAccessibilityRole"), (Layout::new::<AzAccessibilityRole>(), "AzAccessibilityRole"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityState>(), "AzAccessibilityState"), (Layout::new::<AzAccessibilityState>(), "AzAccessibilityState"));
         assert_eq!((Layout::new::<azul_impl::dom::TabIndex>(), "AzTabIndex"), (Layout::new::<AzTabIndex>(), "AzTabIndex"));
+        assert_eq!((Layout::new::<azul_core::window::ContextMenuMouseButton>(), "AzContextMenuMouseButton"), (Layout::new::<AzContextMenuMouseButton>(), "AzContextMenuMouseButton"));
         assert_eq!((Layout::new::<azul_core::window::MenuPopupPosition>(), "AzMenuPopupPosition"), (Layout::new::<AzMenuPopupPosition>(), "AzMenuPopupPosition"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemState>(), "AzMenuItemState"), (Layout::new::<AzMenuItemState>(), "AzMenuItemState"));
         assert_eq!((Layout::new::<azul_impl::css::NodeTypeTag>(), "AzNodeTypeKey"), (Layout::new::<AzNodeTypeKey>(), "AzNodeTypeKey"));

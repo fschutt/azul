@@ -1353,11 +1353,24 @@ mod dll {
         NoKeyboardFocus,
     }
 
+    /// Determines whether this context menu should pop up on a left, right or middle click
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzContextMenuMouseButton {
+        Right,
+        Middle,
+        Left,
+    }
+
     /// Position of where the context menu should pop up
     #[repr(C)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
     pub enum AzMenuPopupPosition {
         BottomLeftOfCursor,
         BottomRightOfCursor,
@@ -6587,6 +6600,7 @@ mod dll {
     pub struct AzMenu {
         pub items: AzMenuItemVec,
         pub position: AzMenuPopupPosition,
+        pub context_mouse_btn: AzContextMenuMouseButton,
     }
 
     /// Combination of virtual key codes that have to be pressed together
@@ -8861,6 +8875,8 @@ mod dll {
         pub(crate) fn AzStyledDom_getHtmlStringDebug(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzStyledDom_setMenuBar(_:  &mut AzStyledDom, _:  AzMenu);
         pub(crate) fn AzStyledDom_withMenuBar(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
+        pub(crate) fn AzStyledDom_setContextMenu(_:  &mut AzStyledDom, _:  AzMenu);
+        pub(crate) fn AzStyledDom_withContextMenu(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
         pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzLayoutSize) -> AzTexture;
         pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
@@ -10398,6 +10414,9 @@ pub mod menu {
         pub fn with_popup_position(&mut self, position: MenuPopupPosition)  -> crate::menu::Menu { unsafe { crate::dll::AzMenu_withPopupPosition(self, position) } }
     }
 
+    /// Determines whether this context menu should pop up on a left, right or middle click
+    
+#[doc(inline)] pub use crate::dll::AzContextMenuMouseButton as ContextMenuMouseButton;
     /// Position of where the context menu should pop up
     
 #[doc(inline)] pub use crate::dll::AzMenuPopupPosition as MenuPopupPosition;
@@ -11971,8 +11990,12 @@ pub mod style {
         pub fn get_html_string_debug(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlStringDebug(self) } }
         /// Adds a menu to the root node
         pub fn set_menu_bar(&mut self, menu: Menu)  { unsafe { crate::dll::AzStyledDom_setMenuBar(self, menu) } }
-        /// Adds a menu to the root node
+        /// Adds a menu to the root node (builder method)
         pub fn with_menu_bar(&mut self, menu: Menu)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withMenuBar(self, menu) } }
+        /// Adds a context menu to the root node
+        pub fn set_context_menu(&mut self, menu: Menu)  { unsafe { crate::dll::AzStyledDom_setContextMenu(self, menu) } }
+        /// Adds a context menu to the root node (builder method)
+        pub fn with_context_menu(&mut self, menu: Menu)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withContextMenu(self, menu) } }
     }
 
 }

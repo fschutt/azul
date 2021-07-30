@@ -11,6 +11,11 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom 
             MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), on_menu_click))
         ].into()))
     ].into()))
+    .with_context_menu(Menu::new(vec![
+        MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
+            MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), on_context_clicked))
+        ].into()))
+    ].into()))
 }
 
 extern "C" fn on_menu_click(data: &mut RefAny, _info: CallbackInfo) -> Update {
@@ -18,11 +23,16 @@ extern "C" fn on_menu_click(data: &mut RefAny, _info: CallbackInfo) -> Update {
     Update::RefreshDom
 }
 
+extern "C" fn on_context_clicked(data: &mut RefAny, _info: CallbackInfo) -> Update {
+    println!("reload clicked!");
+    Update::RefreshDom
+}
+
 fn main() {
     let data = RefAny::new(Data { });
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(layout);
-    window.hot_reload = true;
+    // window.hot_reload = true;
     window.state.flags.frame = WindowFrame::Maximized;
     app.run(window);
 }
