@@ -51,6 +51,7 @@ use crate::{
         ImageRef, RendererResources,
         ImageCache, Au, ImmediateFontId
     },
+    window::Menu,
 };
 
 #[repr(C)]
@@ -2262,6 +2263,18 @@ impl StyledDom {
         fill_content_group_children(&mut root_content_group, &children_sorted);
 
         root_content_group
+    }
+
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut new = Self::default();
+        core::mem::swap(self, &mut new);
+        new
+    }
+
+    pub fn set_menu_bar(&mut self, menu: Menu) {
+        if let Some(root) = self.root.into_crate_internal() {
+            self.node_data.as_mut()[root.index()].set_menu_bar(menu)
+        }
     }
 
     // Computes the diff between the two DOMs

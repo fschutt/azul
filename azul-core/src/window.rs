@@ -2939,11 +2939,19 @@ impl Hash for TaskBarIcon {
 /// Menu struct (context menu, dropdown menu, context menu)
 ///
 /// Modeled after the Windows API
-#[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct Menu {
     pub items: MenuItemVec,
     pub position: MenuPopupPosition,
+}
+
+impl Menu {
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut new = Self::default();
+        core::mem::swap(&mut new, self);
+        new
+    }
 }
 
 /// Position of where the menu should popup on the screen
@@ -2969,6 +2977,12 @@ pub enum MenuPopupPosition {
     // of the screen
     AutoCursor,
     AutoHitRect,
+}
+
+impl Default for MenuPopupPosition {
+    fn default() -> Self {
+        Self::AutoCursor
+    }
 }
 
 impl Menu {

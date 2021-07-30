@@ -910,6 +910,12 @@ pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
 pub type AzMenuTT = azul_core::window::Menu;
 pub use AzMenuTT as AzMenu;
+/// Creates an new, empty Menu
+#[no_mangle] pub extern "C" fn AzMenu_new(items: AzMenuItemVec) -> AzMenu { AzMenu { items, position: AzMenuPopupPosition::AutoCursor } }
+/// Sets the popup position of the menu, ignored on menu bars
+#[no_mangle] pub extern "C" fn AzMenu_setPopupPosition(menu: &mut AzMenu, position: AzMenuPopupPosition) { menu.position = position; }
+/// Sets the popup position of the menu, ignored on menu bars (builder method)
+#[no_mangle] pub extern "C" fn AzMenu_withPopupPosition(menu: &mut AzMenu, position: AzMenuPopupPosition) -> AzMenu { let mut menu = menu.swap_with_default(); menu.position = position; menu }
 /// Destructor: Takes ownership of the `Menu` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMenu_delete(object: &mut AzMenu) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -920,8 +926,6 @@ pub use AzMenuPopupPositionTT as AzMenuPopupPosition;
 /// Item entry in a menu or menu bar
 pub type AzMenuItemTT = azul_core::window::MenuItem;
 pub use AzMenuItemTT as AzMenuItem;
-/// Creates a new menu item
-#[no_mangle] pub extern "C" fn AzMenuItem_new(label: AzString, callback: AzOptionMenuCallback) -> AzMenuItem { AzMenuItem::String(AzStringMenuItem { label, accelerator: None.into(), callback, state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() }) }
 /// Destructor: Takes ownership of the `MenuItem` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMenuItem_delete(object: &mut AzMenuItem) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -930,10 +934,18 @@ pub type AzStringMenuItemTT = azul_core::window::StringMenuItem;
 pub use AzStringMenuItemTT as AzStringMenuItem;
 /// Creates a new menu item
 #[no_mangle] pub extern "C" fn AzStringMenuItem_new(label: AzString) -> AzStringMenuItem { AzStringMenuItem { label, accelerator: None.into(), callback: None.into(), state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() } }
+/// Adds a callback to the menu item
+#[no_mangle] pub extern "C" fn AzStringMenuItem_setCallback(stringmenuitem: &mut AzStringMenuItem, data: AzRefAny, callback: AzCallbackType) { stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); }
+/// Adds a callback to the menu item
+#[no_mangle] pub extern "C" fn AzStringMenuItem_withCallback(stringmenuitem: &mut AzStringMenuItem, data: AzRefAny, callback: AzCallbackType) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); stringmenuitem }
 /// Adds a child submenu to the current menu
 #[no_mangle] pub extern "C" fn AzStringMenuItem_addChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) { let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); }
 /// Adds a child submenu to the current menu
 #[no_mangle] pub extern "C" fn AzStringMenuItem_withChild(stringmenuitem: &mut AzStringMenuItem, child: AzMenuItem) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem }
+/// Sets the children of this menu
+#[no_mangle] pub extern "C" fn AzStringMenuItem_setChildren(stringmenuitem: &mut AzStringMenuItem, children: AzMenuItemVec) { stringmenuitem.children = children; }
+/// Adds a child submenu to the current menu
+#[no_mangle] pub extern "C" fn AzStringMenuItem_withChildren(stringmenuitem: &mut AzStringMenuItem, children: AzMenuItemVec) -> AzStringMenuItem { let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.children = children; stringmenuitem }
 /// Destructor: Takes ownership of the `StringMenuItem` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzStringMenuItem_delete(object: &mut AzStringMenuItem) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -946,6 +958,9 @@ pub use AzVirtualKeyCodeComboTT as AzVirtualKeyCodeCombo;
 /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
 pub type AzMenuCallbackTT = azul_core::window::MenuCallback;
 pub use AzMenuCallbackTT as AzMenuCallback;
+/// Creates a new `MenuCallback` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `MenuCallback::new()` constructor.
+#[no_mangle] pub extern "C" fn AzMenuCallback_new(data: AzRefAny, callback: AzCallbackType) -> AzMenuCallback { AzMenuCallback { callback: AzCallback { cb: callback }, data } }
 /// Destructor: Takes ownership of the `MenuCallback` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzMenuCallback_delete(object: &mut AzMenuCallback) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -2088,6 +2103,10 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringTest(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", true).into() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
 #[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringDebug(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", false).into() }
+/// Adds a menu to the root node
+#[no_mangle] pub extern "C" fn AzStyledDom_setMenuBar(styleddom: &mut AzStyledDom, menu: AzMenu) { styleddom.set_menu_bar(menu) }
+/// Adds a menu to the root node
+#[no_mangle] pub extern "C" fn AzStyledDom_withMenuBar(styleddom: &mut AzStyledDom, menu: AzMenu) -> AzStyledDom { let mut styleddom = styleddom.swap_with_default(); styleddom.set_menu_bar(menu); styleddom }
 /// Destructor: Takes ownership of the `StyledDom` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzStyledDom_delete(object: &mut AzStyledDom) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -10069,7 +10088,7 @@ mod test_sizes {
     /// Item entry in a menu or menu bar
     #[repr(C, u8)]
     pub enum AzMenuItem {
-        Label(AzStringMenuItem),
+        String(AzStringMenuItem),
         Separator,
         BreakLine,
     }

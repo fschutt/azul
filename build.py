@@ -1178,7 +1178,9 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("widgets", "Button", "with_on_click"), # ok: replaced
 
         # menu, MenuItem, with_callback
-        # menu, StringMenuItem, with_callback
+        ("menu", "StringMenuItem", "with_callback"),
+        ("menu", "StringMenuItem", "set_callback"),
+        ("menu", "MenuCallback", "new"),
 
         ("task", "Timer", "new"),
         ("callbacks", "CallbackInfo", "start_thread"),

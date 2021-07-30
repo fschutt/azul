@@ -8437,20 +8437,20 @@ struct AzInlineLine {
 typedef struct AzInlineLine AzInlineLine;
 
 enum AzMenuItemTag {
-   AzMenuItemTag_Label,
+   AzMenuItemTag_String,
    AzMenuItemTag_Separator,
    AzMenuItemTag_BreakLine,
 };
 typedef enum AzMenuItemTag AzMenuItemTag;
 
-struct AzMenuItemVariant_Label { AzMenuItemTag tag; AzStringMenuItem payload; };
-typedef struct AzMenuItemVariant_Label AzMenuItemVariant_Label;
+struct AzMenuItemVariant_String { AzMenuItemTag tag; AzStringMenuItem payload; };
+typedef struct AzMenuItemVariant_String AzMenuItemVariant_String;
 struct AzMenuItemVariant_Separator { AzMenuItemTag tag; };
 typedef struct AzMenuItemVariant_Separator AzMenuItemVariant_Separator;
 struct AzMenuItemVariant_BreakLine { AzMenuItemTag tag; };
 typedef struct AzMenuItemVariant_BreakLine AzMenuItemVariant_BreakLine;
 union AzMenuItem {
-    AzMenuItemVariant_Label Label;
+    AzMenuItemVariant_String String;
     AzMenuItemVariant_Separator Separator;
     AzMenuItemVariant_BreakLine BreakLine;
 };
@@ -10337,7 +10337,7 @@ typedef struct AzCss AzCss;
 #define AzXmlStreamError_InvalidCommentData { .InvalidCommentData = { .tag = AzXmlStreamErrorTag_InvalidCommentData } }
 #define AzXmlStreamError_InvalidCommentEnd { .InvalidCommentEnd = { .tag = AzXmlStreamErrorTag_InvalidCommentEnd } }
 #define AzXmlStreamError_InvalidCharacterData { .InvalidCharacterData = { .tag = AzXmlStreamErrorTag_InvalidCharacterData } }
-#define AzMenuItem_Label(v) { .Label = { .tag = AzMenuItemTag_Label, .payload = v } }
+#define AzMenuItem_String(v) { .String = { .tag = AzMenuItemTag_String, .payload = v } }
 #define AzMenuItem_Separator { .Separator = { .tag = AzMenuItemTag_Separator } }
 #define AzMenuItem_BreakLine { .BreakLine = { .tag = AzMenuItemTag_BreakLine } }
 #define AzStyleBackgroundContentVecValue_Auto { .Auto = { .tag = AzStyleBackgroundContentVecValueTag_Auto } }
@@ -10897,14 +10897,21 @@ extern DLLIMPORT AzEventFilter AzOn_intoEventFilter(const AzOn on);
 extern DLLIMPORT void AzAccessibilityInfo_delete(AzAccessibilityInfo* restrict instance);
 extern DLLIMPORT void AzIdOrClass_delete(AzIdOrClass* restrict instance);
 extern DLLIMPORT void AzNodeDataInlineCssProperty_delete(AzNodeDataInlineCssProperty* restrict instance);
+extern DLLIMPORT AzMenu AzMenu_new(AzMenuItemVec  items);
+extern DLLIMPORT void AzMenu_setPopupPosition(AzMenu* restrict menu, AzMenuPopupPosition  position);
+extern DLLIMPORT AzMenu AzMenu_withPopupPosition(AzMenu* restrict menu, AzMenuPopupPosition  position);
 extern DLLIMPORT void AzMenu_delete(AzMenu* restrict instance);
-extern DLLIMPORT AzMenuItem AzMenuItem_new(AzString  label, AzOptionMenuCallback  callback);
 extern DLLIMPORT void AzMenuItem_delete(AzMenuItem* restrict instance);
 extern DLLIMPORT AzStringMenuItem AzStringMenuItem_new(AzString  label);
+extern DLLIMPORT void AzStringMenuItem_setCallback(AzStringMenuItem* restrict stringmenuitem, AzRefAny  data, AzCallbackType  callback);
+extern DLLIMPORT AzStringMenuItem AzStringMenuItem_withCallback(AzStringMenuItem* restrict stringmenuitem, AzRefAny  data, AzCallbackType  callback);
 extern DLLIMPORT void AzStringMenuItem_addChild(AzStringMenuItem* restrict stringmenuitem, AzMenuItem  child);
 extern DLLIMPORT AzStringMenuItem AzStringMenuItem_withChild(AzStringMenuItem* restrict stringmenuitem, AzMenuItem  child);
+extern DLLIMPORT void AzStringMenuItem_setChildren(AzStringMenuItem* restrict stringmenuitem, AzMenuItemVec  children);
+extern DLLIMPORT AzStringMenuItem AzStringMenuItem_withChildren(AzStringMenuItem* restrict stringmenuitem, AzMenuItemVec  children);
 extern DLLIMPORT void AzStringMenuItem_delete(AzStringMenuItem* restrict instance);
 extern DLLIMPORT void AzVirtualKeyCodeCombo_delete(AzVirtualKeyCodeCombo* restrict instance);
+extern DLLIMPORT AzMenuCallback AzMenuCallback_new(AzRefAny  data, AzCallbackType  callback);
 extern DLLIMPORT void AzMenuCallback_delete(AzMenuCallback* restrict instance);
 extern DLLIMPORT void AzMenuItemIcon_delete(AzMenuItemIcon* restrict instance);
 extern DLLIMPORT void AzCssRuleBlock_delete(AzCssRuleBlock* restrict instance);
@@ -11022,6 +11029,8 @@ extern DLLIMPORT void AzStyledDom_restyle(AzStyledDom* restrict styleddom, AzCss
 extern DLLIMPORT size_t AzStyledDom_nodeCount(const AzStyledDom* styleddom);
 extern DLLIMPORT AzString AzStyledDom_getHtmlStringTest(const AzStyledDom* styleddom);
 extern DLLIMPORT AzString AzStyledDom_getHtmlStringDebug(const AzStyledDom* styleddom);
+extern DLLIMPORT void AzStyledDom_setMenuBar(AzStyledDom* restrict styleddom, AzMenu  menu);
+extern DLLIMPORT AzStyledDom AzStyledDom_withMenuBar(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT void AzStyledDom_delete(AzStyledDom* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTessellatedSvgNode  node);
@@ -13531,16 +13540,16 @@ bool AzNodeDataInlineCssProperty_matchMutHover(AzNodeDataInlineCssProperty* rest
     return valid;
 }
 
-bool AzMenuItem_matchRefLabel(const AzMenuItem* value, const AzStringMenuItem** restrict out) {
-    const AzMenuItemVariant_Label* casted = (const AzMenuItemVariant_Label*)value;
-    bool valid = casted->tag == AzMenuItemTag_Label;
+bool AzMenuItem_matchRefString(const AzMenuItem* value, const AzStringMenuItem** restrict out) {
+    const AzMenuItemVariant_String* casted = (const AzMenuItemVariant_String*)value;
+    bool valid = casted->tag == AzMenuItemTag_String;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }
 
-bool AzMenuItem_matchMutLabel(AzMenuItem* restrict value, AzStringMenuItem* restrict * restrict out) {
-    AzMenuItemVariant_Label* restrict casted = (AzMenuItemVariant_Label* restrict)value;
-    bool valid = casted->tag == AzMenuItemTag_Label;
+bool AzMenuItem_matchMutString(AzMenuItem* restrict value, AzStringMenuItem* restrict * restrict out) {
+    AzMenuItemVariant_String* restrict casted = (AzMenuItemVariant_String* restrict)value;
+    bool valid = casted->tag == AzMenuItemTag_String;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

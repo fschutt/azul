@@ -2,11 +2,20 @@
 
 use azul::prelude::*;
 
-#[derive(Debug)]
 struct Data { }
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
     StyledDom::from_file("./ui.xml".into())
+    .with_menu_bar(Menu::new(vec![
+        MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
+            MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), on_menu_click))
+        ].into()))
+    ].into()))
+}
+
+extern "C" fn on_menu_click(data: &mut RefAny, _info: CallbackInfo) -> Update {
+    println!("menu item clicked!");
+    Update::RefreshDom
 }
 
 fn main() {

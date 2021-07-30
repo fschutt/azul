@@ -7821,7 +7821,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub enum AzMenuItem {
-        Label(AzStringMenuItem),
+        String(AzStringMenuItem),
         Separator,
         BreakLine,
     }
@@ -8776,10 +8776,17 @@ mod dll {
         pub(crate) fn AzNodeData_setContextMenu(_:  &mut AzNodeData, _:  AzMenu);
         pub(crate) fn AzNodeData_hash(_:  &AzNodeData) -> u64;
         pub(crate) fn AzOn_intoEventFilter(_:  AzOn) -> AzEventFilter;
-        pub(crate) fn AzMenuItem_new(_:  AzString, _:  AzOptionMenuCallback) -> AzMenuItem;
+        pub(crate) fn AzMenu_new(_:  AzMenuItemVec) -> AzMenu;
+        pub(crate) fn AzMenu_setPopupPosition(_:  &mut AzMenu, _:  AzMenuPopupPosition);
+        pub(crate) fn AzMenu_withPopupPosition(_:  &mut AzMenu, _:  AzMenuPopupPosition) -> AzMenu;
         pub(crate) fn AzStringMenuItem_new(_:  AzString) -> AzStringMenuItem;
+        pub(crate) fn AzStringMenuItem_setCallback(_:  &mut AzStringMenuItem, _:  AzRefAny, _:  AzCallbackType);
+        pub(crate) fn AzStringMenuItem_withCallback(_:  &mut AzStringMenuItem, _:  AzRefAny, _:  AzCallbackType) -> AzStringMenuItem;
         pub(crate) fn AzStringMenuItem_addChild(_:  &mut AzStringMenuItem, _:  AzMenuItem);
         pub(crate) fn AzStringMenuItem_withChild(_:  &mut AzStringMenuItem, _:  AzMenuItem) -> AzStringMenuItem;
+        pub(crate) fn AzStringMenuItem_setChildren(_:  &mut AzStringMenuItem, _:  AzMenuItemVec);
+        pub(crate) fn AzStringMenuItem_withChildren(_:  &mut AzStringMenuItem, _:  AzMenuItemVec) -> AzStringMenuItem;
+        pub(crate) fn AzMenuCallback_new(_:  AzRefAny, _:  AzCallbackType) -> AzMenuCallback;
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
         pub(crate) fn AzColorU_fromStr(_:  AzString) -> AzColorU;
@@ -8852,6 +8859,8 @@ mod dll {
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
         pub(crate) fn AzStyledDom_getHtmlStringTest(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzStyledDom_getHtmlStringDebug(_:  &AzStyledDom) -> AzString;
+        pub(crate) fn AzStyledDom_setMenuBar(_:  &mut AzStyledDom, _:  AzMenu);
+        pub(crate) fn AzStyledDom_withMenuBar(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
         pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzLayoutSize) -> AzTexture;
         pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
@@ -10374,32 +10383,45 @@ pub mod menu {
     #![allow(dead_code, unused_imports)]
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::vec::MenuItemVec;
     use crate::str::String;
-    use crate::option::OptionMenuCallback;
+    use crate::callbacks::{CallbackType, RefAny};
     /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
     
 #[doc(inline)] pub use crate::dll::AzMenu as Menu;
+    impl Menu {
+        /// Creates an new, empty Menu
+        pub fn new(items: MenuItemVec) -> Self { unsafe { crate::dll::AzMenu_new(items) } }
+        /// Sets the popup position of the menu, ignored on menu bars
+        pub fn set_popup_position(&mut self, position: MenuPopupPosition)  { unsafe { crate::dll::AzMenu_setPopupPosition(self, position) } }
+        /// Sets the popup position of the menu, ignored on menu bars (builder method)
+        pub fn with_popup_position(&mut self, position: MenuPopupPosition)  -> crate::menu::Menu { unsafe { crate::dll::AzMenu_withPopupPosition(self, position) } }
+    }
+
     /// Position of where the context menu should pop up
     
 #[doc(inline)] pub use crate::dll::AzMenuPopupPosition as MenuPopupPosition;
     /// Item entry in a menu or menu bar
     
 #[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
-    impl MenuItem {
-        /// Creates a new menu item
-        pub fn new(label: String, callback: OptionMenuCallback) -> Self { unsafe { crate::dll::AzMenuItem_new(label, callback) } }
-    }
-
     /// Regular labeled menu item
     
 #[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
     impl StringMenuItem {
         /// Creates a new menu item
         pub fn new(label: String) -> Self { unsafe { crate::dll::AzStringMenuItem_new(label) } }
+        /// Adds a callback to the menu item
+        pub fn set_callback(&mut self, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzStringMenuItem_setCallback(self, data, callback) } }
+        /// Adds a callback to the menu item
+        pub fn with_callback(&mut self, data: RefAny, callback: CallbackType)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withCallback(self, data, callback) } }
         /// Adds a child submenu to the current menu
         pub fn add_child(&mut self, child: MenuItem)  { unsafe { crate::dll::AzStringMenuItem_addChild(self, child) } }
         /// Adds a child submenu to the current menu
         pub fn with_child(&mut self, child: MenuItem)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChild(self, child) } }
+        /// Sets the children of this menu
+        pub fn set_children(&mut self, children: MenuItemVec)  { unsafe { crate::dll::AzStringMenuItem_setChildren(self, children) } }
+        /// Adds a child submenu to the current menu
+        pub fn with_children(&mut self, children: MenuItemVec)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChildren(self, children) } }
     }
 
     /// Combination of virtual key codes that have to be pressed together
@@ -10408,6 +10430,11 @@ pub mod menu {
     /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
     
 #[doc(inline)] pub use crate::dll::AzMenuCallback as MenuCallback;
+    impl MenuCallback {
+        /// Creates a new `MenuCallback` instance.
+        pub fn new(data: RefAny, callback: CallbackType) -> Self { unsafe { crate::dll::AzMenuCallback_new(data, callback) } }
+    }
+
     /// Icon of a menu entry
     
 #[doc(inline)] pub use crate::dll::AzMenuItemIcon as MenuItemIcon;
@@ -11890,6 +11917,7 @@ pub mod style {
     use crate::dom::Dom;
     use crate::css::Css;
     use crate::str::String;
+    use crate::menu::Menu;
     /// `Node` struct
     
 #[doc(inline)] pub use crate::dll::AzNode as Node;
@@ -11941,6 +11969,10 @@ pub mod style {
         pub fn get_html_string_test(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlStringTest(self) } }
         /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
         pub fn get_html_string_debug(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlStringDebug(self) } }
+        /// Adds a menu to the root node
+        pub fn set_menu_bar(&mut self, menu: Menu)  { unsafe { crate::dll::AzStyledDom_setMenuBar(self, menu) } }
+        /// Adds a menu to the root node
+        pub fn with_menu_bar(&mut self, menu: Menu)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withMenuBar(self, menu) } }
     }
 
 }

@@ -7733,16 +7733,16 @@ namespace dll {
     };
     
     enum class MenuItemTag {
-       Label,
+       String,
        Separator,
        BreakLine,
     };
     
-    struct MenuItemVariant_Label { MenuItemTag tag; StringMenuItem payload; };
+    struct MenuItemVariant_String { MenuItemTag tag; StringMenuItem payload; };
     struct MenuItemVariant_Separator { MenuItemTag tag; };
     struct MenuItemVariant_BreakLine { MenuItemTag tag; };
     union MenuItem {
-        MenuItemVariant_Label Label;
+        MenuItemVariant_String String;
         MenuItemVariant_Separator Separator;
         MenuItemVariant_BreakLine BreakLine;
     };
@@ -8955,14 +8955,21 @@ namespace dll {
         void AccessibilityInfo_delete(AccessibilityInfo* restrict instance);
         void IdOrClass_delete(IdOrClass* restrict instance);
         void NodeDataInlineCssProperty_delete(NodeDataInlineCssProperty* restrict instance);
+        Menu Menu_new(AzMenuItemVec  items);
+        void Menu_setPopupPosition(Menu* restrict menu, AzMenuPopupPosition  position);
+        Menu Menu_withPopupPosition(Menu* restrict menu, AzMenuPopupPosition  position);
         void Menu_delete(Menu* restrict instance);
-        MenuItem MenuItem_new(AzString  label, AzOptionMenuCallback  callback);
         void MenuItem_delete(MenuItem* restrict instance);
         StringMenuItem StringMenuItem_new(AzString  label);
+        void StringMenuItem_setCallback(StringMenuItem* restrict stringmenuitem, AzRefAny  data, AzCallbackType  callback);
+        StringMenuItem StringMenuItem_withCallback(StringMenuItem* restrict stringmenuitem, AzRefAny  data, AzCallbackType  callback);
         void StringMenuItem_addChild(StringMenuItem* restrict stringmenuitem, AzMenuItem  child);
         StringMenuItem StringMenuItem_withChild(StringMenuItem* restrict stringmenuitem, AzMenuItem  child);
+        void StringMenuItem_setChildren(StringMenuItem* restrict stringmenuitem, AzMenuItemVec  children);
+        StringMenuItem StringMenuItem_withChildren(StringMenuItem* restrict stringmenuitem, AzMenuItemVec  children);
         void StringMenuItem_delete(StringMenuItem* restrict instance);
         void VirtualKeyCodeCombo_delete(VirtualKeyCodeCombo* restrict instance);
+        MenuCallback MenuCallback_new(AzRefAny  data, AzCallbackType  callback);
         void MenuCallback_delete(MenuCallback* restrict instance);
         void MenuItemIcon_delete(MenuItemIcon* restrict instance);
         void CssRuleBlock_delete(CssRuleBlock* restrict instance);
@@ -9080,6 +9087,8 @@ namespace dll {
         size_t StyledDom_nodeCount(const StyledDom* styleddom);
         String StyledDom_getHtmlStringTest(const StyledDom* styleddom);
         String StyledDom_getHtmlStringDebug(const StyledDom* styleddom);
+        void StyledDom_setMenuBar(StyledDom* restrict styleddom, AzMenu  menu);
+        StyledDom StyledDom_withMenuBar(StyledDom* restrict styleddom, AzMenu  menu);
         void StyledDom_delete(StyledDom* restrict instance);
         Texture Texture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
         bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);

@@ -7439,7 +7439,7 @@ pub struct AzInlineLine {
 /// Item entry in a menu or menu bar
 #[repr(C, u8)]
 pub enum AzMenuItem {
-    Label(AzStringMenuItem),
+    String(AzStringMenuItem),
     Separator,
     BreakLine,
 }
@@ -16038,13 +16038,23 @@ impl PyObjectProtocol for AzNodeDataInlineCssPropertyEnumWrapper {
 #[pymethods]
 impl AzMenu {
     #[new]
-    fn __new__(items: AzMenuItemVec, position: AzMenuPopupPositionEnumWrapper) -> Self {
-        Self {
-            items,
-            position,
-        }
+    fn new(items: AzMenuItemVec) -> AzMenu {
+        unsafe { mem::transmute(crate::AzMenu_new(
+            mem::transmute(items),
+        )) }
     }
-
+    fn set_popup_position(&mut self, position: AzMenuPopupPositionEnumWrapper) -> () {
+        unsafe { mem::transmute(crate::AzMenu_setPopupPosition(
+            mem::transmute(self),
+            mem::transmute(position),
+        )) }
+    }
+    fn with_popup_position(&mut self, position: AzMenuPopupPositionEnumWrapper) -> AzMenu {
+        unsafe { mem::transmute(crate::AzMenu_withPopupPosition(
+            mem::transmute(self),
+            mem::transmute(position),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -16104,7 +16114,7 @@ impl PyObjectProtocol for AzMenuPopupPositionEnumWrapper {
 #[pymethods]
 impl AzMenuItemEnumWrapper {
     #[staticmethod]
-    fn Label(v: AzStringMenuItem) -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::Label(v) } }
+    fn String(v: AzStringMenuItem) -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::String(v) } }
     #[classattr]
     fn Separator() -> AzMenuItemEnumWrapper { AzMenuItemEnumWrapper { inner: AzMenuItem::Separator } }
     #[classattr]
@@ -16116,7 +16126,7 @@ impl AzMenuItemEnumWrapper {
         let gil = Python::acquire_gil();
         let py = gil.python();
         match &self.inner {
-            AzMenuItem::Label(v) => Ok(vec!["Label".into_py(py), v.clone().into_py(py)]),
+            AzMenuItem::String(v) => Ok(vec!["String".into_py(py), v.clone().into_py(py)]),
             AzMenuItem::Separator => Ok(vec!["Separator".into_py(py), ().into_py(py)]),
             AzMenuItem::BreakLine => Ok(vec!["BreakLine".into_py(py), ().into_py(py)]),
         }
@@ -16154,6 +16164,18 @@ impl AzStringMenuItem {
             mem::transmute(child),
         )) }
     }
+    fn set_children(&mut self, children: AzMenuItemVec) -> () {
+        unsafe { mem::transmute(crate::AzStringMenuItem_setChildren(
+            mem::transmute(self),
+            mem::transmute(children),
+        )) }
+    }
+    fn with_children(&mut self, children: AzMenuItemVec) -> AzStringMenuItem {
+        unsafe { mem::transmute(crate::AzStringMenuItem_withChildren(
+            mem::transmute(self),
+            mem::transmute(children),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -16189,14 +16211,6 @@ impl PyObjectProtocol for AzVirtualKeyCodeCombo {
 
 #[pymethods]
 impl AzMenuCallback {
-    #[new]
-    fn __new__(callback: AzCallback, data: AzRefAny) -> Self {
-        Self {
-            callback,
-            data,
-        }
-    }
-
 }
 
 #[pyproto]
@@ -23227,6 +23241,18 @@ impl AzStyledDom {
         az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlStringDebug(
             mem::transmute(self),
         )) })
+    }
+    fn set_menu_bar(&mut self, menu: AzMenu) -> () {
+        unsafe { mem::transmute(crate::AzStyledDom_setMenuBar(
+            mem::transmute(self),
+            mem::transmute(menu),
+        )) }
+    }
+    fn with_menu_bar(&mut self, menu: AzMenu) -> AzStyledDom {
+        unsafe { mem::transmute(crate::AzStyledDom_withMenuBar(
+            mem::transmute(self),
+            mem::transmute(menu),
+        )) }
     }
 }
 

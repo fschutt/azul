@@ -3008,7 +3008,35 @@
                     "struct_fields": [
                         {"items": {"type": "MenuItemVec", "doc": "Items in this menu"}},
                         {"position": {"type": "MenuPopupPosition", "doc": "Position of where the context menu should pop up. Ignored for application menus."}}
-                    ]
+                    ],
+                    "constructors": {
+                        "new": {
+                            "doc": "Creates an new, empty Menu",
+                            "fn_args": [
+                                {"items": "MenuItemVec"}
+                            ],
+                            "fn_body": "AzMenu { items, position: AzMenuPopupPosition::AutoCursor }"
+                        }
+                    },
+                    "functions": {
+                        "set_popup_position": {
+                            "doc": "Sets the popup position of the menu, ignored on menu bars",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"position": "MenuPopupPosition"}
+                            ],
+                            "fn_body": "menu.position = position;"
+                        },
+                        "with_popup_position": {
+                            "doc": "Sets the popup position of the menu, ignored on menu bars (builder method)",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"position": "MenuPopupPosition"}
+                            ],
+                            "returns": {"type": "Menu"},
+                            "fn_body": "let mut menu = menu.swap_with_default(); menu.position = position; menu"
+                        }
+                    }
                 },
                 "MenuPopupPosition": {
                     "doc": "Position of where the context menu should pop up",
@@ -3030,20 +3058,10 @@
                     "doc": "Item entry in a menu or menu bar",
                     "external": "azul_core::window::MenuItem",
                     "enum_fields": [
-                        {"Label": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
+                        {"String": {"type": "StringMenuItem", "doc": "Regular \"labeled\" menu item"}},
                         {"Separator": {"doc": "Line separator, usually only rendered in vertical menus"}},
                         {"BreakLine": {"doc": "Breaks items in a menu onto separate lines, usually only rendered in horizontal menu bars"}}
-                    ],
-                    "constructors": {
-                        "new": {
-                            "doc": "Creates a new menu item",
-                            "fn_args": [
-                                {"label": "String"},
-                                {"callback": "OptionMenuCallback"}
-                            ],
-                            "fn_body": "AzMenuItem::String(AzStringMenuItem { label, accelerator: None.into(), callback, state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() })"
-                        }
-                    }
+                    ]
                 },
                 "StringMenuItem": {
                     "doc": "Regular labeled menu item",
@@ -3066,8 +3084,27 @@
                         }
                     },
                     "functions": {
+                        "set_callback": {
+                            "doc": "Adds a callback to the menu item",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "fn_body": "stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } });"
+                        },
+                        "with_callback": {
+                            "doc": "Adds a callback to the menu item",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "returns": {"type": "StringMenuItem"},
+                            "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); stringmenuitem"
+                        },
                         "add_child": {
-                            "doc": "Adds a child submenu to the current menu",
+                            "doc": "Adds a single child submenu to the current menu",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"child": "MenuItem"}
@@ -3075,13 +3112,30 @@
                             "fn_body": "let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into();"
                         },
                         "with_child": {
-                            "doc": "Adds a child submenu to the current menu",
+                            "doc": "Adds a single child submenu to the current menu",
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"child": "MenuItem"}
                             ],
                             "returns": {"type": "StringMenuItem"},
                             "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); let mut m = stringmenuitem.children.clone().into_library_owned_vec(); m.push(child); stringmenuitem.children = m.into(); stringmenuitem"
+                        },
+                        "set_children": {
+                            "doc": "Sets the children of this menu",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"children": "MenuItemVec"}
+                            ],
+                            "fn_body": "stringmenuitem.children = children;"
+                        },
+                        "with_children": {
+                            "doc": "Adds a child submenu to the current menu",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"children": "MenuItemVec"}
+                            ],
+                            "returns": {"type": "StringMenuItem"},
+                            "fn_body": "let mut stringmenuitem = stringmenuitem.swap_with_default(); stringmenuitem.children = children; stringmenuitem"
                         }
                     }
                 },
@@ -3098,7 +3152,16 @@
                     "struct_fields": [
                         {"callback": {"type": "Callback", "doc": "Callback to be called when the menu item is clicked"}},
                         {"data": {"type": "RefAny", "doc": "Data of the callback to be called on"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"data": "RefAny"},
+                                {"callback": "CallbackType"}
+                            ],
+                            "fn_body": "AzMenuCallback { callback: AzCallback { cb: callback }, data }"
+                        }
+                    }
                 },
                 "MenuItemIcon": {
                     "doc": "Icon of a menu entry",
@@ -5969,6 +6032,24 @@
                             ],
                             "returns": {"type": "String"},
                             "fn_body": "styleddom.get_html_string(\"\", \"\", false).into()"
+                        },
+                        "set_menu_bar": {
+                            "doc": "Adds a menu to the root node",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"menu": "Menu"}
+                            ],
+                            "fn_body": "styleddom.set_menu_bar(menu)"
+                        },
+                        "with_menu_bar": {
+                            "doc": "Adds a menu to the root node (builder method)",
+                            "doc": "Adds a menu to the root node",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"menu": "Menu"}
+                            ],
+                            "returns": {"type": "StyledDom"},
+                            "fn_body": "let mut styleddom = styleddom.swap_with_default(); styleddom.set_menu_bar(menu); styleddom"
                         }
                     }
                 }
