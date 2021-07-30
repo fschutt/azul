@@ -955,23 +955,6 @@ impl WindowInternal {
         )
     }
 
-    // Compares the previous and current window size and returns
-    // true only if the rendering area increased, but not if it
-    // decreased. This is useful to prevent unnecessary redraws
-    // if the user resized the window - since the content of the
-    // window is cached by the operating system, making the window
-    // smaller should result in a no-op.
-    pub fn resized_area_increased(&self) -> bool {
-        let previous_state = match self.previous_window_state.as_ref() {
-            None => return true,
-            Some(s) => s.size.dimensions,
-        };
-        let current_state = &self.current_window_state.size.dimensions;
-
-        current_state.width > previous_state.width ||
-        current_state.height > previous_state.height
-    }
-
     /// Returns whether the size or position of the window changed (if true,
     /// the caller needs to update the monitor field), since the window may have
     /// moved to a different monitor
@@ -1295,6 +1278,123 @@ impl WindowInternal {
                 ret.threads_removed.get_or_insert_with(|| BTreeSet::default()).insert(*thread_id);
             }
         }
+
+        if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
+        if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+        if ret_modified_window_state != ret_window_state {
+            ret.modified_window_state = Some(ret_modified_window_state);
+        }
+        if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
+        if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
+        if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
+        if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
+        if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
+        if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
+        if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
+
+        if let Some(ft) = new_focus_target {
+            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+                ret.update_focused_node = Some(new_focus_node);
+            }
+        }
+
+        return ret;
+    }
+
+    pub fn invoke_menu_callback(
+        &mut self,
+        menu_callback: &mut MenuCallback,
+        hit_dom_node: DomNodeId,
+        current_window_handle: &RawWindowHandle,
+        gl_context: &OptionGlContextPtr,
+        image_cache: &mut ImageCache,
+        system_fonts: &mut FcFontCache,
+        system_callbacks: &ExternalSystemCallbacks,
+    ) -> CallCallbacksResult {
+
+        use crate::callbacks::CallbackInfo;
+
+        let mut ret = CallCallbacksResult {
+            should_scroll_render: false,
+            callbacks_update_screen: Update::DoNothing,
+            modified_window_state: None,
+            css_properties_changed: None,
+            words_changed: None,
+            images_changed: None,
+            image_masks_changed: None,
+            nodes_scrolled_in_callbacks: None,
+            update_focused_node: None,
+            timers: None,
+            threads: None,
+            timers_removed: None,
+            threads_removed: None,
+            windows_created: Vec::new(),
+            cursor_changed: false,
+        };
+
+        let mut ret_modified_window_state: WindowState = self.current_window_state.clone().into();
+        let ret_window_state = ret_modified_window_state.clone();
+        let mut ret_timers = FastHashMap::new();
+        let mut ret_timers_removed = FastBTreeSet::new();
+        let mut ret_threads = FastHashMap::new();
+        let mut ret_threads_removed = FastBTreeSet::new();
+        let mut ret_words_changed = BTreeMap::new();
+        let mut ret_images_changed = BTreeMap::new();
+        let mut ret_image_masks_changed = BTreeMap::new();
+        let mut ret_css_properties_changed = BTreeMap::new();
+        let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
+        let mut new_focus_target = None;
+        let mut stop_propagation = false;
+        let current_scroll_states = self.get_current_scroll_states();
+
+        let cursor_relative_to_item = OptionLogicalPosition::None;
+        let cursor_in_viewport = OptionLogicalPosition::None;
+
+        let layout_result = &mut self.layout_results[hit_dom_node.dom.inner];
+        let mut datasets = layout_result.styled_dom.node_data.split_into_callbacks_and_dataset(
+            &layout_result.styled_dom.css_property_cache,
+            &layout_result.styled_dom.styled_nodes.as_container(),
+            &self.renderer_resources,
+        );
+        let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+
+        let callback_info = CallbackInfo::new(
+            &layout_result.styled_dom.css_property_cache.ptr,
+            &layout_result.styled_dom.styled_nodes,
+            &self.previous_window_state,
+            &self.current_window_state,
+            &mut ret_modified_window_state,
+            gl_context,
+            image_cache,
+            system_fonts,
+            &mut ret_timers,
+            &mut ret_threads,
+            &mut ret_timers_removed,
+            &mut ret_threads_removed,
+            &mut ret.windows_created,
+            current_window_handle,
+            &layout_result.styled_dom.node_hierarchy,
+            system_callbacks,
+            &layout_result.words_cache,
+            &layout_result.shaped_words_cache,
+            &layout_result.positioned_words_cache,
+            &layout_result.rects,
+            &mut datasets.2,
+            &mut datasets.1,
+            &mut stop_propagation,
+            &mut new_focus_target,
+            &mut ret_words_changed,
+            &mut ret_images_changed,
+            &mut ret_image_masks_changed,
+            &mut ret_css_properties_changed,
+            &current_scroll_states,
+            &mut ret_nodes_scrolled_in_callbacks,
+            hit_dom_node,
+            cursor_relative_to_item,
+            cursor_in_viewport,
+        );
+
+        ret.callbacks_update_screen = (menu_callback.callback.cb)(&mut menu_callback.data, callback_info);
 
         if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
         if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }

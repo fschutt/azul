@@ -21,7 +21,10 @@ use azul_core::{
         AppConfig, ImageCache, ResourceUpdate,
         RendererResources,
     },
-    callbacks::{RefAny, UpdateImageType, DocumentId},
+    callbacks::{
+        RefAny, UpdateImageType,
+        DomNodeId, DocumentId
+    },
     gl::OptionGlContextPtr,
     task::{Thread, ThreadId, Timer, TimerId},
     ui_solver::LayoutResult,
@@ -1491,6 +1494,8 @@ struct Window {
     hit_tester: AsyncHitTester,
     /// ID -> Callback map for the window menu (default: empty map)
     menu_callbacks: BTreeMap<u16, MenuCallback>,
+    /// ID -> Context menu callbacks (cleared when the context menu closes)
+    context_menu: Option<CurrentContextMenu>,
     /// Timer ID -> Win32 timer map
     timers: BTreeMap<TimerId, TIMERPTR>,
     /// If threads is non-empty, the window will receive a WM_TIMER every 16ms
@@ -1526,6 +1531,11 @@ impl Drop for Window {
             renderer.deinit();
         }
     }
+}
+
+struct CurrentContextMenu {
+    callbacks: BTreeMap<u16, MenuCallback>,
+    hit_dom_node: DomNodeId,
 }
 
 impl Window {
@@ -1994,6 +2004,7 @@ impl Window {
             renderer: Some(renderer),
             hit_tester: AsyncHitTester::Requested(hit_tester),
             menu_callbacks,
+            context_menu: None,
             menu_hash,
             timers: BTreeMap::new(),
             thread_timer_running: None,
@@ -3166,7 +3177,6 @@ unsafe extern "system" fn WindowProc(
                 let mut destroyed_windows = Vec::new();
 
                 match wparam {
-
                     AZ_TICK_REGENERATE_DOM => {
                         // re-load the layout() callback
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
@@ -3315,9 +3325,142 @@ unsafe extern "system" fn WindowProc(
                 return 0;
             },
             WM_COMMAND => {
+
+                use winapi::shared::minwindef::{HIWORD, LOWORD};
+
+                let hiword = HIWORD(wparam.min(core::u32::MAX as usize) as u32);
+                let loword = LOWORD(wparam.min(core::u32::MAX as usize) as u32);
+
+                // assert that the command came from a menu
+                if hiword != 0 {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
+
+                let mut ab = &mut *app_borrow;
+                let hinstance = ab.hinstance;
+                let windows = &mut ab.windows;
+                let data = &mut ab.data;
+                let image_cache = &mut ab.image_cache;
+                let fc_cache = &mut ab.fc_cache;
+                let config = &ab.config;
+
                 // execute menu callback
-                mem::drop(app_borrow);
-                DefWindowProcW(hwnd, msg, wparam, lparam)
+                if let Some(current_window) = windows.get_mut(&hwnd_key) {
+
+                    use azul_core::window::{RawWindowHandle, WindowsHandle};
+                    use azul_core::styled_dom::AzNodeId;
+
+                    let mut ret = ProcessEventResult::DoNothing;
+                    let mut new_windows = Vec::new();
+                    let mut destroyed_windows = Vec::new();
+
+                    let window_handle = RawWindowHandle::Windows(WindowsHandle {
+                        hwnd: hwnd as *mut _,
+                        hinstance: hinstance as *mut _,
+                    });
+
+                    let ntc = NodesToCheck::empty(
+                        current_window.internal.current_window_state.mouse_state.mouse_down(),
+                        current_window.internal.current_window_state.focused_node,
+                    );
+
+                    let call_callback_result = {
+
+                        let mc = &mut current_window.menu_callbacks;
+                        let internal = &mut current_window.internal;
+                        let context_menu = current_window.context_menu.as_mut();
+                        let gl_context_ptr = &current_window.gl_context_ptr;
+
+                        if let Some(menu_callback) = mc.get_mut(&loword) {
+                            Some(fc_cache.apply_closure(|fc_cache| {
+                                internal.invoke_menu_callback(
+                                    menu_callback,
+                                    DomNodeId {
+                                        dom: DomId::ROOT_ID,
+                                        node: AzNodeId::from_crate_internal(None),
+                                    },
+                                    &window_handle,
+                                    &gl_context_ptr,
+                                    image_cache,
+                                    fc_cache,
+                                    &config.system_callbacks,
+                                )
+                            }))
+                        } else if let Some(context_menu) = context_menu {
+                            let hit_dom_node = context_menu.hit_dom_node;
+                            if let Some(menu_callback) = context_menu.callbacks.get_mut(&loword) {
+                                Some(fc_cache.apply_closure(|fc_cache| {
+                                    internal.invoke_menu_callback(
+                                        menu_callback,
+                                        hit_dom_node,
+                                        &window_handle,
+                                        &gl_context_ptr,
+                                        image_cache,
+                                        fc_cache,
+                                        &config.system_callbacks,
+                                    )
+                                }))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    };
+
+                    if let Some(ccr) = call_callback_result {
+                        ret = process_callback_results(
+                            ccr,
+                            current_window,
+                            &ntc,
+                            image_cache,
+                            &mut new_windows,
+                            &mut destroyed_windows,
+                        );
+                    };
+
+                    // same as invoke_timers(), invoke_threads(), ...
+
+                    mem::drop(ab);
+                    mem::drop(app_borrow);
+                    create_windows(hinstance, shared_application_data, new_windows);
+                    let mut app_borrow = shared_application_data.inner.try_borrow_mut().unwrap();
+                    let mut ab = &mut *app_borrow;
+                    destroy_windows(ab, destroyed_windows);
+
+                    match ret {
+                        ProcessEventResult::DoNothing => { },
+                        ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+                            PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
+                        },
+                        ProcessEventResult::ShouldRegenerateDomAllWindows => {
+                            for window in app_borrow.windows.values() {
+                                PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
+                            }
+                        },
+                        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+                            PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                        },
+                        ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+                            if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
+                                w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
+                                // TODO: submit display list, wait for new hit-tester and update hit-test results
+                                PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
+                                PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                            }
+                        },
+                        ProcessEventResult::ShouldReRenderCurrentWindow => {
+                            PostMessageW(hwnd, AZ_GPU_SCROLL_RENDER, 0, 0);
+                        },
+                    }
+
+                    mem::drop(app_borrow);
+                    return 0;
+                } else {
+                    mem::drop(app_borrow);
+                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                }
             },
             WM_QUIT => {
                 // TODO: execute quit callback
