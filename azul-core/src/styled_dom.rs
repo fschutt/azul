@@ -436,6 +436,11 @@ impl CssPropertyCache {
                     break;
                 }
 
+                if node_data.has_context_menu() {
+                    node_should_have_tag = true;
+                    break;
+                }
+
                 if tab_index.is_some() {
                     node_should_have_tag = true;
                     break;
@@ -2279,7 +2284,25 @@ impl StyledDom {
 
     pub fn set_context_menu(&mut self, menu: Menu) {
         if let Some(root) = self.root.into_crate_internal() {
-            self.node_data.as_mut()[root.index()].set_context_menu(menu)
+            self.node_data.as_mut()[root.index()].set_context_menu(menu);
+
+            // add a new hit-testing tag for root node
+            let mut new_tags = self.tag_ids_to_node_ids.clone().into_library_owned_vec();
+
+            let tag_id = match self.styled_nodes.as_mut()[root.index()].tag_id {
+                OptionTagId::Some(s) => s,
+                OptionTagId::None => AzTagId::from_crate_internal(TagId::unique()),
+            };
+
+            new_tags.push(TagIdToNodeIdMapping {
+                tag_id,
+                node_id: self.root,
+                tab_index: OptionTabIndex::None,
+                parent_node_ids: NodeIdVec::from_const_slice(&[]),
+            });
+
+            self.styled_nodes.as_mut()[root.index()].tag_id = OptionTagId::Some(tag_id);
+            self.tag_ids_to_node_ids = new_tags.into();
         }
     }
 

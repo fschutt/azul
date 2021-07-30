@@ -2985,6 +2985,7 @@ unsafe extern "system" fn WindowProc(
                             ptr::null_mut()
                         );
                     }
+
                     current_window.internal.current_window_state.mouse_state.right_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
@@ -3005,6 +3006,49 @@ unsafe extern "system" fn WindowProc(
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
+
+                    // open context menu
+                    if let Some((context_menu, hit, node_id)) = current_window.internal.get_context_menu() {
+
+                        use winapi::um::winuser::{
+                            CreatePopupMenu, TrackPopupMenu, SetForegroundWindow,
+                            TPM_TOPALIGN, TPM_LEFTALIGN,
+                        };
+
+                        let mut hPopupMenu = CreatePopupMenu();
+                        let mut callbacks = BTreeMap::new();
+
+                        WindowsMenuBar::recursive_construct_menu(
+                            &mut hPopupMenu,
+                            &context_menu.items.as_ref(),
+                            &mut callbacks,
+                        );
+
+                        let align = match context_menu.position {
+                            _ => TPM_TOPALIGN | TPM_LEFTALIGN, // TODO
+                        };
+
+                        let pos = match context_menu.position {
+                            _ => hit.point_in_viewport, // TODO
+                        };
+
+                        current_window.context_menu = Some(CurrentContextMenu {
+                            callbacks,
+                            hit_dom_node: node_id,
+                        });
+
+                        SetForegroundWindow(hwnd);
+                        TrackPopupMenu(
+                            hPopupMenu,
+                            align,
+                            libm::roundf(pos.x) as i32,
+                            libm::roundf(pos.y) as i32,
+                            0,
+                            hwnd,
+                            ptr::null_mut()
+                        );
+                    }
+
                     current_window.internal.current_window_state.mouse_state.left_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }

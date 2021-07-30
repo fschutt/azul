@@ -1094,6 +1094,10 @@ impl NodeData {
         self.ids_and_classes.iter().any(|id_or_class| id_or_class.as_class() == Some(class))
     }
 
+    pub fn has_context_menu(&self) -> bool {
+        self.extra.as_ref().map(|m| m.context_menu.is_some()).unwrap_or(false)
+    }
+
     pub fn is_text_node(&self) -> bool {
         match self.node_type {
             NodeType::Text(_) => true,
