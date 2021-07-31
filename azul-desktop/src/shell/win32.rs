@@ -66,7 +66,7 @@ use winapi::{
     shared::{
         minwindef::{BOOL, HINSTANCE, LPARAM, LRESULT, TRUE, UINT, WPARAM},
         ntdef::HRESULT,
-        windef::{HDC, HGLRC, HMENU, HWND, RECT},
+        windef::{HDC, HGLRC, HMENU, HWND, RECT, POINT},
     },
     ctypes::wchar_t,
     um::dwmapi::{DWM_BB_ENABLE, DWM_BLURBEHIND},
@@ -2949,6 +2949,7 @@ unsafe extern "system" fn WindowProc(
 
                         use winapi::um::winuser::{
                             CreatePopupMenu, TrackPopupMenu, SetForegroundWindow,
+                            GetClientRect, ClientToScreen,
                             TPM_TOPALIGN, TPM_LEFTALIGN,
                         };
 
@@ -2965,6 +2966,13 @@ unsafe extern "system" fn WindowProc(
                             _ => TPM_TOPALIGN | TPM_LEFTALIGN, // TODO
                         };
 
+                        // get the current top left edge of the window rect
+                        let mut rect: RECT = unsafe { mem::zeroed() };
+                        GetClientRect(hwnd, &mut rect);
+
+                        let mut top_left = POINT { x: rect.left, y: rect.top };
+                        ClientToScreen(hwnd, &mut top_left);
+
                         let pos = match context_menu.position {
                             _ => hit.point_in_viewport, // TODO
                         };
@@ -2978,8 +2986,8 @@ unsafe extern "system" fn WindowProc(
                         TrackPopupMenu(
                             hPopupMenu,
                             align,
-                            libm::roundf(pos.x) as i32,
-                            libm::roundf(pos.y) as i32,
+                            top_left.x + (libm::roundf(pos.x) as i32),
+                            top_left.y + (libm::roundf(pos.y) as i32),
                             0,
                             hwnd,
                             ptr::null_mut()
@@ -3012,6 +3020,7 @@ unsafe extern "system" fn WindowProc(
 
                         use winapi::um::winuser::{
                             CreatePopupMenu, TrackPopupMenu, SetForegroundWindow,
+                            GetClientRect, ClientToScreen,
                             TPM_TOPALIGN, TPM_LEFTALIGN,
                         };
 
@@ -3028,6 +3037,13 @@ unsafe extern "system" fn WindowProc(
                             _ => TPM_TOPALIGN | TPM_LEFTALIGN, // TODO
                         };
 
+                        // get the current top left edge of the window rect
+                        let mut rect: RECT = unsafe { mem::zeroed() };
+                        GetClientRect(hwnd, &mut rect);
+
+                        let mut top_left = POINT { x: rect.left, y: rect.top };
+                        ClientToScreen(hwnd, &mut top_left);
+
                         let pos = match context_menu.position {
                             _ => hit.point_in_viewport, // TODO
                         };
@@ -3041,8 +3057,8 @@ unsafe extern "system" fn WindowProc(
                         TrackPopupMenu(
                             hPopupMenu,
                             align,
-                            libm::roundf(pos.x) as i32,
-                            libm::roundf(pos.y) as i32,
+                            top_left.x + (libm::roundf(pos.x) as i32),
+                            top_left.y + (libm::roundf(pos.y) as i32),
                             0,
                             hwnd,
                             ptr::null_mut()

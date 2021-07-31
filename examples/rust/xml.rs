@@ -5,9 +5,8 @@ use azul::prelude::*;
 struct Data { }
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
-    let mut sd = StyledDom::from_file("./ui.xml".into());
-    println!("{}", sd.get_html_string_test());
-    sd.with_menu_bar(Menu::new(vec![
+    StyledDom::from_file("./ui.xml".into())
+    .with_menu_bar(Menu::new(vec![
         MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
             MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), on_menu_click))
         ].into()))
@@ -33,7 +32,7 @@ fn main() {
     let data = RefAny::new(Data { });
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(layout);
-    // window.hot_reload = true;
+    window.hot_reload = true;
     window.state.flags.frame = WindowFrame::Maximized;
     app.run(window);
 }

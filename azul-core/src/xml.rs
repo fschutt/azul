@@ -1122,7 +1122,7 @@ fn main() {
 }";
 
     let source_code = format!(
-        "//! Auto-generated UI source code\r\n{}\r\n{}\r\n\r\n{}{}",
+        "#![windows_subsystem = \"windows\"]\r\n//! Auto-generated UI source code\r\n{}\r\n{}\r\n\r\n{}{}",
         imports,
         compile_components(compile_components_to_rust_code(component_map)?),
         format!("#[allow(unused_imports)]\r\npub mod ui {{
