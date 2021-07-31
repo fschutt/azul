@@ -8761,8 +8761,8 @@ mod dll {
         pub(crate) fn AzDom_withContextMenu(_:  &mut AzDom, _:  AzMenu) -> AzDom;
         pub(crate) fn AzDom_hash(_:  &AzDom) -> u64;
         pub(crate) fn AzDom_nodeCount(_:  &AzDom) -> usize;
+        pub(crate) fn AzDom_getHtmlString(_:  &mut AzDom) -> AzString;
         pub(crate) fn AzDom_getHtmlStringTest(_:  &mut AzDom) -> AzString;
-        pub(crate) fn AzDom_getHtmlStringDebug(_:  &mut AzDom) -> AzString;
         pub(crate) fn AzDom_style(_:  &mut AzDom, _:  AzCss) -> AzStyledDom;
         pub(crate) fn AzNodeData_new(_:  AzNodeType) -> AzNodeData;
         pub(crate) fn AzNodeData_body() -> AzNodeData;
@@ -10273,10 +10273,10 @@ pub mod dom {
         pub fn hash(&self)  -> u64 { unsafe { crate::dll::AzDom_hash(self) } }
         /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzDom_nodeCount(self) } }
+        /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+        pub fn get_html_string(&mut self)  -> crate::str::String { unsafe { crate::dll::AzDom_getHtmlString(self) } }
         /// Returns a HTML for unit testing
         pub fn get_html_string_test(&mut self)  -> crate::str::String { unsafe { crate::dll::AzDom_getHtmlStringTest(self) } }
-        /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-        pub fn get_html_string_debug(&mut self)  -> crate::str::String { unsafe { crate::dll::AzDom_getHtmlStringDebug(self) } }
         /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
         pub fn style(&mut self, css: Css)  -> crate::style::StyledDom { unsafe { crate::dll::AzDom_style(self, css) } }
     }

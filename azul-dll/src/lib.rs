@@ -754,10 +754,10 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn AzDom_hash(dom: &AzDom) -> u64 { dom.root.calculate_node_data_hash().0 }
 /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
+/// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+#[no_mangle] pub extern "C" fn AzDom_getHtmlString(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", false).into() }
 /// Returns a HTML for unit testing
 #[no_mangle] pub extern "C" fn AzDom_getHtmlStringTest(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", true).into() }
-/// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-#[no_mangle] pub extern "C" fn AzDom_getHtmlStringDebug(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", false).into() }
 /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
 #[no_mangle] pub extern "C" fn AzDom_style(dom: &mut AzDom, css: AzCss) -> AzStyledDom { let mut css = css; dom.style(&mut css) }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.

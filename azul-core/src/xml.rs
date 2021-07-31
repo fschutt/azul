@@ -1747,7 +1747,7 @@ impl CssMatcher {
                 if gm {
                     // ok: ".__azul_native-ribbon-tabs" was found within self_groups
                     // advance the self_groups by n
-                    advance = Some(id + 1);
+                    advance = Some(id);
                     break;
                 }
             }
@@ -1756,19 +1756,16 @@ impl CssMatcher {
                 Some(n) => {
                     // group was found in remaining items
                     // advance cur_pathgroup_scan by 1 and cur_selfgroup_scan by n
-                    cur_pathgroup_scan += 1;
-                    if cur_pathgroup_scan >= path_groups.len() {
-                        // last group was found
-                        return cur_selfgroup_scan + n >= self_groups.len();
+                    if cur_pathgroup_scan == path_groups.len() - 1 {
+                        // last path group
+                        return cur_selfgroup_scan + n == self_groups.len() - 1;
                     } else {
+                        cur_pathgroup_scan += 1;
+                        cur_selfgroup_scan += n;
                         path_group = path_groups[cur_pathgroup_scan].clone();
                     }
-
-                    cur_selfgroup_scan += n;
                 },
-                None => {
-                    return false;
-                }, // group was not found in remaining items
+                None => return false, // group was not found in remaining items
             }
         }
 
@@ -1867,7 +1864,7 @@ pub fn compile_body_node_to_rust_code<'a>(
 
         use crate::css::format_static_css_prop;
 
-        let css_strings = css_blocks_for_this_node.iter().map(|css_block| {
+        let css_strings = css_blocks_for_this_node.iter().rev().map(|css_block| {
 
             let wrapper = match css_block.ending {
                 Some(CssPathPseudoSelector::Hover) => "Hover",
@@ -2087,7 +2084,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     if !css_blocks_for_this_node.is_empty() {
         use crate::css::format_static_css_prop;
 
-        let css_strings = css_blocks_for_this_node.iter().map(|css_block| {
+        let css_strings = css_blocks_for_this_node.iter().rev().map(|css_block| {
 
             let wrapper = match css_block.ending {
                 Some(CssPathPseudoSelector::Hover) => "Hover",

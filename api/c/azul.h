@@ -10868,8 +10868,8 @@ extern DLLIMPORT void AzDom_setContextMenu(AzDom* restrict dom, AzMenu  context_
 extern DLLIMPORT AzDom AzDom_withContextMenu(AzDom* restrict dom, AzMenu  context_menu);
 extern DLLIMPORT uint64_t AzDom_hash(const AzDom* dom);
 extern DLLIMPORT size_t AzDom_nodeCount(const AzDom* dom);
+extern DLLIMPORT AzString AzDom_getHtmlString(AzDom* restrict dom);
 extern DLLIMPORT AzString AzDom_getHtmlStringTest(AzDom* restrict dom);
-extern DLLIMPORT AzString AzDom_getHtmlStringDebug(AzDom* restrict dom);
 extern DLLIMPORT AzStyledDom AzDom_style(AzDom* restrict dom, AzCss  css);
 extern DLLIMPORT void AzDom_delete(AzDom* restrict instance);
 extern DLLIMPORT void AzIFrameNode_delete(AzIFrameNode* restrict instance);

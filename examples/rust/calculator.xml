@@ -1,0 +1,99 @@
+<html>
+    <head>
+        <style>
+            * {
+                font-size: 27px;
+                font-family: \"KoHo-Light\";
+                flex-direction: column;
+                box-sizing: border-box;
+                flex-grow: 1;
+            }
+
+            #expression {
+                max-height: 50pt;
+                background-color: #444;
+                color: white;
+                flex-direction: row;
+                text-align: right;
+                padding-right: 40pt;
+                justify-content: flex-end;
+            }
+
+            #result {
+                max-height: 81pt;
+                background: linear-gradient(to top, #111, #444);
+                color: white;
+                flex-direction: row;
+                text-align: right;
+                padding-right: 16pt;
+                justify-content: flex-end;
+                font-size: 60px;
+            }
+
+            #numpad-container {
+                background-color: #d6d6d6;
+            }
+
+            .numpad-button {
+                border-right: 1px solid #8d8d8d;
+            }
+
+            .row {
+                flex-direction: row;
+                border-bottom: 1px solid #8d8d8d;
+                height: 78px;
+            }
+
+            .orange {
+                background: linear-gradient(to bottom, #f69135, #f37335);
+                color: white;
+                border-bottom: 1px solid #8d8d8d;
+                width: 98px;
+            }
+
+            .orange:focus {
+                border: 3px solid blue;
+            }
+
+            #zero {
+                flex-grow: 2;
+                border-bottom: none;
+            }
+        </style>
+    </head>
+    <body>
+        <p id="expression">expression</p>
+        <p id="result">result</p>
+        <div class="numpad-container">
+            <div class="row">
+                <p class="numpad-button">C</p>
+                <p class="numpad-button">+/-</p>
+                <p class="numpad-button">%</p>
+                <p class="orange">/</p>
+            </div>
+            <div class="row">
+                <p class="numpad-button">7</p>
+                <p class="numpad-button">8</p>
+                <p class="numpad-button">9</p>
+                <p class="orange">x</p>
+            </div>
+            <div class="row">
+                <p class="numpad-button">4</p>
+                <p class="numpad-button">5</p>
+                <p class="numpad-button">6</p>
+                <p class="orange">-</p>
+            </div>
+            <div class="row">
+                <p class="numpad-button">1</p>
+                <p class="numpad-button">2</p>
+                <p class="numpad-button">3</p>
+                <p class="orange">+</p>
+            </div>
+            <div class="row">
+                <p class="numpad-button zero">0</p>
+                <p class="numpad-button">.</p>
+                <p class="orange">=</p>
+            </div>
+        </div>
+    </body>
+</html>

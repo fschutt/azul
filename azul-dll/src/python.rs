@@ -14904,13 +14904,13 @@ impl AzDom {
             mem::transmute(self),
         )) }
     }
-    fn get_html_string_test(&mut self) -> String {
-        az_string_to_py_string(unsafe { mem::transmute(crate::AzDom_getHtmlStringTest(
+    fn get_html_string(&mut self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzDom_getHtmlString(
             mem::transmute(self),
         )) })
     }
-    fn get_html_string_debug(&mut self) -> String {
-        az_string_to_py_string(unsafe { mem::transmute(crate::AzDom_getHtmlStringDebug(
+    fn get_html_string_test(&mut self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzDom_getHtmlStringTest(
             mem::transmute(self),
         )) })
     }

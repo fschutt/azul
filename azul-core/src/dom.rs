@@ -1283,7 +1283,7 @@ impl NodeData {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
         let style = css_cache.get_computed_css_style_string(&self, node_id, node_state);
-        format!("<{} data-az-node-id=\"{}\" {} style=\"{}\">", html_type, node_id.index(), attributes_string, style)
+        format!("<{} data-az-node-id=\"{}\" {} style=\"overflow:visible; box-sizing:border-box; margin: 0px; padding: 0px; display: flex; flex-direction: column;{}\">", html_type, node_id.index(), attributes_string, style)
     }
 
     pub fn debug_print_end(&self) -> String {

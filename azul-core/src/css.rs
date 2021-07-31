@@ -132,8 +132,28 @@ impl VecContents {
             CssProperty::FontFamily(CssPropertyValue::Exact(v)) => {
                 for family in v.iter() {
                     match family {
-                        StyleFontFamily::System(s) => { self.strings.insert(s.get_hash(), s.clone()); },
-                        StyleFontFamily::File(s) => { self.strings.insert(s.get_hash(), s.clone()); },
+                        StyleFontFamily::System(s) => {
+                            // if the font-family is surrounded by quotes, strip them ("Arial" -> Arial)
+                            let s = s.as_str();
+                            let s = s.trim();
+                            let s = s.trim_start_matches('\"');
+                            let s = s.trim_end_matches('\"');
+                            let s = s.trim_start_matches('\'');
+                            let s = s.trim_end_matches('\'');
+
+                            self.strings.insert(s.get_hash(), s.to_string().into());
+                        },
+                        StyleFontFamily::File(s) => {
+
+                            let s = s.as_str();
+                            let s = s.trim();
+                            let s = s.trim_start_matches('\"');
+                            let s = s.trim_end_matches('\"');
+                            let s = s.trim_start_matches('\'');
+                            let s = s.trim_end_matches('\'');
+
+                            self.strings.insert(s.get_hash(), s.to_string().into());
+                        },
                         _ => { },
                     }
                 }

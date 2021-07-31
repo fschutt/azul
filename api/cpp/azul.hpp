@@ -8925,8 +8925,8 @@ namespace dll {
         Dom Dom_withContextMenu(Dom* restrict dom, AzMenu  context_menu);
         uint64_t Dom_hash(const Dom* dom);
         size_t Dom_nodeCount(const Dom* dom);
+        String Dom_getHtmlString(Dom* restrict dom);
         String Dom_getHtmlStringTest(Dom* restrict dom);
-        String Dom_getHtmlStringDebug(Dom* restrict dom);
         StyledDom Dom_style(Dom* restrict dom, AzCss  css);
         void Dom_delete(Dom* restrict instance);
         void IFrameNode_delete(IFrameNode* restrict instance);

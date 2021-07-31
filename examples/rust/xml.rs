@@ -5,8 +5,9 @@ use azul::prelude::*;
 struct Data { }
 
 extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
-    StyledDom::from_file("./ui.xml".into())
-    .with_menu_bar(Menu::new(vec![
+    let mut sd = StyledDom::from_file("./ui.xml".into());
+    println!("{}", sd.get_html_string_test());
+    sd.with_menu_bar(Menu::new(vec![
         MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
             MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), on_menu_click))
         ].into()))

@@ -383,11 +383,11 @@ impl ColorU {
     }
 
     pub fn to_hash(&self) -> String {
-        format!("#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
+        format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }
 
     pub fn write_hash(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
+        write!(f, "#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }
 }
 
