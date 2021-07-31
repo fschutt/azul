@@ -2,34 +2,73 @@
 
 use azul::prelude::*;
 use azul::widgets::Button;
+use azul::str::String as AzString;
+
+static CSS: AzString = AzString::from_const_str("
+    body {
+        background: white;
+    }
+    img {
+        flex-grow: 1;
+        border-radius: 50px;
+        box-sizing: border-box;
+        box-shadow: 0px 0px 10px black;
+    }
+    #the_button {
+        flex-grow: 0;
+        height: 20px;
+        max-width: 300px;
+        position: absolute;
+        top: 50px;
+        left: 50px;
+    }
+");
 
 struct OpenGlAppState { }
 
-extern "C" fn layout(data: RefAny, _: LayoutInfo) -> Dom {
-    Dom::gl_texture(data.clone(), render_my_texture).with_child(            // <- the Rc<OpenGlAppState> is cloned here
-        Button::with_label("Hello").dom().with_id("the_button".into())      //        |
-    )                                                                       //        |
-}                                                                           //        |
-                                                                            //        |
-extern "C" fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn { //        |
-                                                                            //        |
-    // to get access to the OpenGlAppState:                                 //        |
-    // let state = info.get_data::<OpenGlAppState>()?;                      // <------| - and the cloned RefAny can be
-    // or mutable access:                                                   //        |   downcasted here in the callback
-    // let state = info.get_data_mut::<OpenGlAppState>()?;                  // <------|
-
-    let gl_context = info.get_gl_context();
-    let texture_size = info.get_bounds().get_logical_size();
-
-    println!("rendering frame ...");
-
-    GlCallbackReturn {
-        // If the texture is None, the rect will simply be rendered as transparent
-        texture: render_my_texture_inner(gl_context, texture_size).into()
-    }
+extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+    Dom::body().with_child(
+        Dom::image(ImageRef::callback(RenderImageCallback { cb: render_my_texture }, data.clone()))
+        .with_child(Button::new("Button composited over OpenGL content!".into()).dom().with_id("the_button".into()))
+    ).style(Css::from_string(CSS.clone()))
 }
 
-fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) -> Option<Texture> {
+extern "C" fn render_my_texture(data: &mut RefAny, info: RenderImageCallbackInfo) -> ImageRef {
+
+    // to get access to the OpenGlAppState:
+    // let state = info.get_data::<OpenGlAppState>()?;
+    // or mutable access:
+    // let state = info.get_data_mut::<OpenGlAppState>()?;
+
+    // invalid texture returned in cases of error:
+    // does not allocate anything
+    let size = info.get_bounds().get_physical_size();
+    let invalid = ImageRef::invalid(
+        size.width as usize,
+        size.height as usize,
+        RawImageFormat::R8
+    );
+
+    // size = the calculated size that the div has AFTER LAYOUTING
+    // this way you can render the OpenGL texture with the correct size
+    // even if you don't know upfront what the size of the texture in the UI is going to be
+    let gl_context = match info.get_gl_context() {
+        OptionGl::Some(s) => s,
+        OptionGl::None => return invalid,
+    };
+
+    // Render to an OpenGL texture, texture will be managed by azul
+    println!("rendering frame ...");
+    let tex = match render_my_texture_inner(gl_context, size) {
+        Some(s) => s,
+        None => return invalid,
+    };
+
+    println!("ok!");
+    ImageRef::gl_texture(tex)
+}
+
+fn render_my_texture_inner(gl_context: Gl, texture_size: PhysicalSizeU32) -> Option<Texture> {
 
     let framebuffers = gl_context.gen_framebuffers(1);
     gl_context.bind_framebuffer(Gl::FRAMEBUFFER, framebuffers.get(0).copied()?);
@@ -40,7 +79,16 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
     let textures = gl_context.gen_textures(1);
 
     gl_context.bind_texture(Gl::TEXTURE_2D, textures.get(0).copied()?);
-    gl_context.tex_image_2d(Gl::TEXTURE_2D, 0, Gl::RGB as i32, texture_size.width as i32, texture_size.height as i32, 0, Gl::RGB, Gl::UNSIGNED_BYTE, None.into());
+    gl_context.tex_image_2d(
+        Gl::TEXTURE_2D, 0,
+        Gl::RGBA as i32,
+        texture_size.width as i32,
+        texture_size.height as i32,
+        0,
+        Gl::RGBA,
+        Gl::UNSIGNED_BYTE,
+        OptionU8VecRef::None
+    );
 
     gl_context.tex_parameter_i(Gl::TEXTURE_2D, Gl::TEXTURE_MAG_FILTER, Gl::NEAREST as i32);
     gl_context.tex_parameter_i(Gl::TEXTURE_2D, Gl::TEXTURE_MIN_FILTER, Gl::NEAREST as i32);
@@ -57,11 +105,6 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
 
     // Check that the framebuffer is complete
     debug_assert!(gl_context.check_frame_buffer_status(Gl::FRAMEBUFFER) == Gl::FRAMEBUFFER_COMPLETE);
-
-    // Disable SRGB and multisample, otherwise, WebRender will crash
-    gl_context.disable(Gl::FRAMEBUFFER_SRGB);
-    gl_context.disable(Gl::MULTISAMPLE);
-    gl_context.disable(Gl::POLYGON_SMOOTH);
 
     // DRAW HERE
     gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
@@ -82,34 +125,14 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
         texture_id: textures.get(0).copied()?,
         flags: TextureFlags::default(),
         size: texture_size,
+        // azul only allows r, rg or rgba
+        format: RawImageFormat::BGRA8,
         gl_context,
     })
 }
 
 fn main() {
-    let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::new(LayoutSolver::Default), layout);
-    let az_css: azul::str::String = String::from("
-        texture {
-            width: 100%;
-            height: 100%;
-            border: 4px solid green;
-            border-radius: 50px;
-            box-sizing: border-box;
-        }
-        #the_button {
-            width: 200px;
-            height: 50px;
-            position: absolute;
-            top: 50px;
-            left: 50px;
-        }
-    ").into();
-    println!("css string: {}", az_css);
-    let css = Css::override_native(az_css); // .unwrap()
-    println!("sizeof Css: {}", std::mem::size_of::<Css>());
-    let w = WindowCreateOptions::new(css);
-    println!("sizeof WindowCreateOptions: {}", std::mem::size_of::<WindowCreateOptions>());
-    println!("printing: {:?}", w);
-    println!("printing ok");
-    app.run(w);
+    let data = RefAny::new(OpenGlAppState { });
+    let app = App::new(data, AppConfig::new(LayoutSolver::Default));
+    app.run(WindowCreateOptions::new(layout));
 }
