@@ -1,12 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use azul::prelude::*;
-use azul_widgets::{
-    button::Button,
-    label::Label,
-    text_input::TextInput,
-    progress_bar::ProgressBar,
-};
+use self::ConnectionStatus::*;
 
 // data model for the main thread
 #[derive(Default)]
@@ -87,7 +82,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
 }
 
 // Callback that runs when the "connect to database" button is clicked
-extern "C" fn start_background_thread(datamodel: &mut RefAny, event: CallbackInfo) -> UpdateScreen {
+extern "C" fn start_background_thread(datamodel: &mut RefAny, event: CallbackInfo) -> Update {
 
     // Copy the string of what database to connect to and
     // use it to initialize a new background thread
@@ -111,8 +106,8 @@ extern "C" fn start_background_thread(datamodel: &mut RefAny, event: CallbackInf
 }
 
 // Callback that runs when the "cancel" button is clicked while the background thread is running
-extern "C" fn stop_background_thread(data: &mut RefAny, event: CallbackInfo) -> UpdateScreen {
-    let data_mut = datamodel.downcast_mut::<MyDataModel>()?;
+extern "C" fn stop_background_thread(data: &mut RefAny, event: CallbackInfo) -> Update {
+    let data_mut = data.downcast_mut::<MyDataModel>()?;
     let thread_id = match data_mut.connection_status {
         InProgress { background_thread_id, .. } => background_thread_id.clone(),
         _ => return Update::DoNothing, // error
@@ -123,8 +118,8 @@ extern "C" fn stop_background_thread(data: &mut RefAny, event: CallbackInfo) -> 
 }
 
 // Callback that runs when the "reset" button is clicked (resets the data)
-extern "C" fn reset(data: &mut RefAny, event: CallbackInfo) -> UpdateScreen {
-    let data_mut = datamodel.downcast_mut::<MyDataModel>()?;
+extern "C" fn reset(data: &mut RefAny, event: CallbackInfo) -> Update {
+    let data_mut = data.downcast_mut::<MyDataModel>()?;
     match data_mut.connection_status {
         DataLoaded { .. } => { },
         _ => return Update::DoNothing, // error
@@ -148,12 +143,14 @@ enum BackgroundThreadReturn {
 // Callback that "writes data back" from the background thread to the main thread
 // This function runs on the main thread, so that there can't be any data races
 // Returns whether the UI should update
-extern "C" fn writeback_callback(app_data: &mut RefAny, incoming_data: RefAny) -> UpdateScreen {
+extern "C" fn writeback_callback(app_data: &mut RefAny, incoming_data: RefAny) -> Update {
 
-    let data_mut = datamodel.downcast_mut::<MyDataModel>()?;
+    use crate::BackgroundThreadReturn::*;
+
+    let data_mut = data.downcast_mut::<MyDataModel>()?;
     let incoming_data = incoming_data.downcast_mut::<BackgroundThreadReturn>()?;
 
-    match incoming_data {
+    match &mut *incoming_data {
         StatusUpdated { new } => {
             match &mut data_mut.connection_status {
                 InProgress { stage, .. } => {
@@ -196,18 +193,18 @@ extern "C" fn background_thread(
     let connection = match postgres::establish_connection(&initial_data.database) {
         Ok(db) => db,
         Err(e) => {
-            sender.send_msg(RefAny::new(ErrorOccurred { error: e }));
+            sender.send(RefAny::new(ErrorOccurred { error: e }));
             return;
         }
     };
 
     // if in the meantime we got a "cancel" message, quit the thread
-    if recv.try_recv() == ThreadReceiveMsg::Terminate {
+    if recv.recv() == ThreadReceiveMsg::Terminate {
         return;
     }
 
     // update the UI again to notify the user that the connection has been established
-    sender.send_msg(RefAny::new(StatusUpdated {
+    sender.send(RefAny::new(StatusUpdated {
         new: ConnectionStatus::ConnectionEstablished
     }));
 
@@ -216,14 +213,14 @@ extern "C" fn background_thread(
 
     for row in postgres::query_rows(&connection, "SELECT * FROM large_table;") {
         // If in the meantime we got a "cancel" message, quit the thread
-        if recv.try_recv() == ThreadReceiveMsg::Terminate {
+        if recv.recv() == ThreadReceiveMsg::Terminate {
             return;
         } else {
             items_loaded += data.len();
             // As soon as each row is loaded, update the UI
-            sender.send_msg(RefAny::new(NewDataLoaded { data: row }));
+            sender.send(RefAny::new(NewDataLoaded { data: row }));
             // Calculate and update the percentage count
-            sender.send_msg(RefAny::new(ConnectionStage {
+            sender.send(RefAny::new(ConnectionStage {
                 stage: ConnectionStage::LoadingData {
                     percent_done: items_loaded as f32 / total_items as f32 * 100.0,
                 }
@@ -259,7 +256,7 @@ mod postgres {
 
     // each of these functions blocks to simulate latency on a real database
     pub(in super) fn establish_connection(database: &str) -> Result<Database, String> {
-        thread::sleep(Duration::from_secs(1));
+        std::thread::sleep(Duration::from_secs(1));
         Ok(Database { })
     }
 
@@ -270,7 +267,7 @@ mod postgres {
     pub(in super) fn query_rows(db: &Database, _query: &str) -> impl Iterator<Item=Row> {
         LARGE_TABLE.iter().map(|i| {
             // let's simulate that each row / query takes one second to load in
-            thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_secs(1));
             i
         })
     }
