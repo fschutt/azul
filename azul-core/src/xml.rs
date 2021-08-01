@@ -1139,7 +1139,7 @@ fn main() {
         NormalizedLinearColorStopVec, NormalizedRadialColorStopVec,
     }};
     use azul::dom::{{
-        Dom, IdOrClass,
+        Dom, IdOrClass, TabIndex,
         IdOrClass::{{Id, Class}},
         NodeDataInlineCssProperty,
     }};\r\n\r\n{}\r\n\r\n{}
@@ -1354,8 +1354,8 @@ pub fn set_stringified_attributes(
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
-            true => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::Auto).into())", t)),
-            false => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::NoKeyboardFocus).into())", t)),
+            true => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::Auto)", t)),
+            false => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::NoKeyboardFocus)", t)),
         }
     }
 
@@ -1364,9 +1364,9 @@ pub fn set_stringified_attributes(
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::Auto).into())", t)),
-            i if i > 0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::OverrideInParent({})).into())", t, i as usize)),
-            _ => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::NoKeyboardFocus).into())", t)),
+            0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::Auto)", t)),
+            i if i > 0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))", t, i as usize)),
+            _ => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::NoKeyboardFocus)", t)),
         }
     }
 }
