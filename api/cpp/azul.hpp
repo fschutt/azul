@@ -3154,6 +3154,7 @@ namespace dll {
     struct RefAny {
         void* _internal_ptr;
         RefCount sharing_info;
+        uint64_t instance_id;
         RefAny& operator=(const RefAny&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         RefAny(const RefAny&) = delete; /* disable copy constructor, use explicit .clone() */
         RefAny() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -8804,6 +8805,7 @@ namespace dll {
         OptionGl CallbackInfo_getGlContext(const CallbackInfo* callbackinfo);
         OptionLogicalPosition CallbackInfo_getScrollPosition(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionRefAny CallbackInfo_getDataset(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+        OptionDomNodeId CallbackInfo_getNodeIdOfRootDataset(CallbackInfo* restrict callbackinfo, AzRefAny  dataset);
         OptionString CallbackInfo_getStringContents(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionInlineText CallbackInfo_getInlineText(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionFontRef CallbackInfo_getFontRef(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);

@@ -3766,6 +3766,7 @@ mod dll {
     pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
+        pub instance_id: u64,
     }
 
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -8652,6 +8653,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_getGlContext(_:  &AzCallbackInfo) -> AzOptionGl;
         pub(crate) fn AzCallbackInfo_getScrollPosition(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionLogicalPosition;
         pub(crate) fn AzCallbackInfo_getDataset(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionRefAny;
+        pub(crate) fn AzCallbackInfo_getNodeIdOfRootDataset(_:  &mut AzCallbackInfo, _:  AzRefAny) -> AzOptionDomNodeId;
         pub(crate) fn AzCallbackInfo_getStringContents(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionString;
         pub(crate) fn AzCallbackInfo_getInlineText(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
         pub(crate) fn AzCallbackInfo_getFontRef(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionFontRef;
@@ -9792,6 +9794,8 @@ pub mod callbacks {
         pub fn get_scroll_position(&self, node_id: DomNodeId)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getScrollPosition(self, node_id) } }
         /// Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.
         pub fn get_dataset(&mut self, node_id: DomNodeId)  -> crate::option::OptionRefAny { unsafe { crate::dll::AzCallbackInfo_getDataset(self, node_id) } }
+        /// Given a dataset, returns the node ID of the "root" `RefAny`, i.e. the `RefAny` with the lowest `instance` count that is set as a `dataset` on any node.
+        pub fn get_node_id_of_root_dataset(&mut self, dataset: RefAny)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNodeIdOfRootDataset(self, dataset) } }
         /// If the node is a `Text` node, returns a copy of the internal string contents.
         pub fn get_string_contents(&self, node_id: DomNodeId)  -> crate::option::OptionString { unsafe { crate::dll::AzCallbackInfo_getStringContents(self, node_id) } }
         /// If the node is a `Text` node, returns the layouted inline glyphs of the text currently rendered on the screen

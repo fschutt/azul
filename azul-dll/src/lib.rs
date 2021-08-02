@@ -362,6 +362,8 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getScrollPosition(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionLogicalPosition { callbackinfo.get_scroll_position(node_id).into() }
 /// Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getDataset(callbackinfo: &mut AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionRefAny { callbackinfo.get_dataset(node_id).into() }
+/// Given a dataset, returns the node ID of the "root" `RefAny`, i.e. the `RefAny` with the lowest `instance` count that is set as a `dataset` on any node.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getNodeIdOfRootDataset(callbackinfo: &mut AzCallbackInfo, dataset: AzRefAny) -> AzOptionDomNodeId { callbackinfo.get_node_id_of_root_dataset(dataset).into() }
 /// If the node is a `Text` node, returns a copy of the internal string contents.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getStringContents(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionString { callbackinfo.get_string_contents(node_id).into() }
 /// If the node is a `Text` node, returns the layouted inline glyphs of the text currently rendered on the screen
@@ -7115,6 +7117,7 @@ mod test_sizes {
     pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
+        pub instance_id: u64,
     }
 
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct

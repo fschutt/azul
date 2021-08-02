@@ -199,6 +199,10 @@ pub struct RefAny {
     /// All the metadata information is set on the refcount, so that the metadata
     /// has to only be created once per object, not once per copy
     pub sharing_info: RefCount,
+    /// Instance of this copy (root = 0th copy).
+    ///
+    /// Necessary to distinguish between the original copy and all other clones
+    pub instance_id: u64,
 }
 
 impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Hash, Clone, PartialEq, PartialOrd, Ord, Eq]);
@@ -281,6 +285,7 @@ impl RefAny {
         Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
             sharing_info: RefCount::new(ref_count_inner),
+            instance_id: 0,
         }
     }
 
@@ -373,6 +378,7 @@ impl Clone for RefAny {
             sharing_info: RefCount {
                 ptr: self.sharing_info.ptr,
             },
+            instance_id: self.instance_id.saturating_add(1),
         }
     }
 }
@@ -1235,6 +1241,23 @@ impl CallbackInfo {
             self.internal_get_dataset_map()
             .get_mut(&node_id.node.into_crate_internal()?)
             .map(|refany| unsafe { &**refany }.clone())
+        }
+    }
+
+    pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
+        let hit_node = self.get_hit_node();
+        unsafe {
+            self.internal_get_dataset_map()
+            .iter_mut()
+            .filter(|(k, v)| {
+                let v: &mut RefAny = &mut ***v; // lmao
+                v._internal_ptr as usize == search_key._internal_ptr as usize
+            })
+            .min_by(|a, b| (*(*a.1)).instance_id.cmp(&(*(*b.1)).instance_id))
+            .map(|(k, v)| DomNodeId {
+                dom: hit_node.dom,
+                node: AzNodeId::from_crate_internal(Some(*k))
+            })
         }
     }
 

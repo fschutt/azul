@@ -3440,6 +3440,7 @@ typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
 struct AzRefAny {
     void* _internal_ptr;
     AzRefCount sharing_info;
+    uint64_t instance_id;
 };
 typedef struct AzRefAny AzRefAny;
 
@@ -10747,6 +10748,7 @@ extern DLLIMPORT AzRawWindowHandle AzCallbackInfo_getCurrentWindowHandle(const A
 extern DLLIMPORT AzOptionGl AzCallbackInfo_getGlContext(const AzCallbackInfo* callbackinfo);
 extern DLLIMPORT AzOptionLogicalPosition AzCallbackInfo_getScrollPosition(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionRefAny AzCallbackInfo_getDataset(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getNodeIdOfRootDataset(AzCallbackInfo* restrict callbackinfo, AzRefAny  dataset);
 extern DLLIMPORT AzOptionString AzCallbackInfo_getStringContents(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionInlineText AzCallbackInfo_getInlineText(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionFontRef AzCallbackInfo_getFontRef(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);

@@ -3683,6 +3683,8 @@ pub struct AzRefAny {
     pub _internal_ptr: *const c_void,
     #[pyo3(get, set)]
     pub sharing_info: AzRefCount,
+    #[pyo3(get, set)]
+    pub instance_id: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `IFrameNode` struct

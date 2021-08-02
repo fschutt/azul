@@ -1178,6 +1178,15 @@
                             "returns": {"type": "OptionRefAny"},
                             "fn_body": "callbackinfo.get_dataset(node_id).into()"
                         },
+                        "get_node_id_of_root_dataset": {
+                            "doc": "Given a dataset, returns the node ID of the \"root\" `RefAny`, i.e. the `RefAny` with the lowest `instance` count that is set as a `dataset` on any node.",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"dataset": "RefAny"}
+                            ],
+                            "returns": {"type": "OptionDomNodeId"},
+                            "fn_body": "callbackinfo.get_node_id_of_root_dataset(dataset).into()"
+                        },
                         "get_string_contents": {
                             "doc": "If the node is a `Text` node, returns a copy of the internal string contents.",
                             "fn_args": [
@@ -1994,7 +2003,8 @@
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
-                        {"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}}
+                        {"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
+                        {"instance_id": {"type": "u64", "doc": "Instance ID of this `RefAny`: should be 0 for the `root` node, and increase for every copy. Necessary to identify the \"root\" `RefAny`, otherwise all instances would have the same priority."}}
                     ],
                     "constructors": {
                         "new_c": {
