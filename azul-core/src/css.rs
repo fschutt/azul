@@ -760,7 +760,7 @@ fn format_conic_gradient(r: &ConicGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
-    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: RadialColorStopVec::from_const_slice(RADIAL_COLOR_STOP_{}_ITEMS),\r\n{}}}",
+    format!("ConicGradient {{\r\n{}extend_mode: {},\r\n{}center: {},\r\n{}angle: {},\r\n{}stops: NormalizedRadialColorStopVec::from_const_slice(RADIAL_COLOR_STOP_{}_ITEMS),\r\n{}}}",
         t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
         format_style_background_position(&r.center, tabs + 1), t1,
@@ -772,9 +772,11 @@ fn format_conic_gradient(r: &ConicGradient, tabs: usize) -> String {
 fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
-    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: RadialColorStopVec::from_const_slice(LINEAR_COLOR_STOP_{}_ITEMS),\r\n{}}}",
+    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}position: {},\r\n{}size: RadialGradientSize::{:?},\r\n{}stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_{}_ITEMS),\r\n{}}}",
         t1, r.shape.format_as_rust_code(tabs + 1), t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
+        format_style_background_position(&r.position, tabs + 1), t1,
+        r.size, t1,
         r.stops.get_hash(), t,
     )
 }

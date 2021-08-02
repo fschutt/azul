@@ -3067,6 +3067,14 @@ pub type AzMsgBoxTT = azul_impl::dialogs::MsgBox;
 pub use AzMsgBoxTT as AzMsgBox;
 /// Opens an informational message box with only an "OK" button
 #[no_mangle] pub extern "C" fn AzMsgBox_ok(icon: AzMsgBoxIcon, title: AzString, message: AzString) -> bool { azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon.into()); true }
+/// Shorthand for `MsgBox::ok("Info", $message, Icon::Info)`
+#[no_mangle] pub extern "C" fn AzMsgBox_info(message: AzString) -> bool { azul_impl::dialogs::msg_box_ok("Info", message.as_str(), AzMsgBoxIcon::Info.into()); true }
+/// Shorthand for `MsgBox::ok("Warning", $message, Icon::Warning)`
+#[no_mangle] pub extern "C" fn AzMsgBox_warning(message: AzString) -> bool { azul_impl::dialogs::msg_box_ok("Warning", message.as_str(), AzMsgBoxIcon::Warning.into()); true }
+/// Shorthand for `MsgBox::ok("Error", $message, Icon::Error)`
+#[no_mangle] pub extern "C" fn AzMsgBox_error(message: AzString) -> bool { azul_impl::dialogs::msg_box_ok("Error", message.as_str(), AzMsgBoxIcon::Error.into()); true }
+/// Shorthand for `MsgBox::ok("Question", $message, Icon::Question)`
+#[no_mangle] pub extern "C" fn AzMsgBox_question(message: AzString) -> bool { azul_impl::dialogs::msg_box_ok("Question", message.as_str(), AzMsgBoxIcon::Question.into()); true }
 /// Opens a ok / cancel message box. Blocks the current thread.
 #[no_mangle] pub extern "C" fn AzMsgBox_okCancel(icon: AzMsgBoxIcon, title: AzString, message: AzString, default_value: AzMsgBoxOkCancel) -> AzMsgBoxOkCancel { azul_impl::dialogs::msg_box_ok_cancel(title.as_str(), message.as_str(), icon.into(), default_value) }
 /// Opens a yes / no message box. Blocks the current thread.

@@ -30086,6 +30086,34 @@ impl AzMsgBox {
         )) }
     }
     #[staticmethod]
+    fn info(message: String) -> bool {
+        let message = pystring_to_azstring(&message);
+        unsafe { mem::transmute(crate::AzMsgBox_info(
+            mem::transmute(message),
+        )) }
+    }
+    #[staticmethod]
+    fn warning(message: String) -> bool {
+        let message = pystring_to_azstring(&message);
+        unsafe { mem::transmute(crate::AzMsgBox_warning(
+            mem::transmute(message),
+        )) }
+    }
+    #[staticmethod]
+    fn error(message: String) -> bool {
+        let message = pystring_to_azstring(&message);
+        unsafe { mem::transmute(crate::AzMsgBox_error(
+            mem::transmute(message),
+        )) }
+    }
+    #[staticmethod]
+    fn question(message: String) -> bool {
+        let message = pystring_to_azstring(&message);
+        unsafe { mem::transmute(crate::AzMsgBox_question(
+            mem::transmute(message),
+        )) }
+    }
+    #[staticmethod]
     fn ok_cancel(icon: AzMsgBoxIconEnumWrapper, title: String, message: String, default_value: AzMsgBoxOkCancelEnumWrapper) -> AzMsgBoxOkCancelEnumWrapper {
         let title = pystring_to_azstring(&title);
         let message = pystring_to_azstring(&message);

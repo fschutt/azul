@@ -10831,6 +10831,38 @@
                             "returns": {"type": "bool"},
                             "fn_body": "azul_impl::dialogs::msg_box_ok(title.as_str(), message.as_str(), icon.into()); true"
                         },
+                        "info": {
+                            "doc": "Shorthand for `MsgBox::ok(\"Info\", $message, Icon::Info)`",
+                            "fn_args": [
+                                {"message": "String"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "azul_impl::dialogs::msg_box_ok(\"Info\", message.as_str(), AzMsgBoxIcon::Info.into()); true"
+                        },
+                        "warning": {
+                            "doc": "Shorthand for `MsgBox::ok(\"Warning\", $message, Icon::Warning)`",
+                            "fn_args": [
+                                {"message": "String"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "azul_impl::dialogs::msg_box_ok(\"Warning\", message.as_str(), AzMsgBoxIcon::Warning.into()); true"
+                        },
+                        "error": {
+                            "doc": "Shorthand for `MsgBox::ok(\"Error\", $message, Icon::Error)`",
+                            "fn_args": [
+                                {"message": "String"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "azul_impl::dialogs::msg_box_ok(\"Error\", message.as_str(), AzMsgBoxIcon::Error.into()); true"
+                        },
+                        "question": {
+                            "doc": "Shorthand for `MsgBox::ok(\"Question\", $message, Icon::Question)`",
+                            "fn_args": [
+                                {"message": "String"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "azul_impl::dialogs::msg_box_ok(\"Question\", message.as_str(), AzMsgBoxIcon::Question.into()); true"
+                        },
                         "ok_cancel": {
                             "doc": "Opens a ok / cancel message box. Blocks the current thread.",
                             "fn_args": [

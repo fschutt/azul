@@ -9417,6 +9417,10 @@ namespace dll {
         void File_delete(File* restrict instance);
         File File_deepCopy(File* const instance);
         MsgBox MsgBox_ok(AzMsgBoxIcon  icon, AzString  title, AzString  message);
+        MsgBox MsgBox_info(AzString  message);
+        MsgBox MsgBox_warning(AzString  message);
+        MsgBox MsgBox_error(AzString  message);
+        MsgBox MsgBox_question(AzString  message);
         MsgBox MsgBox_okCancel(AzMsgBoxIcon  icon, AzString  title, AzString  message, AzMsgBoxOkCancel  default_value);
         MsgBox MsgBox_yesNo(AzMsgBoxIcon  icon, AzString  title, AzString  message, AzMsgBoxYesNo  default_value);
         FileDialog FileDialog_selectFile(AzString  title, AzOptionString  default_path, AzOptionFileTypeList  filter_list);

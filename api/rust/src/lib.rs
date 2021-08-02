@@ -9174,6 +9174,10 @@ mod dll {
         pub(crate) fn AzFile_delete(_:  &mut AzFile);
         pub(crate) fn AzFile_deepCopy(_:  &AzFile) -> AzFile;
         pub(crate) fn AzMsgBox_ok(_:  AzMsgBoxIcon, _:  AzString, _:  AzString) -> bool;
+        pub(crate) fn AzMsgBox_info(_:  AzString) -> bool;
+        pub(crate) fn AzMsgBox_warning(_:  AzString) -> bool;
+        pub(crate) fn AzMsgBox_error(_:  AzString) -> bool;
+        pub(crate) fn AzMsgBox_question(_:  AzString) -> bool;
         pub(crate) fn AzMsgBox_okCancel(_:  AzMsgBoxIcon, _:  AzString, _:  AzString, _:  AzMsgBoxOkCancel) -> AzMsgBoxOkCancel;
         pub(crate) fn AzMsgBox_yesNo(_:  AzMsgBoxIcon, _:  AzString, _:  AzString, _:  AzMsgBoxYesNo) -> AzMsgBoxYesNo;
         pub(crate) fn AzFileDialog_selectFile(_:  AzString, _:  AzOptionString, _:  AzOptionFileTypeList) -> AzOptionString;
@@ -14605,6 +14609,14 @@ pub mod dialog {
     impl MsgBox {
         /// Opens an informational message box with only an "OK" button
         pub fn ok(icon: MsgBoxIcon, title: String, message: String) -> bool { unsafe { crate::dll::AzMsgBox_ok(icon, title, message) } }
+        /// Shorthand for `MsgBox::ok("Info", $message, Icon::Info)`
+        pub fn info(message: String) -> bool { unsafe { crate::dll::AzMsgBox_info(message) } }
+        /// Shorthand for `MsgBox::ok("Warning", $message, Icon::Warning)`
+        pub fn warning(message: String) -> bool { unsafe { crate::dll::AzMsgBox_warning(message) } }
+        /// Shorthand for `MsgBox::ok("Error", $message, Icon::Error)`
+        pub fn error(message: String) -> bool { unsafe { crate::dll::AzMsgBox_error(message) } }
+        /// Shorthand for `MsgBox::ok("Question", $message, Icon::Question)`
+        pub fn question(message: String) -> bool { unsafe { crate::dll::AzMsgBox_question(message) } }
         /// Opens a ok / cancel message box. Blocks the current thread.
         pub fn ok_cancel(icon: MsgBoxIcon, title: String, message: String, default_value: MsgBoxOkCancel) ->  crate::dialog::MsgBoxOkCancel { unsafe { crate::dll::AzMsgBox_okCancel(icon, title, message, default_value) } }
         /// Opens a yes / no message box. Blocks the current thread.
