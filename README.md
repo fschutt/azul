@@ -1,7 +1,8 @@
 # Azul - Desktop GUI framework
 
 <!-- [START badges] -->
-[![Build Status Linux / macOS](https://travis-ci.org/fschutt/azul.svg?branch=master)](https://travis-ci.org/fschutt/azul)
+[![Build Status Linux / macOS](https://travis-ci.org/fschutt/azul.svg?branch=master)](https://travis-ci.org/fschutt/azul)[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffschutt%2Fazul.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffschutt%2Fazul?ref=badge_shield)
+
 [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
 [![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
 [![LICENSE](https://img.shields.io/badge/license-LGPL%203.0%20+%20static%20linking-blue.svg)](LICENSE)
@@ -352,3 +353,6 @@ itself. The static linking exception allows you to statically
 link Azul without having to publish your code.
 
 Copyright 2017 - current Felix Schütt
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ffschutt%2Fazul.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Ffschutt%2Fazul?ref=badge_large)
