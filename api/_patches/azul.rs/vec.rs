@@ -302,6 +302,8 @@
     impl_vec_clone!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor);
     impl_vec!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor, az_style_font_family_vec_destructor, AzStyleFontFamilyVec_delete);
     impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
+    impl_vec!(AzTab, AzTabVec, AzTabVecDestructor, az_tab_vec_destructor, AzTabVec_delete);
+    impl_vec_clone!(AzTab, AzTabVec, AzTabVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);

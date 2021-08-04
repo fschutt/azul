@@ -8,13 +8,36 @@ struct WidgetShowcase {
 }
 
 extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
-    let mut dom = Dom::body();
-    dom.add_child(Button::new("Hello".into()).dom());
-    dom.add_child(CheckBox::new(false).dom());
-    dom.add_child(ProgressBar::new(50.0).dom());
-    dom.add_child(TextInput::new("Input text...".into()).dom());
-    dom.add_child(NumberInput::new(5.0).dom());
-    return dom.style(Css::empty());
+    let mut dom = Dom::body()
+    .with_menu_bar(Menu::new(vec![
+        MenuItem::String(StringMenuItem::new("Menu Item 1".into()).with_children(vec![
+            MenuItem::String(StringMenuItem::new("Submenu Item 1...".into()))
+        ].into()))
+    ].into()));
+
+    dom.add_child(TabContainer::new(vec![
+        Tab {
+            title: "Test".into(),
+            content: Dom::div()
+            .with_children(vec![
+                Button::new("Hello".into()).dom(),
+                CheckBox::new(false).dom(),
+                // ProgressBar::new(50.0).dom(),
+                TextInput::new("Input text...".into()).dom(),
+                NumberInput::new(5.0).dom(),
+            ].into())
+        },
+        Tab {
+            title: "Inactive".into(),
+            content: Dom::div()
+        },
+        Tab {
+            title: "Inactive 2".into(),
+            content: Dom::div()
+        }
+    ].into()).with_padding(false).dom());
+
+    dom.style(Css::empty())
 }
 
 fn main() {

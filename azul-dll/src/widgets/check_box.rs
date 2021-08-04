@@ -67,6 +67,9 @@ const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec = StyleBackgroundContentV
 static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
 
+    Normal(CssProperty::const_width(LayoutWidth::const_px(18))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(18))),
+
     // padding: 2px
 
     Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
