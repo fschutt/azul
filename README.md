@@ -58,6 +58,10 @@ a fast design iteration time and native performance.
 
 The application currently takes ~40MB to run and of course almost no CPU at all.
 
+With the [correct CSS styles](https://gist.github.com/fschutt/9731ceec50d5fe211ab0f08082e8082f), the window is indistinguishable from a native application:
+
+![image](https://user-images.githubusercontent.com/12084016/128162918-d7ae5020-7cf0-4863-ad82-7427a41456fa.png)
+
 Azul currently features:
 
 - Text input / text entry (see "widgets" demo)
