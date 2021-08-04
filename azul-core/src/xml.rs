@@ -1881,7 +1881,7 @@ pub fn compile_body_node_to_rust_code<'a>(
                 extra_blocks.insert_from_css_property(prop);
             }
 
-            let formatted = css_block.block.declarations.as_ref().iter().map(|s| match &s {
+            let formatted = css_block.block.declarations.as_ref().iter().rev().map(|s| match &s {
                 CssDeclaration::Static(s) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(s, 1)),
                 CssDeclaration::Dynamic(d) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(&d.default_value, 1)),
             }).collect::<Vec<String>>();
@@ -1932,8 +1932,14 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
     for stylesheet in css.stylesheets.as_ref() {
         for css_block in stylesheet.rules.as_ref() {
             if matcher.matches(&css_block.path) {
+                let mut ending = None;
+
+                if let Some(CssPathSelector::PseudoSelector(p)) = css_block.path.selectors.as_ref().last() {
+                    ending = Some(*p);
+                }
+
                 blocks.push(CssBlock {
-                    ending: None, // TODO
+                    ending,
                     block: css_block.clone(),
                 });
             }
@@ -2101,7 +2107,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
                 extra_blocks.insert_from_css_property(prop);
             }
 
-            let formatted = css_block.block.declarations.as_ref().iter().map(|s| match &s {
+            let formatted = css_block.block.declarations.as_ref().iter().rev().map(|s| match &s {
                 CssDeclaration::Static(s) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(s, 1)),
                 CssDeclaration::Dynamic(d) => format!("NodeDataInlineCssProperty::{}({})", wrapper, format_static_css_prop(&d.default_value, 1)),
             }).collect::<Vec<String>>();

@@ -5,6 +5,9 @@
 #![cfg_attr(feature ="rlib", crate_type = "rlib")]
 #![deny(improper_ctypes_definitions)]
 
+#[macro_use]
+extern crate alloc;
+
 pub mod widgets;
 #[cfg(feature = "python-extension")]
 pub mod python;

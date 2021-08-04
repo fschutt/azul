@@ -82,6 +82,10 @@ pub mod text_input;
 pub mod number_input;
 /// Progress bar widget
 pub mod progressbar;
+/// Tab container widgets
+pub mod tabs;
+/// Frame container widget
+pub mod frame;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget
