@@ -1,3 +1,6 @@
+
+#[macro_use]
+extern crate alloc;
 extern crate azul_core;
 
 #[cfg(target_arch = "wasm32")]

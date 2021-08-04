@@ -2752,6 +2752,19 @@ mod dll {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzTabVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTabVecDestructorType),
+    }
+
+    /// `AzTabVecDestructorType` struct
+    pub type AzTabVecDestructorType = extern "C" fn(&mut AzTabVec);
+
     /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
@@ -8501,6 +8514,16 @@ mod dll {
         pub declarations: AzCssDeclarationVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `Tab` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTab {
+        pub title: AzString,
+        pub content: AzDom,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8518,6 +8541,15 @@ mod dll {
         pub tag_ids_to_node_ids: AzTagIdToNodeIdMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<Tab>`
+    #[repr(C)]
+    pub struct AzTabVec {
+        pub(crate) ptr: *const AzTab,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzTabVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `CssRuleBlock`
@@ -8584,6 +8616,17 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzStylesheet {
         pub rules: AzCssRuleBlockVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TabContainer` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTabContainer {
+        pub tabs: AzTabVec,
+        pub active_tab: usize,
+        pub has_padding: bool,
     }
 
     /// Wrapper over a Rust-allocated `Stylesheet`
@@ -8864,6 +8907,12 @@ mod dll {
         pub(crate) fn AzProgressBar_setLabelStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
         pub(crate) fn AzProgressBar_withLabelStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
         pub(crate) fn AzProgressBar_dom(_:  &mut AzProgressBar) -> AzDom;
+        pub(crate) fn AzTabContainer_new(_:  AzTabVec) -> AzTabContainer;
+        pub(crate) fn AzTabContainer_setActiveTab(_:  &mut AzTabContainer, _:  usize);
+        pub(crate) fn AzTabContainer_withActiveTab(_:  &mut AzTabContainer, _:  usize) -> AzTabContainer;
+        pub(crate) fn AzTabContainer_setPadding(_:  &mut AzTabContainer, _:  bool);
+        pub(crate) fn AzTabContainer_withPadding(_:  &mut AzTabContainer, _:  bool) -> AzTabContainer;
+        pub(crate) fn AzTabContainer_dom(_:  &mut AzTabContainer) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -9213,6 +9262,7 @@ mod dll {
         pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzTabVec_delete(_:  &mut AzTabVec);
         pub(crate) fn AzAccessibilityStateVec_delete(_:  &mut AzAccessibilityStateVec);
         pub(crate) fn AzMenuItemVec_delete(_:  &mut AzMenuItemVec);
         pub(crate) fn AzTessellatedSvgNodeVec_asRefVec(_:  &AzTessellatedSvgNodeVec) -> AzTessellatedSvgNodeVecRef;
@@ -11686,7 +11736,7 @@ pub mod widgets {
     use crate::str::String;
     use crate::callbacks::{CallbackType, RefAny};
     use crate::css::ColorU;
-    use crate::vec::NodeDataInlineCssPropertyVec;
+    use crate::vec::{NodeDataInlineCssPropertyVec, TabVec};
     /// `Button` struct
     
 #[doc(inline)] pub use crate::dll::AzButton as Button;
@@ -11934,6 +11984,27 @@ pub mod widgets {
     /// `ProgressBarState` struct
     
 #[doc(inline)] pub use crate::dll::AzProgressBarState as ProgressBarState;
+    /// `TabContainer` struct
+    
+#[doc(inline)] pub use crate::dll::AzTabContainer as TabContainer;
+    impl TabContainer {
+        /// Creates a new `TabContainer` instance.
+        pub fn new(tabs: TabVec) -> Self { unsafe { crate::dll::AzTabContainer_new(tabs) } }
+        /// Calls the `TabContainer::set_active_tab` function.
+        pub fn set_active_tab(&mut self, active_tab: usize)  { unsafe { crate::dll::AzTabContainer_setActiveTab(self, active_tab) } }
+        /// Calls the `TabContainer::with_active_tab` function.
+        pub fn with_active_tab(&mut self, active_tab: usize)  -> crate::widgets::TabContainer { unsafe { crate::dll::AzTabContainer_withActiveTab(self, active_tab) } }
+        /// Calls the `TabContainer::set_padding` function.
+        pub fn set_padding(&mut self, has_padding: bool)  { unsafe { crate::dll::AzTabContainer_setPadding(self, has_padding) } }
+        /// Calls the `TabContainer::with_padding` function.
+        pub fn with_padding(&mut self, has_padding: bool)  -> crate::widgets::TabContainer { unsafe { crate::dll::AzTabContainer_withPadding(self, has_padding) } }
+        /// Calls the `TabContainer::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTabContainer_dom(self) } }
+    }
+
+    /// `Tab` struct
+    
+#[doc(inline)] pub use crate::dll::AzTab as Tab;
 }
 
 pub mod style {
@@ -15252,7 +15323,10 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
+    }    /// Wrapper over a Rust-allocated `Vec<Tab>`
+    
+#[doc(inline)] pub use crate::dll::AzTabVec as TabVec;
+    /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
     
 #[doc(inline)] pub use crate::dll::AzAccessibilityStateVec as AccessibilityStateVec;
     /// Wrapper over a Rust-allocated `Vec<MenuItem>`
@@ -15426,6 +15500,12 @@ pub mod vec {
     /// `StyleFontFamilyVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    /// `TabVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzTabVecDestructor as TabVecDestructor;
+    /// `TabVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzTabVecDestructorType as TabVecDestructorType;
     /// `AccessibilityStateVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructor as AccessibilityStateVecDestructor;

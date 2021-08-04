@@ -17,9 +17,7 @@ const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundConte
         stops: NormalizedLinearColorStopVec::from_const_slice(LINEAR_COLOR_STOP_1400070954008106244_ITEMS),
     })
 ];
-const STYLE_BACKGROUND_CONTENT_11062356617965867290_ITEMS: &[StyleBackgroundContent] = &[
-    StyleBackgroundContent::Color(ColorU { r: 240, g: 240, b: 240, a: 255 })
-];
+
 const STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS: &[StyleBackgroundContent] = &[
     StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners { from: DirectionCorner::Top, to: DirectionCorner::Bottom }),
@@ -211,6 +209,10 @@ const CSS_MATCH_4415083954137121609: NodeDataInlineCssPropertyVec = NodeDataInli
 
 const CSS_MATCH_4738503469417034630_PROPERTIES: &[NodeDataInlineCssProperty] = &[
     // .__azul-native-tabs-container
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(LayoutPaddingRight { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(LayoutPaddingLeft { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(LayoutPaddingBottom { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(LayoutPaddingTop { inner: PixelValue::const_px(5) }))),
     NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) })))
 ];
 const CSS_MATCH_4738503469417034630: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES);
@@ -223,10 +225,73 @@ const CSS_MATCH_9988039989460234263_PROPERTIES: &[NodeDataInlineCssProperty] = &
 ];
 const CSS_MATCH_9988039989460234263: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_9988039989460234263_PROPERTIES);
 
+// -- NO PADDING
+const CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING: &[NodeDataInlineCssProperty] = &[
+    // .__azul-native-tabs-content
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(LayoutPaddingRight { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(LayoutPaddingLeft { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(LayoutPaddingBottom { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(LayoutPaddingTop { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS))))
+];
+const CSS_MATCH_18014909903571752977_NO_PADDING: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING);
+
+const CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING: &[NodeDataInlineCssProperty] = &[
+    // .__azul-native-tabs-container
+    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) })))
+];
+const CSS_MATCH_4738503469417034630_NO_PADDING: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING);
+
+// -- REGULAR_INACTIVE_TAB
+
+const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = &[
+    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active:hover
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopStyle(StyleBorderTopStyleValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(StyleBorderBottomColor { inner: ColorU { r: 126, g: 180, b: 234, a: 255 } }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderLeftColor(StyleBorderLeftColorValue::Exact(StyleBorderLeftColor { inner: ColorU { r: 126, g: 180, b: 234, a: 255 } }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(StyleBorderRightColor { inner: ColorU { r: 126, g: 180, b: 234, a: 255 } }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BorderTopColor(StyleBorderTopColorValue::Exact(StyleBorderTopColor { inner: ColorU { r: 126, g: 180, b: 234, a: 255 } }))),
+    NodeDataInlineCssProperty::Hover(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_15534185073326444643_ITEMS)))),
+    // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(LayoutPaddingRight { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(LayoutPaddingLeft { inner: PixelValue::const_px(5) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(LayoutPaddingBottomValue::Exact(LayoutPaddingBottom { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(LayoutPaddingTop { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::MarginTop(LayoutMarginTopValue::Exact(LayoutMarginTop { inner: PixelValue::const_px(2) }))),
+    // .__azul-native-tabs-header p
+    NodeDataInlineCssProperty::Normal(CssProperty::TextAlign(StyleTextAlignValue::Exact(StyleTextAlign::Center))),
+    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight { inner: PixelValue::const_px(21) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth { inner: PixelValue::const_px(1) }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(StyleBorderRightStyleValue::Exact(StyleBorderRightStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(StyleBorderTopStyleValue::Exact(StyleBorderTopStyle { inner: BorderStyle::Solid }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(StyleBorderBottomColorValue::Exact(StyleBorderBottomColor { inner: ColorU { r: 172, g: 172, b: 172, a: 255 } }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(StyleBorderLeftColorValue::Exact(StyleBorderLeftColor { inner: ColorU { r: 172, g: 172, b: 172, a: 255 } }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(StyleBorderRightColorValue::Exact(StyleBorderRightColor { inner: ColorU { r: 172, g: 172, b: 172, a: 255 } }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(StyleBorderTopColorValue::Exact(StyleBorderTopColor { inner: ColorU { r: 172, g: 172, b: 172, a: 255 } }))),
+    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS)))),
+    NodeDataInlineCssProperty::Normal(CssProperty::AlignItems(LayoutAlignItemsValue::Exact(LayoutAlignItems::Center)))
+];
+const CSS_MATCH_11510695043643111367: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
+
+
 #[repr(C)]
 pub struct TabContainer {
     pub tabs: TabVec,
     pub active_tab: usize,
+    pub has_padding: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +306,7 @@ impl Default for TabContainer {
         Self {
             tabs: TabVec::from_const_slice(&[]),
             active_tab: 0,
+            has_padding: true,
         }
     }
 }
@@ -255,11 +321,16 @@ impl TabContainer {
         Self {
             active_tab: 0,
             tabs,
+            has_padding: true,
         }
     }
 
     pub fn set_active_tab(&mut self, active_tab: usize) {
         self.active_tab = active_tab;
+    }
+
+    pub fn set_padding(&mut self, has_padding: bool) {
+        self.has_padding = has_padding;
     }
 
     pub fn swap_with_default(&mut self) -> Self {
@@ -269,123 +340,137 @@ impl TabContainer {
     }
 
     pub fn dom(&mut self) -> Dom {
+
+        let has_padding = self.has_padding;
+        let active_tab = self.active_tab;
+
         Dom::div()
-        .with_inline_css_props(CSS_MATCH_4738503469417034630)
+        .with_inline_css_props(if has_padding {
+            CSS_MATCH_4738503469417034630
+        } else {
+            CSS_MATCH_4738503469417034630_NO_PADDING
+        })
         .with_ids_and_classes({
             const IDS_AND_CLASSES_12678371749214821025: &[IdOrClass] = &[
-                    Class(AzString::from_const_str("__azul-native-tabs-container")),
-
+                Class(AzString::from_const_str("__azul-native-tabs-container")),
             ];
             IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12678371749214821025)
         })
-        .with_children(DomVec::from_vec(vec![
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_9988039989460234263)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-header")),
+        .with_children({
 
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
-            })
-            .with_children(DomVec::from_vec(vec![
+            // push tab header
+            let mut items = vec![
                 Dom::div()
-                .with_inline_css_props(CSS_MATCH_17290739305197504468)
+                .with_inline_css_props(CSS_MATCH_9988039989460234263)
                 .with_ids_and_classes({
-                    const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-before-tabs")),
-
+                    const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] = &[
+                        Class(AzString::from_const_str("__azul-native-tabs-header")),
                     ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
-                }),
-                Dom::text(AzString::from_const_str("Prozesse"))
-                .with_inline_css_props(CSS_MATCH_4415083954137121609)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-norightborder")),
-                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5117007530891373979)
-                }),
-                Dom::text(AzString::from_const_str("Leistung"))
-                .with_inline_css_props(CSS_MATCH_14575853790110873394)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15002865554973741556)
-                }),
-                Dom::text(AzString::from_const_str("App-Verlauf"))
-                .with_inline_css_props(CSS_MATCH_13824480602841492081)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
-                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16877793354714897051)
-                }),
-                Dom::text(AzString::from_const_str("Autostart"))
-                .with_inline_css_props(CSS_MATCH_13824480602841492081)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
-                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16877793354714897051)
-                }),
-                Dom::text(AzString::from_const_str("Benutzer"))
-                .with_inline_css_props(CSS_MATCH_13824480602841492081)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
-                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16877793354714897051)
-                }),
-                Dom::text(AzString::from_const_str("Details"))
-                .with_inline_css_props(CSS_MATCH_13824480602841492081)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
-                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16877793354714897051)
-                }),
-                Dom::text(AzString::from_const_str("Dienste"))
-                .with_inline_css_props(CSS_MATCH_13824480602841492081)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
-                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_16877793354714897051)
-                }),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_3088386549906605418)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul-native-tabs-after-tabs")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11001585590816277275)
+                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
                 })
-            ])),
-            Dom::div()
-            .with_inline_css_props(CSS_MATCH_18014909903571752977)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-content")),
+                .with_children({
 
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222)
-            })
-        ]))
+                    let mut tab_items = vec![
+                        Dom::div()
+                        .with_inline_css_props(CSS_MATCH_17290739305197504468)
+                        .with_ids_and_classes({
+                            const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[
+                                Class(AzString::from_const_str("__azul-native-tabs-before-tabs")),
+                            ];
+                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
+                        }),
+                    ];
+
+                    for (tab_idx, tab) in self.tabs.as_ref().iter().enumerate() {
+
+                        let next_tab_is_active = active_tab == tab_idx.saturating_add(1);
+                        let previous_tab_was_active = if active_tab == 0 { false } else { active_tab == tab_idx.saturating_sub(1) };
+                        let tab_is_active = active_tab == tab_idx;
+
+                        // classes for previous tab
+                        const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
+                            Class(AzString::from_const_str("__azul-native-tabs-tab-norightborder")),
+                            Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
+                        ]; // CSS_MATCH_4415083954137121609
+
+                        // classes for current tab
+                        const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[
+                            Class(AzString::from_const_str("__azul-native-tabs-tab-active")),
+                        ];
+
+                        // classes for next tab
+                        const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
+                            Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
+                            Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
+                        ];
+
+                        // classes for default inactive tab
+                        const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[
+                            Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
+                        ];
+
+                        let (ids_and_classes, css_props) = if next_tab_is_active {
+                            (IDS_AND_CLASSES_5117007530891373979, CSS_MATCH_4415083954137121609)
+                        } else if tab_is_active {
+                            (IDS_AND_CLASSES_15002865554973741556, CSS_MATCH_14575853790110873394)
+                        } else if previous_tab_was_active {
+                            (IDS_AND_CLASSES_16877793354714897051, CSS_MATCH_13824480602841492081)
+                        } else {
+                            (IDS_AND_CLASSES_INACTIVE, CSS_MATCH_11510695043643111367)
+                        };
+
+                        tab_items.push(
+                            Dom::text(tab.title.clone())
+                            .with_inline_css_props(css_props)
+                            .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes))
+                        );
+                    }
+
+                    tab_items.push(Dom::div()
+                    .with_inline_css_props(CSS_MATCH_3088386549906605418)
+                    .with_ids_and_classes({
+                        const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[
+                            Class(AzString::from_const_str("__azul-native-tabs-after-tabs")),
+                        ];
+                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11001585590816277275)
+                    }));
+
+                    tab_items.into()
+                })
+            ];
+
+            const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[
+                Class(AzString::from_const_str("__azul-native-tabs-content")),
+            ];
+
+            let tab_content_css_style = if has_padding {
+                CSS_MATCH_18014909903571752977
+            } else {
+                CSS_MATCH_18014909903571752977_NO_PADDING
+            };
+
+            // wrap all content items into a "__azul-native-tabs-content" wrapper
+            let tabs = self.swap_with_default();
+            let mut tabs: Vec<Tab> = tabs.tabs.into_library_owned_vec();
+            for (tab_idx, tab) in tabs.iter_mut().enumerate() {
+                items.push(Dom::div()
+                .with_inline_css_props( if tab_idx == active_tab {
+                    tab_content_css_style.clone()
+                } else {
+                    // fastest way to prepend to a Vec
+                    let mut style = vec![NodeDataInlineCssProperty::Normal(
+                        CssProperty::Display(LayoutDisplayValue::Exact(LayoutDisplay::None))
+                    )];
+                    style.append(&mut tab_content_css_style.clone().into_library_owned_vec());
+                    NodeDataInlineCssPropertyVec::from_vec(style)
+                })
+                .with_ids_and_classes(IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222))
+                .with_children(DomVec::from_vec(vec![
+                    tab.content.swap_with_default()
+                ])));
+            }
+
+            items.into()
+        })
     }
 }

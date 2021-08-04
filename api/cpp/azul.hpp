@@ -91,6 +91,9 @@ namespace dll {
     struct StyleFontFamilyVec;
     using StyleFontFamilyVecDestructorType = void(*)(StyleFontFamilyVec* restrict);
     
+    struct TabVec;
+    using TabVecDestructorType = void(*)(TabVec* restrict);
+    
     struct AccessibilityStateVec;
     using AccessibilityStateVecDestructorType = void(*)(AccessibilityStateVec* restrict);
     
@@ -1970,6 +1973,22 @@ namespace dll {
         StyleFontFamilyVecDestructorVariant_DefaultRust DefaultRust;
         StyleFontFamilyVecDestructorVariant_NoDestructor NoDestructor;
         StyleFontFamilyVecDestructorVariant_External External;
+    };
+    
+    
+    enum class TabVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct TabVecDestructorVariant_DefaultRust { TabVecDestructorTag tag; };
+    struct TabVecDestructorVariant_NoDestructor { TabVecDestructorTag tag; };
+    struct TabVecDestructorVariant_External { TabVecDestructorTag tag; TabVecDestructorType payload; };
+    union TabVecDestructor {
+        TabVecDestructorVariant_DefaultRust DefaultRust;
+        TabVecDestructorVariant_NoDestructor NoDestructor;
+        TabVecDestructorVariant_External External;
     };
     
     
@@ -8619,6 +8638,14 @@ namespace dll {
         CssRuleBlock() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct Tab {
+        String title;
+        Dom content;
+        Tab& operator=(const Tab&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        Tab(const Tab&) = delete; /* disable copy constructor, use explicit .clone() */
+        Tab() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct StyledDom {
         NodeId root;
         NodeVec node_hierarchy;
@@ -8634,6 +8661,16 @@ namespace dll {
         StyledDom& operator=(const StyledDom&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         StyledDom(const StyledDom&) = delete; /* disable copy constructor, use explicit .clone() */
         StyledDom() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct TabVec {
+        Tab* ptr;
+        size_t len;
+        size_t cap;
+        TabVecDestructor destructor;
+        TabVec& operator=(const TabVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TabVec(const TabVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        TabVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct CssRuleBlockVec {
@@ -8716,6 +8753,15 @@ namespace dll {
         Stylesheet& operator=(const Stylesheet&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Stylesheet(const Stylesheet&) = delete; /* disable copy constructor, use explicit .clone() */
         Stylesheet() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct TabContainer {
+        TabVec tabs;
+        size_t active_tab;
+        bool  has_padding;
+        TabContainer& operator=(const TabContainer&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TabContainer(const TabContainer&) = delete; /* disable copy constructor, use explicit .clone() */
+        TabContainer() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct StylesheetVec {
@@ -9083,6 +9129,14 @@ namespace dll {
         ProgressBar ProgressBar_withLabelStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
         Dom ProgressBar_dom(ProgressBar* restrict progressbar);
         void ProgressBar_delete(ProgressBar* restrict instance);
+        TabContainer TabContainer_new(AzTabVec  tabs);
+        void TabContainer_setActiveTab(TabContainer* restrict tabcontainer, size_t active_tab);
+        TabContainer TabContainer_withActiveTab(TabContainer* restrict tabcontainer, size_t active_tab);
+        void TabContainer_setPadding(TabContainer* restrict tabcontainer, bool  has_padding);
+        TabContainer TabContainer_withPadding(TabContainer* restrict tabcontainer, bool  has_padding);
+        Dom TabContainer_dom(TabContainer* restrict tabcontainer);
+        void TabContainer_delete(TabContainer* restrict instance);
+        void Tab_delete(Tab* restrict instance);
         void CssPropertySource_delete(CssPropertySource* restrict instance);
         void TagIdToNodeIdMapping_delete(TagIdToNodeIdMapping* restrict instance);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);
@@ -9465,6 +9519,7 @@ namespace dll {
         String String_trim(const String* string);
         Refstr String_asRefstr(const String* string);
         void String_delete(String* restrict instance);
+        void TabVec_delete(TabVec* restrict instance);
         void AccessibilityStateVec_delete(AccessibilityStateVec* restrict instance);
         void MenuItemVec_delete(MenuItemVec* restrict instance);
         TessellatedSvgNodeVecRef TessellatedSvgNodeVec_asRefVec(const TessellatedSvgNodeVec* tessellatedsvgnodevec);

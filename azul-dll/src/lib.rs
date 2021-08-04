@@ -5,13 +5,9 @@
 #![cfg_attr(feature ="rlib", crate_type = "rlib")]
 #![deny(improper_ctypes_definitions)]
 
+
 #[macro_use]
 extern crate alloc;
-
-pub mod widgets;
-#[cfg(feature = "python-extension")]
-pub mod python;
-
 extern crate azul_core;
 
 #[cfg(target_arch = "wasm32")]
@@ -20,6 +16,10 @@ extern crate azul_web as azul_impl;
 extern crate azul_desktop as azul_impl;
 
 use core::ffi::c_void;
+pub mod widgets;
+#[cfg(feature = "python-extension")]
+pub mod python;
+
 
 /// Main application class
 pub type AzAppTT = azul_impl::app::AzAppPtr;
@@ -2047,6 +2047,31 @@ pub use AzProgressBarTT as AzProgressBar;
 pub type AzProgressBarStateTT = crate::widgets::progressbar::ProgressBarState;
 pub use AzProgressBarStateTT as AzProgressBarState;
 
+/// Re-export of rust-allocated (stack based) `TabContainer` struct
+pub type AzTabContainerTT = crate::widgets::tabs::TabContainer;
+pub use AzTabContainerTT as AzTabContainer;
+/// Creates a new `TabContainer` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TabContainer::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTabContainer_new(tabs: AzTabVec) -> AzTabContainer { AzTabContainer::new(tabs) }
+/// Equivalent to the Rust `TabContainer::set_active_tab()` function.
+#[no_mangle] pub extern "C" fn AzTabContainer_setActiveTab(tabcontainer: &mut AzTabContainer, active_tab: usize) { tabcontainer.set_active_tab(active_tab); }
+/// Equivalent to the Rust `TabContainer::with_active_tab()` function.
+#[no_mangle] pub extern "C" fn AzTabContainer_withActiveTab(tabcontainer: &mut AzTabContainer, active_tab: usize) -> AzTabContainer { let mut tabcontainer = tabcontainer.swap_with_default(); tabcontainer.set_active_tab(active_tab); tabcontainer }
+/// Equivalent to the Rust `TabContainer::set_padding()` function.
+#[no_mangle] pub extern "C" fn AzTabContainer_setPadding(tabcontainer: &mut AzTabContainer, has_padding: bool) { tabcontainer.set_padding(has_padding); }
+/// Equivalent to the Rust `TabContainer::with_padding()` function.
+#[no_mangle] pub extern "C" fn AzTabContainer_withPadding(tabcontainer: &mut AzTabContainer, has_padding: bool) -> AzTabContainer { let mut tabcontainer = tabcontainer.swap_with_default(); tabcontainer.set_padding(has_padding); tabcontainer }
+/// Equivalent to the Rust `TabContainer::dom()` function.
+#[no_mangle] pub extern "C" fn AzTabContainer_dom(tabcontainer: &mut AzTabContainer) -> AzDom { tabcontainer.dom() }
+/// Destructor: Takes ownership of the `TabContainer` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTabContainer_delete(object: &mut AzTabContainer) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `Tab` struct
+pub type AzTabTT = crate::widgets::tabs::Tab;
+pub use AzTabTT as AzTab;
+/// Destructor: Takes ownership of the `Tab` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTab_delete(object: &mut AzTab) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `Node` struct
 pub type AzNodeTT = azul_impl::styled_dom::AzNode;
 pub use AzNodeTT as AzNode;
@@ -3330,6 +3355,12 @@ pub use AzStringTT as AzString;
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzString_delete(object: &mut AzString) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<Tab>`
+pub type AzTabVecTT = crate::widgets::tabs::TabVec;
+pub use AzTabVecTT as AzTabVec;
+/// Destructor: Takes ownership of the `TabVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTabVec_delete(object: &mut AzTabVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
 pub type AzAccessibilityStateVecTT = azul_impl::dom::AccessibilityStateVec;
 pub use AzAccessibilityStateVecTT as AzAccessibilityStateVec;
@@ -3653,6 +3684,11 @@ pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDe
 pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
 
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+/// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
+pub type AzTabVecDestructorTT = crate::widgets::tabs::TabVecDestructor;
+pub use AzTabVecDestructorTT as AzTabVecDestructor;
+
+pub type AzTabVecDestructorType = extern "C" fn(&mut AzTabVec);
 /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
 pub type AzAccessibilityStateVecDestructorTT = azul_impl::dom::AccessibilityStateVecDestructor;
 pub use AzAccessibilityStateVecDestructorTT as AzAccessibilityStateVecDestructor;
@@ -6311,6 +6347,17 @@ mod test_sizes {
 
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+
+    /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzTabVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTabVecDestructorType),
+    }
+
+    /// `AzTabVecDestructorType` struct
+    pub type AzTabVecDestructorType = extern "C" fn(&mut AzTabVec);
 
     /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
     #[repr(C, u8)]
@@ -10661,6 +10708,13 @@ mod test_sizes {
         pub declarations: AzCssDeclarationVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `Tab` struct
+    #[repr(C)]
+    pub struct AzTab {
+        pub title: AzString,
+        pub content: AzDom,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     pub struct AzStyledDom {
@@ -10675,6 +10729,15 @@ mod test_sizes {
         pub tag_ids_to_node_ids: AzTagIdToNodeIdMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<Tab>`
+    #[repr(C)]
+    pub struct AzTabVec {
+        pub(crate) ptr: *const AzTab,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzTabVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `CssRuleBlock`
@@ -10726,6 +10789,14 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzStylesheet {
         pub rules: AzCssRuleBlockVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TabContainer` struct
+    #[repr(C)]
+    pub struct AzTabContainer {
+        pub tabs: AzTabVec,
+        pub active_tab: usize,
+        pub has_padding: bool,
     }
 
     /// Wrapper over a Rust-allocated `Stylesheet`
@@ -10936,6 +11007,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabVecDestructor>(), "AzTabVecDestructor"), (Layout::new::<AzTabVecDestructor>(), "AzTabVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"), (Layout::new::<AzTessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"));
@@ -11410,13 +11482,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));
         assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::Tab>(), "AzTab"), (Layout::new::<AzTab>(), "AzTab"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabVec>(), "AzTabVec"), (Layout::new::<AzTabVec>(), "AzTabVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionDom>(), "AzOptionDom"), (Layout::new::<AzOptionDom>(), "AzOptionDom"));
         assert_eq!((Layout::new::<azul_impl::xml::ResultXmlXmlError>(), "AzResultXmlXmlError"), (Layout::new::<AzResultXmlXmlError>(), "AzResultXmlXmlError"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseError>(), "AzSvgParseError"), (Layout::new::<AzSvgParseError>(), "AzSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackReturn>(), "AzIFrameCallbackReturn"), (Layout::new::<AzIFrameCallbackReturn>(), "AzIFrameCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::css::Stylesheet>(), "AzStylesheet"), (Layout::new::<AzStylesheet>(), "AzStylesheet"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabContainer>(), "AzTabContainer"), (Layout::new::<AzTabContainer>(), "AzTabContainer"));
         assert_eq!((Layout::new::<azul_impl::css::StylesheetVec>(), "AzStylesheetVec"), (Layout::new::<AzStylesheetVec>(), "AzStylesheetVec"));
         assert_eq!((Layout::new::<azul_impl::svg::ResultSvgXmlNodeSvgParseError>(), "AzResultSvgXmlNodeSvgParseError"), (Layout::new::<AzResultSvgXmlNodeSvgParseError>(), "AzResultSvgXmlNodeSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::svg::ResultSvgSvgParseError>(), "AzResultSvgSvgParseError"), (Layout::new::<AzResultSvgSvgParseError>(), "AzResultSvgSvgParseError"));

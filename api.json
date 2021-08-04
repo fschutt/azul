@@ -5891,6 +5891,68 @@
                         {"percent_done": {"type": "f32"}},
                         {"display_percentage": {"type": "bool"}}
                     ]
+                },
+                "TabContainer": {
+                    "external": "crate::widgets::tabs::TabContainer",
+                    "struct_fields": [
+                        {"tabs": {"type": "TabVec"}},
+                        {"active_tab": {"type": "usize"}},
+                        {"has_padding": {"type": "bool"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"tabs": "TabVec"}
+                            ],
+                            "fn_body": "AzTabContainer::new(tabs)"
+                        }
+                    },
+                    "functions": {
+                        "set_active_tab": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"active_tab": "usize"}
+                            ],
+                            "fn_body": "tabcontainer.set_active_tab(active_tab);"
+                        },
+                        "with_active_tab": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"active_tab": "usize"}
+                            ],
+                            "returns": {"type": "TabContainer"},
+                            "fn_body": "let mut tabcontainer = tabcontainer.swap_with_default(); tabcontainer.set_active_tab(active_tab); tabcontainer"
+                        },
+                        "set_padding": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"has_padding": "bool"}
+                            ],
+                            "fn_body": "tabcontainer.set_padding(has_padding);"
+                        },
+                        "with_padding": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"has_padding": "bool"}
+                            ],
+                            "returns": {"type": "TabContainer"},
+                            "fn_body": "let mut tabcontainer = tabcontainer.swap_with_default(); tabcontainer.set_padding(has_padding); tabcontainer"
+                        },
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "tabcontainer.dom()"
+                        }
+                    }
+                },
+                "Tab": {
+                    "external": "crate::widgets::tabs::Tab",
+                    "struct_fields": [
+                        {"title": {"type": "String"}},
+                        {"content": {"type": "Dom"}}
+                    ]
                 }
             }
         },
@@ -11514,6 +11576,17 @@
         "vec": {
             "doc": "Definition of azuls internal `Vec<*>` wrappers",
             "classes": {
+                "TabVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<Tab>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::tabs::TabVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const Tab" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "TabVecDestructor" } }
+                    ]
+                },
                 "AccessibilityStateVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<AccessibilityState>`",
                     "custom_destructor": true,
@@ -12130,6 +12203,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "TabVecDestructor": {
+                    "external": "crate::widgets::tabs::TabVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "TabVecDestructorType"}}
+                    ]
+                },
+                "TabVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "TabVec", "ref": "refmut"}
                         ]
                     }
                 },

@@ -148,6 +148,10 @@ struct AzStyleFontFamilyVec;
 typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
 
+struct AzTabVec;
+typedef struct AzTabVec AzTabVec;
+typedef void (*AzTabVecDestructorType)(AzTabVec* restrict A);
+
 struct AzAccessibilityStateVec;
 typedef struct AzAccessibilityStateVec AzAccessibilityStateVec;
 typedef void (*AzAccessibilityStateVecDestructorType)(AzAccessibilityStateVec* restrict A);
@@ -2016,6 +2020,26 @@ union AzStyleFontFamilyVecDestructor {
     AzStyleFontFamilyVecDestructorVariant_External External;
 };
 typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
+
+enum AzTabVecDestructorTag {
+   AzTabVecDestructorTag_DefaultRust,
+   AzTabVecDestructorTag_NoDestructor,
+   AzTabVecDestructorTag_External,
+};
+typedef enum AzTabVecDestructorTag AzTabVecDestructorTag;
+
+struct AzTabVecDestructorVariant_DefaultRust { AzTabVecDestructorTag tag; };
+typedef struct AzTabVecDestructorVariant_DefaultRust AzTabVecDestructorVariant_DefaultRust;
+struct AzTabVecDestructorVariant_NoDestructor { AzTabVecDestructorTag tag; };
+typedef struct AzTabVecDestructorVariant_NoDestructor AzTabVecDestructorVariant_NoDestructor;
+struct AzTabVecDestructorVariant_External { AzTabVecDestructorTag tag; AzTabVecDestructorType payload; };
+typedef struct AzTabVecDestructorVariant_External AzTabVecDestructorVariant_External;
+union AzTabVecDestructor {
+    AzTabVecDestructorVariant_DefaultRust DefaultRust;
+    AzTabVecDestructorVariant_NoDestructor NoDestructor;
+    AzTabVecDestructorVariant_External External;
+};
+typedef union AzTabVecDestructor AzTabVecDestructor;
 
 enum AzAccessibilityStateVecDestructorTag {
    AzAccessibilityStateVecDestructorTag_DefaultRust,
@@ -9406,6 +9430,12 @@ struct AzCssRuleBlock {
 };
 typedef struct AzCssRuleBlock AzCssRuleBlock;
 
+struct AzTab {
+    AzString title;
+    AzDom content;
+};
+typedef struct AzTab AzTab;
+
 struct AzStyledDom {
     AzNodeId root;
     AzNodeVec node_hierarchy;
@@ -9420,6 +9450,14 @@ struct AzStyledDom {
     AzCssPropertyCache css_property_cache;
 };
 typedef struct AzStyledDom AzStyledDom;
+
+struct AzTabVec {
+    AzTab* ptr;
+    size_t len;
+    size_t cap;
+    AzTabVecDestructor destructor;
+};
+typedef struct AzTabVec AzTabVec;
 
 struct AzCssRuleBlockVec {
     AzCssRuleBlock* ptr;
@@ -9511,6 +9549,13 @@ struct AzStylesheet {
 };
 typedef struct AzStylesheet AzStylesheet;
 
+struct AzTabContainer {
+    AzTabVec tabs;
+    size_t active_tab;
+    bool  has_padding;
+};
+typedef struct AzTabContainer AzTabContainer;
+
 struct AzStylesheetVec {
     AzStylesheet* ptr;
     size_t len;
@@ -9571,6 +9616,9 @@ typedef struct AzCss AzCss;
 #define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
 #define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
 #define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+#define AzTabVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTabVecDestructorTag_DefaultRust } }
+#define AzTabVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor } }
+#define AzTabVecDestructor_External(v) { .External = { .tag = AzTabVecDestructorTag_External, .payload = v } }
 #define AzAccessibilityStateVecDestructor_DefaultRust { .DefaultRust = { .tag = AzAccessibilityStateVecDestructorTag_DefaultRust } }
 #define AzAccessibilityStateVecDestructor_NoDestructor { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor } }
 #define AzAccessibilityStateVecDestructor_External(v) { .External = { .tag = AzAccessibilityStateVecDestructorTag_External, .payload = v } }
@@ -10497,6 +10545,10 @@ typedef struct AzCss AzCss;
 #define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
 #define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
 #define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
+AzTab AzTabVecArray[] = {};
+#define AzTabVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTab), .cap = sizeof(v) / sizeof(AzTab), .destructor = { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor, }, }, }
+#define AzTabVec_empty { .ptr = &AzTabVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor, }, }, }
+
 AzAccessibilityState AzAccessibilityStateVecArray[] = {};
 #define AzAccessibilityStateVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzAccessibilityState), .cap = sizeof(v) / sizeof(AzAccessibilityState), .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }
 #define AzAccessibilityStateVec_empty { .ptr = &AzAccessibilityStateVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }
@@ -11026,6 +11078,14 @@ extern DLLIMPORT void AzProgressBar_setLabelStyle(AzProgressBar* restrict progre
 extern DLLIMPORT AzProgressBar AzProgressBar_withLabelStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
 extern DLLIMPORT AzDom AzProgressBar_dom(AzProgressBar* restrict progressbar);
 extern DLLIMPORT void AzProgressBar_delete(AzProgressBar* restrict instance);
+extern DLLIMPORT AzTabContainer AzTabContainer_new(AzTabVec  tabs);
+extern DLLIMPORT void AzTabContainer_setActiveTab(AzTabContainer* restrict tabcontainer, size_t active_tab);
+extern DLLIMPORT AzTabContainer AzTabContainer_withActiveTab(AzTabContainer* restrict tabcontainer, size_t active_tab);
+extern DLLIMPORT void AzTabContainer_setPadding(AzTabContainer* restrict tabcontainer, bool  has_padding);
+extern DLLIMPORT AzTabContainer AzTabContainer_withPadding(AzTabContainer* restrict tabcontainer, bool  has_padding);
+extern DLLIMPORT AzDom AzTabContainer_dom(AzTabContainer* restrict tabcontainer);
+extern DLLIMPORT void AzTabContainer_delete(AzTabContainer* restrict instance);
+extern DLLIMPORT void AzTab_delete(AzTab* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
@@ -11408,6 +11468,7 @@ extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t ptr, size_t start, size
 extern DLLIMPORT AzString AzString_trim(const AzString* string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(const AzString* string);
 extern DLLIMPORT void AzString_delete(AzString* restrict instance);
+extern DLLIMPORT void AzTabVec_delete(AzTabVec* restrict instance);
 extern DLLIMPORT void AzAccessibilityStateVec_delete(AzAccessibilityStateVec* restrict instance);
 extern DLLIMPORT void AzMenuItemVec_delete(AzMenuItemVec* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNodeVecRef AzTessellatedSvgNodeVec_asRefVec(const AzTessellatedSvgNodeVec* tessellatedsvgnodevec);
@@ -16702,6 +16763,20 @@ bool AzStyleFontFamilyVecDestructor_matchRefExternal(const AzStyleFontFamilyVecD
 bool AzStyleFontFamilyVecDestructor_matchMutExternal(AzStyleFontFamilyVecDestructor* restrict value, AzStyleFontFamilyVecDestructorType* restrict * restrict out) {
     AzStyleFontFamilyVecDestructorVariant_External* restrict casted = (AzStyleFontFamilyVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzStyleFontFamilyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTabVecDestructor_matchRefExternal(const AzTabVecDestructor* value, const AzTabVecDestructorType** restrict out) {
+    const AzTabVecDestructorVariant_External* casted = (const AzTabVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzTabVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzTabVecDestructor_matchMutExternal(AzTabVecDestructor* restrict value, AzTabVecDestructorType* restrict * restrict out) {
+    AzTabVecDestructorVariant_External* restrict casted = (AzTabVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzTabVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

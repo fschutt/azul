@@ -455,6 +455,10 @@ def generate_rust_dll(api_data):
     code += "#![cfg_attr(feature =\"rlib\", crate_type = \"rlib\")]\r\n"
     code += "#![deny(improper_ctypes_definitions)]\r\n"
     code += "\r\n"
+
+    code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
+
+    code += "\r\n"
     code += "pub mod widgets;\r\n"
     code += "#[cfg(feature = \"python-extension\")]\r\n"
     code += "pub mod python;\r\n"
@@ -464,9 +468,6 @@ def generate_rust_dll(api_data):
 
     structs_map = OrderedDict({})
     rust_functions_map = OrderedDict({})
-
-    code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
-    code += "\r\n"
 
     for module_name in myapi_data.keys():
         module = myapi_data[module_name]["classes"]
