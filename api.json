@@ -5691,7 +5691,7 @@
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"data": "RefAny"},
-                                {"callback": "TextInputOnFocusLostCallbackType"}
+                                {"callback": "NumberInputOnFocusLostCallbackType"}
                             ],
                             "fn_body": "numberinput.set_on_focus_lost(data, callback)"
                         },
@@ -5699,7 +5699,7 @@
                             "fn_args": [
                                 {"self": "refmut"},
                                 {"data": "RefAny"},
-                                {"callback": "TextInputOnFocusLostCallbackType"}
+                                {"callback": "NumberInputOnFocusLostCallbackType"}
                             ],
                             "returns": {"type": "NumberInput"},
                             "fn_body": "let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_focus_lost(data, callback); numberinput"
@@ -5779,7 +5779,8 @@
                     "external": "crate::widgets::number_input::NumberInputStateWrapper",
                     "struct_fields": [
                         {"inner": {"type": "NumberInputState"}},
-                        {"on_value_change": {"type": "OptionNumberInputOnValueChange"}}
+                        {"on_value_change": {"type": "OptionNumberInputOnValueChange"}},
+                        {"on_focus_lost": {"type": "OptionNumberInputOnFocusLost"}}
                     ]
                 },
                 "NumberInputState": {
@@ -5805,6 +5806,29 @@
                     ]
                 },
                 "NumberInputOnValueChangeCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "NumberInputState", "ref": "ref"},
+                            {"type": "CallbackInfo", "ref": "refmut"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NumberInputOnFocusLost": {
+                    "external": "crate::widgets::number_input::NumberInputOnFocusLost",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NumberInputOnFocusLostCallback"}}
+                    ]
+                },
+                "NumberInputOnFocusLostCallback": {
+                    "external": "crate::widgets::number_input::NumberInputOnFocusLostCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NumberInputOnFocusLostCallbackType"}}
+                    ]
+                },
+                "NumberInputOnFocusLostCallbackType": {
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
@@ -13090,6 +13114,13 @@
                     "enum_fields": [
                         {"None": {}},
                         {"Some": {"type": "TextInputSelection"}}
+                    ]
+                },
+                "OptionNumberInputOnFocusLost": {
+                    "external": "crate::widgets::number_input::OptionNumberInputOnFocusLost",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NumberInputOnFocusLost"}}
                     ]
                 },
                 "OptionNumberInputOnValueChange": {

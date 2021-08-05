@@ -2091,6 +2091,16 @@ pub struct AzNumberInputOnValueChangeCallback {
 /// `AzNumberInputOnValueChangeCallbackType` struct
 pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
+/// Re-export of rust-allocated (stack based) `NumberInputOnFocusLostCallback` struct
+#[repr(C)]
+#[pyclass(name = "NumberInputOnFocusLostCallback")]
+pub struct AzNumberInputOnFocusLostCallback {
+    pub cb: AzNumberInputOnFocusLostCallbackType,
+}
+
+/// `AzNumberInputOnFocusLostCallbackType` struct
+pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+
 /// Re-export of rust-allocated (stack based) `ProgressBarState` struct
 #[repr(C)]
 #[pyclass(name = "ProgressBarState")]
@@ -5041,6 +5051,16 @@ pub struct AzNumberInputOnValueChange {
     pub callback: AzNumberInputOnValueChangeCallback,
 }
 
+/// Re-export of rust-allocated (stack based) `NumberInputOnFocusLost` struct
+#[repr(C)]
+#[pyclass(name = "NumberInputOnFocusLost")]
+pub struct AzNumberInputOnFocusLost {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNumberInputOnFocusLostCallback,
+}
+
 /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
 #[repr(C)]
 #[pyclass(name = "ParentWithNodeDepth")]
@@ -5685,6 +5705,13 @@ pub enum AzOptionTextInputOnFocusLost {
 pub enum AzOptionTextInputSelection {
     None,
     Some(AzTextInputSelection),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNumberInputOnFocusLost` struct
+#[repr(C, u8)]
+pub enum AzOptionNumberInputOnFocusLost {
+    None,
+    Some(AzNumberInputOnFocusLost),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionNumberInputOnValueChange` struct
@@ -6360,6 +6387,8 @@ pub struct AzNumberInputStateWrapper {
     pub inner: AzNumberInputState,
     #[pyo3(get, set)]
     pub on_value_change: AzOptionNumberInputOnValueChangeEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_focus_lost: AzOptionNumberInputOnFocusLostEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `StyledNode` struct
@@ -9842,6 +9871,13 @@ pub struct AzOptionTextInputSelectionEnumWrapper {
     pub inner: AzOptionTextInputSelection,
 }
 
+/// `AzOptionNumberInputOnFocusLostEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNumberInputOnFocusLost")]
+pub struct AzOptionNumberInputOnFocusLostEnumWrapper {
+    pub inner: AzOptionNumberInputOnFocusLost,
+}
+
 /// `AzOptionNumberInputOnValueChangeEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "OptionNumberInputOnValueChange")]
@@ -10712,6 +10748,7 @@ impl Clone for AzTextInputOnFocusLostCallback { fn clone(&self) -> Self { let r:
 impl Clone for AzTextInputValidEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputValid = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputState { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnValueChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNumberInputOnFocusLostCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLostCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzProgressBarState { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfo { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11009,6 +11046,7 @@ impl Clone for AzTextInputOnVirtualKeyDown { fn clone(&self) -> Self { let r: &c
 impl Clone for AzTextInputOnFocusLost { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOnTextInputReturn { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OnTextInputReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnValueChange { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNumberInputOnFocusLost { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepth { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepth = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGl { fn clone(&self) -> Self { let r: &azul_impl::gl::GlContextPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRefstrVecRef { fn clone(&self) -> Self { let r: &azul_impl::gl::RefstrVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11056,6 +11094,7 @@ impl Clone for AzOptionTextInputOnTextInputEnumWrapper { fn clone(&self) -> Self
 impl Clone for AzOptionTextInputOnVirtualKeyDownEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnVirtualKeyDown = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputOnFocusLostEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputSelectionEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputSelection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNumberInputOnFocusLostEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::number_input::OptionNumberInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNumberInputOnValueChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::number_input::OptionNumberInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionMenuItemIconEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMenuItemIcon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionMenuCallbackEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMenuCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -22936,10 +22975,11 @@ impl PyObjectProtocol for AzNumberInput {
 #[pymethods]
 impl AzNumberInputStateWrapper {
     #[new]
-    fn __new__(inner: AzNumberInputState, on_value_change: AzOptionNumberInputOnValueChangeEnumWrapper) -> Self {
+    fn __new__(inner: AzNumberInputState, on_value_change: AzOptionNumberInputOnValueChangeEnumWrapper, on_focus_lost: AzOptionNumberInputOnFocusLostEnumWrapper) -> Self {
         Self {
             inner,
             on_value_change,
+            on_focus_lost,
         }
     }
 
@@ -23012,6 +23052,48 @@ impl PyObjectProtocol for AzNumberInputOnValueChangeCallback {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNumberInputOnFocusLost {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNumberInputOnFocusLostCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNumberInputOnFocusLost {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::number_input::NumberInputOnFocusLost = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::number_input::NumberInputOnFocusLost = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNumberInputOnFocusLostCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNumberInputOnFocusLostCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::number_input::NumberInputOnFocusLostCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::number_input::NumberInputOnFocusLostCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -34304,6 +34386,35 @@ impl PyObjectProtocol for AzOptionTextInputSelectionEnumWrapper {
 }
 
 #[pymethods]
+impl AzOptionNumberInputOnFocusLostEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNumberInputOnFocusLostEnumWrapper { AzOptionNumberInputOnFocusLostEnumWrapper { inner: AzOptionNumberInputOnFocusLost::None } }
+    #[staticmethod]
+    fn Some(v: AzNumberInputOnFocusLost) -> AzOptionNumberInputOnFocusLostEnumWrapper { AzOptionNumberInputOnFocusLostEnumWrapper { inner: AzOptionNumberInputOnFocusLost::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNumberInputOnFocusLost;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNumberInputOnFocusLost::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNumberInputOnFocusLost::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNumberInputOnFocusLostEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::number_input::OptionNumberInputOnFocusLost = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::number_input::OptionNumberInputOnFocusLost = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzOptionNumberInputOnValueChangeEnumWrapper {
     #[classattr]
     fn None() -> AzOptionNumberInputOnValueChangeEnumWrapper { AzOptionNumberInputOnValueChangeEnumWrapper { inner: AzOptionNumberInputOnValueChange::None } }
@@ -37150,6 +37261,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNumberInputState>()?;
     m.add_class::<AzNumberInputOnValueChange>()?;
     m.add_class::<AzNumberInputOnValueChangeCallback>()?;
+    m.add_class::<AzNumberInputOnFocusLost>()?;
+    m.add_class::<AzNumberInputOnFocusLostCallback>()?;
     m.add_class::<AzProgressBar>()?;
     m.add_class::<AzProgressBarState>()?;
     m.add_class::<AzTabContainer>()?;
@@ -37406,6 +37519,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzOptionTextInputOnVirtualKeyDownEnumWrapper>()?;
     m.add_class::<AzOptionTextInputOnFocusLostEnumWrapper>()?;
     m.add_class::<AzOptionTextInputSelectionEnumWrapper>()?;
+    m.add_class::<AzOptionNumberInputOnFocusLostEnumWrapper>()?;
     m.add_class::<AzOptionNumberInputOnValueChangeEnumWrapper>()?;
     m.add_class::<AzOptionMenuItemIconEnumWrapper>()?;
     m.add_class::<AzOptionMenuCallbackEnumWrapper>()?;

@@ -54,6 +54,8 @@ namespace dll {
     struct NumberInputState;
     using NumberInputOnValueChangeCallbackType = Update(*)(RefAny* restrict, NumberInputState* const, CallbackInfo* restrict);
     
+    using NumberInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, NumberInputState* const, CallbackInfo* restrict);
+    
     using ParsedFontDestructorFnType = void(*)(void* restrict);
     
     struct InstantPtr;
@@ -1393,6 +1395,13 @@ namespace dll {
         NumberInputOnValueChangeCallback& operator=(const NumberInputOnValueChangeCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         NumberInputOnValueChangeCallback(const NumberInputOnValueChangeCallback&) = delete; /* disable copy constructor, use explicit .clone() */
         NumberInputOnValueChangeCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NumberInputOnFocusLostCallback {
+        NumberInputOnFocusLostCallbackType cb;
+        NumberInputOnFocusLostCallback& operator=(const NumberInputOnFocusLostCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NumberInputOnFocusLostCallback(const NumberInputOnFocusLostCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NumberInputOnFocusLostCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct ProgressBarState {
@@ -5103,6 +5112,14 @@ namespace dll {
         NumberInputOnValueChange() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct NumberInputOnFocusLost {
+        RefAny data;
+        NumberInputOnFocusLostCallback callback;
+        NumberInputOnFocusLost& operator=(const NumberInputOnFocusLost&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NumberInputOnFocusLost(const NumberInputOnFocusLost&) = delete; /* disable copy constructor, use explicit .clone() */
+        NumberInputOnFocusLost() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct ParentWithNodeDepth {
         size_t depth;
         NodeId node_id;
@@ -5638,6 +5655,19 @@ namespace dll {
     union OptionTextInputSelection {
         OptionTextInputSelectionVariant_None None;
         OptionTextInputSelectionVariant_Some Some;
+    };
+    
+    
+    enum class OptionNumberInputOnFocusLostTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNumberInputOnFocusLostVariant_None { OptionNumberInputOnFocusLostTag tag; };
+    struct OptionNumberInputOnFocusLostVariant_Some { OptionNumberInputOnFocusLostTag tag; NumberInputOnFocusLost payload; };
+    union OptionNumberInputOnFocusLost {
+        OptionNumberInputOnFocusLostVariant_None None;
+        OptionNumberInputOnFocusLostVariant_Some Some;
     };
     
     
@@ -6585,6 +6615,7 @@ namespace dll {
     struct NumberInputStateWrapper {
         NumberInputState inner;
         OptionNumberInputOnValueChange on_value_change;
+        OptionNumberInputOnFocusLost on_focus_lost;
         NumberInputStateWrapper& operator=(const NumberInputStateWrapper&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         NumberInputStateWrapper(const NumberInputStateWrapper&) = delete; /* disable copy constructor, use explicit .clone() */
         NumberInputStateWrapper() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -9106,8 +9137,8 @@ namespace dll {
         NumberInput NumberInput_withOnTextInput(NumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnTextInputCallbackType  callback);
         void NumberInput_setOnVirtualKeyDown(NumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
         NumberInput NumberInput_withOnVirtualKeyDown(NumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
-        void NumberInput_setOnFocusLost(NumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnFocusLostCallbackType  callback);
-        NumberInput NumberInput_withOnFocusLost(NumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnFocusLostCallbackType  callback);
+        void NumberInput_setOnFocusLost(NumberInput* restrict numberinput, AzRefAny  data, AzNumberInputOnFocusLostCallbackType  callback);
+        NumberInput NumberInput_withOnFocusLost(NumberInput* restrict numberinput, AzRefAny  data, AzNumberInputOnFocusLostCallbackType  callback);
         void NumberInput_setPlaceholderStyle(NumberInput* restrict numberinput, AzNodeDataInlineCssPropertyVec  style);
         NumberInput NumberInput_withPlaceholderStyle(NumberInput* restrict numberinput, AzNodeDataInlineCssPropertyVec  style);
         void NumberInput_setContainerStyle(NumberInput* restrict numberinput, AzNodeDataInlineCssPropertyVec  style);
@@ -9120,6 +9151,7 @@ namespace dll {
         void NumberInput_delete(NumberInput* restrict instance);
         void NumberInputStateWrapper_delete(NumberInputStateWrapper* restrict instance);
         void NumberInputOnValueChange_delete(NumberInputOnValueChange* restrict instance);
+        void NumberInputOnFocusLost_delete(NumberInputOnFocusLost* restrict instance);
         ProgressBar ProgressBar_new(float percent_done);
         void ProgressBar_setContainerStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
         ProgressBar ProgressBar_withContainerStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
@@ -9581,6 +9613,7 @@ namespace dll {
         void OptionTextInputOnTextInput_delete(OptionTextInputOnTextInput* restrict instance);
         void OptionTextInputOnVirtualKeyDown_delete(OptionTextInputOnVirtualKeyDown* restrict instance);
         void OptionTextInputOnFocusLost_delete(OptionTextInputOnFocusLost* restrict instance);
+        void OptionNumberInputOnFocusLost_delete(OptionNumberInputOnFocusLost* restrict instance);
         void OptionNumberInputOnValueChange_delete(OptionNumberInputOnValueChange* restrict instance);
         void OptionMenuItemIcon_delete(OptionMenuItemIcon* restrict instance);
         void OptionMenuCallback_delete(OptionMenuCallback* restrict instance);

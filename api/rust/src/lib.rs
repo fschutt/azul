@@ -1935,6 +1935,16 @@ mod dll {
     /// `AzNumberInputOnValueChangeCallbackType` struct
     pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
+    /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLostCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNumberInputOnFocusLostCallback {
+        pub cb: AzNumberInputOnFocusLostCallbackType,
+    }
+
+    /// `AzNumberInputOnFocusLostCallbackType` struct
+    pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+
     /// Re-export of rust-allocated (stack based) `ProgressBarState` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -5472,6 +5482,16 @@ mod dll {
         pub callback: AzNumberInputOnValueChangeCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLost` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNumberInputOnFocusLost {
+        pub data: AzRefAny,
+        pub callback: AzNumberInputOnFocusLostCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -5983,6 +6003,16 @@ mod dll {
     pub enum AzOptionTextInputSelection {
         None,
         Some(AzTextInputSelection),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNumberInputOnFocusLost` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNumberInputOnFocusLost {
+        None,
+        Some(AzNumberInputOnFocusLost),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionNumberInputOnValueChange` struct
@@ -6793,6 +6823,7 @@ mod dll {
     pub struct AzNumberInputStateWrapper {
         pub inner: AzNumberInputState,
         pub on_value_change: AzOptionNumberInputOnValueChange,
+        pub on_focus_lost: AzOptionNumberInputOnFocusLost,
     }
 
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
@@ -8888,8 +8919,8 @@ mod dll {
         pub(crate) fn AzNumberInput_withOnTextInput(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType) -> AzNumberInput;
         pub(crate) fn AzNumberInput_setOnVirtualKeyDown(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType);
         pub(crate) fn AzNumberInput_withOnVirtualKeyDown(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType) -> AzNumberInput;
-        pub(crate) fn AzNumberInput_setOnFocusLost(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnFocusLostCallbackType);
-        pub(crate) fn AzNumberInput_withOnFocusLost(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzTextInputOnFocusLostCallbackType) -> AzNumberInput;
+        pub(crate) fn AzNumberInput_setOnFocusLost(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnFocusLostCallbackType);
+        pub(crate) fn AzNumberInput_withOnFocusLost(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnFocusLostCallbackType) -> AzNumberInput;
         pub(crate) fn AzNumberInput_setPlaceholderStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec);
         pub(crate) fn AzNumberInput_withPlaceholderStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec) -> AzNumberInput;
         pub(crate) fn AzNumberInput_setContainerStyle(_:  &mut AzNumberInput, _:  AzNodeDataInlineCssPropertyVec);
@@ -11921,9 +11952,9 @@ pub mod widgets {
         /// Calls the `NumberInput::with_on_virtual_key_down` function.
         pub fn with_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnVirtualKeyDown(self, data, callback) } }
         /// Calls the `NumberInput::set_on_focus_lost` function.
-        pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnFocusLost(self, data, callback) } }
+        pub fn set_on_focus_lost(&mut self, data: RefAny, callback: NumberInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnFocusLost(self, data, callback) } }
         /// Calls the `NumberInput::with_on_focus_lost` function.
-        pub fn with_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnFocusLost(self, data, callback) } }
+        pub fn with_on_focus_lost(&mut self, data: RefAny, callback: NumberInputOnFocusLostCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnFocusLost(self, data, callback) } }
         /// Calls the `NumberInput::set_placeholder_style` function.
         pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setPlaceholderStyle(self, style) } }
         /// Calls the `NumberInput::with_placeholder_style` function.
@@ -11959,6 +11990,15 @@ pub mod widgets {
     /// `NumberInputOnValueChangeCallbackType` struct
     
 #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallbackType as NumberInputOnValueChangeCallbackType;
+    /// `NumberInputOnFocusLost` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLost as NumberInputOnFocusLost;
+    /// `NumberInputOnFocusLostCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLostCallback as NumberInputOnFocusLostCallback;
+    /// `NumberInputOnFocusLostCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLostCallbackType as NumberInputOnFocusLostCallbackType;
     /// `ProgressBar` struct
     
 #[doc(inline)] pub use crate::dll::AzProgressBar as ProgressBar;
@@ -16007,6 +16047,9 @@ pub mod option {
     /// `OptionTextInputSelection` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionTextInputSelection as OptionTextInputSelection;
+    /// `OptionNumberInputOnFocusLost` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNumberInputOnFocusLost as OptionNumberInputOnFocusLost;
     /// `OptionNumberInputOnValueChange` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionNumberInputOnValueChange as OptionNumberInputOnValueChange;

@@ -102,6 +102,8 @@ struct AzNumberInputState;
 typedef struct AzNumberInputState AzNumberInputState;
 typedef AzUpdate (*AzNumberInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
 
+typedef AzUpdate (*AzNumberInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
+
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 
 struct AzInstantPtr;
@@ -1502,6 +1504,11 @@ struct AzNumberInputOnValueChangeCallback {
     AzNumberInputOnValueChangeCallbackType cb;
 };
 typedef struct AzNumberInputOnValueChangeCallback AzNumberInputOnValueChangeCallback;
+
+struct AzNumberInputOnFocusLostCallback {
+    AzNumberInputOnFocusLostCallbackType cb;
+};
+typedef struct AzNumberInputOnFocusLostCallback AzNumberInputOnFocusLostCallback;
 
 struct AzProgressBarState {
     float percent_done;
@@ -5693,6 +5700,12 @@ struct AzNumberInputOnValueChange {
 };
 typedef struct AzNumberInputOnValueChange AzNumberInputOnValueChange;
 
+struct AzNumberInputOnFocusLost {
+    AzRefAny data;
+    AzNumberInputOnFocusLostCallback callback;
+};
+typedef struct AzNumberInputOnFocusLost AzNumberInputOnFocusLost;
+
 struct AzParentWithNodeDepth {
     size_t depth;
     AzNodeId node_id;
@@ -6190,6 +6203,22 @@ union AzOptionTextInputSelection {
     AzOptionTextInputSelectionVariant_Some Some;
 };
 typedef union AzOptionTextInputSelection AzOptionTextInputSelection;
+
+enum AzOptionNumberInputOnFocusLostTag {
+   AzOptionNumberInputOnFocusLostTag_None,
+   AzOptionNumberInputOnFocusLostTag_Some,
+};
+typedef enum AzOptionNumberInputOnFocusLostTag AzOptionNumberInputOnFocusLostTag;
+
+struct AzOptionNumberInputOnFocusLostVariant_None { AzOptionNumberInputOnFocusLostTag tag; };
+typedef struct AzOptionNumberInputOnFocusLostVariant_None AzOptionNumberInputOnFocusLostVariant_None;
+struct AzOptionNumberInputOnFocusLostVariant_Some { AzOptionNumberInputOnFocusLostTag tag; AzNumberInputOnFocusLost payload; };
+typedef struct AzOptionNumberInputOnFocusLostVariant_Some AzOptionNumberInputOnFocusLostVariant_Some;
+union AzOptionNumberInputOnFocusLost {
+    AzOptionNumberInputOnFocusLostVariant_None None;
+    AzOptionNumberInputOnFocusLostVariant_Some Some;
+};
+typedef union AzOptionNumberInputOnFocusLost AzOptionNumberInputOnFocusLost;
 
 enum AzOptionNumberInputOnValueChangeTag {
    AzOptionNumberInputOnValueChangeTag_None,
@@ -7274,6 +7303,7 @@ typedef struct AzCheckBoxStateWrapper AzCheckBoxStateWrapper;
 struct AzNumberInputStateWrapper {
     AzNumberInputState inner;
     AzOptionNumberInputOnValueChange on_value_change;
+    AzOptionNumberInputOnFocusLost on_focus_lost;
 };
 typedef struct AzNumberInputStateWrapper AzNumberInputStateWrapper;
 
@@ -10151,6 +10181,8 @@ typedef struct AzCss AzCss;
 #define AzOptionTextInputOnFocusLost_Some(v) { .Some = { .tag = AzOptionTextInputOnFocusLostTag_Some, .payload = v } }
 #define AzOptionTextInputSelection_None { .None = { .tag = AzOptionTextInputSelectionTag_None } }
 #define AzOptionTextInputSelection_Some(v) { .Some = { .tag = AzOptionTextInputSelectionTag_Some, .payload = v } }
+#define AzOptionNumberInputOnFocusLost_None { .None = { .tag = AzOptionNumberInputOnFocusLostTag_None } }
+#define AzOptionNumberInputOnFocusLost_Some(v) { .Some = { .tag = AzOptionNumberInputOnFocusLostTag_Some, .payload = v } }
 #define AzOptionNumberInputOnValueChange_None { .None = { .tag = AzOptionNumberInputOnValueChangeTag_None } }
 #define AzOptionNumberInputOnValueChange_Some(v) { .Some = { .tag = AzOptionNumberInputOnValueChangeTag_Some, .payload = v } }
 #define AzOptionMenuItemIcon_None { .None = { .tag = AzOptionMenuItemIconTag_None } }
@@ -11055,8 +11087,8 @@ extern DLLIMPORT void AzNumberInput_setOnTextInput(AzNumberInput* restrict numbe
 extern DLLIMPORT AzNumberInput AzNumberInput_withOnTextInput(AzNumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnTextInputCallbackType  callback);
 extern DLLIMPORT void AzNumberInput_setOnVirtualKeyDown(AzNumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
 extern DLLIMPORT AzNumberInput AzNumberInput_withOnVirtualKeyDown(AzNumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
-extern DLLIMPORT void AzNumberInput_setOnFocusLost(AzNumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnFocusLostCallbackType  callback);
-extern DLLIMPORT AzNumberInput AzNumberInput_withOnFocusLost(AzNumberInput* restrict numberinput, AzRefAny  data, AzTextInputOnFocusLostCallbackType  callback);
+extern DLLIMPORT void AzNumberInput_setOnFocusLost(AzNumberInput* restrict numberinput, AzRefAny  data, AzNumberInputOnFocusLostCallbackType  callback);
+extern DLLIMPORT AzNumberInput AzNumberInput_withOnFocusLost(AzNumberInput* restrict numberinput, AzRefAny  data, AzNumberInputOnFocusLostCallbackType  callback);
 extern DLLIMPORT void AzNumberInput_setPlaceholderStyle(AzNumberInput* restrict numberinput, AzNodeDataInlineCssPropertyVec  style);
 extern DLLIMPORT AzNumberInput AzNumberInput_withPlaceholderStyle(AzNumberInput* restrict numberinput, AzNodeDataInlineCssPropertyVec  style);
 extern DLLIMPORT void AzNumberInput_setContainerStyle(AzNumberInput* restrict numberinput, AzNodeDataInlineCssPropertyVec  style);
@@ -11069,6 +11101,7 @@ extern DLLIMPORT AzDom AzNumberInput_dom(AzNumberInput* restrict numberinput);
 extern DLLIMPORT void AzNumberInput_delete(AzNumberInput* restrict instance);
 extern DLLIMPORT void AzNumberInputStateWrapper_delete(AzNumberInputStateWrapper* restrict instance);
 extern DLLIMPORT void AzNumberInputOnValueChange_delete(AzNumberInputOnValueChange* restrict instance);
+extern DLLIMPORT void AzNumberInputOnFocusLost_delete(AzNumberInputOnFocusLost* restrict instance);
 extern DLLIMPORT AzProgressBar AzProgressBar_new(float percent_done);
 extern DLLIMPORT void AzProgressBar_setContainerStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
 extern DLLIMPORT AzProgressBar AzProgressBar_withContainerStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
@@ -11530,6 +11563,7 @@ extern DLLIMPORT void AzOptionCheckBoxOnToggle_delete(AzOptionCheckBoxOnToggle* 
 extern DLLIMPORT void AzOptionTextInputOnTextInput_delete(AzOptionTextInputOnTextInput* restrict instance);
 extern DLLIMPORT void AzOptionTextInputOnVirtualKeyDown_delete(AzOptionTextInputOnVirtualKeyDown* restrict instance);
 extern DLLIMPORT void AzOptionTextInputOnFocusLost_delete(AzOptionTextInputOnFocusLost* restrict instance);
+extern DLLIMPORT void AzOptionNumberInputOnFocusLost_delete(AzOptionNumberInputOnFocusLost* restrict instance);
 extern DLLIMPORT void AzOptionNumberInputOnValueChange_delete(AzOptionNumberInputOnValueChange* restrict instance);
 extern DLLIMPORT void AzOptionMenuItemIcon_delete(AzOptionMenuItemIcon* restrict instance);
 extern DLLIMPORT void AzOptionMenuCallback_delete(AzOptionMenuCallback* restrict instance);
@@ -17589,6 +17623,20 @@ bool AzOptionTextInputSelection_matchRefSome(const AzOptionTextInputSelection* v
 bool AzOptionTextInputSelection_matchMutSome(AzOptionTextInputSelection* restrict value, AzTextInputSelection* restrict * restrict out) {
     AzOptionTextInputSelectionVariant_Some* restrict casted = (AzOptionTextInputSelectionVariant_Some* restrict)value;
     bool valid = casted->tag == AzOptionTextInputSelectionTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNumberInputOnFocusLost_matchRefSome(const AzOptionNumberInputOnFocusLost* value, const AzNumberInputOnFocusLost** restrict out) {
+    const AzOptionNumberInputOnFocusLostVariant_Some* casted = (const AzOptionNumberInputOnFocusLostVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNumberInputOnFocusLostTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNumberInputOnFocusLost_matchMutSome(AzOptionNumberInputOnFocusLost* restrict value, AzNumberInputOnFocusLost* restrict * restrict out) {
+    AzOptionNumberInputOnFocusLostVariant_Some* restrict casted = (AzOptionNumberInputOnFocusLostVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNumberInputOnFocusLostTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

@@ -1975,9 +1975,9 @@ pub use AzNumberInputTT as AzNumberInput;
 /// Equivalent to the Rust `NumberInput::with_on_virtual_key_down()` function.
 #[no_mangle] pub extern "C" fn AzNumberInput_withOnVirtualKeyDown(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnVirtualKeyDownCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_virtual_key_down(data, callback); numberinput }
 /// Equivalent to the Rust `NumberInput::set_on_focus_lost()` function.
-#[no_mangle] pub extern "C" fn AzNumberInput_setOnFocusLost(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnFocusLostCallbackType) { numberinput.set_on_focus_lost(data, callback) }
+#[no_mangle] pub extern "C" fn AzNumberInput_setOnFocusLost(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzNumberInputOnFocusLostCallbackType) { numberinput.set_on_focus_lost(data, callback) }
 /// Equivalent to the Rust `NumberInput::with_on_focus_lost()` function.
-#[no_mangle] pub extern "C" fn AzNumberInput_withOnFocusLost(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzTextInputOnFocusLostCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_focus_lost(data, callback); numberinput }
+#[no_mangle] pub extern "C" fn AzNumberInput_withOnFocusLost(numberinput: &mut AzNumberInput, data: AzRefAny, callback: AzNumberInputOnFocusLostCallbackType) -> AzNumberInput { let mut numberinput = numberinput.swap_with_default(); numberinput.set_on_focus_lost(data, callback); numberinput }
 /// Equivalent to the Rust `NumberInput::set_placeholder_style()` function.
 #[no_mangle] pub extern "C" fn AzNumberInput_setPlaceholderStyle(numberinput: &mut AzNumberInput, style: AzNodeDataInlineCssPropertyVec) { numberinput.set_placeholder_style(style) }
 /// Equivalent to the Rust `NumberInput::with_placeholder_style()` function.
@@ -2020,6 +2020,17 @@ pub type AzNumberInputOnValueChangeCallbackTT = crate::widgets::number_input::Nu
 pub use AzNumberInputOnValueChangeCallbackTT as AzNumberInputOnValueChangeCallback;
 
 pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NumberInputOnFocusLost` struct
+pub type AzNumberInputOnFocusLostTT = crate::widgets::number_input::NumberInputOnFocusLost;
+pub use AzNumberInputOnFocusLostTT as AzNumberInputOnFocusLost;
+/// Destructor: Takes ownership of the `NumberInputOnFocusLost` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNumberInputOnFocusLost_delete(object: &mut AzNumberInputOnFocusLost) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NumberInputOnFocusLostCallback` struct
+pub type AzNumberInputOnFocusLostCallbackTT = crate::widgets::number_input::NumberInputOnFocusLostCallback;
+pub use AzNumberInputOnFocusLostCallbackTT as AzNumberInputOnFocusLostCallback;
+
+pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `ProgressBar` struct
 pub type AzProgressBarTT = crate::widgets::progressbar::ProgressBar;
 pub use AzProgressBarTT as AzProgressBar;
@@ -3984,6 +3995,12 @@ pub use AzOptionTextInputOnFocusLostTT as AzOptionTextInputOnFocusLost;
 pub type AzOptionTextInputSelectionTT = crate::widgets::text_input::OptionTextInputSelection;
 pub use AzOptionTextInputSelectionTT as AzOptionTextInputSelection;
 
+/// Re-export of rust-allocated (stack based) `OptionNumberInputOnFocusLost` struct
+pub type AzOptionNumberInputOnFocusLostTT = crate::widgets::number_input::OptionNumberInputOnFocusLost;
+pub use AzOptionNumberInputOnFocusLostTT as AzOptionNumberInputOnFocusLost;
+/// Destructor: Takes ownership of the `OptionNumberInputOnFocusLost` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNumberInputOnFocusLost_delete(object: &mut AzOptionNumberInputOnFocusLost) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `OptionNumberInputOnValueChange` struct
 pub type AzOptionNumberInputOnValueChangeTT = crate::widgets::number_input::OptionNumberInputOnValueChange;
 pub use AzOptionNumberInputOnValueChangeTT as AzOptionNumberInputOnValueChange;
@@ -5753,6 +5770,15 @@ mod test_sizes {
 
     /// `AzNumberInputOnValueChangeCallbackType` struct
     pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLostCallback` struct
+    #[repr(C)]
+    pub struct AzNumberInputOnFocusLostCallback {
+        pub cb: AzNumberInputOnFocusLostCallbackType,
+    }
+
+    /// `AzNumberInputOnFocusLostCallbackType` struct
+    pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `ProgressBarState` struct
     #[repr(C)]
@@ -8313,6 +8339,13 @@ mod test_sizes {
         pub callback: AzNumberInputOnValueChangeCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLost` struct
+    #[repr(C)]
+    pub struct AzNumberInputOnFocusLost {
+        pub data: AzRefAny,
+        pub callback: AzNumberInputOnFocusLostCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     pub struct AzParentWithNodeDepth {
@@ -8757,6 +8790,13 @@ mod test_sizes {
     pub enum AzOptionTextInputSelection {
         None,
         Some(AzTextInputSelection),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNumberInputOnFocusLost` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNumberInputOnFocusLost {
+        None,
+        Some(AzNumberInputOnFocusLost),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionNumberInputOnValueChange` struct
@@ -9330,6 +9370,7 @@ mod test_sizes {
     pub struct AzNumberInputStateWrapper {
         pub inner: AzNumberInputState,
         pub on_value_change: AzOptionNumberInputOnValueChange,
+        pub on_focus_lost: AzOptionNumberInputOnFocusLost,
     }
 
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
@@ -10931,6 +10972,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputValid>(), "AzTextInputValid"), (Layout::new::<AzTextInputValid>(), "AzTextInputValid"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputState>(), "AzNumberInputState"), (Layout::new::<AzNumberInputState>(), "AzNumberInputState"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnValueChangeCallback>(), "AzNumberInputOnValueChangeCallback"), (Layout::new::<AzNumberInputOnValueChangeCallback>(), "AzNumberInputOnValueChangeCallback"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnFocusLostCallback>(), "AzNumberInputOnFocusLostCallback"), (Layout::new::<AzNumberInputOnFocusLostCallback>(), "AzNumberInputOnFocusLostCallback"));
         assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBarState>(), "AzProgressBarState"), (Layout::new::<AzProgressBarState>(), "AzProgressBarState"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
@@ -11228,6 +11270,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputOnFocusLost>(), "AzTextInputOnFocusLost"), (Layout::new::<AzTextInputOnFocusLost>(), "AzTextInputOnFocusLost"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OnTextInputReturn>(), "AzOnTextInputReturn"), (Layout::new::<AzOnTextInputReturn>(), "AzOnTextInputReturn"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnValueChange>(), "AzNumberInputOnValueChange"), (Layout::new::<AzNumberInputOnValueChange>(), "AzNumberInputOnValueChange"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnFocusLost>(), "AzNumberInputOnFocusLost"), (Layout::new::<AzNumberInputOnFocusLost>(), "AzNumberInputOnFocusLost"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
         assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
@@ -11275,6 +11318,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnVirtualKeyDown>(), "AzOptionTextInputOnVirtualKeyDown"), (Layout::new::<AzOptionTextInputOnVirtualKeyDown>(), "AzOptionTextInputOnVirtualKeyDown"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnFocusLost>(), "AzOptionTextInputOnFocusLost"), (Layout::new::<AzOptionTextInputOnFocusLost>(), "AzOptionTextInputOnFocusLost"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputSelection>(), "AzOptionTextInputSelection"), (Layout::new::<AzOptionTextInputSelection>(), "AzOptionTextInputSelection"));
+        assert_eq!((Layout::new::<crate::widgets::number_input::OptionNumberInputOnFocusLost>(), "AzOptionNumberInputOnFocusLost"), (Layout::new::<AzOptionNumberInputOnFocusLost>(), "AzOptionNumberInputOnFocusLost"));
         assert_eq!((Layout::new::<crate::widgets::number_input::OptionNumberInputOnValueChange>(), "AzOptionNumberInputOnValueChange"), (Layout::new::<AzOptionNumberInputOnValueChange>(), "AzOptionNumberInputOnValueChange"));
         assert_eq!((Layout::new::<azul_core::window::OptionMenuItemIcon>(), "AzOptionMenuItemIcon"), (Layout::new::<AzOptionMenuItemIcon>(), "AzOptionMenuItemIcon"));
         assert_eq!((Layout::new::<azul_core::window::OptionMenuCallback>(), "AzOptionMenuCallback"), (Layout::new::<AzOptionMenuCallback>(), "AzOptionMenuCallback"));
