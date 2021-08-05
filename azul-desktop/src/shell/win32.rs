@@ -2783,11 +2783,14 @@ unsafe extern "system" fn WindowProc(
                         x as f32 / current_window.internal.current_window_state.size.hidpi_factor,
                         y as f32 / current_window.internal.current_window_state.size.hidpi_factor,
                     ));
-                    let previous_state = current_window.internal.current_window_state.clone();
 
                     // call SetCapture(hwnd) so that we can capture the WM_MOUSELEAVE event
                     let cur_cursor_pos = current_window.internal.current_window_state.mouse_state.cursor_position;
-                    if cur_cursor_pos == CursorPosition::OutOfWindow || cur_cursor_pos == CursorPosition::Uninitialized {
+                    let prev_cursor_pos = current_window.internal.previous_window_state
+                        .as_ref().map(|m| m.mouse_state.cursor_position).unwrap_or_default();
+
+                    if !prev_cursor_pos.is_inside_window() && cur_cursor_pos.is_inside_window() {
+                        // cursor entered
                         TrackMouseEvent(&mut TRACKMOUSEEVENT {
                             cbSize: mem::size_of::<TRACKMOUSEEVENT>() as u32,
                             dwFlags: TME_LEAVE,
@@ -2796,6 +2799,7 @@ unsafe extern "system" fn WindowProc(
                         });
                     }
 
+                    let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
                     current_window.internal.current_window_state.mouse_state.cursor_position = pos;
 
@@ -2835,6 +2839,7 @@ unsafe extern "system" fn WindowProc(
                             current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                             current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
                             if let Some(vk) = vk {
+                                println!("pressed scancode {} - vk {:?}", scancode, vk);
                                 current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
                                 current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
                             }
@@ -2875,11 +2880,14 @@ unsafe extern "system" fn WindowProc(
                     }
 
                     if let Some(c) = c {
-                        current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
-                        current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
-                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
-                        mem::drop(app_borrow);
-                        return 0;
+                        if !c.is_control() {
+                            println!("got char {}", c);
+                            current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                            current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
+                            PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                            mem::drop(app_borrow);
+                            return 0;
+                        }
                     }
                 }
 
@@ -2894,9 +2902,11 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                         current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
                         if let Some(vk) = vk {
+                            println!("pressed scancode {} - vk {:?}", scancode, vk);
                             current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
                             current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
                         }
+                        PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                         mem::drop(app_borrow);
                         return 0;
                     }

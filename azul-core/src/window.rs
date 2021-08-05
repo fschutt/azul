@@ -422,6 +422,10 @@ impl CursorPosition {
             CursorPosition::OutOfWindow | CursorPosition::Uninitialized => None,
         }
     }
+
+    pub fn is_inside_window(&self) -> bool {
+        self.get_position().is_some()
+    }
 }
 
 /// Toggles webrender debug flags (will make stuff appear on
