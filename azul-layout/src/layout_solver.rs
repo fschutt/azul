@@ -2743,6 +2743,7 @@ pub fn do_the_relayout(
     if let Some(words_to_relayout) = words_to_relayout {
         for (node_id, new_string) in words_to_relayout.iter() {
 
+            use azul_text_layout::text_layout::word_positions_to_inline_text_layout;
             use azul_text_layout::text_layout::split_text_into_words;
             use azul_core::styled_dom::StyleFontFamiliesHash;
             use azul_text_layout::text_layout::shape_words;
@@ -2755,6 +2756,10 @@ pub fn do_the_relayout(
             if layout_result.words_cache.get(&node_id).is_none() { continue; }
             if layout_result.shaped_words_cache.get(&node_id).is_none() { continue; }
             if layout_result.positioned_words_cache.get(&node_id).is_none() { continue; }
+            let text_layout_options = match layout_result.rects.as_ref().get(*node_id).and_then(|s| s.resolved_text_layout_options.as_ref()) {
+                None => continue,
+                Some(s) => s.0.clone(),
+            };
 
             let new_words = split_text_into_words(new_string.as_str());
 
@@ -2801,23 +2806,14 @@ pub fn do_the_relayout(
             .get_tab_width(node_data, node_id, &styled_node_state)
             .and_then(|tw| Some(tw.get_property()?.inner.get()));
 
-            let text_layout_options = ResolvedTextLayoutOptions {
-                max_horizontal_width: None.into(), // TODO
-                leading: None.into(), // TODO
-                holes: Vec::new().into(), // TODO
-                font_size_px,
-                word_spacing: word_spacing.into(),
-                letter_spacing: letter_spacing.into(),
-                line_height: line_height.into(),
-                tab_width: tab_width.into(),
-            };
-
             let new_word_positions = position_words(&new_words, &new_shaped_words, &text_layout_options);
+            let new_inline_text_layout = word_positions_to_inline_text_layout(&new_word_positions);
 
             layout_result.preferred_widths.as_ref_mut()[*node_id] = Some(new_word_positions.content_size.width);
             *layout_result.words_cache.get_mut(node_id).unwrap() = new_words;
             *layout_result.shaped_words_cache.get_mut(node_id).unwrap() = new_shaped_words;
             layout_result.positioned_words_cache.get_mut(node_id).unwrap().0 = new_word_positions;
+            layout_result.rects.as_ref_mut().get_mut(*node_id).unwrap().resolved_text_layout_options = Some((text_layout_options, new_inline_text_layout));
         }
     }
 
