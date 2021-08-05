@@ -499,12 +499,15 @@ impl TextInputState {
         }
     }
 
+    // returns if the text has changed
+    #[must_use]
     fn handle_on_virtual_key_down(
         &mut self,
         virtual_key: VirtualKeyCode,
         keyboard_state: &KeyboardState,
         info: &mut CallbackInfo,
-    ) {
+    ) -> bool {
+        println!("handing on vk down: {:?}", virtual_key);
         match virtual_key {
             VirtualKeyCode::Back => {
                 // TODO: shift + back = delete last word
@@ -527,15 +530,18 @@ impl TextInputState {
                         self.delete_selection(range.from..range.to, None);
                     },
                 }
+                true
             },
-            VirtualKeyCode::Return => { /* ignore return keys */ },
+            VirtualKeyCode::Return => { /* ignore return keys */ false },
             VirtualKeyCode::Home => {
                 self.cursor_pos = 0;
                 self.selection = None.into();
+                true
             },
             VirtualKeyCode::End => {
                 self.cursor_pos = self.text.len();
                 self.selection = None.into();
+                true
             },
             VirtualKeyCode::Tab => {
                 use azul_desktop::callbacks::FocusTarget;
@@ -544,19 +550,24 @@ impl TextInputState {
                 } else {
                     info.set_focus(FocusTarget::Previous);
                 }
+                false // no update necessary
             },
             VirtualKeyCode::Escape => {
                 self.selection = None.into();
+                true
             },
             VirtualKeyCode::Right => {
                 self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
+                true
             },
             VirtualKeyCode::Left => {
                 self.cursor_pos = self.cursor_pos.saturating_sub(1).min(self.text.len());
+                true
             },
             // ctrl + a
             VirtualKeyCode::A if keyboard_state.ctrl_down => {
                 self.selection = Some(TextInputSelection::All).into();
+                true
             },
             /*
             // ctrl + c
@@ -588,7 +599,7 @@ impl TextInputState {
                 Clipboard::new().set_string_contents(self.text[self.selection.get_range(self.text.len())]);
             }
             */
-            _ => { },
+            _ => false,
         }
     }
 
@@ -677,11 +688,7 @@ mod input {
 
         // Update the string, cursor position on the screen and selection background
         // TODO: restart the timer for cursor blinking
-        let text_now: String = text_input.inner.text.iter()
-            .filter_map(|s| core::char::from_u32(*s))
-            .collect();
-
-        info.set_string_contents(label_node_id, text_now.into());
+        info.set_string_contents(label_node_id, text_input.inner.get_text().into());
         // info.set_css_property(cursor_node_id, CssProperty::const_transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
         // info.update_image(selection_node_id, render_selection(self.selection));
 
@@ -694,6 +701,7 @@ mod input {
             Some(s) => s,
             None => return Update::DoNothing,
         };
+
         let keyboard_state = info.get_current_keyboard_state();
         let last_keycode = match keyboard_state.current_virtual_keycode.into_option() {
             Some(s) => s,
@@ -709,7 +717,7 @@ mod input {
 
             // inner_clone has the new text
             let mut inner_clone = text_input.inner.clone();
-            inner_clone.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
+            let _ = inner_clone.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
 
             match onvkdown.as_mut() {
                 Some(TextInputOnVirtualKeyDown { callback, data }) => (callback.cb)(data, &inner_clone, &mut info),
@@ -721,7 +729,13 @@ mod input {
         };
 
         if result.valid == TextInputValid::Yes {
-            text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
+            if text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info) {
+                if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
+                    info.set_string_contents(label_node_id, text_input.inner.get_text().into());
+                    // set_cursor_position(text_input.cursor)
+                    // set_selection(text_input.cursor)
+                };
+            }
         }
 
         result.update

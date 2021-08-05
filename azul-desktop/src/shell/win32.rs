@@ -2835,16 +2835,24 @@ unsafe extern "system" fn WindowProc(
                 } else {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                         if let Some((scancode, vk)) = event::process_key_params(wparam, lparam) {
+                            use winapi::um::winuser::SendMessageW;
+
                             current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
                             current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                             current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
                             if let Some(vk) = vk {
-                                println!("pressed scancode {} - vk {:?}", scancode, vk);
                                 current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
                                 current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
                             }
-                            PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                             mem::drop(app_borrow);
+
+                            // NOTE: due to a Win32 bug, the WM_CHAR message gets sent immediately after
+                            // the WM_KEYDOWN: this would mess with the event handling in the window state
+                            // code (the window state code expects events to arrive in logical order)
+                            //
+                            // So here we use SendMessage instead of PostMessage in order to immediately
+                            // call AZ_REDO_HIT_TEST (instead of posting to the windows message queue).
+                            SendMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                             return 0;
                         }
                     }
@@ -2881,7 +2889,6 @@ unsafe extern "system" fn WindowProc(
 
                     if let Some(c) = c {
                         if !c.is_control() {
-                            println!("got char {}", c);
                             current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
                             current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
                             PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
@@ -2902,7 +2909,6 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                         current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
                         if let Some(vk) = vk {
-                            println!("pressed scancode {} - vk {:?}", scancode, vk);
                             current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
                             current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
                         }
