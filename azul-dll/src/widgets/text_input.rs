@@ -104,10 +104,15 @@ pub struct TextInputOnFocusLost {
 impl_option!(TextInputOnFocusLost, OptionTextInputOnFocusLost, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 const BACKGROUND_COLOR: ColorU = ColorU { r: 255,  g: 255,  b: 255,  a: 255 }; // white
-const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: ColorU { r: 0, g: 0, b: 0, a: 255 } }; // black
+const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+const TEXT_COLOR: StyleTextColor = StyleTextColor { inner: BLACK  }; // black
 const COLOR_9B9B9B: ColorU = ColorU { r: 155, g: 155, b: 155, a: 255 }; // #9b9b9b
 const COLOR_4286F4: ColorU = ColorU { r: 66, g: 134, b: 244, a: 255 }; // #4286f4
 const COLOR_4C4C4C: ColorU = ColorU { r: 76, g: 76, b: 76, a: 255 }; // #4C4C4C
+
+const CURSOR_COLOR_BLACK: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BLACK)];
+const CURSOR_COLOR: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(CURSOR_COLOR_BLACK);
+
 const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
 const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
 
@@ -115,6 +120,24 @@ const SANS_SERIF_STR: &str = "sans-serif";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
 const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
 const SANS_SERIF_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
+
+// -- cursor style
+
+const TEXT_CURSOR_TRANSFORM: &[StyleTransform] = &[
+    StyleTransform::Translate(StyleTransformTranslate2D {
+        x: PixelValue::const_px(0),
+        y: PixelValue::const_px(0),
+    })
+];
+
+static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::const_position(LayoutPosition::Absolute)),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(10))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(13))),
+    Normal(CssProperty::const_background_content(CURSOR_COLOR)),
+    // Normal(CssProperty::const_opacity(StyleOpacity::const_new(1))),
+    Normal(CssProperty::const_transform(StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM))),
+];
 
 // -- container style
 
@@ -276,6 +299,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -283,6 +307,7 @@ static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
 
 #[cfg(target_os = "linux")]
 static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -290,6 +315,7 @@ static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
 
 #[cfg(target_os = "macos")]
 static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -436,8 +462,12 @@ impl TextInput {
         .with_children(vec![
             Dom::text(label_text)
             .with_ids_and_classes(vec![Class("__azul-native-text-input-label".into())].into())
-            .with_inline_css_props(self.label_style),
-            // let cursor = Dom::div().with_class("__azul-native-text-input-cursor");
+            .with_inline_css_props(self.label_style)
+            .with_children(vec![
+                Dom::div()
+                .with_ids_and_classes(vec![Class("__azul-native-text-input-cursor".into())].into())
+                .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(TEXT_CURSOR_PROPS))
+            ].into()),
             // let text_selection = Dom::div().with_class("__azul-native-text-input-selection".into());
         ].into())
     }
@@ -631,6 +661,7 @@ impl TextInputState {
 // handle input events for the TextInput
 mod input {
 
+    use azul_desktop::css::*;
     use azul_desktop::callbacks::{RefAny, CallbackInfo, Update};
     use super::{
         TextInputStateWrapper, OnTextInputReturn, TextInputValid,
@@ -757,17 +788,28 @@ mod input {
         Update::DoNothing
     }
 
-    pub(in super) extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: CallbackInfo) -> Update {
+    pub(in super) extern "C" fn default_on_focus_received(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
         let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return Update::DoNothing,
         };
+
+        println!("focus received!");
+        let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
+            Some(s) => s,
+            None => return Update::DoNothing,
+        };
+
+        println!("setting cursor node id property to 1 (show)!");
+
+        info.set_css_property(cursor_node_id, CssProperty::Opacity(StyleOpacityValue::Exact(StyleOpacity::new(0.8)))); // hide cursor
 
         // TODO: start text cursor blinking
         Update::DoNothing
     }
 
     pub(in super) extern "C" fn default_on_focus_lost(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
+
         let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
             Some(s) => s,
             None => return Update::DoNothing,
@@ -784,6 +826,25 @@ mod input {
                 None => Update::DoNothing,
             }
         };
+
+        println!("focus lost!");
+
+        let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
+            Some(s) => s,
+            None => return Update::DoNothing,
+        };
+
+        println!("setting cursor node id property to 0 (hide)!");
+
+        info.set_css_property(cursor_node_id, CssProperty::Opacity(StyleOpacityValue::Exact(StyleOpacity::new(0.2)))); // hide cursor
+
+        /*
+        info.set_css_property(cursor_node_id, CssProperty::Transform(StyleTransformVecValue::from_vec(vec![
+            StyleTransform::Translate(StyleTransformTranslate2D {
+                x
+            })
+        ])));
+        */
 
         result
     }

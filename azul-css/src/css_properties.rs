@@ -687,6 +687,11 @@ macro_rules! impl_percentage_value{($struct:ident) => (
         }
 
         #[inline]
+        pub fn new(value: f32) -> Self {
+            Self { inner: PercentageValue::new(value) }
+        }
+
+        #[inline]
         pub fn interpolate(&self, other: &Self, t: f32) -> Self {
             $struct { inner: self.inner.interpolate(&other.inner, t) }
         }
