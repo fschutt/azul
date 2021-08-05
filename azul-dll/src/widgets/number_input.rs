@@ -208,7 +208,10 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
     let result = {
         let number_input = &mut *data;
         let onvaluechange = &mut number_input.on_value_change;
-        let inner = &number_input.inner;
+        let inner = &mut number_input.inner;
+
+        inner.previous = inner.number;
+        inner.number = validated_f32;
 
         match onvaluechange.as_mut() {
             Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(data, &inner, info),
