@@ -480,7 +480,7 @@ impl TextInputState {
     fn handle_on_text_input(&mut self, c: char) {
         match self.selection.clone().into_option() {
             None => {
-                if self.cursor_pos == self.text.len() {
+                if self.cursor_pos >= self.text.len() {
                     self.text.push(c as u32);
                 } else {
                     // TODO: insert character at the cursor location!
@@ -507,7 +507,6 @@ impl TextInputState {
         keyboard_state: &KeyboardState,
         info: &mut CallbackInfo,
     ) -> bool {
-        println!("handing on vk down: {:?}", virtual_key);
         match virtual_key {
             VirtualKeyCode::Back => {
                 // TODO: shift + back = delete last word
@@ -532,7 +531,6 @@ impl TextInputState {
                 }
                 true
             },
-            VirtualKeyCode::Return => { /* ignore return keys */ false },
             VirtualKeyCode::Home => {
                 self.cursor_pos = 0;
                 self.selection = None.into();
@@ -546,9 +544,9 @@ impl TextInputState {
             VirtualKeyCode::Tab => {
                 use azul_desktop::callbacks::FocusTarget;
                 if keyboard_state.shift_down {
-                    info.set_focus(FocusTarget::Next);
-                } else {
                     info.set_focus(FocusTarget::Previous);
+                } else {
+                    info.set_focus(FocusTarget::Next);
                 }
                 false // no update necessary
             },
