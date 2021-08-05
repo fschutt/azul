@@ -126,16 +126,16 @@ const SANS_SERIF_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_sli
 const TEXT_CURSOR_TRANSFORM: &[StyleTransform] = &[
     StyleTransform::Translate(StyleTransformTranslate2D {
         x: PixelValue::const_px(0),
-        y: PixelValue::const_px(0),
+        y: PixelValue::const_px(2),
     })
 ];
 
 static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_position(LayoutPosition::Absolute)),
-    Normal(CssProperty::const_width(LayoutWidth::const_px(10))),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(1))),
     Normal(CssProperty::const_height(LayoutHeight::const_px(13))),
     Normal(CssProperty::const_background_content(CURSOR_COLOR)),
-    // Normal(CssProperty::const_opacity(StyleOpacity::const_new(1))),
+    Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
     Normal(CssProperty::const_transform(StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM))),
 ];
 
@@ -794,15 +794,12 @@ mod input {
             None => return Update::DoNothing,
         };
 
-        println!("focus received!");
         let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
             Some(s) => s,
             None => return Update::DoNothing,
         };
 
-        println!("setting cursor node id property to 1 (show)!");
-
-        info.set_css_property(cursor_node_id, CssProperty::Opacity(StyleOpacityValue::Exact(StyleOpacity::new(0.8)))); // hide cursor
+        info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(100))); // show cursor
 
         // TODO: start text cursor blinking
         Update::DoNothing
@@ -827,16 +824,12 @@ mod input {
             }
         };
 
-        println!("focus lost!");
-
         let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
             Some(s) => s,
             None => return Update::DoNothing,
         };
 
-        println!("setting cursor node id property to 0 (hide)!");
-
-        info.set_css_property(cursor_node_id, CssProperty::Opacity(StyleOpacityValue::Exact(StyleOpacity::new(0.2)))); // hide cursor
+        info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(0))); // hide cursor
 
         /*
         info.set_css_property(cursor_node_id, CssProperty::Transform(StyleTransformVecValue::from_vec(vec![
