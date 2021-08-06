@@ -127,7 +127,54 @@ pub fn msg_box(content: &str) {
 }
 
 /// Opens the default color picker dialog
+#[cfg(target_os = "windows")]
 pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
+
+    use winapi::shared::minwindef::TRUE;
+    use winapi::um::commdlg::{
+        CHOOSECOLORW, ChooseColorW,
+        CC_RGBINIT, CC_FULLOPEN, CC_ANYCOLOR
+    };
+    use winapi::um::winuser::GetForegroundWindow;
+    use winapi::um::wingdi::{RGB, GetRValue, GetGValue, GetBValue};
+
+    let rgb = [
+        default_value.map(|c| c.r).unwrap_or_default(),
+        default_value.map(|c| c.g).unwrap_or_default(),
+        default_value.map(|c| c.b).unwrap_or_default(),
+    ];
+
+    let mut crCustColors = [0_u32;16];
+
+    let mut cc = CHOOSECOLORW {
+        lStructSize: core::mem::size_of::<CHOOSECOLORW>() as u32,
+        hwndOwner: unsafe { GetForegroundWindow() },
+        hInstance: core::ptr::null_mut(),
+        rgbResult: RGB(rgb[0], rgb[1], rgb[2]),
+        lpCustColors: crCustColors.as_mut_ptr(),
+        Flags: CC_RGBINIT | CC_FULLOPEN | CC_ANYCOLOR,
+        lCustData: 0,
+        lpfnHook: None,
+        lpTemplateName: core::ptr::null_mut(),
+    };
+
+    let ret = unsafe { ChooseColorW(&mut cc) };
+
+    if !ret == TRUE {
+        None
+    } else {
+        Some(ColorU {
+            r: GetRValue(cc.rgbResult),
+            g: GetGValue(cc.rgbResult),
+            b: GetBValue(cc.rgbResult),
+            a: ColorU::ALPHA_OPAQUE
+        })
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn color_picker_dialog(title: &str, default_value: Option<ColorU>) -> Option<ColorU> {
+
     let rgb = [
         default_value.map(|c| c.r).unwrap_or_default(),
         default_value.map(|c| c.g).unwrap_or_default(),
