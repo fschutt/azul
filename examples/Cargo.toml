@@ -38,6 +38,10 @@ path = "rust/widgets.rs"
 name = "opengl"
 path = "rust/opengl.rs"
 
+[[bin]]
+name = "nodegraph"
+path = "rust/nodegraph.rs"
+
 [dependencies]
 azul = { version = "1.0.0-alpha1", path = "../api/rust" }
 # azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
