@@ -8208,6 +8208,18 @@ pub struct AzTab {
     pub content: AzDom,
 }
 
+/// Re-export of rust-allocated (stack based) `Frame` struct
+#[repr(C)]
+#[pyclass(name = "Frame")]
+pub struct AzFrame {
+    #[pyo3(get, set)]
+    pub title: AzString,
+    #[pyo3(get, set)]
+    pub flex_grow: f32,
+    #[pyo3(get, set)]
+    pub content: AzDom,
+}
+
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
 #[repr(C)]
 #[pyclass(name = "StyledDom")]
@@ -11303,6 +11315,7 @@ impl Clone for AzXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_im
 impl Clone for AzDom { fn clone(&self) -> Self { let r: &azul_impl::dom::Dom = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssRuleBlock { fn clone(&self) -> Self { let r: &azul_impl::css::CssRuleBlock = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTab { fn clone(&self) -> Self { let r: &crate::widgets::tabs::Tab = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFrame { fn clone(&self) -> Self { let r: &crate::widgets::frame::Frame = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledDom { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledDom = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTabVec { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssRuleBlockVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssRuleBlockVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -23248,6 +23261,45 @@ impl PyObjectProtocol for AzTab {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::tabs::Tab = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzFrame {
+    #[new]
+    fn new(title: String, dom: AzDom) -> AzFrame {
+        let title = pystring_to_azstring(&title);
+        unsafe { mem::transmute(crate::AzFrame_new(
+            mem::transmute(title),
+            mem::transmute(dom),
+        )) }
+    }
+    fn set_flex_grow(&mut self, flex_grow: f32) -> () {
+        unsafe { mem::transmute(crate::AzFrame_setFlexGrow(
+            mem::transmute(self),
+            mem::transmute(flex_grow),
+        )) }
+    }
+    fn with_flex_grow(&mut self, flex_grow: f32) -> AzFrame {
+        unsafe { mem::transmute(crate::AzFrame_withFlexGrow(
+            mem::transmute(self),
+            mem::transmute(flex_grow),
+        )) }
+    }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzFrame_dom(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzFrame {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::frame::Frame = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::frame::Frame = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -37267,6 +37319,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzProgressBarState>()?;
     m.add_class::<AzTabContainer>()?;
     m.add_class::<AzTab>()?;
+    m.add_class::<AzFrame>()?;
 
     m.add_class::<AzNode>()?;
     m.add_class::<AzCascadeInfo>()?;

@@ -26,21 +26,23 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
         TabContainer::new(vec![
             Tab {
                 title: "Test".into(),
-                content: Dom::div()
-                .with_children(vec![
-                    Button::new(if enable_padding {
-                        "Disable padding"
-                    } else {
-                        "Enable padding"
-                    }.into())
-                    .with_on_click(data.clone(), enable_disable_padding)
-                    .dom(),
-                    CheckBox::new(false).dom(),
-                    ProgressBar::new(50.0).dom(),
-                    ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
-                    TextInput::new("Input text...".into()).dom(),
-                    NumberInput::new(5.0).dom(),
-                ].into())
+                content: Frame::new("Frame".into(),
+                    Dom::div()
+                    .with_children(vec![
+                        Button::new(if enable_padding {
+                            "Disable padding"
+                        } else {
+                            "Enable padding"
+                        }.into())
+                        .with_on_click(data.clone(), enable_disable_padding)
+                        .dom(),
+                        CheckBox::new(false).dom(),
+                        ProgressBar::new(50.0).dom(),
+                        ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
+                        TextInput::new("Input text...".into()).dom(),
+                        NumberInput::new(5.0).dom(),
+                    ].into())
+                ).dom()
             },
             Tab {
                 title: "Inactive".into(),

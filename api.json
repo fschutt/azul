@@ -5977,6 +5977,47 @@
                         {"title": {"type": "String"}},
                         {"content": {"type": "Dom"}}
                     ]
+                },
+                "Frame": {
+                    "external": "crate::widgets::frame::Frame",
+                    "struct_fields": [
+                        {"title": {"type": "String"}},
+                        {"flex_grow": {"type": "f32"}},
+                        {"content": {"type": "Dom"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"title": "String"},
+                                {"dom": "Dom"}
+                            ],
+                            "fn_body": "AzFrame::new(title, dom)"
+                        }
+                    },
+                    "functions": {
+                        "set_flex_grow": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"flex_grow": "f32"}
+                            ],
+                            "fn_body": "frame.set_flex_grow(flex_grow)"
+                        },
+                        "with_flex_grow": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"flex_grow": "f32"}
+                            ],
+                            "returns": {"type": "Frame"},
+                            "fn_body": "let mut frame = frame.swap_with_default(); frame.set_flex_grow(flex_grow); frame"
+                        },
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut frame = frame.swap_with_default(); frame.dom()"
+                        }
+                    }
                 }
             }
         },

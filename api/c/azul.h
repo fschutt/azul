@@ -9466,6 +9466,13 @@ struct AzTab {
 };
 typedef struct AzTab AzTab;
 
+struct AzFrame {
+    AzString title;
+    float flex_grow;
+    AzDom content;
+};
+typedef struct AzFrame AzFrame;
+
 struct AzStyledDom {
     AzNodeId root;
     AzNodeVec node_hierarchy;
@@ -11119,6 +11126,11 @@ extern DLLIMPORT AzTabContainer AzTabContainer_withPadding(AzTabContainer* restr
 extern DLLIMPORT AzDom AzTabContainer_dom(AzTabContainer* restrict tabcontainer);
 extern DLLIMPORT void AzTabContainer_delete(AzTabContainer* restrict instance);
 extern DLLIMPORT void AzTab_delete(AzTab* restrict instance);
+extern DLLIMPORT AzFrame AzFrame_new(AzString  title, AzDom  dom);
+extern DLLIMPORT void AzFrame_setFlexGrow(AzFrame* restrict frame, float flex_grow);
+extern DLLIMPORT AzFrame AzFrame_withFlexGrow(AzFrame* restrict frame, float flex_grow);
+extern DLLIMPORT AzDom AzFrame_dom(AzFrame* restrict frame);
+extern DLLIMPORT void AzFrame_delete(AzFrame* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);

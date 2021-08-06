@@ -8558,6 +8558,17 @@ mod dll {
         pub content: AzDom,
     }
 
+    /// Re-export of rust-allocated (stack based) `Frame` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzFrame {
+        pub title: AzString,
+        pub flex_grow: f32,
+        pub content: AzDom,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8947,6 +8958,10 @@ mod dll {
         pub(crate) fn AzTabContainer_setPadding(_:  &mut AzTabContainer, _:  bool);
         pub(crate) fn AzTabContainer_withPadding(_:  &mut AzTabContainer, _:  bool) -> AzTabContainer;
         pub(crate) fn AzTabContainer_dom(_:  &mut AzTabContainer) -> AzDom;
+        pub(crate) fn AzFrame_new(_:  AzString, _:  AzDom) -> AzFrame;
+        pub(crate) fn AzFrame_setFlexGrow(_:  &mut AzFrame, _:  f32);
+        pub(crate) fn AzFrame_withFlexGrow(_:  &mut AzFrame, _:  f32) -> AzFrame;
+        pub(crate) fn AzFrame_dom(_:  &mut AzFrame) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -11771,6 +11786,7 @@ pub mod widgets {
     use crate::callbacks::{CallbackType, RefAny};
     use crate::css::{ColorU, PixelValue};
     use crate::vec::{NodeDataInlineCssPropertyVec, StyleBackgroundContentVec, TabVec};
+    use crate::dom::Dom;
     /// `Button` struct
     
 #[doc(inline)] pub use crate::dll::AzButton as Button;
@@ -12048,6 +12064,20 @@ pub mod widgets {
     /// `Tab` struct
     
 #[doc(inline)] pub use crate::dll::AzTab as Tab;
+    /// `Frame` struct
+    
+#[doc(inline)] pub use crate::dll::AzFrame as Frame;
+    impl Frame {
+        /// Creates a new `Frame` instance.
+        pub fn new(title: String, dom: Dom) -> Self { unsafe { crate::dll::AzFrame_new(title, dom) } }
+        /// Calls the `Frame::set_flex_grow` function.
+        pub fn set_flex_grow(&mut self, flex_grow: f32)  { unsafe { crate::dll::AzFrame_setFlexGrow(self, flex_grow) } }
+        /// Calls the `Frame::with_flex_grow` function.
+        pub fn with_flex_grow(&mut self, flex_grow: f32)  -> crate::widgets::Frame { unsafe { crate::dll::AzFrame_withFlexGrow(self, flex_grow) } }
+        /// Calls the `Frame::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzFrame_dom(self) } }
+    }
+
 }
 
 pub mod style {

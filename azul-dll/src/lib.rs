@@ -2083,6 +2083,21 @@ pub use AzTabTT as AzTab;
 /// Destructor: Takes ownership of the `Tab` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTab_delete(object: &mut AzTab) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `Frame` struct
+pub type AzFrameTT = crate::widgets::frame::Frame;
+pub use AzFrameTT as AzFrame;
+/// Creates a new `Frame` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Frame::new()` constructor.
+#[no_mangle] pub extern "C" fn AzFrame_new(title: AzString, dom: AzDom) -> AzFrame { AzFrame::new(title, dom) }
+/// Equivalent to the Rust `Frame::set_flex_grow()` function.
+#[no_mangle] pub extern "C" fn AzFrame_setFlexGrow(frame: &mut AzFrame, flex_grow: f32) { frame.set_flex_grow(flex_grow) }
+/// Equivalent to the Rust `Frame::with_flex_grow()` function.
+#[no_mangle] pub extern "C" fn AzFrame_withFlexGrow(frame: &mut AzFrame, flex_grow: f32) -> AzFrame { let mut frame = frame.swap_with_default(); frame.set_flex_grow(flex_grow); frame }
+/// Equivalent to the Rust `Frame::dom()` function.
+#[no_mangle] pub extern "C" fn AzFrame_dom(frame: &mut AzFrame) -> AzDom { let mut frame = frame.swap_with_default(); frame.dom() }
+/// Destructor: Takes ownership of the `Frame` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFrame_delete(object: &mut AzFrame) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `Node` struct
 pub type AzNodeTT = azul_impl::styled_dom::AzNode;
 pub use AzNodeTT as AzNode;
@@ -10756,6 +10771,14 @@ mod test_sizes {
         pub content: AzDom,
     }
 
+    /// Re-export of rust-allocated (stack based) `Frame` struct
+    #[repr(C)]
+    pub struct AzFrame {
+        pub title: AzString,
+        pub flex_grow: f32,
+        pub content: AzDom,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     pub struct AzStyledDom {
@@ -11527,6 +11550,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
         assert_eq!((Layout::new::<crate::widgets::tabs::Tab>(), "AzTab"), (Layout::new::<AzTab>(), "AzTab"));
+        assert_eq!((Layout::new::<crate::widgets::frame::Frame>(), "AzFrame"), (Layout::new::<AzFrame>(), "AzFrame"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
         assert_eq!((Layout::new::<crate::widgets::tabs::TabVec>(), "AzTabVec"), (Layout::new::<AzTabVec>(), "AzTabVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));

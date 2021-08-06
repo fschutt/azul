@@ -8677,6 +8677,15 @@ namespace dll {
         Tab() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct Frame {
+        String title;
+        float flex_grow;
+        Dom content;
+        Frame& operator=(const Frame&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        Frame(const Frame&) = delete; /* disable copy constructor, use explicit .clone() */
+        Frame() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct StyledDom {
         NodeId root;
         NodeVec node_hierarchy;
@@ -9169,6 +9178,11 @@ namespace dll {
         Dom TabContainer_dom(TabContainer* restrict tabcontainer);
         void TabContainer_delete(TabContainer* restrict instance);
         void Tab_delete(Tab* restrict instance);
+        Frame Frame_new(AzString  title, AzDom  dom);
+        void Frame_setFlexGrow(Frame* restrict frame, float flex_grow);
+        Frame Frame_withFlexGrow(Frame* restrict frame, float flex_grow);
+        Dom Frame_dom(Frame* restrict frame);
+        void Frame_delete(Frame* restrict instance);
         void CssPropertySource_delete(CssPropertySource* restrict instance);
         void TagIdToNodeIdMapping_delete(TagIdToNodeIdMapping* restrict instance);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);
