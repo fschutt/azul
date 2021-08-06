@@ -39,6 +39,10 @@ name = "opengl"
 path = "rust/opengl.rs"
 
 [[bin]]
+name = "calculator"
+path = "rust/calculator.rs"
+
+[[bin]]
 name = "nodegraph"
 path = "rust/nodegraph.rs"
 
