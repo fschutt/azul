@@ -46,6 +46,10 @@ path = "rust/calculator.rs"
 name = "nodegraph"
 path = "rust/nodegraph.rs"
 
+[[bin]]
+name = "spreadsheet"
+path = "rust/spreadsheet.rs"
+
 [dependencies]
 azul = { version = "1.0.0-alpha1", path = "../api/rust" }
 # azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
