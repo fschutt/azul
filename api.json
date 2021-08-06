@@ -5842,9 +5842,9 @@
                     "external": "crate::widgets::progressbar::ProgressBar",
                     "struct_fields": [
                         {"state": {"type": "ProgressBarState"}},
-                        {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
-                        {"bar_style": {"type": "NodeDataInlineCssPropertyVec"}},
-                        {"label_style": {"type": "NodeDataInlineCssPropertyVec"}}
+                        {"height": {"type": "PixelValue"}},
+                        {"bar_background": {"type": "StyleBackgroundContentVec"}},
+                        {"container_background": {"type": "StyleBackgroundContentVec"}}
                     ],
                     "constructors": {
                         "new": {
@@ -5855,50 +5855,50 @@
                         }
                     },
                     "functions": {
-                        "set_container_style": {
+                        "set_height": {
                             "fn_args": [
                                 {"self": "refmut"},
-                                {"style": "NodeDataInlineCssPropertyVec"}
+                                {"height": "PixelValue"}
                             ],
-                            "fn_body": "progressbar.set_container_style(style);"
+                            "fn_body": "progressbar.set_height(height);"
+                        },
+                        "with_height": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"height": "PixelValue"}
+                            ],
+                            "returns": {"type": "ProgressBar"},
+                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_height(height); progressbar"
+                        },
+                        "set_container_background": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"background": "StyleBackgroundContentVec"}
+                            ],
+                            "fn_body": "progressbar.set_container_background(background);"
                         },
                         "with_container_style": {
                             "fn_args": [
                                 {"self": "refmut"},
-                                {"style": "NodeDataInlineCssPropertyVec"}
+                                {"background": "StyleBackgroundContentVec"}
                             ],
                             "returns": {"type": "ProgressBar"},
-                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_container_style(style); progressbar"
+                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_container_background(background); progressbar"
                         },
-                        "set_bar_style": {
+                        "set_bar_background": {
                             "fn_args": [
                                 {"self": "refmut"},
-                                {"style": "NodeDataInlineCssPropertyVec"}
+                                {"background": "StyleBackgroundContentVec"}
                             ],
-                            "fn_body": "progressbar.set_bar_style(style);"
+                            "fn_body": "progressbar.set_bar_background(background);"
                         },
-                        "with_bar_style": {
+                        "with_bar_background": {
                             "fn_args": [
                                 {"self": "refmut"},
-                                {"style": "NodeDataInlineCssPropertyVec"}
-                            ],
-                            "returns": {"type": "ProgressBar"},
-                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_bar_style(style); progressbar"
-                        },
-                        "set_label_style": {
-                            "fn_args": [
-                                {"self": "refmut"},
-                                {"style": "NodeDataInlineCssPropertyVec"}
-                            ],
-                            "fn_body": "progressbar.set_label_style(style);"
-                        },
-                        "with_label_style": {
-                            "fn_args": [
-                                {"self": "refmut"},
-                                {"style": "NodeDataInlineCssPropertyVec"}
+                                {"background": "StyleBackgroundContentVec"}
                             ],
                             "returns": {"type": "ProgressBar"},
-                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_label_style(style); progressbar"
+                            "fn_body": "let mut progressbar = progressbar.swap_with_default(); progressbar.set_bar_background(background); progressbar"
                         },
                         "dom": {
                             "fn_args": [

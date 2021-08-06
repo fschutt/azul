@@ -15,27 +15,32 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
         ].into()))
     ].into()));
 
-    dom.add_child(TabContainer::new(vec![
-        Tab {
-            title: "Test".into(),
-            content: Dom::div()
-            .with_children(vec![
-                Button::new("Hello".into()).dom(),
-                CheckBox::new(false).dom(),
-                // ProgressBar::new(50.0).dom(),
-                TextInput::new("Input text...".into()).dom(),
-                NumberInput::new(5.0).dom(),
-            ].into())
-        },
-        Tab {
-            title: "Inactive".into(),
-            content: Dom::div()
-        },
-        Tab {
-            title: "Inactive 2".into(),
-            content: Dom::div()
-        }
-    ].into()).with_padding(false).dom());
+    dom.add_child(
+        TabContainer::new(vec![
+            Tab {
+                title: "Test".into(),
+                content: Dom::div()
+                .with_children(vec![
+                    Button::new("Hello".into()).dom(),
+                    CheckBox::new(false).dom(),
+                    ProgressBar::new(50.0).dom(),
+                    ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
+                    TextInput::new("Input text...".into()).dom(),
+                    NumberInput::new(5.0).dom(),
+                ].into())
+            },
+            Tab {
+                title: "Inactive".into(),
+                content: Dom::div()
+            },
+            Tab {
+                title: "Inactive 2".into(),
+                content: Dom::div()
+            }
+        ].into())
+        .with_padding(false)
+        .dom()
+    );
 
     dom.style(Css::empty())
 }

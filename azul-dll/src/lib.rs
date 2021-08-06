@@ -2037,18 +2037,18 @@ pub use AzProgressBarTT as AzProgressBar;
 /// Creates a new `ProgressBar` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `ProgressBar::new()` constructor.
 #[no_mangle] pub extern "C" fn AzProgressBar_new(percent_done: f32) -> AzProgressBar { AzProgressBar::new(percent_done) }
-/// Equivalent to the Rust `ProgressBar::set_container_style()` function.
-#[no_mangle] pub extern "C" fn AzProgressBar_setContainerStyle(progressbar: &mut AzProgressBar, style: AzNodeDataInlineCssPropertyVec) { progressbar.set_container_style(style); }
+/// Equivalent to the Rust `ProgressBar::set_height()` function.
+#[no_mangle] pub extern "C" fn AzProgressBar_setHeight(progressbar: &mut AzProgressBar, height: AzPixelValue) { progressbar.set_height(height); }
+/// Equivalent to the Rust `ProgressBar::with_height()` function.
+#[no_mangle] pub extern "C" fn AzProgressBar_withHeight(progressbar: &mut AzProgressBar, height: AzPixelValue) -> AzProgressBar { let mut progressbar = progressbar.swap_with_default(); progressbar.set_height(height); progressbar }
+/// Equivalent to the Rust `ProgressBar::set_container_background()` function.
+#[no_mangle] pub extern "C" fn AzProgressBar_setContainerBackground(progressbar: &mut AzProgressBar, background: AzStyleBackgroundContentVec) { progressbar.set_container_background(background); }
 /// Equivalent to the Rust `ProgressBar::with_container_style()` function.
-#[no_mangle] pub extern "C" fn AzProgressBar_withContainerStyle(progressbar: &mut AzProgressBar, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar { let mut progressbar = progressbar.swap_with_default(); progressbar.set_container_style(style); progressbar }
-/// Equivalent to the Rust `ProgressBar::set_bar_style()` function.
-#[no_mangle] pub extern "C" fn AzProgressBar_setBarStyle(progressbar: &mut AzProgressBar, style: AzNodeDataInlineCssPropertyVec) { progressbar.set_bar_style(style); }
-/// Equivalent to the Rust `ProgressBar::with_bar_style()` function.
-#[no_mangle] pub extern "C" fn AzProgressBar_withBarStyle(progressbar: &mut AzProgressBar, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar { let mut progressbar = progressbar.swap_with_default(); progressbar.set_bar_style(style); progressbar }
-/// Equivalent to the Rust `ProgressBar::set_label_style()` function.
-#[no_mangle] pub extern "C" fn AzProgressBar_setLabelStyle(progressbar: &mut AzProgressBar, style: AzNodeDataInlineCssPropertyVec) { progressbar.set_label_style(style); }
-/// Equivalent to the Rust `ProgressBar::with_label_style()` function.
-#[no_mangle] pub extern "C" fn AzProgressBar_withLabelStyle(progressbar: &mut AzProgressBar, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar { let mut progressbar = progressbar.swap_with_default(); progressbar.set_label_style(style); progressbar }
+#[no_mangle] pub extern "C" fn AzProgressBar_withContainerStyle(progressbar: &mut AzProgressBar, background: AzStyleBackgroundContentVec) -> AzProgressBar { let mut progressbar = progressbar.swap_with_default(); progressbar.set_container_background(background); progressbar }
+/// Equivalent to the Rust `ProgressBar::set_bar_background()` function.
+#[no_mangle] pub extern "C" fn AzProgressBar_setBarBackground(progressbar: &mut AzProgressBar, background: AzStyleBackgroundContentVec) { progressbar.set_bar_background(background); }
+/// Equivalent to the Rust `ProgressBar::with_bar_background()` function.
+#[no_mangle] pub extern "C" fn AzProgressBar_withBarBackground(progressbar: &mut AzProgressBar, background: AzStyleBackgroundContentVec) -> AzProgressBar { let mut progressbar = progressbar.swap_with_default(); progressbar.set_bar_background(background); progressbar }
 /// Equivalent to the Rust `ProgressBar::dom()` function.
 #[no_mangle] pub extern "C" fn AzProgressBar_dom(progressbar: &mut AzProgressBar) -> AzDom { progressbar.swap_with_default().dom() }
 /// Destructor: Takes ownership of the `ProgressBar` pointer and deletes it.
@@ -10324,6 +10324,15 @@ mod test_sizes {
         pub update_text_input_before_calling_vk_down_fn: bool,
     }
 
+    /// Re-export of rust-allocated (stack based) `ProgressBar` struct
+    #[repr(C)]
+    pub struct AzProgressBar {
+        pub state: AzProgressBarState,
+        pub height: AzPixelValue,
+        pub bar_background: AzStyleBackgroundContentVec,
+        pub container_background: AzStyleBackgroundContentVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)]
     pub enum AzCssPropertySource {
@@ -10683,15 +10692,6 @@ mod test_sizes {
     pub struct AzNumberInput {
         pub text_input: AzTextInput,
         pub state: AzNumberInputStateWrapper,
-    }
-
-    /// Re-export of rust-allocated (stack based) `ProgressBar` struct
-    #[repr(C)]
-    pub struct AzProgressBar {
-        pub state: AzProgressBarState,
-        pub container_style: AzNodeDataInlineCssPropertyVec,
-        pub bar_style: AzNodeDataInlineCssPropertyVec,
-        pub label_style: AzNodeDataInlineCssPropertyVec,
     }
 
     /// Wrapper over a Rust-allocated `CssDeclaration`
@@ -11484,6 +11484,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"), (Layout::new::<AzStyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputStateWrapper>(), "AzTextInputStateWrapper"), (Layout::new::<AzTextInputStateWrapper>(), "AzTextInputStateWrapper"));
+        assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBar>(), "AzProgressBar"), (Layout::new::<AzProgressBar>(), "AzProgressBar"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
@@ -11520,7 +11521,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInput>(), "AzColorInput"), (Layout::new::<AzColorInput>(), "AzColorInput"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInput>(), "AzTextInput"), (Layout::new::<AzTextInput>(), "AzTextInput"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInput>(), "AzNumberInput"), (Layout::new::<AzNumberInput>(), "AzNumberInput"));
-        assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBar>(), "AzProgressBar"), (Layout::new::<AzProgressBar>(), "AzProgressBar"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVec>(), "AzCssDeclarationVec"), (Layout::new::<AzCssDeclarationVec>(), "AzCssDeclarationVec"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataVec>(), "AzNodeDataVec"), (Layout::new::<AzNodeDataVec>(), "AzNodeDataVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));

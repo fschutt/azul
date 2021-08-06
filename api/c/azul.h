@@ -8878,6 +8878,14 @@ struct AzTextInputStateWrapper {
 };
 typedef struct AzTextInputStateWrapper AzTextInputStateWrapper;
 
+struct AzProgressBar {
+    AzProgressBarState state;
+    AzPixelValue height;
+    AzStyleBackgroundContentVec bar_background;
+    AzStyleBackgroundContentVec container_background;
+};
+typedef struct AzProgressBar AzProgressBar;
+
 enum AzCssPropertySourceTag {
    AzCssPropertySourceTag_Css,
    AzCssPropertySourceTag_Inline,
@@ -9346,14 +9354,6 @@ struct AzNumberInput {
     AzNumberInputStateWrapper state;
 };
 typedef struct AzNumberInput AzNumberInput;
-
-struct AzProgressBar {
-    AzProgressBarState state;
-    AzNodeDataInlineCssPropertyVec container_style;
-    AzNodeDataInlineCssPropertyVec bar_style;
-    AzNodeDataInlineCssPropertyVec label_style;
-};
-typedef struct AzProgressBar AzProgressBar;
 
 struct AzCssDeclarationVec {
     AzCssDeclaration* ptr;
@@ -11103,12 +11103,12 @@ extern DLLIMPORT void AzNumberInputStateWrapper_delete(AzNumberInputStateWrapper
 extern DLLIMPORT void AzNumberInputOnValueChange_delete(AzNumberInputOnValueChange* restrict instance);
 extern DLLIMPORT void AzNumberInputOnFocusLost_delete(AzNumberInputOnFocusLost* restrict instance);
 extern DLLIMPORT AzProgressBar AzProgressBar_new(float percent_done);
-extern DLLIMPORT void AzProgressBar_setContainerStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-extern DLLIMPORT AzProgressBar AzProgressBar_withContainerStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-extern DLLIMPORT void AzProgressBar_setBarStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-extern DLLIMPORT AzProgressBar AzProgressBar_withBarStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-extern DLLIMPORT void AzProgressBar_setLabelStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-extern DLLIMPORT AzProgressBar AzProgressBar_withLabelStyle(AzProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+extern DLLIMPORT void AzProgressBar_setHeight(AzProgressBar* restrict progressbar, AzPixelValue  height);
+extern DLLIMPORT AzProgressBar AzProgressBar_withHeight(AzProgressBar* restrict progressbar, AzPixelValue  height);
+extern DLLIMPORT void AzProgressBar_setContainerBackground(AzProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
+extern DLLIMPORT AzProgressBar AzProgressBar_withContainerStyle(AzProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
+extern DLLIMPORT void AzProgressBar_setBarBackground(AzProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
+extern DLLIMPORT AzProgressBar AzProgressBar_withBarBackground(AzProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
 extern DLLIMPORT AzDom AzProgressBar_dom(AzProgressBar* restrict progressbar);
 extern DLLIMPORT void AzProgressBar_delete(AzProgressBar* restrict instance);
 extern DLLIMPORT AzTabContainer AzTabContainer_new(AzTabVec  tabs);

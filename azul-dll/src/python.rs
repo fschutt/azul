@@ -7620,6 +7620,20 @@ pub struct AzTextInputStateWrapper {
     pub update_text_input_before_calling_vk_down_fn: bool,
 }
 
+/// Re-export of rust-allocated (stack based) `ProgressBar` struct
+#[repr(C)]
+#[pyclass(name = "ProgressBar")]
+pub struct AzProgressBar {
+    #[pyo3(get, set)]
+    pub state: AzProgressBarState,
+    #[pyo3(get, set)]
+    pub height: AzPixelValue,
+    #[pyo3(get, set)]
+    pub bar_background: AzStyleBackgroundContentVec,
+    #[pyo3(get, set)]
+    pub container_background: AzStyleBackgroundContentVec,
+}
+
 /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
 #[repr(C, u8)]
 pub enum AzCssPropertySource {
@@ -8112,20 +8126,6 @@ pub struct AzNumberInput {
     pub text_input: AzTextInput,
     #[pyo3(get, set)]
     pub state: AzNumberInputStateWrapper,
-}
-
-/// Re-export of rust-allocated (stack based) `ProgressBar` struct
-#[repr(C)]
-#[pyclass(name = "ProgressBar")]
-pub struct AzProgressBar {
-    #[pyo3(get, set)]
-    pub state: AzProgressBarState,
-    #[pyo3(get, set)]
-    pub container_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
-    pub bar_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
-    pub label_style: AzNodeDataInlineCssPropertyVec,
 }
 
 /// Wrapper over a Rust-allocated `CssDeclaration`
@@ -11260,6 +11260,7 @@ impl Clone for AzStyleBackgroundContentVecValueEnumWrapper { fn clone(&self) -> 
 impl Clone for AzStyleFontFamilyVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzProgressBar { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertySourceEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::CssPropertySource = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexLayout { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexLayout = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexArrayObject { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexArrayObject = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11296,7 +11297,6 @@ impl Clone for AzLabel { fn clone(&self) -> Self { let r: &crate::widgets::label
 impl Clone for AzColorInput { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInput { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInput { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzProgressBar { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclarationVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataVec { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -23105,40 +23105,40 @@ impl AzProgressBar {
             mem::transmute(percent_done),
         )) }
     }
-    fn set_container_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
-        unsafe { mem::transmute(crate::AzProgressBar_setContainerStyle(
+    fn set_height(&mut self, height: AzPixelValue) -> () {
+        unsafe { mem::transmute(crate::AzProgressBar_setHeight(
             mem::transmute(self),
-            mem::transmute(style),
+            mem::transmute(height),
         )) }
     }
-    fn with_container_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar {
+    fn with_height(&mut self, height: AzPixelValue) -> AzProgressBar {
+        unsafe { mem::transmute(crate::AzProgressBar_withHeight(
+            mem::transmute(self),
+            mem::transmute(height),
+        )) }
+    }
+    fn set_container_background(&mut self, background: AzStyleBackgroundContentVec) -> () {
+        unsafe { mem::transmute(crate::AzProgressBar_setContainerBackground(
+            mem::transmute(self),
+            mem::transmute(background),
+        )) }
+    }
+    fn with_container_style(&mut self, background: AzStyleBackgroundContentVec) -> AzProgressBar {
         unsafe { mem::transmute(crate::AzProgressBar_withContainerStyle(
             mem::transmute(self),
-            mem::transmute(style),
+            mem::transmute(background),
         )) }
     }
-    fn set_bar_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
-        unsafe { mem::transmute(crate::AzProgressBar_setBarStyle(
+    fn set_bar_background(&mut self, background: AzStyleBackgroundContentVec) -> () {
+        unsafe { mem::transmute(crate::AzProgressBar_setBarBackground(
             mem::transmute(self),
-            mem::transmute(style),
+            mem::transmute(background),
         )) }
     }
-    fn with_bar_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar {
-        unsafe { mem::transmute(crate::AzProgressBar_withBarStyle(
+    fn with_bar_background(&mut self, background: AzStyleBackgroundContentVec) -> AzProgressBar {
+        unsafe { mem::transmute(crate::AzProgressBar_withBarBackground(
             mem::transmute(self),
-            mem::transmute(style),
-        )) }
-    }
-    fn set_label_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> () {
-        unsafe { mem::transmute(crate::AzProgressBar_setLabelStyle(
-            mem::transmute(self),
-            mem::transmute(style),
-        )) }
-    }
-    fn with_label_style(&mut self, style: AzNodeDataInlineCssPropertyVec) -> AzProgressBar {
-        unsafe { mem::transmute(crate::AzProgressBar_withLabelStyle(
-            mem::transmute(self),
-            mem::transmute(style),
+            mem::transmute(background),
         )) }
     }
     fn dom(&mut self) -> AzDom {

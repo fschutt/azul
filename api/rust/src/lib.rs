@@ -8015,6 +8015,18 @@ mod dll {
         pub update_text_input_before_calling_vk_down_fn: bool,
     }
 
+    /// Re-export of rust-allocated (stack based) `ProgressBar` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzProgressBar {
+        pub state: AzProgressBarState,
+        pub height: AzPixelValue,
+        pub bar_background: AzStyleBackgroundContentVec,
+        pub container_background: AzStyleBackgroundContentVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -8472,18 +8484,6 @@ mod dll {
         pub state: AzNumberInputStateWrapper,
     }
 
-    /// Re-export of rust-allocated (stack based) `ProgressBar` struct
-    #[repr(C)]
-    #[derive(Debug)]
-    #[derive(Clone)]
-    #[derive(PartialEq, PartialOrd)]
-    pub struct AzProgressBar {
-        pub state: AzProgressBarState,
-        pub container_style: AzNodeDataInlineCssPropertyVec,
-        pub bar_style: AzNodeDataInlineCssPropertyVec,
-        pub label_style: AzNodeDataInlineCssPropertyVec,
-    }
-
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
     pub struct AzCssDeclarationVec {
@@ -8934,12 +8934,12 @@ mod dll {
         pub(crate) fn AzNumberInput_withOnValueChange(_:  &mut AzNumberInput, _:  AzRefAny, _:  AzNumberInputOnValueChangeCallbackType) -> AzNumberInput;
         pub(crate) fn AzNumberInput_dom(_:  &mut AzNumberInput) -> AzDom;
         pub(crate) fn AzProgressBar_new(_:  f32) -> AzProgressBar;
-        pub(crate) fn AzProgressBar_setContainerStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
-        pub(crate) fn AzProgressBar_withContainerStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
-        pub(crate) fn AzProgressBar_setBarStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
-        pub(crate) fn AzProgressBar_withBarStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
-        pub(crate) fn AzProgressBar_setLabelStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec);
-        pub(crate) fn AzProgressBar_withLabelStyle(_:  &mut AzProgressBar, _:  AzNodeDataInlineCssPropertyVec) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_setHeight(_:  &mut AzProgressBar, _:  AzPixelValue);
+        pub(crate) fn AzProgressBar_withHeight(_:  &mut AzProgressBar, _:  AzPixelValue) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_setContainerBackground(_:  &mut AzProgressBar, _:  AzStyleBackgroundContentVec);
+        pub(crate) fn AzProgressBar_withContainerStyle(_:  &mut AzProgressBar, _:  AzStyleBackgroundContentVec) -> AzProgressBar;
+        pub(crate) fn AzProgressBar_setBarBackground(_:  &mut AzProgressBar, _:  AzStyleBackgroundContentVec);
+        pub(crate) fn AzProgressBar_withBarBackground(_:  &mut AzProgressBar, _:  AzStyleBackgroundContentVec) -> AzProgressBar;
         pub(crate) fn AzProgressBar_dom(_:  &mut AzProgressBar) -> AzDom;
         pub(crate) fn AzTabContainer_new(_:  AzTabVec) -> AzTabContainer;
         pub(crate) fn AzTabContainer_setActiveTab(_:  &mut AzTabContainer, _:  usize);
@@ -11769,8 +11769,8 @@ pub mod widgets {
     use core::ffi::c_void;
     use crate::str::String;
     use crate::callbacks::{CallbackType, RefAny};
-    use crate::css::ColorU;
-    use crate::vec::{NodeDataInlineCssPropertyVec, TabVec};
+    use crate::css::{ColorU, PixelValue};
+    use crate::vec::{NodeDataInlineCssPropertyVec, StyleBackgroundContentVec, TabVec};
     /// `Button` struct
     
 #[doc(inline)] pub use crate::dll::AzButton as Button;
@@ -12008,18 +12008,18 @@ pub mod widgets {
     impl ProgressBar {
         /// Creates a new `ProgressBar` instance.
         pub fn new(percent_done: f32) -> Self { unsafe { crate::dll::AzProgressBar_new(percent_done) } }
-        /// Calls the `ProgressBar::set_container_style` function.
-        pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzProgressBar_setContainerStyle(self, style) } }
+        /// Calls the `ProgressBar::set_height` function.
+        pub fn set_height(&mut self, height: PixelValue)  { unsafe { crate::dll::AzProgressBar_setHeight(self, height) } }
+        /// Calls the `ProgressBar::with_height` function.
+        pub fn with_height(&mut self, height: PixelValue)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withHeight(self, height) } }
+        /// Calls the `ProgressBar::set_container_background` function.
+        pub fn set_container_background(&mut self, background: StyleBackgroundContentVec)  { unsafe { crate::dll::AzProgressBar_setContainerBackground(self, background) } }
         /// Calls the `ProgressBar::with_container_style` function.
-        pub fn with_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withContainerStyle(self, style) } }
-        /// Calls the `ProgressBar::set_bar_style` function.
-        pub fn set_bar_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzProgressBar_setBarStyle(self, style) } }
-        /// Calls the `ProgressBar::with_bar_style` function.
-        pub fn with_bar_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withBarStyle(self, style) } }
-        /// Calls the `ProgressBar::set_label_style` function.
-        pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzProgressBar_setLabelStyle(self, style) } }
-        /// Calls the `ProgressBar::with_label_style` function.
-        pub fn with_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withLabelStyle(self, style) } }
+        pub fn with_container_style(&mut self, background: StyleBackgroundContentVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withContainerStyle(self, background) } }
+        /// Calls the `ProgressBar::set_bar_background` function.
+        pub fn set_bar_background(&mut self, background: StyleBackgroundContentVec)  { unsafe { crate::dll::AzProgressBar_setBarBackground(self, background) } }
+        /// Calls the `ProgressBar::with_bar_background` function.
+        pub fn with_bar_background(&mut self, background: StyleBackgroundContentVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withBarBackground(self, background) } }
         /// Calls the `ProgressBar::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzProgressBar_dom(self) } }
     }

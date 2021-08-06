@@ -8086,6 +8086,16 @@ namespace dll {
         TextInputStateWrapper() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ProgressBar {
+        ProgressBarState state;
+        PixelValue height;
+        StyleBackgroundContentVec bar_background;
+        StyleBackgroundContentVec container_background;
+        ProgressBar& operator=(const ProgressBar&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ProgressBar(const ProgressBar&) = delete; /* disable copy constructor, use explicit .clone() */
+        ProgressBar() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     enum class CssPropertySourceTag {
        Css,
        Inline,
@@ -8562,16 +8572,6 @@ namespace dll {
         NumberInput& operator=(const NumberInput&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         NumberInput(const NumberInput&) = delete; /* disable copy constructor, use explicit .clone() */
         NumberInput() = delete; /* disable default constructor, use C++20 designated initializer instead */
-    };
-    
-    struct ProgressBar {
-        ProgressBarState state;
-        NodeDataInlineCssPropertyVec container_style;
-        NodeDataInlineCssPropertyVec bar_style;
-        NodeDataInlineCssPropertyVec label_style;
-        ProgressBar& operator=(const ProgressBar&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        ProgressBar(const ProgressBar&) = delete; /* disable copy constructor, use explicit .clone() */
-        ProgressBar() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct CssDeclarationVec {
@@ -9153,12 +9153,12 @@ namespace dll {
         void NumberInputOnValueChange_delete(NumberInputOnValueChange* restrict instance);
         void NumberInputOnFocusLost_delete(NumberInputOnFocusLost* restrict instance);
         ProgressBar ProgressBar_new(float percent_done);
-        void ProgressBar_setContainerStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-        ProgressBar ProgressBar_withContainerStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-        void ProgressBar_setBarStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-        ProgressBar ProgressBar_withBarStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-        void ProgressBar_setLabelStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
-        ProgressBar ProgressBar_withLabelStyle(ProgressBar* restrict progressbar, AzNodeDataInlineCssPropertyVec  style);
+        void ProgressBar_setHeight(ProgressBar* restrict progressbar, AzPixelValue  height);
+        ProgressBar ProgressBar_withHeight(ProgressBar* restrict progressbar, AzPixelValue  height);
+        void ProgressBar_setContainerBackground(ProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
+        ProgressBar ProgressBar_withContainerStyle(ProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
+        void ProgressBar_setBarBackground(ProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
+        ProgressBar ProgressBar_withBarBackground(ProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
         Dom ProgressBar_dom(ProgressBar* restrict progressbar);
         void ProgressBar_delete(ProgressBar* restrict instance);
         TabContainer TabContainer_new(AzTabVec  tabs);
