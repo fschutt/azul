@@ -1,120 +1,236 @@
-<!--
-    Azuls rendering model is based on composing DOMs together (instead of doing that by
-    extending classes like in object-oriented GUI frameworks). As such, each "component"
-    simply corresponds to a Rust function, such as `fn render_component_start_screen() -> Dom<T>`.
+<html>
+    <head>
+        <style>
+            .node_graph_node {
+                color: white;
+                font-family: sans-serif;
+                position: absolute;
+                transform: translate(200px, 100px);
+                width: 250px;
+                height: 300px;
+                background: radial-gradient(#2f3136, #2f3136, #202225);
+                border: 1px solid #00B4DB;
+                box-shadow: 0px 0px 3px #0083B077;
+                padding: 10px;
+            }
 
-    Each "component" has two arguments: a mandatory "name" and an optional "args".
-    The "name" argument is both used for instantiating the component and, in the XML-to-Rust
-    transpiler to generate the function names.
+            .node_label {
+                font-size: 18px;
+                padding-top: 10px;
+                padding-left: 5px;
+                height: 50px;
+            }
 
-    Note: All component names and arguments are normalized to kebap_case, i.e. "<StartScreen />"
-    and "<start_screen />" are equivalent, but "<Startscreen />" will lead to an error.
--->
-<component name="StartScreen">
-    <div id="start_screen">
-        <div id="last_projects_column">
-             <p id="last_projects_header">
-                You can hot-reload this UI, see /examples/ui.xml.
+            .node_body {
+                position: relative;
+                flex-direction: row;
+            }
 
-                If you want to insert a return in this text, you"ll have to use two line breaks,
-                a single linebreak is ignored (and rendered as a space instead).
-             </p>
-             <div id="project_btn_container">
-                <p id="new_project_btn">+</p>
-                <p id="open_project_btn">Open project</p>
-             </div>
+            .node_configuration_field_container {
+                flex-direction: row;
+                padding: 2.5px 5px;
+            }
+
+            .node_configuration_field_label {
+                text-align: left;
+                align-items: center;
+                flex-grow: 1;
+                padding-left: 10px;
+                max-width: 120px;
+            }
+
+            .node_configuration_field_value {
+                flex-grow: 1;
+                text-align: left;
+                align-items: center;
+                border: 1px solid #36393f;
+                background-color: #222;
+                box-shadow-bottom: 0px 0px 3px black inset;
+            }
+
+            .node_configuration_field_value:focus {
+                border: 1px solid #0083B077;
+            }
+
+            .node_close_button {
+                cursor: pointer;
+                position: absolute;
+                font-family: "Material Icons";
+                width: 20px;
+                height: 20px;
+                transform: translate(240px, -10px);
+                text-align: center;
+                align-items: center;
+                background: linear-gradient(to bottom, #e53935, #e35d5b);
+                border: 1px solid #ffffff99;
+                box-shadow: 0px 0px 2px #e53935;
+            }
+
+            .node_content_wrapper {
+                flex-grow: 1;
+                background-color: #00000055;
+                box-shadow: 0px 0px 4px black inset;
+            }
+
+            .inputs {
+                flex-grow: 0;
+                width: 0px;
+                position: relative;
+                overflow: visible;
+            }
+
+            .node_input_wrapper {
+                position: absolute;
+                right: 0px;
+                overflow: visible;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .node_input_container {
+                display: flex;
+                flex-direction: row;
+                margin-top: 10px;
+            }
+
+            .node_input {
+                height: 15px;
+                width: 15px;
+                cursor: pointer;
+                background-color: red;
+            }
+
+            .node_input_connection_label_wrapper {
+                padding-right: 5px;
+                background: linear-gradient(to left, #000C 20%,#0000 100%);
+            }
+
+            .node_input_connection_label {
+                font-family: sans-serif;
+                width: 100px;
+                height: 15px;
+                text-align: right;
+                font-size: 12px;
+            }
+
+            .outputs {
+                flex-grow: 0;
+                width: 0px;
+                position: relative;
+                overflow: visible;
+            }
+
+            .node_output_wrapper {
+                position: absolute;
+                left: 0px;
+                overflow: visible;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .node_output_container {
+                display: flex;
+                flex-direction: row;
+                margin-top: 10px;
+            }
+
+            .node_output {
+                height: 15px;
+                width: 15px;
+                cursor: pointer;
+                background-color: red;
+            }
+
+            .node_output_connection_label_wrapper {
+                padding-left: 5px;
+                background: linear-gradient(to right, #000C 20%,#0000 100%);
+            }
+
+            .node_output_connection_label {
+                font-family: sans-serif;
+                width: 100px;
+                height: 15px;
+                text-align: left;
+                font-size: 12px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="node_graph_node">
+            <p class="node_close_button">X</p>
+            <p class="node_label">Node</p>
+            <div class="node_body">
+
+                <div class="inputs">
+                    <div class="node_input_wrapper">
+                        <div class="node_input_container">
+                            <div class="node_input_connection_label_wrapper">
+                                <p class="node_input_connection_label">Test Input 1 </p>
+                            </div>
+                            <div class="node_input"></div>
+                        </div>
+                        <div class="node_input_container">
+                            <div class="node_input_connection_label_wrapper">
+                                <p class="node_input_connection_label">Test Input 1 </p>
+                            </div>
+                            <div class="node_input"></div>
+                        </div>
+                        <div class="node_input_container">
+                            <div class="node_input_connection_label_wrapper">
+                                <p class="node_input_connection_label">Test Input 1 </p>
+                            </div>
+                            <div class="node_input"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="node_content_wrapper">
+                    <div class="node_configuration_field_container">
+                        <p class="node_configuration_field_label">Key</p>
+                        <p class="node_configuration_field_value" focusable="true">Value</p>
+                    </div>
+                    <div class="node_configuration_field_container">
+                        <p class="node_configuration_field_label">Key</p>
+                        <p class="node_configuration_field_value" focusable="true">Value</p>
+                    </div>
+                    <div class="node_configuration_field_container">
+                        <p class="node_configuration_field_label">Key</p>
+                        <p class="node_configuration_field_value" focusable="true">Value</p>
+                    </div>
+                    <div class="node_configuration_field_container">
+                        <p class="node_configuration_field_label">Key</p>
+                        <p class="node_configuration_field_value" focusable="true">Value</p>
+                    </div>
+                    <div class="node_configuration_field_container">
+                        <p class="node_configuration_field_label">Key</p>
+                        <p class="node_configuration_field_value" focusable="true">Value</p>
+                    </div>
+                </div>
+
+                <div class="outputs">
+                    <div class="node_output_wrapper">
+                        <div class="node_output_container">
+                            <div class="node_output"></div>
+                            <div class="node_output_connection_label_wrapper">
+                                <p class="node_output_connection_label">Test Output</p>
+                            </div>
+                        </div>
+                        <div class="node_output_container">
+                            <div class="node_output"></div>
+                            <div class="node_output_connection_label_wrapper">
+                                <p class="node_output_connection_label">Test Output</p>
+                            </div>
+                        </div>
+                        <div class="node_output_container">
+                            <div class="node_output"></div>
+                            <div class="node_output_connection_label_wrapper">
+                                <p class="node_output_connection_label">Test Output</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
         </div>
-        <div id="map_preview_container">
-            <div id="map_preview" />
-            <Calendar selectedDate="01.01.2019" minimumDate="test2"/>
-        </div>
-    </div>
-</component>
-
-<!--
-    The (optional) "args" argument takes a comma-separated list in the form of "variable_name: type".
-
-    During hot-reloading, this indicates which arguments are needed by the component. If a user tries
-    to instantiate a "<TestComponent asdf="true" />", he'll get an error that "asdf" is not a valid
-    component (function) argument. The type is not used at runtime, the XML reloader assumes passes
-    all arguments around as strings, it is only used for generating the Rust code. If the component
-    uses a variable that was not declared in the "args", the variable is simply displayed as a "{variableName}" -
-    and the generated Rust code will lead to a compile error.
-
-    In the generated Rust code, the "args" map directly to function arguments. You can also format
-    variables and pass them to sub-components (which in the Rust code will map to calls to "format!()").
-    In order to display a brace during formatting, use two braces, i.e.:
-
-    "{{ selectedDate }}" => "{ selectedDate }"
-    "{selectedDate}" => "01.01.2019" (variable name replaced by argument).
-
-    You can use formatting in ids, classes, etc. - as well as the node content, i.e
-    "<SubComponent id="{componentId}" /> will look for the "componentId" variable.
--->
-<component name="SubComponent" args="selectedDate: String">
-    <p>{selectedDate} Test</p>
-</component>
-
-<component name="Calendar" args="selectedDate: String, minimumDate: String">
-    <div id="month_select">
-        <p>&lt;</p>
-        <p><SubComponent selectedDate="{selectedDate} + 5"/></p>
-        <p>&gt;</p>
-    </div>
-</component>
-
-<app>
-    <style>
-        * {
-            color: white;
-            background-color: #222;
-            font-size: 16px;
-            border: 1px solid green;
-            flex-grow: 1;
-            box-sizing: border-box;
-            width: 100%;
-            height: 100%;
-        }
-
-        #start_screen {
-            flex-direction: row;
-        }
-
-        #new_project_btn {
-            color: white;
-            border-radius: 4px;
-            background: linear-gradient(to right, #da4453, #89216b);
-            box-shadow: 0px 5px 10px black;
-            font-size: 30px;
-        }
-
-        #new_project_btn:hover {
-            background-color: green;
-        }
-
-        #new_project_btn:active {
-            background-color: blue;
-        }
-
-        #project_btn_container {
-            flex-direction: row;
-            height: 70px;
-        }
-
-        #last_projects_column {
-            max-width: 300px;
-            margin: 10px;
-        }
-
-        #map_preview_container {
-            padding: 20px;
-        }
-
-        #map_preview {
-            background: linear-gradient(300deg, #03001e, #7303c0, #ec38bc, #fdeff9);
-        }
-    </style>
-    <StartScreen />
-    <!-- Note that "minimumDate" is missing, so the string will just be rendering as "{minimumDate}" -->
-    <Calendar selectedDate="01.01.2019" />
-</app>
+    </body>
+</html>

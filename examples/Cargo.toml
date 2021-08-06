@@ -15,10 +15,6 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [[bin]]
-name = "xml"
-path = "rust/xml.rs"
-
-[[bin]]
 name = "table"
 path = "rust/table.rs"
 
@@ -49,6 +45,14 @@ path = "rust/nodegraph.rs"
 [[bin]]
 name = "spreadsheet"
 path = "rust/spreadsheet.rs"
+
+[[bin]]
+name = "svg"
+path = "rust/svg.rs"
+
+[[bin]]
+name = "xml"
+path = "rust/xml.rs"
 
 [dependencies]
 azul = { version = "1.0.0-alpha1", path = "../api/rust" }
