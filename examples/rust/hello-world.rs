@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use azul::prelude::*;
 use azul::str::String as AzString;
 use azul::widgets::{Button, Label};

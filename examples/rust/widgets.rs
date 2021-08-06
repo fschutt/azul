@@ -5,9 +5,16 @@ use azul::widgets::*;
 
 #[derive(Default)]
 struct WidgetShowcase {
+    enable_padding: bool,
 }
 
 extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+
+    let enable_padding = match data.downcast_ref::<WidgetShowcase>() {
+        Some(s) => s.enable_padding,
+        None => return StyledDom::default(),
+    };
+
     let mut dom = Dom::body()
     .with_menu_bar(Menu::new(vec![
         MenuItem::String(StringMenuItem::new("Menu Item 1".into()).with_children(vec![
@@ -21,7 +28,13 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
                 title: "Test".into(),
                 content: Dom::div()
                 .with_children(vec![
-                    Button::new("Hello".into()).dom(),
+                    Button::new(if enable_padding {
+                        "Disable padding"
+                    } else {
+                        "Enable padding"
+                    }.into())
+                    .with_on_click(data.clone(), enable_disable_padding)
+                    .dom(),
                     CheckBox::new(false).dom(),
                     ProgressBar::new(50.0).dom(),
                     ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
@@ -38,15 +51,22 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
                 content: Dom::div()
             }
         ].into())
-        .with_padding(false)
+        .with_padding(enable_padding)
         .dom()
     );
 
     dom.style(Css::empty())
 }
 
+extern "C" fn enable_disable_padding(data: &mut RefAny, _: CallbackInfo) -> Update {
+    match data.downcast_mut::<WidgetShowcase>() {
+        Some(mut s) => { s.enable_padding = !s.enable_padding; Update::RefreshDom },
+        None => Update::DoNothing,
+    }
+}
+
 fn main() {
-    let data = RefAny::new(WidgetShowcase::default());
+    let data = RefAny::new(WidgetShowcase { enable_padding: true });
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut options = WindowCreateOptions::new(layout);
     options.state.flags.frame = WindowFrame::Maximized;
