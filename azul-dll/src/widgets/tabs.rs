@@ -4,9 +4,14 @@ use azul_desktop::css::*;
 use azul_desktop::css::AzString;
 use azul_desktop::dom::{
     Dom, IdOrClass, TabIndex,
+    HoverEventFilter, EventFilter,
+    CallbackData,
     IdOrClass::{Id, Class},
     NodeDataInlineCssProperty,
     DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec,
+};
+use azul_desktop::callbacks::{
+    Update, RefAny, CallbackInfo, Callback,
 };
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");
@@ -354,8 +359,23 @@ impl TabContainer {
         })
         .with_children({
 
+            let mut refanys = (0..self.tabs.len()).map(|tab_idx| {
+                RefAny::new(TabLocalDataset { tab_idx })
+            }).collect::<Vec<_>>();
+
+            let mut tab_items = vec![
+                Dom::div()
+                .with_inline_css_props(CSS_MATCH_17290739305197504468)
+                .with_ids_and_classes({
+                    const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[
+                        Class(AzString::from_const_str("__azul-native-tabs-before-tabs")),
+                    ];
+                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
+                }),
+            ];
+
             // push tab header
-            let mut items = vec![
+            vec![
                 Dom::div()
                 .with_inline_css_props(CSS_MATCH_9988039989460234263)
                 .with_ids_and_classes({
@@ -365,17 +385,6 @@ impl TabContainer {
                     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
                 })
                 .with_children({
-
-                    let mut tab_items = vec![
-                        Dom::div()
-                        .with_inline_css_props(CSS_MATCH_17290739305197504468)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_8360971686689797550: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("__azul-native-tabs-before-tabs")),
-                            ];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8360971686689797550)
-                        }),
-                    ];
 
                     for (tab_idx, tab) in self.tabs.as_ref().iter().enumerate() {
 
@@ -417,6 +426,14 @@ impl TabContainer {
 
                         tab_items.push(
                             Dom::text(tab.title.clone())
+                            .with_dataset(Some(refanys[tab_idx].clone()).into())
+                            .with_callbacks(vec![
+                                CallbackData {
+                                    event: EventFilter::Hover(HoverEventFilter::MouseDown),
+                                    callback: Callback { cb: select_new_tab },
+                                    data: refanys[tab_idx].clone(),
+                                }
+                            ].into())
                             .with_inline_css_props(css_props)
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes))
                         );
@@ -432,41 +449,83 @@ impl TabContainer {
                     }));
 
                     tab_items.into()
+                }),
+                Dom::div()
+                .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
+                    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
+                ]))
+                .with_children({
+                    const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[
+                        Class(AzString::from_const_str("__azul-native-tabs-content")),
+                    ];
+
+                    let tab_content_css_style = if has_padding {
+                        CSS_MATCH_18014909903571752977
+                    } else {
+                        CSS_MATCH_18014909903571752977_NO_PADDING
+                    };
+
+                    // wrap all content items into a "__azul-native-tabs-content" wrapper
+                    let mut items = Vec::new();
+                    let tabs = self.swap_with_default();
+                    let mut tabs: Vec<Tab> = tabs.tabs.into_library_owned_vec();
+                    for ((tab_idx, tab), refany) in tabs.iter_mut().enumerate().zip(refanys.into_iter()) {
+                        items.push(Dom::div()
+                        .with_inline_css_props( if tab_idx == active_tab {
+                            tab_content_css_style.clone()
+                        } else {
+                            // fastest way to prepend to a Vec
+                            let mut style = vec![NodeDataInlineCssProperty::Normal(
+                                CssProperty::Display(LayoutDisplayValue::Exact(LayoutDisplay::None))
+                            )];
+                            style.append(&mut tab_content_css_style.clone().into_library_owned_vec());
+                            NodeDataInlineCssPropertyVec::from_vec(style)
+                        })
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222))
+                        .with_dataset(Some(refany).into())
+                        .with_children(DomVec::from_vec(vec![
+                            tab.content.swap_with_default()
+                        ])));
+                    }
+
+                    items.into()
                 })
-            ];
-
-            const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[
-                Class(AzString::from_const_str("__azul-native-tabs-content")),
-            ];
-
-            let tab_content_css_style = if has_padding {
-                CSS_MATCH_18014909903571752977
-            } else {
-                CSS_MATCH_18014909903571752977_NO_PADDING
-            };
-
-            // wrap all content items into a "__azul-native-tabs-content" wrapper
-            let tabs = self.swap_with_default();
-            let mut tabs: Vec<Tab> = tabs.tabs.into_library_owned_vec();
-            for (tab_idx, tab) in tabs.iter_mut().enumerate() {
-                items.push(Dom::div()
-                .with_inline_css_props( if tab_idx == active_tab {
-                    tab_content_css_style.clone()
-                } else {
-                    // fastest way to prepend to a Vec
-                    let mut style = vec![NodeDataInlineCssProperty::Normal(
-                        CssProperty::Display(LayoutDisplayValue::Exact(LayoutDisplay::None))
-                    )];
-                    style.append(&mut tab_content_css_style.clone().into_library_owned_vec());
-                    NodeDataInlineCssPropertyVec::from_vec(style)
-                })
-                .with_ids_and_classes(IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222))
-                .with_children(DomVec::from_vec(vec![
-                    tab.content.swap_with_default()
-                ])));
-            }
-
-            items.into()
+            ].into()
         })
     }
+}
+
+struct TabLocalDataset {
+    tab_idx: usize
+}
+
+extern "C" fn select_new_tab(data: &mut RefAny, info: CallbackInfo) -> Update {
+
+    fn select_new_tab_inner(data: &mut RefAny, mut info: CallbackInfo) -> Option<()> {
+
+        let tab_idx = data.downcast_ref::<TabLocalDataset>().map(|s| s.tab_idx)?;
+        let tab_content_node_id = info.get_node_id_of_root_dataset(data.clone())?;
+
+        // hide all tab content items
+        let tab_content_parent = info.get_parent(tab_content_node_id)?;
+        let mut first_child = info.get_first_child(tab_content_parent)?;
+        loop {
+            info.set_css_property(first_child, CssProperty::display(LayoutDisplay::None));
+            let next = match info.get_next_sibling(first_child) {
+                None => break,
+                Some(s) => { first_child = s; },
+            };
+        }
+
+        // show tab with index i
+        info.set_css_property(tab_content_node_id, CssProperty::display(LayoutDisplay::Flex));
+
+        // TODO: set active / inactive tab in header
+
+        None
+    }
+
+    let _ = select_new_tab_inner(data, info);
+
+    Update::DoNothing
 }
