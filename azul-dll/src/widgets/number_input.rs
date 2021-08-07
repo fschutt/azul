@@ -107,6 +107,11 @@ impl NumberInput {
         }).into();
     }
 
+    pub fn with_on_focus_lost(mut self, data: RefAny, callback: NumberInputOnFocusLostCallbackType) -> Self {
+        self.set_on_focus_lost(data, callback);
+        self
+    }
+
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::new(0.0);
         core::mem::swap(&mut s, self);

@@ -377,6 +377,11 @@ impl TextInput {
         }).into();
     }
 
+    pub fn with_on_focus_lost(mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType) -> Self {
+        self.set_on_focus_lost(data, callback);
+        self
+    }
+
     pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec) {
         self.placeholder_style = style;
     }

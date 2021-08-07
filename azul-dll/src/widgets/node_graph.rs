@@ -19,6 +19,13 @@ use azul_core::window::{
     CursorPosition::InWindow, Menu, MenuItem, StringMenuItem,
 };
 
+use crate::widgets::{
+    text_input::{TextInput, TextInputState},
+    number_input::{NumberInput, NumberInputState},
+    color_input::{ColorInput, ColorInputState},
+    check_box::{CheckBox, CheckBoxState},
+};
+
 /// Same as the NodeGraph but without generics and without the actual data
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -149,8 +156,8 @@ pub struct Node {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeTypeField {
-    key: AzString,
-    value: NodeTypeFieldValue,
+    pub key: AzString,
+    pub value: NodeTypeFieldValue,
 }
 
 impl_vec!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor);
@@ -162,8 +169,8 @@ impl_vec_mut!(NodeTypeField, NodeTypeFieldVec);
 #[repr(C, u8)]
 pub enum NodeTypeFieldValue {
     TextInput(AzString),
-    Number(f32),
-    Checkbox(bool),
+    NumberInput(f32),
+    CheckBox(bool),
     ColorInput(ColorU),
 }
 
@@ -2120,8 +2127,18 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
                             &[Class(AzString::from_const_str("node_content_wrapper"))];
                         IdOrClassVec::from_const_slice(IDS_AND_CLASSES_746059979773622802)
                     })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::div()
+                    .with_children({
+
+                        let mut fields = Vec::new();
+
+                        for (field_idx, field) in node.fields.iter().enumerate() {
+
+                            let field_local_dataset = RefAny::new(NodeFieldLocalDataset {
+                                field_idx,
+                                backref: node_local_dataset.clone(),
+                            });
+
+                            let div = Dom::div()
                             .with_inline_css_props(CSS_MATCH_2639191696846875011)
                             .with_ids_and_classes({
                                 const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
@@ -2133,185 +2150,48 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
                                 )
                             })
                             .with_children(DomVec::from_vec(vec![
-                                Dom::text(AzString::from_const_str("Key"))
-                                    .with_inline_css_props(CSS_MATCH_1198521124955124418)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_12334207996395559585:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_label",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_12334207996395559585,
-                                        )
-                                    }),
-                                Dom::text(AzString::from_const_str("Value"))
-                                    .with_inline_css_props(CSS_MATCH_1173826950760010563)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_1997748148349826621:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_value",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_1997748148349826621,
-                                        )
-                                    })
-                                    .with_tab_index(TabIndex::Auto),
-                            ])),
-                        Dom::div()
-                            .with_inline_css_props(CSS_MATCH_2639191696846875011)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "node_configuration_field_container",
-                                    ))];
-                                IdOrClassVec::from_const_slice(
-                                    IDS_AND_CLASSES_4413230059125905311,
-                                )
-                            })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::text(AzString::from_const_str("Key"))
-                                    .with_inline_css_props(CSS_MATCH_1198521124955124418)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_12334207996395559585:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_label",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_12334207996395559585,
-                                        )
-                                    }),
-                                Dom::text(AzString::from_const_str("Value"))
-                                    .with_inline_css_props(CSS_MATCH_1173826950760010563)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_1997748148349826621:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_value",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_1997748148349826621,
-                                        )
-                                    })
-                                    .with_tab_index(TabIndex::Auto),
-                            ])),
-                        Dom::div()
-                            .with_inline_css_props(CSS_MATCH_2639191696846875011)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "node_configuration_field_container",
-                                    ))];
-                                IdOrClassVec::from_const_slice(
-                                    IDS_AND_CLASSES_4413230059125905311,
-                                )
-                            })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::text(AzString::from_const_str("Key"))
-                                    .with_inline_css_props(CSS_MATCH_1198521124955124418)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_12334207996395559585:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_label",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_12334207996395559585,
-                                        )
-                                    }),
-                                Dom::text(AzString::from_const_str("Value"))
-                                    .with_inline_css_props(CSS_MATCH_1173826950760010563)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_1997748148349826621:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_value",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_1997748148349826621,
-                                        )
-                                    })
-                                    .with_tab_index(TabIndex::Auto),
-                            ])),
-                        Dom::div()
-                            .with_inline_css_props(CSS_MATCH_2639191696846875011)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "node_configuration_field_container",
-                                    ))];
-                                IdOrClassVec::from_const_slice(
-                                    IDS_AND_CLASSES_4413230059125905311,
-                                )
-                            })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::text(AzString::from_const_str("Key"))
-                                    .with_inline_css_props(CSS_MATCH_1198521124955124418)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_12334207996395559585:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_label",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_12334207996395559585,
-                                        )
-                                    }),
-                                Dom::text(AzString::from_const_str("Value"))
-                                    .with_inline_css_props(CSS_MATCH_1173826950760010563)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_1997748148349826621:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_value",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_1997748148349826621,
-                                        )
-                                    })
-                                    .with_tab_index(TabIndex::Auto),
-                            ])),
-                        Dom::div()
-                            .with_inline_css_props(CSS_MATCH_2639191696846875011)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "node_configuration_field_container",
-                                    ))];
-                                IdOrClassVec::from_const_slice(
-                                    IDS_AND_CLASSES_4413230059125905311,
-                                )
-                            })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::text(AzString::from_const_str("Key"))
-                                    .with_inline_css_props(CSS_MATCH_1198521124955124418)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_12334207996395559585:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_label",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_12334207996395559585,
-                                        )
-                                    }),
-                                Dom::text(AzString::from_const_str("Value"))
-                                    .with_inline_css_props(CSS_MATCH_1173826950760010563)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_1997748148349826621:
-                                            &[IdOrClass] =
-                                            &[Class(AzString::from_const_str(
-                                                "node_configuration_field_value",
-                                            ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_1997748148349826621,
-                                        )
-                                    })
-                                    .with_tab_index(TabIndex::Auto),
-                            ])),
-                    ])),
+                                Dom::text(field.key.clone())
+                                .with_inline_css_props(CSS_MATCH_1198521124955124418)
+                                .with_ids_and_classes({
+                                    const IDS_AND_CLASSES_12334207996395559585:
+                                        &[IdOrClass] =
+                                        &[Class(AzString::from_const_str(
+                                            "node_configuration_field_label",
+                                        ))];
+                                    IdOrClassVec::from_const_slice(
+                                        IDS_AND_CLASSES_12334207996395559585,
+                                    )
+                                }),
+
+                                match &field.value {
+                                    NodeTypeFieldValue::TextInput(initial_text) => {
+                                        TextInput::new(initial_text.clone())
+                                        .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost)
+                                        .dom()
+                                    },
+                                    NodeTypeFieldValue::NumberInput(initial_value) => {
+                                        NumberInput::new(*initial_value)
+                                        .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost)
+                                        .dom()
+                                    },
+                                    NodeTypeFieldValue::CheckBox(initial_checked) => {
+                                        CheckBox::new(*initial_checked)
+                                        .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed)
+                                        .dom()
+                                    },
+                                    NodeTypeFieldValue::ColorInput(initial_color) => {
+                                        ColorInput::new(*initial_color)
+                                        .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed)
+                                        .dom()
+                                    },
+                                }
+                            ]));
+
+                            fields.push(div);
+                        }
+
+                        DomVec::from_vec(fields)
+                    }),
                 Dom::div()
                     .with_inline_css_props(CSS_MATCH_14906563417280941890)
                     .with_ids_and_classes({
@@ -2908,6 +2788,142 @@ extern "C" fn nodegraph_input_output_disconnect(data: &mut RefAny, info: &mut Ca
                 None => Update::DoNothing,
             }
         }
+    };
+
+    result
+}
+
+extern "C" fn nodegraph_on_textinput_focus_lost(data: &mut RefAny, info: &mut CallbackInfo, textinputstate: &TextInputState) -> Update {
+
+    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let field_idx = data.field_idx;
+
+    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_id = node_local_dataset.node_id;
+
+    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+        Some(s) => s.node.node_type,
+        None => return Update::DoNothing,
+    };
+
+    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::TextInput(textinputstate.get_text().into())),
+        None => Update::DoNothing,
+    };
+
+    result
+}
+
+extern "C" fn nodegraph_on_numberinput_focus_lost(data: &mut RefAny, info: &mut CallbackInfo, numberinputstate: &NumberInputState) -> Update {
+
+    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let field_idx = data.field_idx;
+
+    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_id = node_local_dataset.node_id;
+
+    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+        Some(s) => s.node.node_type,
+        None => return Update::DoNothing,
+    };
+
+    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::NumberInput(numberinputstate.number)),
+        None => Update::DoNothing,
+    };
+
+    result
+}
+
+extern "C" fn nodegraph_on_checkbox_value_changed(data: &mut RefAny, info: &mut CallbackInfo, checkboxinputstate: &CheckBoxState) -> Update {
+
+    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let field_idx = data.field_idx;
+
+    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_id = node_local_dataset.node_id;
+
+    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+        Some(s) => s.node.node_type,
+        None => return Update::DoNothing,
+    };
+
+    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::CheckBox(checkboxinputstate.checked)),
+        None => Update::DoNothing,
+    };
+
+    result
+}
+
+extern "C" fn nodegraph_on_colorinput_value_changed(data: &mut RefAny, info: &mut CallbackInfo, colorinputstate: &ColorInputState) -> Update {
+
+    let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let field_idx = data.field_idx;
+
+    let mut node_local_dataset = match data.backref.downcast_mut::<NodeLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_id = node_local_dataset.node_id;
+
+    let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_type = match node_graph.node_graph.nodes.iter().find(|i| i.node_id == node_id) {
+        Some(s) => s.node.node_type,
+        None => return Update::DoNothing,
+    };
+
+    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::ColorInput(colorinputstate.color)),
+        None => Update::DoNothing,
     };
 
     result

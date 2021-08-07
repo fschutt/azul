@@ -133,6 +133,12 @@ impl CheckBox {
     }
 
     #[inline]
+    pub fn with_on_toggle(mut self, data: RefAny, on_toggle: CheckBoxOnToggleCallbackType) -> Self {
+        self.set_on_toggle(data, on_toggle);
+        self
+    }
+
+    #[inline]
     pub fn dom(self) -> Dom {
 
         use azul_desktop::dom::{

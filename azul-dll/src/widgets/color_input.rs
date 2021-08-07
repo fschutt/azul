@@ -88,6 +88,12 @@ impl ColorInput {
     }
 
     #[inline]
+    pub fn with_on_value_change(mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType) -> Self {
+        self.set_on_value_change(data, callback);
+        self
+    }
+
+    #[inline]
     pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::default();
         core::mem::swap(&mut s, self);
