@@ -1164,6 +1164,13 @@ impl NodeData {
         self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()))
         .context_menu = Some(Box::new(context_menu));
     }
+
+    #[inline]
+    pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
+        self.set_context_menu(context_menu);
+        self
+    }
+
     #[inline]
     pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType) {
         let mut v: CallbackDataVec = Vec::new().into();
@@ -1405,11 +1412,33 @@ impl Dom {
     #[inline(always)]
     pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { self.root.inline_css_props = inline_css_props; self }
 
+    #[inline]
+    pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
+        self.root.set_context_menu(context_menu);
+        self
+    }
+
     fn fixup_children_estimated(&mut self) {
         for child in self.children.iter_mut() {
             child.fixup_children_estimated();
         }
         self.estimated_total_children = self.children.iter().map(|s| s.estimated_total_children + 1).sum();
+    }
+}
+
+impl core::iter::FromIterator<Dom> for Dom {
+    fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
+        let mut estimated_total_children = 0;
+        let children = iter.into_iter().map(|c| {
+            estimated_total_children += c.estimated_total_children + 1;
+            c
+        }).collect::<Vec<Dom>>();
+
+        Dom {
+            root: NodeData::div(),
+            children: children.into(),
+            estimated_total_children,
+        }
     }
 }
 

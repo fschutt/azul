@@ -3026,7 +3026,7 @@
                             "fn_args": [
                                 {"items": "MenuItemVec"}
                             ],
-                            "fn_body": "AzMenu { items, position: AzMenuPopupPosition::AutoCursor, context_mouse_btn: AzContextMenuMouseButton::Right }"
+                            "fn_body": "AzMenu::new(items)"
                         }
                     },
                     "functions": {
@@ -3102,7 +3102,7 @@
                             "fn_args": [
                                 {"label": "String"}
                             ],
-                            "fn_body": "AzStringMenuItem { label, accelerator: None.into(), callback: None.into(), state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() }"
+                            "fn_body": "AzStringMenuItem::new(label)"
                         }
                     },
                     "functions": {

@@ -7,6 +7,7 @@ rustflags = [
 
 [target.'cfg(all(target_arch="x86_64", target_os="windows"))']
 rustflags = [
+    "-Awarnings", # allow all warnings, dev mode only
     "-Clink-args=/DEBUG:NONE",
     "-Ctarget-feature=-crt-static",
     # "-Clink-args=/SUBSYSTEM:WINDOWS,5.02 /ENTRY:mainCRTStartup",

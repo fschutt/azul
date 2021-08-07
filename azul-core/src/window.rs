@@ -21,7 +21,10 @@ use crate::{
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
-    callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, Update},
+    callbacks::{
+        OptionCallback, PipelineId, RefAny, DocumentId,
+        DomNodeId, ScrollPosition, Update, CallbackType,
+    },
     ui_solver::{
         QuickResizeResult, OverflowingScrollNode,
         HitTest, LayoutResult, ExternalScrollId
@@ -2967,6 +2970,16 @@ pub struct Menu {
     pub context_mouse_btn: ContextMenuMouseButton,
 }
 
+impl Menu {
+    pub fn new(items: MenuItemVec) -> Self {
+        Self {
+            items,
+            position: MenuPopupPosition::AutoCursor,
+            context_mouse_btn: ContextMenuMouseButton::Right
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub enum ContextMenuMouseButton {
@@ -3068,6 +3081,18 @@ pub struct StringMenuItem {
 }
 
 impl StringMenuItem {
+
+    pub fn new(label: AzString) -> Self {
+        StringMenuItem {
+            label,
+            accelerator: None.into(),
+            callback: None.into(),
+            state: MenuItemState::Normal,
+            icon: None.into(),
+            children: MenuItemVec::from_const_slice(&[]),
+        }
+    }
+
     pub fn swap_with_default(&mut self) -> Self {
         let mut default = Self {
             label: AzString::from_const_str(""),
@@ -3080,7 +3105,18 @@ impl StringMenuItem {
         core::mem::swap(&mut default, self);
         default
     }
+
+    pub fn with_children(mut self, children: MenuItemVec) -> Self {
+        self.children = children;
+        self
+    }
+
+    pub fn with_callback(mut self, data: RefAny, callback: CallbackType) -> Self {
+        self.callback = Some(MenuCallback { data, callback: Callback { cb: callback } }).into();
+        self
+    }
 }
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct VirtualKeyCodeCombo {

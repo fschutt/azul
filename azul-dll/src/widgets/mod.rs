@@ -99,7 +99,7 @@ pub mod tabs;
 /// Frame container widget
 pub mod frame;
 // Node graph widgets
-// pub mod node_graph;
+pub mod node_graph;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget
