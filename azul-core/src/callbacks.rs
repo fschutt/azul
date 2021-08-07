@@ -595,13 +595,13 @@ impl DomNodeId {
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(&mut RefAny, LayoutCallbackInfo) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(&mut RefAny, &mut LayoutCallbackInfo) -> StyledDom;
 
 #[repr(C)]
 pub struct LayoutCallbackInner { pub cb: LayoutCallbackType }
 impl_callback!(LayoutCallbackInner);
 
-extern "C" fn default_layout_callback(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom { StyledDom::default() }
+extern "C" fn default_layout_callback(_: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom { StyledDom::default() }
 
 /// In order to interact with external VMs (Java, Python, etc.)
 /// the callback is often stored as a "function object"
@@ -611,7 +611,7 @@ extern "C" fn default_layout_callback(_: &mut RefAny, _: LayoutCallbackInfo) -> 
 /// (the first argument), which usually contains the function object
 /// i.e. in the Python VM a PyCallable / PyAny
 ///
-pub type MarshaledLayoutCallbackType = extern "C" fn(/* marshal_data*/ &mut RefAny, /* app_data */ &mut RefAny, LayoutCallbackInfo) -> StyledDom;
+pub type MarshaledLayoutCallbackType = extern "C" fn(/* marshal_data*/ &mut RefAny, /* app_data */ &mut RefAny, &mut LayoutCallbackInfo) -> StyledDom;
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -1624,7 +1624,7 @@ pub enum AnimationRepeatCount {
 }
 
 // callback that drives an animation
-extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
+extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
 
     let mut anim_data = match anim_data.downcast_mut::<AnimationData>() {
         Some(s) => s,
@@ -1710,8 +1710,7 @@ extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, mut i
     }
 }
 
-pub type CallbackReturn = Update;
-pub type CallbackType = extern "C" fn(&mut RefAny, CallbackInfo) -> CallbackReturn;
+pub type CallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update;
 
 // -- opengl callback
 
@@ -1884,11 +1883,11 @@ impl RenderImageCallbackInfo {
 }
 
 /// Callback that - given the width and height of the expected image - renders an image
-pub type RenderImageCallbackType = extern "C" fn(&mut RefAny, RenderImageCallbackInfo) -> ImageRef;
+pub type RenderImageCallbackType = extern "C" fn(&mut RefAny, &mut RenderImageCallbackInfo) -> ImageRef;
 
 // -- iframe callback
 
-pub type IFrameCallbackType = extern "C" fn(&mut RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
+pub type IFrameCallbackType = extern "C" fn(&mut RefAny, &mut IFrameCallbackInfo) -> IFrameCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
@@ -2034,7 +2033,7 @@ impl Clone for TimerCallbackInfo {
     }
 }
 
-pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> Update;
+pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ &mut RefAny, &mut CallbackInfo) -> Update;
 
 /// Callback that can runs when a thread receives a `WriteBack` message
 #[repr(C)]
@@ -2048,7 +2047,7 @@ pub struct TimerCallbackReturn {
     pub should_terminate: TerminateTimer,
 }
 
-pub type TimerCallbackType = extern "C" fn(/* application data */ &mut RefAny, /* timer internal data */ &mut RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
+pub type TimerCallbackType = extern "C" fn(/* application data */ &mut RefAny, /* timer internal data */ &mut RefAny, &mut TimerCallbackInfo) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)

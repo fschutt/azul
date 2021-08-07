@@ -912,7 +912,7 @@ impl CallbacksOfHitTest {
                         let mut new_focus = None;
                         let mut stop_propagation = false;
 
-                        let callback_info = CallbackInfo::new(
+                        let mut callback_info = CallbackInfo::new(
                             /*css_property_cache:*/ &css_property_cache.ptr,
                             /*styled_node_states:*/ styled_nodes,
                             /*previous_window_state:*/ &previous_window_state,
@@ -952,7 +952,7 @@ impl CallbacksOfHitTest {
                             // get a MUTABLE reference to the RefAny inside of the DOM
                             if let Some(callback_data) = callback_map.get_mut(&child_id).unwrap().as_mut().iter_mut().find(|i| i.event == *event_filter) {
                                 // Invoke callback
-                                (callback_data.callback.cb)(&mut callback_data.data, callback_info)
+                                (callback_data.callback.cb)(&mut callback_data.data, &mut callback_info)
                             } else {
                                 Update::DoNothing
                             }
@@ -982,7 +982,7 @@ impl CallbacksOfHitTest {
                     let mut new_focus = None;
                     let mut stop_propagation = false;
 
-                    let callback_info = CallbackInfo::new(
+                    let mut callback_info = CallbackInfo::new(
                         /*css_property_cache:*/ &css_property_cache.ptr,
                         /*styled_node_states:*/ styled_nodes,
                         /*previous_window_State:*/ &previous_window_state,
@@ -1024,7 +1024,7 @@ impl CallbacksOfHitTest {
                         .get_mut(&*root_id).unwrap()
                         .iter_mut().find(|i| i.event == *event_filter) {
                             // Invoke callback
-                            (callback_data.callback.cb)(&mut callback_data.data, callback_info)
+                            (callback_data.callback.cb)(&mut callback_data.data, &mut callback_info)
                         } else {
                             Update::DoNothing
                         }

@@ -16,7 +16,21 @@
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]
-macro_rules! impl_callback {($callback_value:ident) => (
+macro_rules! impl_callback {($callback_wrapper:ident, $option_callback_wrapper:ident, $callback_value:ident, $callback_ty:ident) => (
+
+    #[derive(Debug, Clone, PartialEq, PartialOrd)]
+    #[repr(C)]
+    pub struct $callback_wrapper {
+        pub data: RefAny,
+        pub callback: $callback_value,
+    }
+
+    #[repr(C)]
+    pub struct $callback_value {
+        pub cb: $callback_ty,
+    }
+
+    impl_option!($callback_wrapper, $option_callback_wrapper, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
     impl ::core::fmt::Display for $callback_value {
         fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
@@ -72,8 +86,6 @@ pub mod button;
 pub mod check_box;
 /// Box displaying a color which opens a color picker dialog on being clicked
 pub mod color_input;
-/// Dropdown selection widget
-pub mod drop_down; // TODO
 /// Label widget (centered text)
 pub mod label;
 // /// Single line text input widget
@@ -86,6 +98,8 @@ pub mod progressbar;
 pub mod tabs;
 /// Frame container widget
 pub mod frame;
+// Node graph widgets
+// pub mod node_graph;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

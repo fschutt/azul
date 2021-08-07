@@ -16,23 +16,11 @@ use crate::widgets::text_input::{
     TextInputOnTextInputCallbackType,
 };
 
-pub type NumberInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
+pub type NumberInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &NumberInputState) -> Update;
+impl_callback!(NumberInputOnValueChange, OptionNumberInputOnValueChange, NumberInputOnValueChangeCallback, NumberInputOnValueChangeCallbackType);
 
-#[repr(C)]
-pub struct NumberInputOnValueChangeCallback {
-    pub cb: NumberInputOnValueChangeCallbackType,
-}
-
-impl_callback!(NumberInputOnValueChangeCallback);
-
-pub type NumberInputOnFocusLostCallbackType = extern "C" fn(&mut RefAny, &NumberInputState, &mut CallbackInfo) -> Update;
-
-#[repr(C)]
-pub struct NumberInputOnFocusLostCallback {
-    pub cb: NumberInputOnFocusLostCallbackType,
-}
-
-impl_callback!(NumberInputOnFocusLostCallback);
+pub type NumberInputOnFocusLostCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &NumberInputState) -> Update;
+impl_callback!(NumberInputOnFocusLost, OptionNumberInputOnFocusLost, NumberInputOnFocusLostCallback, NumberInputOnFocusLostCallbackType);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -48,24 +36,6 @@ pub struct NumberInputStateWrapper {
     pub on_value_change: OptionNumberInputOnValueChange,
     pub on_focus_lost: OptionNumberInputOnFocusLost,
 }
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct NumberInputOnFocusLost {
-    pub data: RefAny,
-    pub callback: NumberInputOnFocusLostCallback,
-}
-
-
-#[derive(Debug, Clone, PartialEq)]
-#[repr(C)]
-pub struct NumberInputOnValueChange {
-    pub data: RefAny,
-    pub callback: NumberInputOnValueChangeCallback,
-}
-
-impl_option!(NumberInputOnFocusLost, OptionNumberInputOnFocusLost, copy = false, [Debug, Clone, PartialEq]);
-impl_option!(NumberInputOnValueChange, OptionNumberInputOnValueChange, copy = false, [Debug, Clone, PartialEq]);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -157,7 +127,7 @@ impl NumberInput {
     }
 }
 
-extern "C" fn on_focus_lost(data: &mut RefAny, state: &TextInputState, info: &mut CallbackInfo) -> Update {
+extern "C" fn on_focus_lost(data: &mut RefAny, info: &mut CallbackInfo, state: &TextInputState) -> Update {
 
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
@@ -170,7 +140,7 @@ extern "C" fn on_focus_lost(data: &mut RefAny, state: &TextInputState, info: &mu
         let inner = &number_input.inner;
 
         match onfocuslost.as_mut() {
-            Some(NumberInputOnFocusLost { callback, data }) => (callback.cb)(data, &inner, info),
+            Some(NumberInputOnFocusLost { callback, data }) => (callback.cb)(data, info, &inner),
             None => Update::DoNothing,
         }
     };
@@ -178,7 +148,7 @@ extern "C" fn on_focus_lost(data: &mut RefAny, state: &TextInputState, info: &mu
     result
 }
 
-extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, info: &mut CallbackInfo) -> OnTextInputReturn {
+extern "C" fn validate_text_input(data: &mut RefAny, info: &mut CallbackInfo, state: &TextInputState) -> OnTextInputReturn {
 
     let mut data = match data.downcast_mut::<NumberInputStateWrapper>() {
         Some(s) => s,
@@ -214,7 +184,7 @@ extern "C" fn validate_text_input(data: &mut RefAny, state: &TextInputState, inf
         inner.number = validated_f32;
 
         match onvaluechange.as_mut() {
-            Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(data, &inner, info),
+            Some(NumberInputOnValueChange { callback, data }) => (callback.cb)(data, info, &inner),
             None => Update::DoNothing,
         }
     };

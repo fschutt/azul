@@ -1001,7 +1001,7 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut", "doc": "Application state of the `App`"},
-                            {"type": "LayoutCallbackInfo", "ref": "value", "doc": "Useful information to contitionally return the structure of the DOM based on the width / height of the window" }
+                            {"type": "LayoutCallbackInfo", "ref": "refmut", "doc": "Useful information to contitionally return the structure of the DOM based on the width / height of the window" }
                         ],
                         "returns": {"type": "StyledDom", "doc": "The styled DOM rendered from the application state"}
                     }
@@ -1019,7 +1019,7 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut", "doc": "Reference counted opaque pointer to the data set in the `CallbackData` for the hit DOM node"},
-                            {"type": "CallbackInfo", "ref": "value", "doc": "Context struct to allow the callback to manipulate UI structures"}
+                            {"type": "CallbackInfo", "ref": "refmut", "doc": "Context struct to allow the callback to manipulate UI structures"}
                         ],
                         "returns": {"type": "Update", "doc": "Whether this callback has modified the application state in such a way that a full UI redraw is unavoidable. If any callback returns true, the `LayoutCallback` of the window will be called again to render the next frame."}
                     }
@@ -1723,7 +1723,7 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut", "doc": "An `IFrameCallback` can have some data passed along from the parent DOM - usually this would be struct containing the widget state"},
-                            {"type": "IFrameCallbackInfo", "ref": "value", "doc": "Similar to `LayoutCallbackInfo`, but carries an additional `bounds` field which has information about the size / current scroll position of the IFrame."}
+                            {"type": "IFrameCallbackInfo", "ref": "refmut", "doc": "Similar to `LayoutCallbackInfo`, but carries an additional `bounds` field which has information about the size / current scroll position of the IFrame."}
                         ],
                         "returns": {"type": "IFrameCallbackReturn", "doc": "Contains the returned `StyledDom` as well as information about the initial scroll position of the new DOM plus scrollbar / overflow information"}
                     }
@@ -1765,7 +1765,7 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "RenderImageCallbackInfo", "ref": "value"}
+                            {"type": "RenderImageCallbackInfo", "ref": "refmut"}
                         ],
                         "returns": {"type": "ImageRef"}
                     }
@@ -1888,7 +1888,7 @@
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "TimerCallbackInfo", "ref": "value"}
+                            {"type": "TimerCallbackInfo", "ref": "refmut"}
                         ],
                         "returns": {"type": "TimerCallbackReturn"}
                     }
@@ -1916,8 +1916,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "RefAny", "ref": "value"},
-                            {"type": "CallbackInfo", "ref": "value"}
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"}
                         ],
                         "returns": {"type": "Update"}
                     }
@@ -5275,8 +5275,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "CheckBoxState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "CheckBoxState", "ref": "ref"}
                         ],
                         "returns": {"type": "Update"}
                     }
@@ -5383,8 +5383,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "ColorInputState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "ColorInputState", "ref": "ref"}
                         ],
                         "returns": {"type": "Update"}
                     }
@@ -5572,8 +5572,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "TextInputState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "TextInputState", "ref": "ref"}
                         ],
                         "returns": {"type": "OnTextInputReturn"}
                     }
@@ -5595,8 +5595,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "TextInputState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "TextInputState", "ref": "ref"}
                         ],
                         "returns": {"type": "OnTextInputReturn"}
                     }
@@ -5618,8 +5618,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "TextInputState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "TextInputState", "ref": "ref"}
                         ],
                         "returns": {"type": "Update"}
                     }
@@ -5809,8 +5809,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "NumberInputState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NumberInputState", "ref": "ref"}
                         ],
                         "returns": {"type": "Update"}
                     }
@@ -5832,8 +5832,8 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "RefAny", "ref": "refmut"},
-                            {"type": "NumberInputState", "ref": "ref"},
-                            {"type": "CallbackInfo", "ref": "refmut"}
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NumberInputState", "ref": "ref"}
                         ],
                         "returns": {"type": "Update"}
                     }

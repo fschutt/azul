@@ -728,7 +728,7 @@ impl LayoutResult {
                             .cloned()
                             .unwrap_or_default();
 
-                        let iframe_callback_info = IFrameCallbackInfo::new(
+                        let mut iframe_callback_info = IFrameCallbackInfo::new(
                             fc_cache,
                             image_cache,
                             window_theme,
@@ -740,7 +740,7 @@ impl LayoutResult {
                             /* virtual_scroll_size  */scroll_node.virtual_child_rect.size,
                             /* virtual_scroll_offset */ scroll_node.virtual_child_rect.origin - scroll_node.parent_rect.origin,
                         );
-                        (iframe_node.callback.cb)(&mut iframe_node.data, iframe_callback_info)
+                        (iframe_node.callback.cb)(&mut iframe_node.data, &mut iframe_callback_info)
                     };
 
                     // TODO: what to do if the new iframe has less or more sub-iframes

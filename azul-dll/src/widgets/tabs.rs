@@ -499,9 +499,9 @@ struct TabLocalDataset {
     tab_idx: usize
 }
 
-extern "C" fn select_new_tab(data: &mut RefAny, info: CallbackInfo) -> Update {
+extern "C" fn select_new_tab(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
-    fn select_new_tab_inner(data: &mut RefAny, mut info: CallbackInfo) -> Option<()> {
+    fn select_new_tab_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
 
         let tab_idx = data.downcast_ref::<TabLocalDataset>().map(|s| s.tab_idx)?;
         let tab_content_node_id = info.get_node_id_of_root_dataset(data.clone())?;

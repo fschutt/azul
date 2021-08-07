@@ -709,7 +709,7 @@ impl WindowInternal {
         let styled_dom = {
 
             let layout_callback = &mut init.window_create_options.state.layout_callback;
-            let layout_info = LayoutCallbackInfo::new(
+            let mut layout_info = LayoutCallbackInfo::new(
                 init.window_create_options.state.size,
                 init.window_create_options.state.theme,
                 image_cache,
@@ -718,10 +718,10 @@ impl WindowInternal {
             );
 
             match layout_callback {
-                LayoutCallback::Raw(r) => (r.cb)(data, layout_info),
+                LayoutCallback::Raw(r) => (r.cb)(data, &mut layout_info),
                 LayoutCallback::Marshaled(m) => {
                     let marshal_data = &mut m.marshal_data;
-                    (m.cb.cb)(marshal_data, data, layout_info)
+                    (m.cb.cb)(marshal_data, data, &mut layout_info)
                 }
             }
 
@@ -828,7 +828,7 @@ impl WindowInternal {
         let mut styled_dom = {
 
             let layout_callback = &mut self.current_window_state.layout_callback;
-            let layout_info = LayoutCallbackInfo::new(
+            let mut layout_info = LayoutCallbackInfo::new(
                 self.current_window_state.size,
                 self.current_window_state.theme,
                 image_cache,
@@ -837,10 +837,10 @@ impl WindowInternal {
             );
 
             match layout_callback {
-                LayoutCallback::Raw(r) => (r.cb)(data, layout_info),
+                LayoutCallback::Raw(r) => (r.cb)(data, &mut layout_info),
                 LayoutCallback::Marshaled(m) => {
                     let marshal_data = &mut m.marshal_data;
-                    (m.cb.cb)(marshal_data, data, layout_info)
+                    (m.cb.cb)(marshal_data, data, &mut layout_info)
                 }
             }
         };
@@ -1247,7 +1247,7 @@ impl WindowInternal {
                 OptionThreadReceiveMsg::Some(s) => s,
             };
 
-            let ThreadWriteBackMsg { data, callback } = match msg {
+            let ThreadWriteBackMsg { mut data, callback } = match msg {
                 ThreadReceiveMsg::Update(update_screen) => {
                     ret.callbacks_update_screen.max_self(update_screen);
                     continue;
@@ -1255,7 +1255,7 @@ impl WindowInternal {
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
 
-            let callback_info = CallbackInfo::new(
+            let mut callback_info = CallbackInfo::new(
                 &layout_result.styled_dom.css_property_cache.ptr,
                 &layout_result.styled_dom.styled_nodes,
                 &self.previous_window_state,
@@ -1291,7 +1291,7 @@ impl WindowInternal {
                 cursor_in_viewport,
             );
 
-            let callback_update = (callback.cb)(&mut thread.writeback_data, data, callback_info);
+            let callback_update = (callback.cb)(&mut thread.writeback_data, &mut data, &mut callback_info);
             ret.callbacks_update_screen.max_self(callback_update);
 
             if thread.is_finished() {
@@ -1378,7 +1378,7 @@ impl WindowInternal {
         );
         let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
 
-        let callback_info = CallbackInfo::new(
+        let mut callback_info = CallbackInfo::new(
             &layout_result.styled_dom.css_property_cache.ptr,
             &layout_result.styled_dom.styled_nodes,
             &self.previous_window_state,
@@ -1414,7 +1414,7 @@ impl WindowInternal {
             cursor_in_viewport,
         );
 
-        ret.callbacks_update_screen = (menu_callback.callback.cb)(&mut menu_callback.data, callback_info);
+        ret.callbacks_update_screen = (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
 
         if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
         if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }

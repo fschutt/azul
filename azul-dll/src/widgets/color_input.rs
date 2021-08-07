@@ -16,14 +16,8 @@ pub struct ColorInput {
     pub style: NodeDataInlineCssPropertyVec,
 }
 
-pub type ColorInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &ColorInputState, &mut CallbackInfo) -> Update;
-
-#[repr(C)]
-pub struct ColorInputOnValueChangeCallback {
-    pub cb: ColorInputOnValueChangeCallbackType,
-}
-
-impl_callback!(ColorInputOnValueChangeCallback);
+pub type ColorInputOnValueChangeCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &ColorInputState) -> Update;
+impl_callback!(ColorInputOnValueChange, OptionColorInputOnValueChange, ColorInputOnValueChangeCallback, ColorInputOnValueChangeCallbackType);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -32,15 +26,6 @@ pub struct ColorInputStateWrapper {
     pub title: AzString,
     pub on_value_change: OptionColorInputOnValueChange,
 }
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct ColorInputOnValueChange {
-    pub data: RefAny,
-    pub callback: ColorInputOnValueChangeCallback,
-}
-
-impl_option!(ColorInputOnValueChange, OptionColorInputOnValueChange, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 impl Default for ColorInputStateWrapper {
     fn default() -> Self {
@@ -136,7 +121,7 @@ impl ColorInput {
     }
 }
 
-extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
     use azul_desktop::dialogs::color_picker_dialog;
 
@@ -166,7 +151,7 @@ extern "C" fn on_color_input_clicked(data: &mut RefAny, mut info: CallbackInfo) 
         let inner = &color_input.inner;
 
         match onvaluechange.as_mut() {
-            Some(ColorInputOnValueChange { callback, data }) => (callback.cb)(data, &inner, &mut info),
+            Some(ColorInputOnValueChange { callback, data }) => (callback.cb)(data, info, &inner),
             None => Update::DoNothing,
         }
     };

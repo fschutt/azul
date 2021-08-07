@@ -44,33 +44,33 @@ struct AzStyledDom;
 typedef struct AzStyledDom AzStyledDom;
 typedef AzStyledDom (*AzMarshaledLayoutCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzLayoutCallbackInfo C);
 
-typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutCallbackInfo B);
+typedef AzStyledDom (*AzLayoutCallbackType)(AzRefAny* restrict A, AzLayoutCallbackInfo* restrict B);
 
 struct AzCallbackInfo;
 typedef struct AzCallbackInfo AzCallbackInfo;
 enum AzUpdate;
 typedef enum AzUpdate AzUpdate;
-typedef AzUpdate (*AzCallbackType)(AzRefAny* restrict A, AzCallbackInfo B);
+typedef AzUpdate (*AzCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B);
 
 struct AzIFrameCallbackInfo;
 typedef struct AzIFrameCallbackInfo AzIFrameCallbackInfo;
 struct AzIFrameCallbackReturn;
 typedef struct AzIFrameCallbackReturn AzIFrameCallbackReturn;
-typedef AzIFrameCallbackReturn (*AzIFrameCallbackType)(AzRefAny* restrict A, AzIFrameCallbackInfo B);
+typedef AzIFrameCallbackReturn (*AzIFrameCallbackType)(AzRefAny* restrict A, AzIFrameCallbackInfo* restrict B);
 
 struct AzRenderImageCallbackInfo;
 typedef struct AzRenderImageCallbackInfo AzRenderImageCallbackInfo;
 struct AzImageRef;
 typedef struct AzImageRef AzImageRef;
-typedef AzImageRef (*AzRenderImageCallbackType)(AzRefAny* restrict A, AzRenderImageCallbackInfo B);
+typedef AzImageRef (*AzRenderImageCallbackType)(AzRefAny* restrict A, AzRenderImageCallbackInfo* restrict B);
 
 struct AzTimerCallbackInfo;
 typedef struct AzTimerCallbackInfo AzTimerCallbackInfo;
 struct AzTimerCallbackReturn;
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
-typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzTimerCallbackInfo C);
+typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzTimerCallbackInfo* restrict C);
 
-typedef AzUpdate (*AzWriteBackCallbackType)(AzRefAny* restrict A, AzRefAny B, AzCallbackInfo C);
+typedef AzUpdate (*AzWriteBackCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzCallbackInfo* restrict C);
 
 struct AzThreadSender;
 typedef struct AzThreadSender AzThreadSender;
@@ -82,27 +82,27 @@ typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
 struct AzCheckBoxState;
 typedef struct AzCheckBoxState AzCheckBoxState;
-typedef AzUpdate (*AzCheckBoxOnToggleCallbackType)(AzRefAny* restrict A, AzCheckBoxState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzCheckBoxOnToggleCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzCheckBoxState* const C);
 
 struct AzColorInputState;
 typedef struct AzColorInputState AzColorInputState;
-typedef AzUpdate (*AzColorInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzColorInputState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzColorInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzColorInputState* const C);
 
 struct AzTextInputState;
 typedef struct AzTextInputState AzTextInputState;
 struct AzOnTextInputReturn;
 typedef struct AzOnTextInputReturn AzOnTextInputReturn;
-typedef AzOnTextInputReturn (*AzTextInputOnTextInputCallbackType)(AzRefAny* restrict A, AzTextInputState* const B, AzCallbackInfo* restrict C);
+typedef AzOnTextInputReturn (*AzTextInputOnTextInputCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzTextInputState* const C);
 
-typedef AzOnTextInputReturn (*AzTextInputOnVirtualKeyDownCallbackType)(AzRefAny* restrict A, AzTextInputState* const B, AzCallbackInfo* restrict C);
+typedef AzOnTextInputReturn (*AzTextInputOnVirtualKeyDownCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzTextInputState* const C);
 
-typedef AzUpdate (*AzTextInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzTextInputState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzTextInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzTextInputState* const C);
 
 struct AzNumberInputState;
 typedef struct AzNumberInputState AzNumberInputState;
-typedef AzUpdate (*AzNumberInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzNumberInputOnValueChangeCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNumberInputState* const C);
 
-typedef AzUpdate (*AzNumberInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzNumberInputState* const B, AzCallbackInfo* restrict C);
+typedef AzUpdate (*AzNumberInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNumberInputState* const C);
 
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 

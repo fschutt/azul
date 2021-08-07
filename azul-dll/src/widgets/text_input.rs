@@ -12,8 +12,8 @@ use azul_desktop::{
     callbacks::{RefAny, Callback, CallbackInfo, Update},
 };
 use azul_core::window::{KeyboardState, VirtualKeyCode};
-use std::vec::Vec;
-use std::string::String;
+use alloc::vec::Vec;
+use alloc::string::String;
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -23,37 +23,6 @@ pub struct TextInput {
     pub container_style: NodeDataInlineCssPropertyVec,
     pub label_style: NodeDataInlineCssPropertyVec,
 }
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(C)]
-pub struct OnTextInputReturn {
-    pub update: Update,
-    pub valid: TextInputValid,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[repr(C)]
-pub enum TextInputValid {
-    Yes,
-    No,
-}
-
-// The text input field has a special return which specifies
-// whether the text input should handle the character
-pub type TextInputOnTextInputCallbackType = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
-#[repr(C)]
-pub struct TextInputOnTextInputCallback { pub cb: TextInputOnTextInputCallbackType }
-impl_callback!(TextInputOnTextInputCallback);
-
-pub type TextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> OnTextInputReturn;
-#[repr(C)]
-pub struct TextInputOnVirtualKeyDownCallback { pub cb: TextInputOnVirtualKeyDownCallbackType }
-impl_callback!(TextInputOnVirtualKeyDownCallback);
-
-pub type TextInputOnFocusLostCallbackType = extern "C" fn(&mut RefAny, &TextInputState, &mut CallbackInfo) -> Update;
-#[repr(C)]
-pub struct TextInputOnFocusLostCallback { pub cb: TextInputOnFocusLostCallbackType }
-impl_callback!(TextInputOnFocusLostCallback);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -76,32 +45,47 @@ pub struct TextInputStateWrapper {
     pub update_text_input_before_calling_vk_down_fn: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
-pub struct TextInputOnTextInput {
-    pub data: RefAny,
-    pub callback: TextInputOnTextInputCallback,
+pub struct OnTextInputReturn {
+    pub update: Update,
+    pub valid: TextInputValid,
 }
 
-impl_option!(TextInputOnTextInput, OptionTextInputOnTextInput, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C)]
-pub struct TextInputOnVirtualKeyDown {
-    pub data: RefAny,
-    pub callback: TextInputOnVirtualKeyDownCallback,
+pub enum TextInputValid {
+    Yes,
+    No,
 }
 
-impl_option!(TextInputOnVirtualKeyDown, OptionTextInputOnVirtualKeyDown, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+// The text input field has a special return which specifies
+// whether the text input should handle the character
+pub type TextInputOnTextInputCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
+impl_callback!(TextInputOnTextInput, OptionTextInputOnTextInput, TextInputOnTextInputCallback, TextInputOnTextInputCallbackType);
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct TextInputOnFocusLost {
-    pub data: RefAny,
-    pub callback: TextInputOnFocusLostCallback,
+pub type TextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> OnTextInputReturn;
+impl_callback!(TextInputOnVirtualKeyDown, OptionTextInputOnVirtualKeyDown, TextInputOnVirtualKeyDownCallback, TextInputOnVirtualKeyDownCallbackType);
+
+pub type TextInputOnFocusLostCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TextInputState) -> Update;
+impl_callback!(TextInputOnFocusLost, OptionTextInputOnFocusLost, TextInputOnFocusLostCallback, TextInputOnFocusLostCallbackType);
+
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[repr(C, u8)]
+pub enum TextInputSelection {
+    All,
+    FromTo(TextInputSelectionRange),
 }
 
-impl_option!(TextInputOnFocusLost, OptionTextInputOnFocusLost, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(TextInputSelection, OptionTextInputSelection, copy = false, [Debug, Clone, Hash, PartialEq, Eq]);
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[repr(C)]
+pub struct TextInputSelectionRange {
+    pub from: usize,
+    pub to: usize,
+}
 
 const BACKGROUND_COLOR: ColorU = ColorU { r: 255,  g: 255,  b: 255,  a: 255 }; // white
 const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
@@ -436,27 +420,27 @@ impl TextInput {
             CallbackData {
                 event: EventFilter::Focus(FocusEventFilter::FocusReceived),
                 data: state_ref.clone(),
-                callback: Callback { cb: self::input::default_on_focus_received }
+                callback: Callback { cb: default_on_focus_received }
             },
             CallbackData {
                 event: EventFilter::Focus(FocusEventFilter::FocusLost),
                 data: state_ref.clone(),
-                callback: Callback { cb: self::input::default_on_focus_lost }
+                callback: Callback { cb: default_on_focus_lost }
             },
             CallbackData {
                 event: EventFilter::Focus(FocusEventFilter::TextInput),
                 data: state_ref.clone(),
-                callback: Callback { cb: self::input::default_on_text_input }
+                callback: Callback { cb: default_on_text_input }
             },
             CallbackData {
                 event: EventFilter::Focus(FocusEventFilter::VirtualKeyDown),
                 data: state_ref.clone(),
-                callback: Callback { cb: self::input::default_on_virtual_key_down }
+                callback: Callback { cb: default_on_virtual_key_down }
             },
             CallbackData {
                 event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
                 data: state_ref.clone(),
-                callback: Callback { cb: self::input::default_on_container_click }
+                callback: Callback { cb: default_on_container_click }
             },
         ].into())
         .with_children(vec![
@@ -470,31 +454,6 @@ impl TextInput {
             ].into()),
             // let text_selection = Dom::div().with_class("__azul-native-text-input-selection".into());
         ].into())
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-#[repr(C, u8)]
-pub enum TextInputSelection {
-    All,
-    FromTo(TextInputSelectionRange),
-}
-
-impl_option!(TextInputSelection, OptionTextInputSelection, copy = false, [Debug, Clone, Hash, PartialEq, Eq]);
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-#[repr(C)]
-pub struct TextInputSelectionRange {
-    pub from: usize,
-    pub to: usize,
-}
-
-impl TextInputSelection {
-    pub fn get_range(&self, text_len: usize) -> Range<usize> {
-        match self {
-            TextInputSelection::All => 0..text_len,
-            TextInputSelection::FromTo(r) => r.from..r.to,
-        }
     }
 }
 
@@ -658,189 +617,187 @@ impl TextInputState {
     }
 }
 
+impl TextInputSelection {
+    pub fn get_range(&self, text_len: usize) -> Range<usize> {
+        match self {
+            TextInputSelection::All => 0..text_len,
+            TextInputSelection::FromTo(r) => r.from..r.to,
+        }
+    }
+}
+
 // handle input events for the TextInput
-mod input {
+extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
-    use azul_desktop::css::*;
-    use azul_desktop::callbacks::{RefAny, CallbackInfo, Update};
-    use super::{
-        TextInputStateWrapper, OnTextInputReturn, TextInputValid,
-        TextInputOnTextInput, TextInputOnFocusLost, TextInputOnVirtualKeyDown,
+    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
     };
-    use std::string::String;
 
-    pub(in super) extern "C" fn default_on_text_input(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
+    let keyboard_state = info.get_current_keyboard_state();
 
-        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+    let c = match keyboard_state.current_char.into_option() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        let keyboard_state = info.get_current_keyboard_state();
+    let c = match core::char::from_u32(c) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        let c = match keyboard_state.current_char.into_option() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+    let label_node_id = match info.get_first_child(info.get_hit_node()) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        let c = match core::char::from_u32(c) {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_input = &mut *text_input;
+        let ontextinput = &mut text_input.on_text_input;
 
-        let label_node_id = match info.get_first_child(info.get_hit_node()) {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+        // inner_clone has the new text
+        let mut inner_clone = text_input.inner.clone();
+        inner_clone.handle_on_text_input(c);
 
-        let result = {
-            // rustc doesn't understand the borrowing lifetime here
-            let text_input = &mut *text_input;
-            let ontextinput = &mut text_input.on_text_input;
-
-            // inner_clone has the new text
-            let mut inner_clone = text_input.inner.clone();
-            inner_clone.handle_on_text_input(c);
-
-            match ontextinput.as_mut() {
-                Some(TextInputOnTextInput { callback, data }) => (callback.cb)(data, &inner_clone, &mut info),
-                None => OnTextInputReturn {
-                    update: Update::DoNothing,
-                    valid: TextInputValid::Yes,
-                },
-            }
-        };
-
-        if result.valid == TextInputValid::Yes {
-            text_input.inner.handle_on_text_input(c);
+        match ontextinput.as_mut() {
+            Some(TextInputOnTextInput { callback, data }) => (callback.cb)(data, info, &inner_clone),
+            None => OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            },
         }
+    };
 
-        // Update the string, cursor position on the screen and selection background
-        // TODO: restart the timer for cursor blinking
-        info.set_string_contents(label_node_id, text_input.inner.get_text().into());
-        // info.set_css_property(cursor_node_id, CssProperty::const_transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
-        // info.update_image(selection_node_id, render_selection(self.selection));
-
-        result.update
+    if result.valid == TextInputValid::Yes {
+        text_input.inner.handle_on_text_input(c);
     }
 
-    pub(in super) extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
+    // Update the string, cursor position on the screen and selection background
+    // TODO: restart the timer for cursor blinking
+    info.set_string_contents(label_node_id, text_input.inner.get_text().into());
+    // info.set_css_property(cursor_node_id, CssProperty::const_transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
+    // info.update_image(selection_node_id, render_selection(self.selection));
 
-        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+    result.update
+}
 
-        let keyboard_state = info.get_current_keyboard_state();
-        let last_keycode = match keyboard_state.current_virtual_keycode.into_option() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
-        let kb_state = info.get_current_keyboard_state();
+    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        let result = {
-            // rustc doesn't understand the borrowing lifetime here
-            let text_input = &mut *text_input;
-            let onvkdown = &mut text_input.on_virtual_key_down;
+    let keyboard_state = info.get_current_keyboard_state();
+    let last_keycode = match keyboard_state.current_virtual_keycode.into_option() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-            // inner_clone has the new text
-            let mut inner_clone = text_input.inner.clone();
-            let _ = inner_clone.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info);
+    let kb_state = info.get_current_keyboard_state();
 
-            match onvkdown.as_mut() {
-                Some(TextInputOnVirtualKeyDown { callback, data }) => (callback.cb)(data, &inner_clone, &mut info),
-                None => OnTextInputReturn {
-                    update: Update::DoNothing,
-                    valid: TextInputValid::Yes,
-                },
-            }
-        };
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_input = &mut *text_input;
+        let onvkdown = &mut text_input.on_virtual_key_down;
 
-        if result.valid == TextInputValid::Yes {
-            if text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, &mut info) {
-                if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
-                    info.set_string_contents(label_node_id, text_input.inner.get_text().into());
-                    // set_cursor_position(text_input.cursor)
-                    // set_selection(text_input.cursor)
-                };
-            }
+        // inner_clone has the new text
+        let mut inner_clone = text_input.inner.clone();
+        let _ = inner_clone.handle_on_virtual_key_down(last_keycode, &kb_state, info);
+
+        match onvkdown.as_mut() {
+            Some(TextInputOnVirtualKeyDown { callback, data }) => (callback.cb)(data, info, &inner_clone),
+            None => OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            },
         }
+    };
 
-        result.update
+    if result.valid == TextInputValid::Yes {
+        if text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info) {
+            if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
+                info.set_string_contents(label_node_id, text_input.inner.get_text().into());
+                // set_cursor_position(text_input.cursor)
+                // set_selection(text_input.cursor)
+            };
+        }
     }
 
-    pub(in super) extern "C" fn default_on_container_click(text_input: &mut RefAny, info: CallbackInfo) -> Update {
-        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
-        // TODO: clear selection, set cursor to text hit
-        Update::DoNothing
-    }
+    result.update
+}
 
-    pub(in super) extern "C" fn default_on_label_click(text_input: &mut RefAny, info: CallbackInfo) -> Update {
-        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
-        // TODO: set cursor to end or start
-        Update::DoNothing
-    }
+extern "C" fn default_on_container_click(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+    // TODO: clear selection, set cursor to text hit
+    Update::DoNothing
+}
 
-    pub(in super) extern "C" fn default_on_focus_received(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
-        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+extern "C" fn default_on_label_click(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+    // TODO: set cursor to end or start
+    Update::DoNothing
+}
 
-        let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(100))); // show cursor
+    let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        // TODO: start text cursor blinking
-        Update::DoNothing
-    }
+    info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(100))); // show cursor
 
-    pub(in super) extern "C" fn default_on_focus_lost(text_input: &mut RefAny, mut info: CallbackInfo) -> Update {
+    // TODO: start text cursor blinking
+    Update::DoNothing
+}
 
-        let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
-        let result = {
-            // rustc doesn't understand the borrowing lifetime here
-            let text_input = &mut *text_input;
-            let onfocuslost = &mut text_input.on_focus_lost;
-            let inner = &text_input.inner;
+    let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-            match onfocuslost.as_mut() {
-                Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data, &inner, &mut info),
-                None => Update::DoNothing,
-            }
-        };
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_input = &mut *text_input;
+        let onfocuslost = &mut text_input.on_focus_lost;
+        let inner = &text_input.inner;
 
-        let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
+        match onfocuslost.as_mut() {
+            Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data, info, &inner),
+            None => Update::DoNothing,
+        }
+    };
 
-        info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(0))); // hide cursor
+    let cursor_node_id = match info.get_first_child(info.get_hit_node()).and_then(|f| info.get_first_child(f)) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
 
-        /*
-        info.set_css_property(cursor_node_id, CssProperty::Transform(StyleTransformVecValue::from_vec(vec![
-            StyleTransform::Translate(StyleTransformTranslate2D {
-                x
-            })
-        ])));
-        */
+    info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(0))); // hide cursor
 
-        result
-    }
+    /*
+    info.set_css_property(cursor_node_id, CssProperty::Transform(StyleTransformVecValue::from_vec(vec![
+        StyleTransform::Translate(StyleTransformTranslate2D {
+            x
+        })
+    ])));
+    */
+
+    result
 }
 
 impl From<TextInput> for Dom {

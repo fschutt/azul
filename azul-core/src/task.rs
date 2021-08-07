@@ -648,7 +648,7 @@ impl Timer {
 
         let run_count = self.run_count;
         let is_about_to_finish = self.is_about_to_finish(&instant_now);
-        let timer_callback_info = TimerCallbackInfo {
+        let mut timer_callback_info = TimerCallbackInfo {
             callback_info,
             node_id: self.node_id,
             frame_start,
@@ -657,7 +657,7 @@ impl Timer {
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         };
-        let mut res = (self.callback.cb)(data, &mut self.data, timer_callback_info);
+        let mut res = (self.callback.cb)(data, &mut self.data, &mut timer_callback_info);
 
         // Check if the timers timeout is reached
         if is_about_to_finish {

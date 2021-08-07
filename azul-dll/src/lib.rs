@@ -328,12 +328,12 @@ pub type AzMarshaledLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRef
 pub type AzLayoutCallbackInnerTT = azul_impl::callbacks::LayoutCallbackInner;
 pub use AzLayoutCallbackInnerTT as AzLayoutCallbackInner;
 
-pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzLayoutCallbackInfo) -> AzStyledDom;
 /// C-ABI stable wrapper over a `CallbackType`
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
 
-pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
+pub type AzCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
 pub type AzCallbackInfoTT = azul_impl::callbacks::CallbackInfo;
 pub use AzCallbackInfoTT as AzCallbackInfo;
@@ -540,7 +540,7 @@ pub use AzAnimationEasingTT as AzAnimationEasing;
 pub type AzIFrameCallbackTT = azul_impl::callbacks::IFrameCallback;
 pub use AzIFrameCallbackTT as AzIFrameCallback;
 
-pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
+pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, &mut AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
@@ -555,7 +555,7 @@ pub use AzIFrameCallbackReturnTT as AzIFrameCallbackReturn;
 pub type AzRenderImageCallbackTT = azul_impl::callbacks::RenderImageCallback;
 pub use AzRenderImageCallbackTT as AzRenderImageCallback;
 
-pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageCallbackInfo) -> AzImageRef;
+pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRenderImageCallbackInfo) -> AzImageRef;
 /// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
 pub type AzRenderImageCallbackInfoTT = azul_impl::callbacks::RenderImageCallbackInfo;
 pub use AzRenderImageCallbackInfoTT as AzRenderImageCallbackInfo;
@@ -586,7 +586,7 @@ pub use AzRenderImageCallbackInfoTT as AzRenderImageCallbackInfo;
 pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
 pub use AzTimerCallbackTT as AzTimerCallback;
 
-pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
 pub type AzTimerCallbackInfoTT = azul_impl::callbacks::TimerCallbackInfo;
 pub use AzTimerCallbackInfoTT as AzTimerCallbackInfo;
@@ -597,7 +597,7 @@ pub use AzTimerCallbackInfoTT as AzTimerCallbackInfo;
 pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
 pub use AzTimerCallbackReturnTT as AzTimerCallbackReturn;
 
-pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdate;
+pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
 pub type AzWriteBackCallbackTT = azul_impl::callbacks::WriteBackCallback;
 pub use AzWriteBackCallbackTT as AzWriteBackCallback;
@@ -1810,7 +1810,7 @@ pub use AzCheckBoxOnToggleTT as AzCheckBoxOnToggle;
 pub type AzCheckBoxOnToggleCallbackTT = crate::widgets::check_box::CheckBoxOnToggleCallback;
 pub use AzCheckBoxOnToggleCallbackTT as AzCheckBoxOnToggleCallback;
 
-pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo) -> AzUpdate;
+pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzCheckBoxState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
 pub type AzCheckBoxStateTT = crate::widgets::check_box::CheckBoxState;
 pub use AzCheckBoxStateTT as AzCheckBoxState;
@@ -1861,7 +1861,7 @@ pub use AzColorInputOnValueChangeTT as AzColorInputOnValueChange;
 pub type AzColorInputOnValueChangeCallbackTT = crate::widgets::color_input::ColorInputOnValueChangeCallback;
 pub use AzColorInputOnValueChangeCallbackTT as AzColorInputOnValueChangeCallback;
 
-pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzColorInputState, &mut AzCallbackInfo) -> AzUpdate;
+pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzColorInputState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `TextInput` struct
 pub type AzTextInputTT = crate::widgets::text_input::TextInput;
 pub use AzTextInputTT as AzTextInput;
@@ -1929,7 +1929,7 @@ pub use AzTextInputOnTextInputTT as AzTextInputOnTextInput;
 pub type AzTextInputOnTextInputCallbackTT = crate::widgets::text_input::TextInputOnTextInputCallback;
 pub use AzTextInputOnTextInputCallbackTT as AzTextInputOnTextInputCallback;
 
-pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTextInputState) -> AzOnTextInputReturn;
 /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDown` struct
 pub type AzTextInputOnVirtualKeyDownTT = crate::widgets::text_input::TextInputOnVirtualKeyDown;
 pub use AzTextInputOnVirtualKeyDownTT as AzTextInputOnVirtualKeyDown;
@@ -1940,7 +1940,7 @@ pub use AzTextInputOnVirtualKeyDownTT as AzTextInputOnVirtualKeyDown;
 pub type AzTextInputOnVirtualKeyDownCallbackTT = crate::widgets::text_input::TextInputOnVirtualKeyDownCallback;
 pub use AzTextInputOnVirtualKeyDownCallbackTT as AzTextInputOnVirtualKeyDownCallback;
 
-pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTextInputState) -> AzOnTextInputReturn;
 /// Re-export of rust-allocated (stack based) `TextInputOnFocusLost` struct
 pub type AzTextInputOnFocusLostTT = crate::widgets::text_input::TextInputOnFocusLost;
 pub use AzTextInputOnFocusLostTT as AzTextInputOnFocusLost;
@@ -1951,7 +1951,7 @@ pub use AzTextInputOnFocusLostTT as AzTextInputOnFocusLost;
 pub type AzTextInputOnFocusLostCallbackTT = crate::widgets::text_input::TextInputOnFocusLostCallback;
 pub use AzTextInputOnFocusLostCallbackTT as AzTextInputOnFocusLostCallback;
 
-pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzUpdate;
+pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTextInputState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `OnTextInputReturn` struct
 pub type AzOnTextInputReturnTT = crate::widgets::text_input::OnTextInputReturn;
 pub use AzOnTextInputReturnTT as AzOnTextInputReturn;
@@ -2019,7 +2019,7 @@ pub use AzNumberInputOnValueChangeTT as AzNumberInputOnValueChange;
 pub type AzNumberInputOnValueChangeCallbackTT = crate::widgets::number_input::NumberInputOnValueChangeCallback;
 pub use AzNumberInputOnValueChangeCallbackTT as AzNumberInputOnValueChangeCallback;
 
-pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzNumberInputState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLost` struct
 pub type AzNumberInputOnFocusLostTT = crate::widgets::number_input::NumberInputOnFocusLost;
 pub use AzNumberInputOnFocusLostTT as AzNumberInputOnFocusLost;
@@ -2030,7 +2030,7 @@ pub use AzNumberInputOnFocusLostTT as AzNumberInputOnFocusLost;
 pub type AzNumberInputOnFocusLostCallbackTT = crate::widgets::number_input::NumberInputOnFocusLostCallback;
 pub use AzNumberInputOnFocusLostCallbackTT as AzNumberInputOnFocusLostCallback;
 
-pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzNumberInputState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `ProgressBar` struct
 pub type AzProgressBarTT = crate::widgets::progressbar::ProgressBar;
 pub use AzProgressBarTT as AzProgressBar;
@@ -4996,7 +4996,7 @@ mod test_sizes {
     }
 
     /// `AzLayoutCallbackType` struct
-    pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, AzLayoutCallbackInfo) -> AzStyledDom;
+    pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzLayoutCallbackInfo) -> AzStyledDom;
 
     /// C-ABI stable wrapper over a `CallbackType`
     #[repr(C)]
@@ -5005,7 +5005,7 @@ mod test_sizes {
     }
 
     /// `AzCallbackType` struct
-    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, AzCallbackInfo) -> AzUpdate;
+    pub type AzCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
     #[repr(C)]
@@ -5065,7 +5065,7 @@ mod test_sizes {
     }
 
     /// `AzIFrameCallbackType` struct
-    pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
+    pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, &mut AzIFrameCallbackInfo) -> AzIFrameCallbackReturn;
 
     /// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
     #[repr(C)]
@@ -5074,7 +5074,7 @@ mod test_sizes {
     }
 
     /// `AzRenderImageCallbackType` struct
-    pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, AzRenderImageCallbackInfo) -> AzImageRef;
+    pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRenderImageCallbackInfo) -> AzImageRef;
 
     /// Re-export of rust-allocated (stack based) `TimerCallback` struct
     #[repr(C)]
@@ -5083,10 +5083,10 @@ mod test_sizes {
     }
 
     /// `AzTimerCallbackType` struct
-    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
     /// `AzWriteBackCallbackType` struct
-    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdate;
+    pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
     #[repr(C)]
@@ -5710,7 +5710,7 @@ mod test_sizes {
     }
 
     /// `AzCheckBoxOnToggleCallbackType` struct
-    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &AzCheckBoxState, &mut AzCallbackInfo) -> AzUpdate;
+    pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzCheckBoxState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
     #[repr(C)]
@@ -5725,7 +5725,7 @@ mod test_sizes {
     }
 
     /// `AzColorInputOnValueChangeCallbackType` struct
-    pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzColorInputState, &mut AzCallbackInfo) -> AzUpdate;
+    pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzColorInputState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `TextInputSelectionRange` struct
     #[repr(C)]
@@ -5741,7 +5741,7 @@ mod test_sizes {
     }
 
     /// `AzTextInputOnTextInputCallbackType` struct
-    pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+    pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTextInputState) -> AzOnTextInputReturn;
 
     /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDownCallback` struct
     #[repr(C)]
@@ -5750,7 +5750,7 @@ mod test_sizes {
     }
 
     /// `AzTextInputOnVirtualKeyDownCallbackType` struct
-    pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzOnTextInputReturn;
+    pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTextInputState) -> AzOnTextInputReturn;
 
     /// Re-export of rust-allocated (stack based) `TextInputOnFocusLostCallback` struct
     #[repr(C)]
@@ -5759,7 +5759,7 @@ mod test_sizes {
     }
 
     /// `AzTextInputOnFocusLostCallbackType` struct
-    pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzTextInputState, &mut AzCallbackInfo) -> AzUpdate;
+    pub type AzTextInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTextInputState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `TextInputValid` struct
     #[repr(C)]
@@ -5784,7 +5784,7 @@ mod test_sizes {
     }
 
     /// `AzNumberInputOnValueChangeCallbackType` struct
-    pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+    pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzNumberInputState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLostCallback` struct
     #[repr(C)]
@@ -5793,7 +5793,7 @@ mod test_sizes {
     }
 
     /// `AzNumberInputOnFocusLostCallbackType` struct
-    pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &AzNumberInputState, &mut AzCallbackInfo) -> AzUpdate;
+    pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzNumberInputState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `ProgressBarState` struct
     #[repr(C)]

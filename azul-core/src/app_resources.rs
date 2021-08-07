@@ -233,8 +233,8 @@ impl FontInstanceKey {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ImageCallback {
-    pub callback: RenderImageCallback,
     pub data: RefAny,
+    pub callback: RenderImageCallback,
 }
 
 // NOTE: This type should NOT be exposed in the API!

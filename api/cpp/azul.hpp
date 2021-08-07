@@ -11,25 +11,25 @@ namespace dll {
     struct StyledDom;
     using MarshaledLayoutCallbackType = StyledDom(*)(RefAny* restrict, RefAny* restrict, LayoutCallbackInfo);
     
-    using LayoutCallbackType = StyledDom(*)(RefAny* restrict, LayoutCallbackInfo);
+    using LayoutCallbackType = StyledDom(*)(RefAny* restrict, LayoutCallbackInfo* restrict);
     
     struct CallbackInfo;
     enum Update;
-    using CallbackType = Update(*)(RefAny* restrict, CallbackInfo);
+    using CallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict);
     
     struct IFrameCallbackInfo;
     struct IFrameCallbackReturn;
-    using IFrameCallbackType = IFrameCallbackReturn(*)(RefAny* restrict, IFrameCallbackInfo);
+    using IFrameCallbackType = IFrameCallbackReturn(*)(RefAny* restrict, IFrameCallbackInfo* restrict);
     
     struct RenderImageCallbackInfo;
     struct ImageRef;
-    using RenderImageCallbackType = ImageRef(*)(RefAny* restrict, RenderImageCallbackInfo);
+    using RenderImageCallbackType = ImageRef(*)(RefAny* restrict, RenderImageCallbackInfo* restrict);
     
     struct TimerCallbackInfo;
     struct TimerCallbackReturn;
-    using TimerCallbackType = TimerCallbackReturn(*)(RefAny* restrict, RefAny* restrict, TimerCallbackInfo);
+    using TimerCallbackType = TimerCallbackReturn(*)(RefAny* restrict, RefAny* restrict, TimerCallbackInfo* restrict);
     
-    using WriteBackCallbackType = Update(*)(RefAny* restrict, RefAny, CallbackInfo);
+    using WriteBackCallbackType = Update(*)(RefAny* restrict, RefAny* restrict, CallbackInfo* restrict);
     
     struct ThreadSender;
     struct ThreadReceiver;
@@ -38,23 +38,23 @@ namespace dll {
     using RefAnyDestructorType = void(*)(void* restrict);
     
     struct CheckBoxState;
-    using CheckBoxOnToggleCallbackType = Update(*)(RefAny* restrict, CheckBoxState* const, CallbackInfo* restrict);
+    using CheckBoxOnToggleCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, CheckBoxState* const);
     
     struct ColorInputState;
-    using ColorInputOnValueChangeCallbackType = Update(*)(RefAny* restrict, ColorInputState* const, CallbackInfo* restrict);
+    using ColorInputOnValueChangeCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, ColorInputState* const);
     
     struct TextInputState;
     struct OnTextInputReturn;
-    using TextInputOnTextInputCallbackType = OnTextInputReturn(*)(RefAny* restrict, TextInputState* const, CallbackInfo* restrict);
+    using TextInputOnTextInputCallbackType = OnTextInputReturn(*)(RefAny* restrict, CallbackInfo* restrict, TextInputState* const);
     
-    using TextInputOnVirtualKeyDownCallbackType = OnTextInputReturn(*)(RefAny* restrict, TextInputState* const, CallbackInfo* restrict);
+    using TextInputOnVirtualKeyDownCallbackType = OnTextInputReturn(*)(RefAny* restrict, CallbackInfo* restrict, TextInputState* const);
     
-    using TextInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, TextInputState* const, CallbackInfo* restrict);
+    using TextInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, TextInputState* const);
     
     struct NumberInputState;
-    using NumberInputOnValueChangeCallbackType = Update(*)(RefAny* restrict, NumberInputState* const, CallbackInfo* restrict);
+    using NumberInputOnValueChangeCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NumberInputState* const);
     
-    using NumberInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, NumberInputState* const, CallbackInfo* restrict);
+    using NumberInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NumberInputState* const);
     
     using ParsedFontDestructorFnType = void(*)(void* restrict);
     

@@ -6,11 +6,9 @@ use azul_desktop::{
         NodeDataInlineCssProperty, NodeDataInlineCssProperty::{Normal, Active, Hover, Focus},
     },
     resources::{ImageRef, OptionImageRef},
-    callbacks::{CallbackType, Callback, RefAny},
+    callbacks::{RefAny, Update, CallbackInfo},
 };
 use std::vec::Vec;
-
-pub type OnClickFn = CallbackType;
 
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -29,14 +27,8 @@ pub struct Button {
     pub on_click: OptionButtonOnClick,
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct ButtonOnClick {
-    pub data: RefAny,
-    pub callback: Callback,
-}
-
-impl_option!(ButtonOnClick, OptionButtonOnClick, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+pub type ButtonOnClickCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo) -> Update;
+impl_callback!(ButtonOnClick, OptionButtonOnClick, ButtonOnClickCallback, ButtonOnClickCallbackType);
 
 const SANS_SERIF_STR: &str = "sans-serif";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
@@ -288,10 +280,10 @@ impl Button {
     }
 
     #[inline]
-    pub fn set_on_click(&mut self, data: RefAny, on_click: OnClickFn) {
+    pub fn set_on_click(&mut self, data: RefAny, on_click: ButtonOnClickCallbackType) {
         self.on_click = Some(ButtonOnClick {
             data,
-            callback: Callback { cb: on_click },
+            callback: ButtonOnClickCallback { cb: on_click },
         }).into();
     }
 
@@ -302,12 +294,13 @@ impl Button {
             EventFilter, HoverEventFilter,
             CallbackData,
         };
+        use azul_desktop::callbacks::Callback;
 
         let callbacks = match self.on_click.into_option() {
             Some(ButtonOnClick { data, callback }) => vec![
                 CallbackData {
                     event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback,
+                    callback: Callback { cb: callback.cb },
                     data,
                 }
             ],

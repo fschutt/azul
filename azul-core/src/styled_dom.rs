@@ -2325,7 +2325,7 @@ pub struct DefaultScrollCallbackData {
 pub struct DefaultTabIndexCallbackData { }
 
 /// Default On::TabIndex event handler
-extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> Update {
+extern "C" fn default_on_tabindex(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let mut data = match data.downcast_mut::<DefaultTabIndexCallbackData>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2335,7 +2335,7 @@ extern "C" fn default_on_tabindex(data: &mut RefAny, info: CallbackInfo) -> Upda
 }
 
 /// Default On::Scroll event handler
-extern "C" fn default_on_scroll(data: &mut RefAny, mut info: CallbackInfo) -> Update {
+extern "C" fn default_on_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
     let mut data = match data.downcast_mut::<DefaultScrollCallbackData>() {
         Some(s) => s,

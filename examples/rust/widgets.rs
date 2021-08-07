@@ -37,7 +37,7 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
                         .with_on_click(data.clone(), enable_disable_padding)
                         .dom(),
                         CheckBox::new(false).dom(),
-                        ProgressBar::new(50.0).dom(),
+                        ProgressBar::new(20.0).dom(),
                         ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
                         TextInput::new("Input text...".into()).dom(),
                         NumberInput::new(5.0).dom(),

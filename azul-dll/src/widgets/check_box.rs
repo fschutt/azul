@@ -12,14 +12,8 @@ use azul_desktop::{
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-container"))];
 static CHECKBOX_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-checkbox-content"))];
 
-pub type CheckBoxOnToggleCallbackType = extern "C" fn(&mut RefAny, &CheckBoxState, &mut CallbackInfo) -> Update;
-
-#[repr(C)]
-pub struct CheckBoxOnToggleCallback {
-    pub cb: CheckBoxOnToggleCallbackType,
-}
-
-impl_callback!(CheckBoxOnToggleCallback);
+pub type CheckBoxOnToggleCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &CheckBoxState) -> Update;
+impl_callback!(CheckBoxOnToggle, OptionCheckBoxOnToggle, CheckBoxOnToggleCallback, CheckBoxOnToggleCallbackType);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -39,15 +33,6 @@ pub struct CheckBoxStateWrapper {
     /// Optional: Function to call when the CheckBox is toggled
     pub on_toggle: OptionCheckBoxOnToggle,
 }
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct CheckBoxOnToggle {
-    pub data: RefAny,
-    pub callback: CheckBoxOnToggleCallback,
-}
-
-impl_option!(CheckBoxOnToggle, OptionCheckBoxOnToggle, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Default, Clone, PartialEq)]
 #[repr(C)]
@@ -183,7 +168,7 @@ mod input {
     use azul_desktop::css::{CssProperty, StyleOpacity};
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};
 
-    pub(in super) extern "C" fn default_on_checkbox_clicked(check_box: &mut RefAny, mut info: CallbackInfo) -> Update {
+    pub(in super) extern "C" fn default_on_checkbox_clicked(check_box: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
         let mut check_box = match check_box.downcast_mut::<CheckBoxStateWrapper>() {
             Some(s) => s,
@@ -204,7 +189,7 @@ mod input {
             let inner = &check_box.inner;
 
             match ontoggle.as_mut() {
-                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(data, &inner, &mut info),
+                Some(CheckBoxOnToggle { callback, data }) => (callback.cb)(data, info, &inner),
                 None => Update::DoNothing,
             }
         };

@@ -640,7 +640,7 @@ impl GlTextureCache {
                     // has access to information about the text layout, which is used to render
                     // the "text selection" highlight (the text selection is nothing but an image
                     // or an image mask).
-                    let gl_callback_info = RenderImageCallbackInfo::new(
+                    let mut gl_callback_info = RenderImageCallbackInfo::new(
                         /*gl_context:*/ &gl_context,
                         /*image_cache:*/ image_cache,
                         /*system_fonts:*/ system_fonts,
@@ -661,7 +661,7 @@ impl GlTextureCache {
                                 img
                                 .get_image_callback_mut()
                                 .map(|gl_texture_callback| {
-                                    (gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, gl_callback_info)
+                                    (gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, &mut gl_callback_info)
                                 })
                             },
                             _ => None,
