@@ -37,6 +37,13 @@ impl MyNodeGraph {
             outputs: vec![InputOutputTypeId { inner: 0 }, InputOutputTypeId { inner: 1 }].into(),
         });
 
+        map.insert(NodeTypeId { inner: 1 }, NodeTypeInfo {
+            is_root: false,
+            name: "My Custom Node Type 2!".into(),
+            inputs: vec![InputOutputTypeId { inner: 0 }, InputOutputTypeId { inner: 1 }].into(),
+            outputs: vec![InputOutputTypeId { inner: 0 }, InputOutputTypeId { inner: 1 }].into(),
+        });
+
         map
     }
 
@@ -67,40 +74,67 @@ struct MyNode {
 
 // Custom node type
 enum MyNodeType {
-    MyTypeVariant {
-        field1: String,
-        field2: String,
+    MyTypeVariant1 {
+        textfield1: String,
+        color1: ColorU,
     },
+    MyTypeVariant2 {
+        checkbox1: bool,
+        numberinput1: f32,
+        textfield2: String,
+    }
 }
 
 impl MyNodeType {
 
     pub fn get_ids_and_classes(&self) -> NodeTypeId {
         match self {
-            Self::MyTypeVariant { .. } => NodeTypeId { inner: 0 },
+            Self::MyTypeVariant1 { .. } => NodeTypeId { inner: 0 },
+            Self::MyTypeVariant2 { .. } => NodeTypeId { inner: 1 },
         }
     }
 
     pub fn create_default(type_id: NodeTypeId) -> Self {
         match type_id.inner {
-            _ => Self::MyTypeVariant {
-                field1: String::new(),
-                field2: String::new(),
+            0 => Self::MyTypeVariant1 {
+                textfield1: String::new(),
+                color1: ColorU { r: 0, g: 200, b: 0, a: 255 },
+            },
+            _ => Self::MyTypeVariant2 {
+                checkbox1: false,
+                numberinput1: 0.0,
+                textfield2: String::new(),
             }
         }
     }
 
     pub fn get_fields(&self) -> Vec<NodeTypeField> {
         match self {
-            Self::MyTypeVariant { field1, field2 } => {
+            Self::MyTypeVariant1 { textfield1, color1 } => {
                 vec![
                     NodeTypeField {
-                        key: "Field 1".into(),
-                        value: NodeTypeFieldValue::TextInput(field1.clone().into()),
+                        key: "Text 1".into(),
+                        value: NodeTypeFieldValue::TextInput(textfield1.clone().into()),
                     },
                     NodeTypeField {
-                        key: "Field 2".into(),
-                        value: NodeTypeFieldValue::TextInput(field2.clone().into()),
+                        key: "Color".into(),
+                        value: NodeTypeFieldValue::ColorInput(color1.clone().into()),
+                    }
+                ]
+            },
+            Self::MyTypeVariant2 { checkbox1, numberinput1, textfield2 } => {
+                vec![
+                    NodeTypeField {
+                        key: "Check".into(),
+                        value: NodeTypeFieldValue::CheckBox(*checkbox1),
+                    },
+                    NodeTypeField {
+                        key: "Number".into(),
+                        value: NodeTypeFieldValue::NumberInput(*numberinput1),
+                    },
+                    NodeTypeField {
+                        key: "Text 2".into(),
+                        value: NodeTypeFieldValue::TextInput(textfield2.clone().into()),
                     }
                 ]
             }
@@ -114,17 +148,24 @@ impl MyNodeType {
         new_value: NodeTypeFieldValue
     ) {
         use self::MyNodeType::*;
-        match (self, node_type) {
-            (MyTypeVariant { field1, field2 }, NodeTypeId { inner: 0 }) => {
+        match (node_type.inner, self) {
+            (0, MyTypeVariant1 { textfield1, color1 }) => {
                 match (field_idx, new_value) {
-                    (0, NodeTypeFieldValue::TextInput(s)) => *field1 = s.as_str().into(),
-                    (1, NodeTypeFieldValue::TextInput(s)) => *field2 = s.as_str().into(),
+                    (0, NodeTypeFieldValue::TextInput(s)) => *textfield1 = s.as_str().into(),
+                    (1, NodeTypeFieldValue::ColorInput(s)) => *color1 = s,
                     _ => { },
                 }
             },
-            _ => { }
+            (1, MyTypeVariant2 { checkbox1, numberinput1, textfield2 }) => {
+                match (field_idx, new_value) {
+                    (0, NodeTypeFieldValue::CheckBox(s)) => *checkbox1 = s,
+                    (1, NodeTypeFieldValue::NumberInput(s)) => *numberinput1 = s,
+                    (2, NodeTypeFieldValue::TextInput(s)) => *textfield2 = s.as_str().into(),
+                    _ => { },
+                }
+            },
+            _ => { },
         }
-
     }
 }
 
@@ -369,7 +410,7 @@ fn userfunc_on_node_field_edited(
 extern "C" fn layout_window(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     let data_clone = data.clone();
     match data.downcast_ref::<MyNodeGraph>() {
-        Some(s) => translate_node_graph(graph, data.clone()).dom().style(Css::empty()),
+        Some(s) => translate_node_graph(&*s, data_clone).dom().style(Css::empty()),
         None => StyledDom::default(),
     }
 }
@@ -377,5 +418,7 @@ extern "C" fn layout_window(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> St
 fn main() {
     let data = RefAny::new(MyNodeGraph::default());
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
-    app.run(WindowCreateOptions::new(layout_window));
+    let mut window = WindowCreateOptions::new(layout_window);
+    window.state.flags.frame = WindowFrame::Maximized;
+    app.run(window);
 }
