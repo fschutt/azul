@@ -718,7 +718,6 @@ impl PyGCProtocol for AzNodeData {
 }
 /// Main application class
 #[repr(C)]
-#[pyclass(name = "App")]
 pub struct AzApp {
     pub ptr: *const c_void,
 }
@@ -766,27 +765,20 @@ pub enum AzHwAcceleration {
 
 /// Offset in physical pixels (integer units)
 #[repr(C)]
-#[pyclass(name = "LayoutPoint")]
 pub struct AzLayoutPoint {
-    #[pyo3(get, set)]
     pub x: isize,
-    #[pyo3(get, set)]
     pub y: isize,
 }
 
 /// Size in physical pixels (integer units)
 #[repr(C)]
-#[pyclass(name = "LayoutSize")]
 pub struct AzLayoutSize {
-    #[pyo3(get, set)]
     pub width: isize,
-    #[pyo3(get, set)]
     pub height: isize,
 }
 
 /// Re-export of rust-allocated (stack based) `IOSHandle` struct
 #[repr(C)]
-#[pyclass(name = "IOSHandle")]
 pub struct AzIOSHandle {
     pub ui_window: *mut c_void,
     pub ui_view: *mut c_void,
@@ -795,7 +787,6 @@ pub struct AzIOSHandle {
 
 /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
 #[repr(C)]
-#[pyclass(name = "MacOSHandle")]
 pub struct AzMacOSHandle {
     pub ns_window: *mut c_void,
     pub ns_view: *mut c_void,
@@ -803,25 +794,20 @@ pub struct AzMacOSHandle {
 
 /// Re-export of rust-allocated (stack based) `XlibHandle` struct
 #[repr(C)]
-#[pyclass(name = "XlibHandle")]
 pub struct AzXlibHandle {
-    #[pyo3(get, set)]
     pub window: u64,
     pub display: *mut c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `XcbHandle` struct
 #[repr(C)]
-#[pyclass(name = "XcbHandle")]
 pub struct AzXcbHandle {
-    #[pyo3(get, set)]
     pub window: u32,
     pub connection: *mut c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
 #[repr(C)]
-#[pyclass(name = "WaylandHandle")]
 pub struct AzWaylandHandle {
     pub surface: *mut c_void,
     pub display: *mut c_void,
@@ -829,7 +815,6 @@ pub struct AzWaylandHandle {
 
 /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
 #[repr(C)]
-#[pyclass(name = "WindowsHandle")]
 pub struct AzWindowsHandle {
     pub hwnd: *mut c_void,
     pub hinstance: *mut c_void,
@@ -837,15 +822,12 @@ pub struct AzWindowsHandle {
 
 /// Re-export of rust-allocated (stack based) `WebHandle` struct
 #[repr(C)]
-#[pyclass(name = "WebHandle")]
 pub struct AzWebHandle {
-    #[pyo3(get, set)]
     pub id: u32,
 }
 
 /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
 #[repr(C)]
-#[pyclass(name = "AndroidHandle")]
 pub struct AzAndroidHandle {
     pub a_native_window: *mut c_void,
 }
@@ -871,49 +853,35 @@ pub enum AzXWindowType {
 
 /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
 #[repr(C)]
-#[pyclass(name = "PhysicalPositionI32")]
 pub struct AzPhysicalPositionI32 {
-    #[pyo3(get, set)]
     pub x: i32,
-    #[pyo3(get, set)]
     pub y: i32,
 }
 
 /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
 #[repr(C)]
-#[pyclass(name = "PhysicalSizeU32")]
 pub struct AzPhysicalSizeU32 {
-    #[pyo3(get, set)]
     pub width: u32,
-    #[pyo3(get, set)]
     pub height: u32,
 }
 
 /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
 #[repr(C)]
-#[pyclass(name = "LogicalPosition")]
 pub struct AzLogicalPosition {
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
 }
 
 /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
 #[repr(C)]
-#[pyclass(name = "LogicalSize")]
 pub struct AzLogicalSize {
-    #[pyo3(get, set)]
     pub width: f32,
-    #[pyo3(get, set)]
     pub height: f32,
 }
 
 /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
 #[repr(C)]
-#[pyclass(name = "IconKey")]
 pub struct AzIconKey {
-    #[pyo3(get, set)]
     pub id: usize,
 }
 
@@ -1096,61 +1064,33 @@ pub enum AzWindowFrame {
 
 /// Debugging information, will be rendered as an overlay on top of the UI
 #[repr(C)]
-#[pyclass(name = "DebugState")]
 pub struct AzDebugState {
-    #[pyo3(get, set)]
     pub profiler_dbg: bool,
-    #[pyo3(get, set)]
     pub render_target_dbg: bool,
-    #[pyo3(get, set)]
     pub texture_cache_dbg: bool,
-    #[pyo3(get, set)]
     pub gpu_time_queries: bool,
-    #[pyo3(get, set)]
     pub gpu_sample_queries: bool,
-    #[pyo3(get, set)]
     pub disable_batching: bool,
-    #[pyo3(get, set)]
     pub epochs: bool,
-    #[pyo3(get, set)]
     pub echo_driver_messages: bool,
-    #[pyo3(get, set)]
     pub show_overdraw: bool,
-    #[pyo3(get, set)]
     pub gpu_cache_dbg: bool,
-    #[pyo3(get, set)]
     pub texture_cache_dbg_clear_evicted: bool,
-    #[pyo3(get, set)]
     pub picture_caching_dbg: bool,
-    #[pyo3(get, set)]
     pub primitive_dbg: bool,
-    #[pyo3(get, set)]
     pub zoom_dbg: bool,
-    #[pyo3(get, set)]
     pub small_screen: bool,
-    #[pyo3(get, set)]
     pub disable_opaque_pass: bool,
-    #[pyo3(get, set)]
     pub disable_alpha_pass: bool,
-    #[pyo3(get, set)]
     pub disable_clip_masks: bool,
-    #[pyo3(get, set)]
     pub disable_text_prims: bool,
-    #[pyo3(get, set)]
     pub disable_gradient_prims: bool,
-    #[pyo3(get, set)]
     pub obscure_images: bool,
-    #[pyo3(get, set)]
     pub glyph_flashing: bool,
-    #[pyo3(get, set)]
     pub smart_profiler: bool,
-    #[pyo3(get, set)]
     pub invalidation_dbg: bool,
-    #[pyo3(get, set)]
     pub tile_cache_logging_dbg: bool,
-    #[pyo3(get, set)]
     pub profiler_capture: bool,
-    #[pyo3(get, set)]
     pub force_picture_invalidation: bool,
 }
 
@@ -1203,17 +1143,13 @@ pub enum AzRendererType {
 
 /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
 #[repr(C)]
-#[pyclass(name = "MacWindowOptions")]
 pub struct AzMacWindowOptions {
-    #[pyo3(get, set)]
     pub _reserved: u8,
 }
 
 /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
 #[repr(C)]
-#[pyclass(name = "WasmWindowOptions")]
 pub struct AzWasmWindowOptions {
-    #[pyo3(get, set)]
     pub _reserved: u8,
 }
 
@@ -1235,15 +1171,12 @@ pub enum AzWindowTheme {
 
 /// Current state of touch devices / touch inputs
 #[repr(C)]
-#[pyclass(name = "TouchState")]
 pub struct AzTouchState {
-    #[pyo3(get, set)]
     pub unused: u8,
 }
 
 /// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
 #[repr(C)]
-#[pyclass(name = "MarshaledLayoutCallbackInner")]
 pub struct AzMarshaledLayoutCallbackInner {
     pub cb: AzMarshaledLayoutCallbackType,
 }
@@ -1253,7 +1186,6 @@ pub type AzMarshaledLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRef
 
 /// C-ABI stable wrapper over a `LayoutCallbackType`
 #[repr(C)]
-#[pyclass(name = "LayoutCallbackInner")]
 pub struct AzLayoutCallbackInner {
     pub cb: AzLayoutCallbackType,
 }
@@ -1263,7 +1195,6 @@ pub type AzLayoutCallbackType = extern "C" fn(&mut AzRefAny, &mut AzLayoutCallba
 
 /// C-ABI stable wrapper over a `CallbackType`
 #[repr(C)]
-#[pyclass(name = "Callback")]
 pub struct AzCallback {
     pub cb: AzCallbackType,
 }
@@ -1288,31 +1219,22 @@ pub enum AzUpdate {
 
 /// Index of a Node in the internal `NodeDataContainer`
 #[repr(C)]
-#[pyclass(name = "NodeId")]
 pub struct AzNodeId {
-    #[pyo3(get, set)]
     pub inner: usize,
 }
 
 /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
 #[repr(C)]
-#[pyclass(name = "DomId")]
 pub struct AzDomId {
-    #[pyo3(get, set)]
     pub inner: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `PositionInfoInner` struct
 #[repr(C)]
-#[pyclass(name = "PositionInfoInner")]
 pub struct AzPositionInfoInner {
-    #[pyo3(get, set)]
     pub x_offset: f32,
-    #[pyo3(get, set)]
     pub y_offset: f32,
-    #[pyo3(get, set)]
     pub static_x_offset: f32,
-    #[pyo3(get, set)]
     pub static_y_offset: f32,
 }
 
@@ -1333,7 +1255,6 @@ pub enum AzAnimationRepeatCount {
 
 /// C-ABI wrapper over an `IFrameCallbackType`
 #[repr(C)]
-#[pyclass(name = "IFrameCallback")]
 pub struct AzIFrameCallback {
     pub cb: AzIFrameCallbackType,
 }
@@ -1343,7 +1264,6 @@ pub type AzIFrameCallbackType = extern "C" fn(&mut AzRefAny, &mut AzIFrameCallba
 
 /// Re-export of rust-allocated (stack based) `RenderImageCallback` struct
 #[repr(C)]
-#[pyclass(name = "RenderImageCallback")]
 pub struct AzRenderImageCallback {
     pub cb: AzRenderImageCallbackType,
 }
@@ -1353,7 +1273,6 @@ pub type AzRenderImageCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRenderI
 
 /// Re-export of rust-allocated (stack based) `TimerCallback` struct
 #[repr(C)]
-#[pyclass(name = "TimerCallback")]
 pub struct AzTimerCallback {
     pub cb: AzTimerCallbackType,
 }
@@ -1366,14 +1285,12 @@ pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &
 
 /// Re-export of rust-allocated (stack based) `WriteBackCallback` struct
 #[repr(C)]
-#[pyclass(name = "WriteBackCallback")]
 pub struct AzWriteBackCallback {
     pub cb: AzWriteBackCallbackType,
 }
 
 /// Re-export of rust-allocated (stack based) `ThreadCallback` struct
 #[repr(C)]
-#[pyclass(name = "ThreadCallback")]
 pub struct AzThreadCallback {
     pub cb: AzThreadCallbackType,
 }
@@ -1386,7 +1303,6 @@ pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
 
 /// Re-export of rust-allocated (stack based) `RefCount` struct
 #[repr(C)]
-#[pyclass(name = "RefCount")]
 pub struct AzRefCount {
     pub ptr: *const c_void,
 }
@@ -1663,11 +1579,8 @@ pub enum AzNodeTypeKey {
 
 /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
 #[repr(C)]
-#[pyclass(name = "CssNthChildPattern")]
 pub struct AzCssNthChildPattern {
-    #[pyo3(get, set)]
     pub repeat: u32,
-    #[pyo3(get, set)]
     pub offset: u32,
 }
 
@@ -1748,15 +1661,10 @@ pub enum AzCssPropertyType {
 
 /// Re-export of rust-allocated (stack based) `ColorU` struct
 #[repr(C)]
-#[pyclass(name = "ColorU")]
 pub struct AzColorU {
-    #[pyo3(get, set)]
     pub r: u8,
-    #[pyo3(get, set)]
     pub g: u8,
-    #[pyo3(get, set)]
     pub b: u8,
-    #[pyo3(get, set)]
     pub a: u8,
 }
 
@@ -1771,9 +1679,7 @@ pub enum AzSizeMetric {
 
 /// Re-export of rust-allocated (stack based) `FloatValue` struct
 #[repr(C)]
-#[pyclass(name = "FloatValue")]
 pub struct AzFloatValue {
-    #[pyo3(get, set)]
     pub number: isize,
 }
 
@@ -1994,7 +1900,6 @@ pub enum AzStyleTextAlign {
 
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
 #[repr(C)]
-#[pyclass(name = "CheckBoxOnToggleCallback")]
 pub struct AzCheckBoxOnToggleCallback {
     pub cb: AzCheckBoxOnToggleCallbackType,
 }
@@ -2004,15 +1909,12 @@ pub type AzCheckBoxOnToggleCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCa
 
 /// Re-export of rust-allocated (stack based) `CheckBoxState` struct
 #[repr(C)]
-#[pyclass(name = "CheckBoxState")]
 pub struct AzCheckBoxState {
-    #[pyo3(get, set)]
     pub checked: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `ColorInputOnValueChangeCallback` struct
 #[repr(C)]
-#[pyclass(name = "ColorInputOnValueChangeCallback")]
 pub struct AzColorInputOnValueChangeCallback {
     pub cb: AzColorInputOnValueChangeCallbackType,
 }
@@ -2022,17 +1924,13 @@ pub type AzColorInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &m
 
 /// Re-export of rust-allocated (stack based) `TextInputSelectionRange` struct
 #[repr(C)]
-#[pyclass(name = "TextInputSelectionRange")]
 pub struct AzTextInputSelectionRange {
-    #[pyo3(get, set)]
     pub from: usize,
-    #[pyo3(get, set)]
     pub to: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `TextInputOnTextInputCallback` struct
 #[repr(C)]
-#[pyclass(name = "TextInputOnTextInputCallback")]
 pub struct AzTextInputOnTextInputCallback {
     pub cb: AzTextInputOnTextInputCallbackType,
 }
@@ -2042,7 +1940,6 @@ pub type AzTextInputOnTextInputCallbackType = extern "C" fn(&mut AzRefAny, &mut 
 
 /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDownCallback` struct
 #[repr(C)]
-#[pyclass(name = "TextInputOnVirtualKeyDownCallback")]
 pub struct AzTextInputOnVirtualKeyDownCallback {
     pub cb: AzTextInputOnVirtualKeyDownCallbackType,
 }
@@ -2052,7 +1949,6 @@ pub type AzTextInputOnVirtualKeyDownCallbackType = extern "C" fn(&mut AzRefAny, 
 
 /// Re-export of rust-allocated (stack based) `TextInputOnFocusLostCallback` struct
 #[repr(C)]
-#[pyclass(name = "TextInputOnFocusLostCallback")]
 pub struct AzTextInputOnFocusLostCallback {
     pub cb: AzTextInputOnFocusLostCallbackType,
 }
@@ -2069,21 +1965,15 @@ pub enum AzTextInputValid {
 
 /// Re-export of rust-allocated (stack based) `NumberInputState` struct
 #[repr(C)]
-#[pyclass(name = "NumberInputState")]
 pub struct AzNumberInputState {
-    #[pyo3(get, set)]
     pub previous: f32,
-    #[pyo3(get, set)]
     pub number: f32,
-    #[pyo3(get, set)]
     pub min: f32,
-    #[pyo3(get, set)]
     pub max: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `NumberInputOnValueChangeCallback` struct
 #[repr(C)]
-#[pyclass(name = "NumberInputOnValueChangeCallback")]
 pub struct AzNumberInputOnValueChangeCallback {
     pub cb: AzNumberInputOnValueChangeCallbackType,
 }
@@ -2093,7 +1983,6 @@ pub type AzNumberInputOnValueChangeCallbackType = extern "C" fn(&mut AzRefAny, &
 
 /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLostCallback` struct
 #[repr(C)]
-#[pyclass(name = "NumberInputOnFocusLostCallback")]
 pub struct AzNumberInputOnFocusLostCallback {
     pub cb: AzNumberInputOnFocusLostCallbackType,
 }
@@ -2103,11 +1992,8 @@ pub type AzNumberInputOnFocusLostCallbackType = extern "C" fn(&mut AzRefAny, &mu
 
 /// Re-export of rust-allocated (stack based) `ProgressBarState` struct
 #[repr(C)]
-#[pyclass(name = "ProgressBarState")]
 pub struct AzProgressBarState {
-    #[pyo3(get, set)]
     pub percent_done: f32,
-    #[pyo3(get, set)]
     pub display_percentage: bool,
 }
 
@@ -2118,11 +2004,10 @@ pub enum AzNodeGraphStyle {
 }
 
 /// `AzNodeGraphOnNodeAddedCallbackType` struct
-pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodeGraphNodeId, AzNodePosition) -> AzUpdate;
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeAddedCallback")]
 pub struct AzNodeGraphOnNodeAddedCallback {
     pub cb: AzNodeGraphOnNodeAddedCallbackType,
 }
@@ -2132,7 +2017,6 @@ pub type AzNodeGraphOnNodeRemovedCallbackType = extern "C" fn(&mut AzRefAny, &mu
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemovedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeRemovedCallback")]
 pub struct AzNodeGraphOnNodeRemovedCallback {
     pub cb: AzNodeGraphOnNodeRemovedCallbackType,
 }
@@ -2142,7 +2026,6 @@ pub type AzNodeGraphOnNodeGraphDraggedCallbackType = extern "C" fn(&mut AzRefAny
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDraggedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeGraphDraggedCallback")]
 pub struct AzNodeGraphOnNodeGraphDraggedCallback {
     pub cb: AzNodeGraphOnNodeGraphDraggedCallbackType,
 }
@@ -2152,7 +2035,6 @@ pub type AzNodeGraphOnNodeDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mu
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDraggedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeDraggedCallback")]
 pub struct AzNodeGraphOnNodeDraggedCallback {
     pub cb: AzNodeGraphOnNodeDraggedCallbackType,
 }
@@ -2162,7 +2044,6 @@ pub type AzNodeGraphOnNodeConnectedCallbackType = extern "C" fn(&mut AzRefAny, &
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnectedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeConnectedCallback")]
 pub struct AzNodeGraphOnNodeConnectedCallback {
     pub cb: AzNodeGraphOnNodeConnectedCallbackType,
 }
@@ -2172,7 +2053,6 @@ pub type AzNodeGraphOnNodeInputDisconnectedCallbackType = extern "C" fn(&mut AzR
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnectedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeInputDisconnectedCallback")]
 pub struct AzNodeGraphOnNodeInputDisconnectedCallback {
     pub cb: AzNodeGraphOnNodeInputDisconnectedCallbackType,
 }
@@ -2182,7 +2062,6 @@ pub type AzNodeGraphOnNodeOutputDisconnectedCallbackType = extern "C" fn(&mut Az
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnectedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeOutputDisconnectedCallback")]
 pub struct AzNodeGraphOnNodeOutputDisconnectedCallback {
     pub cb: AzNodeGraphOnNodeOutputDisconnectedCallbackType,
 }
@@ -2192,141 +2071,103 @@ pub type AzNodeGraphOnNodeFieldEditedCallbackType = extern "C" fn(&mut AzRefAny,
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEditedCallback` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeFieldEditedCallback")]
 pub struct AzNodeGraphOnNodeFieldEditedCallback {
     pub cb: AzNodeGraphOnNodeFieldEditedCallbackType,
 }
 
 /// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
 #[repr(C)]
-#[pyclass(name = "InputOutputTypeId")]
 pub struct AzInputOutputTypeId {
-    #[pyo3(get, set)]
     pub inner: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeTypeId` struct
 #[repr(C)]
-#[pyclass(name = "NodeTypeId")]
 pub struct AzNodeTypeId {
-    #[pyo3(get, set)]
     pub inner: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphNodeId")]
 pub struct AzNodeGraphNodeId {
-    #[pyo3(get, set)]
     pub inner: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `NodePosition` struct
 #[repr(C)]
-#[pyclass(name = "NodePosition")]
 pub struct AzNodePosition {
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `GraphDragAmount` struct
 #[repr(C)]
-#[pyclass(name = "GraphDragAmount")]
 pub struct AzGraphDragAmount {
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeDragAmount` struct
 #[repr(C)]
-#[pyclass(name = "NodeDragAmount")]
 pub struct AzNodeDragAmount {
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
 #[repr(C)]
-#[pyclass(name = "NodeHierarchyItem")]
 pub struct AzNodeHierarchyItem {
-    #[pyo3(get, set)]
     pub parent: usize,
-    #[pyo3(get, set)]
     pub previous_sibling: usize,
-    #[pyo3(get, set)]
     pub next_sibling: usize,
-    #[pyo3(get, set)]
     pub last_child: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `CascadeInfo` struct
 #[repr(C)]
-#[pyclass(name = "CascadeInfo")]
 pub struct AzCascadeInfo {
-    #[pyo3(get, set)]
     pub index_in_parent: u32,
-    #[pyo3(get, set)]
     pub is_last_child: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `StyledNodeState` struct
 #[repr(C)]
-#[pyclass(name = "StyledNodeState")]
 pub struct AzStyledNodeState {
-    #[pyo3(get, set)]
     pub normal: bool,
-    #[pyo3(get, set)]
     pub hover: bool,
-    #[pyo3(get, set)]
     pub active: bool,
-    #[pyo3(get, set)]
     pub focused: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `TagId` struct
 #[repr(C)]
-#[pyclass(name = "TagId")]
 pub struct AzTagId {
-    #[pyo3(get, set)]
     pub inner: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `CssPropertyCache` struct
 #[repr(C)]
-#[pyclass(name = "CssPropertyCache")]
 pub struct AzCssPropertyCache {
     pub ptr: *mut c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
 #[repr(C)]
-#[pyclass(name = "GlVoidPtrConst")]
 pub struct AzGlVoidPtrConst {
     pub ptr: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
 #[repr(C)]
-#[pyclass(name = "GlVoidPtrMut")]
 pub struct AzGlVoidPtrMut {
     pub ptr: *mut c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
 #[repr(C)]
-#[pyclass(name = "GlShaderPrecisionFormatReturn")]
 pub struct AzGlShaderPrecisionFormatReturn {
-    #[pyo3(get, set)]
     pub _0: i32,
-    #[pyo3(get, set)]
     pub _1: i32,
-    #[pyo3(get, set)]
     pub _2: i32,
 }
 
@@ -2360,123 +2201,96 @@ pub enum AzGlType {
 
 /// C-ABI stable reexport of `&[u8]`
 #[repr(C)]
-#[pyclass(name = "U8VecRef")]
 pub struct AzU8VecRef {
     pub ptr: *const u8,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&mut [u8]`
 #[repr(C)]
-#[pyclass(name = "U8VecRefMut")]
 pub struct AzU8VecRefMut {
     pub ptr: *mut u8,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&[f32]`
 #[repr(C)]
-#[pyclass(name = "F32VecRef")]
 pub struct AzF32VecRef {
     pub ptr: *const f32,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&[i32]`
 #[repr(C)]
-#[pyclass(name = "I32VecRef")]
 pub struct AzI32VecRef {
     pub ptr: *const i32,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
 #[repr(C)]
-#[pyclass(name = "GLuintVecRef")]
 pub struct AzGLuintVecRef {
     pub ptr: *const u32,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
 #[repr(C)]
-#[pyclass(name = "GLenumVecRef")]
 pub struct AzGLenumVecRef {
     pub ptr: *const u32,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
 #[repr(C)]
-#[pyclass(name = "GLintVecRefMut")]
 pub struct AzGLintVecRefMut {
     pub ptr: *mut i32,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
 #[repr(C)]
-#[pyclass(name = "GLint64VecRefMut")]
 pub struct AzGLint64VecRefMut {
     pub ptr: *mut i64,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
 #[repr(C)]
-#[pyclass(name = "GLbooleanVecRefMut")]
 pub struct AzGLbooleanVecRefMut {
     pub ptr: *mut u8,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
 #[repr(C)]
-#[pyclass(name = "GLfloatVecRefMut")]
 pub struct AzGLfloatVecRefMut {
     pub ptr: *mut f32,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `&str`
 #[repr(C)]
-#[pyclass(name = "Refstr")]
 pub struct AzRefstr {
     pub ptr: *const u8,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// C-ABI stable reexport of `*const gleam::gl::GLsync`
 #[repr(C)]
-#[pyclass(name = "GLsyncPtr")]
 pub struct AzGLsyncPtr {
     pub ptr: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `TextureFlags` struct
 #[repr(C)]
-#[pyclass(name = "TextureFlags")]
 pub struct AzTextureFlags {
-    #[pyo3(get, set)]
     pub is_opaque: bool,
-    #[pyo3(get, set)]
     pub is_video_texture: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `ImageRef` struct
 #[repr(C)]
-#[pyclass(name = "ImageRef")]
 pub struct AzImageRef {
     pub data: *const c_void,
     pub copies: *const c_void,
@@ -2519,7 +2333,6 @@ pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
 
 /// Atomically reference-counted parsed font data
 #[repr(C)]
-#[pyclass(name = "FontRef")]
 pub struct AzFontRef {
     pub data: *const c_void,
     pub copies: *const c_void,
@@ -2527,69 +2340,48 @@ pub struct AzFontRef {
 
 /// Re-export of rust-allocated (stack based) `Svg` struct
 #[repr(C)]
-#[pyclass(name = "Svg")]
 pub struct AzSvg {
     pub ptr: *mut c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
 #[repr(C)]
-#[pyclass(name = "SvgXmlNode")]
 pub struct AzSvgXmlNode {
     pub ptr: *mut c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgCircle` struct
 #[repr(C)]
-#[pyclass(name = "SvgCircle")]
 pub struct AzSvgCircle {
-    #[pyo3(get, set)]
     pub center_x: f32,
-    #[pyo3(get, set)]
     pub center_y: f32,
-    #[pyo3(get, set)]
     pub radius: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgPoint` struct
 #[repr(C)]
-#[pyclass(name = "SvgPoint")]
 pub struct AzSvgPoint {
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgRect` struct
 #[repr(C)]
-#[pyclass(name = "SvgRect")]
 pub struct AzSvgRect {
-    #[pyo3(get, set)]
     pub width: f32,
-    #[pyo3(get, set)]
     pub height: f32,
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
-    #[pyo3(get, set)]
     pub radius_top_left: f32,
-    #[pyo3(get, set)]
     pub radius_top_right: f32,
-    #[pyo3(get, set)]
     pub radius_bottom_left: f32,
-    #[pyo3(get, set)]
     pub radius_bottom_right: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgVertex` struct
 #[repr(C)]
-#[pyclass(name = "SvgVertex")]
 pub struct AzSvgVertex {
-    #[pyo3(get, set)]
     pub x: f32,
-    #[pyo3(get, set)]
     pub y: f32,
 }
 
@@ -2649,19 +2441,12 @@ pub enum AzSvgFillRule {
 
 /// Re-export of rust-allocated (stack based) `SvgTransform` struct
 #[repr(C)]
-#[pyclass(name = "SvgTransform")]
 pub struct AzSvgTransform {
-    #[pyo3(get, set)]
     pub sx: f32,
-    #[pyo3(get, set)]
     pub kx: f32,
-    #[pyo3(get, set)]
     pub ky: f32,
-    #[pyo3(get, set)]
     pub sy: f32,
-    #[pyo3(get, set)]
     pub tx: f32,
-    #[pyo3(get, set)]
     pub ty: f32,
 }
 
@@ -2684,29 +2469,19 @@ pub enum AzSvgLineCap {
 
 /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
 #[repr(C)]
-#[pyclass(name = "SvgDashPattern")]
 pub struct AzSvgDashPattern {
-    #[pyo3(get, set)]
     pub offset: f32,
-    #[pyo3(get, set)]
     pub length_1: f32,
-    #[pyo3(get, set)]
     pub gap_1: f32,
-    #[pyo3(get, set)]
     pub length_2: f32,
-    #[pyo3(get, set)]
     pub gap_2: f32,
-    #[pyo3(get, set)]
     pub length_3: f32,
-    #[pyo3(get, set)]
     pub gap_3: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `MsgBox` struct
 #[repr(C)]
-#[pyclass(name = "MsgBox")]
 pub struct AzMsgBox {
-    #[pyo3(get, set)]
     pub _reserved: usize,
 }
 
@@ -2735,23 +2510,18 @@ pub enum AzMsgBoxOkCancel {
 
 /// File picker dialog
 #[repr(C)]
-#[pyclass(name = "FileDialog")]
 pub struct AzFileDialog {
-    #[pyo3(get, set)]
     pub _reserved: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `ColorPickerDialog` struct
 #[repr(C)]
-#[pyclass(name = "ColorPickerDialog")]
 pub struct AzColorPickerDialog {
-    #[pyo3(get, set)]
     pub _reserved: usize,
 }
 
 /// Connection to the system clipboard, on some systems this connection can be cached
 #[repr(C)]
-#[pyclass(name = "SystemClipboard")]
 pub struct AzSystemClipboard {
     pub _native: *const c_void,
 }
@@ -2761,7 +2531,6 @@ pub type AzInstantPtrCloneFnType = extern "C" fn(&AzInstantPtr) -> AzInstantPtr;
 
 /// Re-export of rust-allocated (stack based) `InstantPtrCloneFn` struct
 #[repr(C)]
-#[pyclass(name = "InstantPtrCloneFn")]
 pub struct AzInstantPtrCloneFn {
     pub cb: AzInstantPtrCloneFnType,
 }
@@ -2771,42 +2540,32 @@ pub type AzInstantPtrDestructorFnType = extern "C" fn(&mut AzInstantPtr);
 
 /// Re-export of rust-allocated (stack based) `InstantPtrDestructorFn` struct
 #[repr(C)]
-#[pyclass(name = "InstantPtrDestructorFn")]
 pub struct AzInstantPtrDestructorFn {
     pub cb: AzInstantPtrDestructorFnType,
 }
 
 /// Re-export of rust-allocated (stack based) `SystemTick` struct
 #[repr(C)]
-#[pyclass(name = "SystemTick")]
 pub struct AzSystemTick {
-    #[pyo3(get, set)]
     pub tick_counter: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `SystemTimeDiff` struct
 #[repr(C)]
-#[pyclass(name = "SystemTimeDiff")]
 pub struct AzSystemTimeDiff {
-    #[pyo3(get, set)]
     pub secs: u64,
-    #[pyo3(get, set)]
     pub nanos: u32,
 }
 
 /// Re-export of rust-allocated (stack based) `SystemTickDiff` struct
 #[repr(C)]
-#[pyclass(name = "SystemTickDiff")]
 pub struct AzSystemTickDiff {
-    #[pyo3(get, set)]
     pub tick_diff: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 #[repr(C)]
-#[pyclass(name = "TimerId")]
 pub struct AzTimerId {
-    #[pyo3(get, set)]
     pub id: usize,
 }
 
@@ -2819,29 +2578,24 @@ pub enum AzTerminateTimer {
 
 /// Re-export of rust-allocated (stack based) `ThreadId` struct
 #[repr(C)]
-#[pyclass(name = "ThreadId")]
 pub struct AzThreadId {
-    #[pyo3(get, set)]
     pub id: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `Thread` struct
 #[repr(C)]
-#[pyclass(name = "Thread")]
 pub struct AzThread {
     pub ptr: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `ThreadSender` struct
 #[repr(C)]
-#[pyclass(name = "ThreadSender")]
 pub struct AzThreadSender {
     pub ptr: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
 #[repr(C)]
-#[pyclass(name = "ThreadReceiver")]
 pub struct AzThreadReceiver {
     pub ptr: *const c_void,
 }
@@ -2851,7 +2605,6 @@ pub type AzCreateThreadFnType = extern "C" fn(AzRefAny, AzRefAny, AzThreadCallba
 
 /// Re-export of rust-allocated (stack based) `CreateThreadFn` struct
 #[repr(C)]
-#[pyclass(name = "CreateThreadFn")]
 pub struct AzCreateThreadFn {
     pub cb: AzCreateThreadFnType,
 }
@@ -2861,7 +2614,6 @@ pub type AzGetSystemTimeFnType = extern "C" fn() -> AzInstant;
 
 /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
 #[repr(C)]
-#[pyclass(name = "GetSystemTimeFn")]
 pub struct AzGetSystemTimeFn {
     pub cb: AzGetSystemTimeFnType,
 }
@@ -2871,7 +2623,6 @@ pub type AzCheckThreadFinishedFnType = extern "C" fn(&c_void) -> bool;
 
 /// Function called to check if the thread has finished
 #[repr(C)]
-#[pyclass(name = "CheckThreadFinishedFn")]
 pub struct AzCheckThreadFinishedFn {
     pub cb: AzCheckThreadFinishedFnType,
 }
@@ -2881,7 +2632,6 @@ pub type AzLibrarySendThreadMsgFnType = extern "C" fn(&c_void, AzThreadSendMsg) 
 
 /// Function to send a message to the thread
 #[repr(C)]
-#[pyclass(name = "LibrarySendThreadMsgFn")]
 pub struct AzLibrarySendThreadMsgFn {
     pub cb: AzLibrarySendThreadMsgFnType,
 }
@@ -2891,7 +2641,6 @@ pub type AzLibraryReceiveThreadMsgFnType = extern "C" fn(&c_void) -> AzOptionThr
 
 /// Function to receive a message from the thread
 #[repr(C)]
-#[pyclass(name = "LibraryReceiveThreadMsgFn")]
 pub struct AzLibraryReceiveThreadMsgFn {
     pub cb: AzLibraryReceiveThreadMsgFnType,
 }
@@ -2901,7 +2650,6 @@ pub type AzThreadRecvFnType = extern "C" fn(&c_void) -> AzOptionThreadSendMsg;
 
 /// Function that the running `Thread` can call to receive messages from the main UI thread
 #[repr(C)]
-#[pyclass(name = "ThreadRecvFn")]
 pub struct AzThreadRecvFn {
     pub cb: AzThreadRecvFnType,
 }
@@ -2911,7 +2659,6 @@ pub type AzThreadSendFnType = extern "C" fn(&c_void, AzThreadReceiveMsg) -> bool
 
 /// Function that the running `Thread` can call to receive messages from the main UI thread
 #[repr(C)]
-#[pyclass(name = "ThreadSendFn")]
 pub struct AzThreadSendFn {
     pub cb: AzThreadSendFnType,
 }
@@ -2921,7 +2668,6 @@ pub type AzThreadDestructorFnType = extern "C" fn(&mut AzThread);
 
 /// Destructor of the `Thread`
 #[repr(C)]
-#[pyclass(name = "ThreadDestructorFn")]
 pub struct AzThreadDestructorFn {
     pub cb: AzThreadDestructorFnType,
 }
@@ -2931,7 +2677,6 @@ pub type AzThreadReceiverDestructorFnType = extern "C" fn(&mut AzThreadReceiver)
 
 /// Destructor of the `ThreadReceiver`
 #[repr(C)]
-#[pyclass(name = "ThreadReceiverDestructorFn")]
 pub struct AzThreadReceiverDestructorFn {
     pub cb: AzThreadReceiverDestructorFnType,
 }
@@ -2941,7 +2686,6 @@ pub type AzThreadSenderDestructorFnType = extern "C" fn(&mut AzThreadSender);
 
 /// Destructor of the `ThreadSender`
 #[repr(C)]
-#[pyclass(name = "ThreadSenderDestructorFn")]
 pub struct AzThreadSenderDestructorFn {
     pub cb: AzThreadSenderDestructorFnType,
 }
@@ -3693,43 +3437,30 @@ pub enum AzOptionUsize {
 
 /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
 #[repr(C)]
-#[pyclass(name = "SvgParseErrorPosition")]
 pub struct AzSvgParseErrorPosition {
-    #[pyo3(get, set)]
     pub row: u32,
-    #[pyo3(get, set)]
     pub col: u32,
 }
 
 /// External system callbacks to get the system time or create / manage threads
 #[repr(C)]
-#[pyclass(name = "SystemCallbacks")]
 pub struct AzSystemCallbacks {
-    #[pyo3(get, set)]
     pub create_thread_fn: AzCreateThreadFn,
-    #[pyo3(get, set)]
     pub get_system_time_fn: AzGetSystemTimeFn,
 }
 
 /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
 #[repr(C)]
-#[pyclass(name = "RendererOptions")]
 pub struct AzRendererOptions {
-    #[pyo3(get, set)]
     pub vsync: AzVsyncEnumWrapper,
-    #[pyo3(get, set)]
     pub srgb: AzSrgbEnumWrapper,
-    #[pyo3(get, set)]
     pub hw_accel: AzHwAccelerationEnumWrapper,
 }
 
 /// Represents a rectangle in physical pixels (integer units)
 #[repr(C)]
-#[pyclass(name = "LayoutRect")]
 pub struct AzLayoutRect {
-    #[pyo3(get, set)]
     pub origin: AzLayoutPoint,
-    #[pyo3(get, set)]
     pub size: AzLayoutSize,
 }
 
@@ -3749,11 +3480,8 @@ pub enum AzRawWindowHandle {
 
 /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
 #[repr(C)]
-#[pyclass(name = "LogicalRect")]
 pub struct AzLogicalRect {
-    #[pyo3(get, set)]
     pub origin: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub size: AzLogicalSize,
 }
 
@@ -3768,29 +3496,17 @@ pub enum AzAcceleratorKey {
 
 /// Boolean flags relating to the current window state
 #[repr(C)]
-#[pyclass(name = "WindowFlags")]
 pub struct AzWindowFlags {
-    #[pyo3(get, set)]
     pub frame: AzWindowFrameEnumWrapper,
-    #[pyo3(get, set)]
     pub is_about_to_close: bool,
-    #[pyo3(get, set)]
     pub has_decorations: bool,
-    #[pyo3(get, set)]
     pub is_visible: bool,
-    #[pyo3(get, set)]
     pub is_always_on_top: bool,
-    #[pyo3(get, set)]
     pub is_resizable: bool,
-    #[pyo3(get, set)]
     pub has_focus: bool,
-    #[pyo3(get, set)]
     pub has_extended_window_frame: bool,
-    #[pyo3(get, set)]
     pub has_blur_behind_window: bool,
-    #[pyo3(get, set)]
     pub smooth_scroll_enabled: bool,
-    #[pyo3(get, set)]
     pub autotab_enabled: bool,
 }
 
@@ -3818,23 +3534,16 @@ pub enum AzImePosition {
 
 /// Describes a rendering configuration for a monitor
 #[repr(C)]
-#[pyclass(name = "VideoMode")]
 pub struct AzVideoMode {
-    #[pyo3(get, set)]
     pub size: AzLayoutSize,
-    #[pyo3(get, set)]
     pub bit_depth: u16,
-    #[pyo3(get, set)]
     pub refresh_rate: u16,
 }
 
 /// Combination of node ID + DOM ID, both together can identify a node
 #[repr(C)]
-#[pyclass(name = "DomNodeId")]
 pub struct AzDomNodeId {
-    #[pyo3(get, set)]
     pub dom: AzDomId,
-    #[pyo3(get, set)]
     pub node: AzNodeId,
 }
 
@@ -3849,81 +3558,50 @@ pub enum AzPositionInfo {
 
 /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
 #[repr(C)]
-#[pyclass(name = "HidpiAdjustedBounds")]
 pub struct AzHidpiAdjustedBounds {
-    #[pyo3(get, set)]
     pub logical_size: AzLogicalSize,
-    #[pyo3(get, set)]
     pub hidpi_factor: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `InlineGlyph` struct
 #[repr(C)]
-#[pyclass(name = "InlineGlyph")]
 pub struct AzInlineGlyph {
-    #[pyo3(get, set)]
     pub bounds: AzLogicalRect,
-    #[pyo3(get, set)]
     pub unicode_codepoint: AzOptionCharEnumWrapper,
-    #[pyo3(get, set)]
     pub glyph_index: u32,
 }
 
 /// Re-export of rust-allocated (stack based) `InlineTextHit` struct
 #[repr(C)]
-#[pyclass(name = "InlineTextHit")]
 pub struct AzInlineTextHit {
-    #[pyo3(get, set)]
     pub unicode_codepoint: AzOptionCharEnumWrapper,
-    #[pyo3(get, set)]
     pub hit_relative_to_inline_text: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub hit_relative_to_line: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub hit_relative_to_text_content: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub hit_relative_to_glyph: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub line_index_relative_to_text: usize,
-    #[pyo3(get, set)]
     pub word_index_relative_to_text: usize,
-    #[pyo3(get, set)]
     pub text_content_index_relative_to_text: usize,
-    #[pyo3(get, set)]
     pub glyph_index_relative_to_text: usize,
-    #[pyo3(get, set)]
     pub char_index_relative_to_text: usize,
-    #[pyo3(get, set)]
     pub word_index_relative_to_line: usize,
-    #[pyo3(get, set)]
     pub text_content_index_relative_to_line: usize,
-    #[pyo3(get, set)]
     pub glyph_index_relative_to_line: usize,
-    #[pyo3(get, set)]
     pub char_index_relative_to_line: usize,
-    #[pyo3(get, set)]
     pub glyph_index_relative_to_word: usize,
-    #[pyo3(get, set)]
     pub char_index_relative_to_word: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 #[repr(C)]
-#[pyclass(name = "IFrameCallbackInfo")]
 pub struct AzIFrameCallbackInfo {
     pub system_fonts: *const c_void,
     pub image_cache: *const c_void,
-    #[pyo3(get, set)]
     pub window_theme: AzWindowThemeEnumWrapper,
-    #[pyo3(get, set)]
     pub bounds: AzHidpiAdjustedBounds,
-    #[pyo3(get, set)]
     pub scroll_size: AzLogicalSize,
-    #[pyo3(get, set)]
     pub scroll_offset: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub virtual_scroll_size: AzLogicalSize,
-    #[pyo3(get, set)]
     pub virtual_scroll_offset: AzLogicalPosition,
     pub _reserved_ref: *const c_void,
     pub _reserved_mut: *mut c_void,
@@ -3931,32 +3609,23 @@ pub struct AzIFrameCallbackInfo {
 
 /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
 #[repr(C)]
-#[pyclass(name = "TimerCallbackReturn")]
 pub struct AzTimerCallbackReturn {
-    #[pyo3(get, set)]
     pub should_update: AzUpdateEnumWrapper,
-    #[pyo3(get, set)]
     pub should_terminate: AzTerminateTimerEnumWrapper,
 }
 
 /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
 #[repr(C)]
-#[pyclass(name = "RefAny")]
 pub struct AzRefAny {
     pub _internal_ptr: *const c_void,
-    #[pyo3(get, set)]
     pub sharing_info: AzRefCount,
-    #[pyo3(get, set)]
     pub instance_id: u64,
 }
 
 /// Re-export of rust-allocated (stack based) `IFrameNode` struct
 #[repr(C)]
-#[pyclass(name = "IFrameNode")]
 pub struct AzIFrameNode {
-    #[pyo3(get, set)]
     pub callback: AzIFrameCallback,
-    #[pyo3(get, set)]
     pub data: AzRefAny,
 }
 
@@ -3969,11 +3638,8 @@ pub enum AzNotEventFilter {
 
 /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
 #[repr(C)]
-#[pyclass(name = "MenuCallback")]
 pub struct AzMenuCallback {
-    #[pyo3(get, set)]
     pub callback: AzCallback,
-    #[pyo3(get, set)]
     pub data: AzRefAny,
 }
 
@@ -3995,242 +3661,178 @@ pub enum AzCssNthChildSelector {
 
 /// Re-export of rust-allocated (stack based) `PixelValue` struct
 #[repr(C)]
-#[pyclass(name = "PixelValue")]
 pub struct AzPixelValue {
-    #[pyo3(get, set)]
     pub metric: AzSizeMetricEnumWrapper,
-    #[pyo3(get, set)]
     pub number: AzFloatValue,
 }
 
 /// Re-export of rust-allocated (stack based) `PixelValueNoPercent` struct
 #[repr(C)]
-#[pyclass(name = "PixelValueNoPercent")]
 pub struct AzPixelValueNoPercent {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBoxShadow` struct
 #[repr(C)]
-#[pyclass(name = "StyleBoxShadow")]
 pub struct AzStyleBoxShadow {
     pub offset: [AzPixelValueNoPercent;2],
-    #[pyo3(get, set)]
     pub color: AzColorU,
-    #[pyo3(get, set)]
     pub blur_radius: AzPixelValueNoPercent,
-    #[pyo3(get, set)]
     pub spread_radius: AzPixelValueNoPercent,
-    #[pyo3(get, set)]
     pub clip_mode: AzBoxShadowClipModeEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutBottom` struct
 #[repr(C)]
-#[pyclass(name = "LayoutBottom")]
 pub struct AzLayoutBottom {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexGrow` struct
 #[repr(C)]
-#[pyclass(name = "LayoutFlexGrow")]
 pub struct AzLayoutFlexGrow {
-    #[pyo3(get, set)]
     pub inner: AzFloatValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexShrink` struct
 #[repr(C)]
-#[pyclass(name = "LayoutFlexShrink")]
 pub struct AzLayoutFlexShrink {
-    #[pyo3(get, set)]
     pub inner: AzFloatValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutHeight` struct
 #[repr(C)]
-#[pyclass(name = "LayoutHeight")]
 pub struct AzLayoutHeight {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutLeft` struct
 #[repr(C)]
-#[pyclass(name = "LayoutLeft")]
 pub struct AzLayoutLeft {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginBottom` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMarginBottom")]
 pub struct AzLayoutMarginBottom {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginLeft` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMarginLeft")]
 pub struct AzLayoutMarginLeft {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginRight` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMarginRight")]
 pub struct AzLayoutMarginRight {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginTop` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMarginTop")]
 pub struct AzLayoutMarginTop {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxHeight` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMaxHeight")]
 pub struct AzLayoutMaxHeight {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMaxWidth")]
 pub struct AzLayoutMaxWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMinHeight` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMinHeight")]
 pub struct AzLayoutMinHeight {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutMinWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutMinWidth")]
 pub struct AzLayoutMinWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingBottom` struct
 #[repr(C)]
-#[pyclass(name = "LayoutPaddingBottom")]
 pub struct AzLayoutPaddingBottom {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingLeft` struct
 #[repr(C)]
-#[pyclass(name = "LayoutPaddingLeft")]
 pub struct AzLayoutPaddingLeft {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingRight` struct
 #[repr(C)]
-#[pyclass(name = "LayoutPaddingRight")]
 pub struct AzLayoutPaddingRight {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingTop` struct
 #[repr(C)]
-#[pyclass(name = "LayoutPaddingTop")]
 pub struct AzLayoutPaddingTop {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutRight` struct
 #[repr(C)]
-#[pyclass(name = "LayoutRight")]
 pub struct AzLayoutRight {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutTop` struct
 #[repr(C)]
-#[pyclass(name = "LayoutTop")]
 pub struct AzLayoutTop {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutWidth")]
 pub struct AzLayoutWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `PercentageValue` struct
 #[repr(C)]
-#[pyclass(name = "PercentageValue")]
 pub struct AzPercentageValue {
-    #[pyo3(get, set)]
     pub number: AzFloatValue,
 }
 
 /// Re-export of rust-allocated (stack based) `AngleValue` struct
 #[repr(C)]
-#[pyclass(name = "AngleValue")]
 pub struct AzAngleValue {
-    #[pyo3(get, set)]
     pub metric: AzAngleMetricEnumWrapper,
-    #[pyo3(get, set)]
     pub number: AzFloatValue,
 }
 
 /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
 #[repr(C)]
-#[pyclass(name = "NormalizedLinearColorStop")]
 pub struct AzNormalizedLinearColorStop {
-    #[pyo3(get, set)]
     pub offset: AzPercentageValue,
-    #[pyo3(get, set)]
     pub color: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
 #[repr(C)]
-#[pyclass(name = "NormalizedRadialColorStop")]
 pub struct AzNormalizedRadialColorStop {
-    #[pyo3(get, set)]
     pub offset: AzAngleValue,
-    #[pyo3(get, set)]
     pub color: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `DirectionCorners` struct
 #[repr(C)]
-#[pyclass(name = "DirectionCorners")]
 pub struct AzDirectionCorners {
-    #[pyo3(get, set)]
     pub from: AzDirectionCornerEnumWrapper,
-    #[pyo3(get, set)]
     pub to: AzDirectionCornerEnumWrapper,
 }
 
@@ -4261,11 +3863,8 @@ pub enum AzBackgroundPositionVertical {
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundPosition` struct
 #[repr(C)]
-#[pyclass(name = "StyleBackgroundPosition")]
 pub struct AzStyleBackgroundPosition {
-    #[pyo3(get, set)]
     pub horizontal: AzBackgroundPositionHorizontalEnumWrapper,
-    #[pyo3(get, set)]
     pub vertical: AzBackgroundPositionVerticalEnumWrapper,
 }
 
@@ -4279,329 +3878,231 @@ pub enum AzStyleBackgroundSize {
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomColor` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderBottomColor")]
 pub struct AzStyleBorderBottomColor {
-    #[pyo3(get, set)]
     pub inner: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadius` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderBottomLeftRadius")]
 pub struct AzStyleBorderBottomLeftRadius {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadius` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderBottomRightRadius")]
 pub struct AzStyleBorderBottomRightRadius {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyle` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderBottomStyle")]
 pub struct AzStyleBorderBottomStyle {
-    #[pyo3(get, set)]
     pub inner: AzBorderStyleEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderBottomWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutBorderBottomWidth")]
 pub struct AzLayoutBorderBottomWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftColor` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderLeftColor")]
 pub struct AzStyleBorderLeftColor {
-    #[pyo3(get, set)]
     pub inner: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyle` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderLeftStyle")]
 pub struct AzStyleBorderLeftStyle {
-    #[pyo3(get, set)]
     pub inner: AzBorderStyleEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderLeftWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutBorderLeftWidth")]
 pub struct AzLayoutBorderLeftWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightColor` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderRightColor")]
 pub struct AzStyleBorderRightColor {
-    #[pyo3(get, set)]
     pub inner: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightStyle` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderRightStyle")]
 pub struct AzStyleBorderRightStyle {
-    #[pyo3(get, set)]
     pub inner: AzBorderStyleEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderRightWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutBorderRightWidth")]
 pub struct AzLayoutBorderRightWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopColor` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderTopColor")]
 pub struct AzStyleBorderTopColor {
-    #[pyo3(get, set)]
     pub inner: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadius` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderTopLeftRadius")]
 pub struct AzStyleBorderTopLeftRadius {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadius` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderTopRightRadius")]
 pub struct AzStyleBorderTopRightRadius {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopStyle` struct
 #[repr(C)]
-#[pyclass(name = "StyleBorderTopStyle")]
 pub struct AzStyleBorderTopStyle {
-    #[pyo3(get, set)]
     pub inner: AzBorderStyleEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `LayoutBorderTopWidth` struct
 #[repr(C)]
-#[pyclass(name = "LayoutBorderTopWidth")]
 pub struct AzLayoutBorderTopWidth {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleFontSize` struct
 #[repr(C)]
-#[pyclass(name = "StyleFontSize")]
 pub struct AzStyleFontSize {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleLetterSpacing` struct
 #[repr(C)]
-#[pyclass(name = "StyleLetterSpacing")]
 pub struct AzStyleLetterSpacing {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleLineHeight` struct
 #[repr(C)]
-#[pyclass(name = "StyleLineHeight")]
 pub struct AzStyleLineHeight {
-    #[pyo3(get, set)]
     pub inner: AzPercentageValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTabWidth` struct
 #[repr(C)]
-#[pyclass(name = "StyleTabWidth")]
 pub struct AzStyleTabWidth {
-    #[pyo3(get, set)]
     pub inner: AzPercentageValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleOpacity` struct
 #[repr(C)]
-#[pyclass(name = "StyleOpacity")]
 pub struct AzStyleOpacity {
-    #[pyo3(get, set)]
     pub inner: AzPercentageValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformOrigin` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformOrigin")]
 pub struct AzStyleTransformOrigin {
-    #[pyo3(get, set)]
     pub x: AzPixelValue,
-    #[pyo3(get, set)]
     pub y: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StylePerspectiveOrigin` struct
 #[repr(C)]
-#[pyclass(name = "StylePerspectiveOrigin")]
 pub struct AzStylePerspectiveOrigin {
-    #[pyo3(get, set)]
     pub x: AzPixelValue,
-    #[pyo3(get, set)]
     pub y: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformMatrix2D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformMatrix2D")]
 pub struct AzStyleTransformMatrix2D {
-    #[pyo3(get, set)]
     pub a: AzPixelValue,
-    #[pyo3(get, set)]
     pub b: AzPixelValue,
-    #[pyo3(get, set)]
     pub c: AzPixelValue,
-    #[pyo3(get, set)]
     pub d: AzPixelValue,
-    #[pyo3(get, set)]
     pub tx: AzPixelValue,
-    #[pyo3(get, set)]
     pub ty: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformMatrix3D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformMatrix3D")]
 pub struct AzStyleTransformMatrix3D {
-    #[pyo3(get, set)]
     pub m11: AzPixelValue,
-    #[pyo3(get, set)]
     pub m12: AzPixelValue,
-    #[pyo3(get, set)]
     pub m13: AzPixelValue,
-    #[pyo3(get, set)]
     pub m14: AzPixelValue,
-    #[pyo3(get, set)]
     pub m21: AzPixelValue,
-    #[pyo3(get, set)]
     pub m22: AzPixelValue,
-    #[pyo3(get, set)]
     pub m23: AzPixelValue,
-    #[pyo3(get, set)]
     pub m24: AzPixelValue,
-    #[pyo3(get, set)]
     pub m31: AzPixelValue,
-    #[pyo3(get, set)]
     pub m32: AzPixelValue,
-    #[pyo3(get, set)]
     pub m33: AzPixelValue,
-    #[pyo3(get, set)]
     pub m34: AzPixelValue,
-    #[pyo3(get, set)]
     pub m41: AzPixelValue,
-    #[pyo3(get, set)]
     pub m42: AzPixelValue,
-    #[pyo3(get, set)]
     pub m43: AzPixelValue,
-    #[pyo3(get, set)]
     pub m44: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformTranslate2D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformTranslate2D")]
 pub struct AzStyleTransformTranslate2D {
-    #[pyo3(get, set)]
     pub x: AzPixelValue,
-    #[pyo3(get, set)]
     pub y: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformTranslate3D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformTranslate3D")]
 pub struct AzStyleTransformTranslate3D {
-    #[pyo3(get, set)]
     pub x: AzPixelValue,
-    #[pyo3(get, set)]
     pub y: AzPixelValue,
-    #[pyo3(get, set)]
     pub z: AzPixelValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformRotate3D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformRotate3D")]
 pub struct AzStyleTransformRotate3D {
-    #[pyo3(get, set)]
     pub x: AzPercentageValue,
-    #[pyo3(get, set)]
     pub y: AzPercentageValue,
-    #[pyo3(get, set)]
     pub z: AzPercentageValue,
-    #[pyo3(get, set)]
     pub angle: AzAngleValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformScale2D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformScale2D")]
 pub struct AzStyleTransformScale2D {
-    #[pyo3(get, set)]
     pub x: AzPercentageValue,
-    #[pyo3(get, set)]
     pub y: AzPercentageValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformScale3D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformScale3D")]
 pub struct AzStyleTransformScale3D {
-    #[pyo3(get, set)]
     pub x: AzPercentageValue,
-    #[pyo3(get, set)]
     pub y: AzPercentageValue,
-    #[pyo3(get, set)]
     pub z: AzPercentageValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTransformSkew2D` struct
 #[repr(C)]
-#[pyclass(name = "StyleTransformSkew2D")]
 pub struct AzStyleTransformSkew2D {
-    #[pyo3(get, set)]
     pub x: AzPercentageValue,
-    #[pyo3(get, set)]
     pub y: AzPercentageValue,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleTextColor` struct
 #[repr(C)]
-#[pyclass(name = "StyleTextColor")]
 pub struct AzStyleTextColor {
-    #[pyo3(get, set)]
     pub inner: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `StyleWordSpacing` struct
 #[repr(C)]
-#[pyclass(name = "StyleWordSpacing")]
 pub struct AzStyleWordSpacing {
-    #[pyo3(get, set)]
     pub inner: AzPixelValue,
 }
 
@@ -5197,39 +4698,28 @@ pub enum AzStyleBackfaceVisibilityValue {
 
 /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
 #[repr(C)]
-#[pyclass(name = "ButtonOnClick")]
 pub struct AzButtonOnClick {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
 #[repr(C)]
-#[pyclass(name = "CheckBoxOnToggle")]
 pub struct AzCheckBoxOnToggle {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzCheckBoxOnToggleCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `ColorInputState` struct
 #[repr(C)]
-#[pyclass(name = "ColorInputState")]
 pub struct AzColorInputState {
-    #[pyo3(get, set)]
     pub color: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `ColorInputOnValueChange` struct
 #[repr(C)]
-#[pyclass(name = "ColorInputOnValueChange")]
 pub struct AzColorInputOnValueChange {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzColorInputOnValueChangeCallback,
 }
 
@@ -5242,395 +4732,254 @@ pub enum AzTextInputSelection {
 
 /// Re-export of rust-allocated (stack based) `TextInputOnTextInput` struct
 #[repr(C)]
-#[pyclass(name = "TextInputOnTextInput")]
 pub struct AzTextInputOnTextInput {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzTextInputOnTextInputCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `TextInputOnVirtualKeyDown` struct
 #[repr(C)]
-#[pyclass(name = "TextInputOnVirtualKeyDown")]
 pub struct AzTextInputOnVirtualKeyDown {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzTextInputOnVirtualKeyDownCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `TextInputOnFocusLost` struct
 #[repr(C)]
-#[pyclass(name = "TextInputOnFocusLost")]
 pub struct AzTextInputOnFocusLost {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzTextInputOnFocusLostCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `OnTextInputReturn` struct
 #[repr(C)]
-#[pyclass(name = "OnTextInputReturn")]
 pub struct AzOnTextInputReturn {
-    #[pyo3(get, set)]
     pub update: AzUpdateEnumWrapper,
-    #[pyo3(get, set)]
     pub valid: AzTextInputValidEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `NumberInputOnValueChange` struct
 #[repr(C)]
-#[pyclass(name = "NumberInputOnValueChange")]
 pub struct AzNumberInputOnValueChange {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNumberInputOnValueChangeCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NumberInputOnFocusLost` struct
 #[repr(C)]
-#[pyclass(name = "NumberInputOnFocusLost")]
 pub struct AzNumberInputOnFocusLost {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNumberInputOnFocusLostCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeAdded")]
 pub struct AzNodeGraphOnNodeAdded {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeAddedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemoved` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeRemoved")]
 pub struct AzNodeGraphOnNodeRemoved {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeRemovedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDragged` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeGraphDragged")]
 pub struct AzNodeGraphOnNodeGraphDragged {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeGraphDraggedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDragged` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeDragged")]
 pub struct AzNodeGraphOnNodeDragged {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeDraggedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnected` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeConnected")]
 pub struct AzNodeGraphOnNodeConnected {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeConnectedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnected` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeInputDisconnected")]
 pub struct AzNodeGraphOnNodeInputDisconnected {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeInputDisconnectedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnected` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeOutputDisconnected")]
 pub struct AzNodeGraphOnNodeOutputDisconnected {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeOutputDisconnectedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEdited` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphOnNodeFieldEdited")]
 pub struct AzNodeGraphOnNodeFieldEdited {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzNodeGraphOnNodeFieldEditedCallback,
 }
 
 /// Re-export of rust-allocated (stack based) `OutputNodeAndIndex` struct
 #[repr(C)]
-#[pyclass(name = "OutputNodeAndIndex")]
 pub struct AzOutputNodeAndIndex {
-    #[pyo3(get, set)]
     pub node_id: AzNodeGraphNodeId,
-    #[pyo3(get, set)]
     pub output_index: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `InputNodeAndIndex` struct
 #[repr(C)]
-#[pyclass(name = "InputNodeAndIndex")]
 pub struct AzInputNodeAndIndex {
-    #[pyo3(get, set)]
     pub node_id: AzNodeGraphNodeId,
-    #[pyo3(get, set)]
     pub input_index: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
 #[repr(C)]
-#[pyclass(name = "ParentWithNodeDepth")]
 pub struct AzParentWithNodeDepth {
-    #[pyo3(get, set)]
     pub depth: usize,
-    #[pyo3(get, set)]
     pub node_id: AzNodeId,
 }
 
 /// Re-export of rust-allocated (stack based) `Gl` struct
 #[repr(C)]
-#[pyclass(name = "Gl")]
 pub struct AzGl {
     pub ptr: *const c_void,
-    #[pyo3(get, set)]
     pub renderer_type: AzRendererTypeEnumWrapper,
 }
 
 /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
 #[repr(C)]
-#[pyclass(name = "RefstrVecRef")]
 pub struct AzRefstrVecRef {
     pub(crate) ptr: *const AzRefstr,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `ImageMask` struct
 #[repr(C)]
-#[pyclass(name = "ImageMask")]
 pub struct AzImageMask {
-    #[pyo3(get, set)]
     pub image: AzImageRef,
-    #[pyo3(get, set)]
     pub rect: AzLogicalRect,
-    #[pyo3(get, set)]
     pub repeat: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `FontMetrics` struct
 #[repr(C)]
-#[pyclass(name = "FontMetrics")]
 pub struct AzFontMetrics {
-    #[pyo3(get, set)]
     pub units_per_em: u16,
-    #[pyo3(get, set)]
     pub font_flags: u16,
-    #[pyo3(get, set)]
     pub x_min: i16,
-    #[pyo3(get, set)]
     pub y_min: i16,
-    #[pyo3(get, set)]
     pub x_max: i16,
-    #[pyo3(get, set)]
     pub y_max: i16,
-    #[pyo3(get, set)]
     pub ascender: i16,
-    #[pyo3(get, set)]
     pub descender: i16,
-    #[pyo3(get, set)]
     pub line_gap: i16,
-    #[pyo3(get, set)]
     pub advance_width_max: u16,
-    #[pyo3(get, set)]
     pub min_left_side_bearing: i16,
-    #[pyo3(get, set)]
     pub min_right_side_bearing: i16,
-    #[pyo3(get, set)]
     pub x_max_extent: i16,
-    #[pyo3(get, set)]
     pub caret_slope_rise: i16,
-    #[pyo3(get, set)]
     pub caret_slope_run: i16,
-    #[pyo3(get, set)]
     pub caret_offset: i16,
-    #[pyo3(get, set)]
     pub num_h_metrics: u16,
-    #[pyo3(get, set)]
     pub x_avg_char_width: i16,
-    #[pyo3(get, set)]
     pub us_weight_class: u16,
-    #[pyo3(get, set)]
     pub us_width_class: u16,
-    #[pyo3(get, set)]
     pub fs_type: u16,
-    #[pyo3(get, set)]
     pub y_subscript_x_size: i16,
-    #[pyo3(get, set)]
     pub y_subscript_y_size: i16,
-    #[pyo3(get, set)]
     pub y_subscript_x_offset: i16,
-    #[pyo3(get, set)]
     pub y_subscript_y_offset: i16,
-    #[pyo3(get, set)]
     pub y_superscript_x_size: i16,
-    #[pyo3(get, set)]
     pub y_superscript_y_size: i16,
-    #[pyo3(get, set)]
     pub y_superscript_x_offset: i16,
-    #[pyo3(get, set)]
     pub y_superscript_y_offset: i16,
-    #[pyo3(get, set)]
     pub y_strikeout_size: i16,
-    #[pyo3(get, set)]
     pub y_strikeout_position: i16,
-    #[pyo3(get, set)]
     pub s_family_class: i16,
     pub panose: [u8; 10],
-    #[pyo3(get, set)]
     pub ul_unicode_range1: u32,
-    #[pyo3(get, set)]
     pub ul_unicode_range2: u32,
-    #[pyo3(get, set)]
     pub ul_unicode_range3: u32,
-    #[pyo3(get, set)]
     pub ul_unicode_range4: u32,
-    #[pyo3(get, set)]
     pub ach_vend_id: u32,
-    #[pyo3(get, set)]
     pub fs_selection: u16,
-    #[pyo3(get, set)]
     pub us_first_char_index: u16,
-    #[pyo3(get, set)]
     pub us_last_char_index: u16,
-    #[pyo3(get, set)]
     pub s_typo_ascender: AzOptionI16EnumWrapper,
-    #[pyo3(get, set)]
     pub s_typo_descender: AzOptionI16EnumWrapper,
-    #[pyo3(get, set)]
     pub s_typo_line_gap: AzOptionI16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_win_ascent: AzOptionU16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_win_descent: AzOptionU16EnumWrapper,
-    #[pyo3(get, set)]
     pub ul_code_page_range1: AzOptionU32EnumWrapper,
-    #[pyo3(get, set)]
     pub ul_code_page_range2: AzOptionU32EnumWrapper,
-    #[pyo3(get, set)]
     pub sx_height: AzOptionI16EnumWrapper,
-    #[pyo3(get, set)]
     pub s_cap_height: AzOptionI16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_default_char: AzOptionU16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_break_char: AzOptionU16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_max_context: AzOptionU16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_lower_optical_point_size: AzOptionU16EnumWrapper,
-    #[pyo3(get, set)]
     pub us_upper_optical_point_size: AzOptionU16EnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgLine` struct
 #[repr(C)]
-#[pyclass(name = "SvgLine")]
 pub struct AzSvgLine {
-    #[pyo3(get, set)]
     pub start: AzSvgPoint,
-    #[pyo3(get, set)]
     pub end: AzSvgPoint,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
 #[repr(C)]
-#[pyclass(name = "SvgQuadraticCurve")]
 pub struct AzSvgQuadraticCurve {
-    #[pyo3(get, set)]
     pub start: AzSvgPoint,
-    #[pyo3(get, set)]
     pub ctrl: AzSvgPoint,
-    #[pyo3(get, set)]
     pub end: AzSvgPoint,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
 #[repr(C)]
-#[pyclass(name = "SvgCubicCurve")]
 pub struct AzSvgCubicCurve {
-    #[pyo3(get, set)]
     pub start: AzSvgPoint,
-    #[pyo3(get, set)]
     pub ctrl_1: AzSvgPoint,
-    #[pyo3(get, set)]
     pub ctrl_2: AzSvgPoint,
-    #[pyo3(get, set)]
     pub end: AzSvgPoint,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgStringFormatOptions` struct
 #[repr(C)]
-#[pyclass(name = "SvgStringFormatOptions")]
 pub struct AzSvgStringFormatOptions {
-    #[pyo3(get, set)]
     pub use_single_quote: bool,
-    #[pyo3(get, set)]
     pub indent: AzIndentEnumWrapper,
-    #[pyo3(get, set)]
     pub attributes_indent: AzIndentEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
 #[repr(C)]
-#[pyclass(name = "SvgFillStyle")]
 pub struct AzSvgFillStyle {
-    #[pyo3(get, set)]
     pub line_join: AzSvgLineJoinEnumWrapper,
-    #[pyo3(get, set)]
     pub miter_limit: f32,
-    #[pyo3(get, set)]
     pub tolerance: f32,
-    #[pyo3(get, set)]
     pub fill_rule: AzSvgFillRuleEnumWrapper,
-    #[pyo3(get, set)]
     pub transform: AzSvgTransform,
-    #[pyo3(get, set)]
     pub anti_alias: bool,
-    #[pyo3(get, set)]
     pub high_quality_aa: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `InstantPtr` struct
 #[repr(C)]
-#[pyclass(name = "InstantPtr")]
 pub struct AzInstantPtr {
     pub ptr: *const c_void,
-    #[pyo3(get, set)]
     pub clone_fn: AzInstantPtrCloneFn,
-    #[pyo3(get, set)]
     pub destructor: AzInstantPtrDestructorFn,
 }
 
@@ -5651,388 +5000,269 @@ pub enum AzThreadSendMsg {
 
 /// Re-export of rust-allocated (stack based) `ThreadWriteBackMsg` struct
 #[repr(C)]
-#[pyclass(name = "ThreadWriteBackMsg")]
 pub struct AzThreadWriteBackMsg {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub callback: AzWriteBackCallback,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
 #[repr(C)]
-#[pyclass(name = "InputOutputTypeIdVec")]
 pub struct AzInputOutputTypeIdVec {
     pub(crate) ptr: *const AzInputOutputTypeId,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInputOutputTypeIdVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
 #[repr(C)]
-#[pyclass(name = "OutputNodeAndIndexVec")]
 pub struct AzOutputNodeAndIndexVec {
     pub(crate) ptr: *const AzOutputNodeAndIndex,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzOutputNodeAndIndexVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
 #[repr(C)]
-#[pyclass(name = "InputNodeAndIndexVec")]
 pub struct AzInputNodeAndIndexVec {
     pub(crate) ptr: *const AzInputNodeAndIndex,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInputNodeAndIndexVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
 #[repr(C)]
-#[pyclass(name = "AccessibilityStateVec")]
 pub struct AzAccessibilityStateVec {
     pub(crate) ptr: *const AzAccessibilityStateEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzAccessibilityStateVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<MenuItem>`
 #[repr(C)]
-#[pyclass(name = "MenuItemVec")]
 pub struct AzMenuItemVec {
     pub(crate) ptr: *const AzMenuItemEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzMenuItemVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<XmlNode>`
 #[repr(C)]
-#[pyclass(name = "XmlNodeVec")]
 pub struct AzXmlNodeVec {
     pub(crate) ptr: *const AzXmlNode,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzXmlNodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
 #[repr(C)]
-#[pyclass(name = "InlineGlyphVec")]
 pub struct AzInlineGlyphVec {
     pub(crate) ptr: *const AzInlineGlyph,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInlineGlyphVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
 #[repr(C)]
-#[pyclass(name = "InlineTextHitVec")]
 pub struct AzInlineTextHitVec {
     pub(crate) ptr: *const AzInlineTextHit,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInlineTextHitVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<VideoMode>`
 #[repr(C)]
-#[pyclass(name = "VideoModeVec")]
 pub struct AzVideoModeVec {
     pub(crate) ptr: *const AzVideoMode,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzVideoModeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<Dom>`
 #[repr(C)]
-#[pyclass(name = "DomVec")]
 pub struct AzDomVec {
     pub(crate) ptr: *const AzDom,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzDomVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
 #[repr(C)]
-#[pyclass(name = "StyleBackgroundPositionVec")]
 pub struct AzStyleBackgroundPositionVec {
     pub(crate) ptr: *const AzStyleBackgroundPosition,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyleBackgroundPositionVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
 #[repr(C)]
-#[pyclass(name = "StyleBackgroundRepeatVec")]
 pub struct AzStyleBackgroundRepeatVec {
     pub(crate) ptr: *const AzStyleBackgroundRepeatEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyleBackgroundRepeatVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
 #[repr(C)]
-#[pyclass(name = "StyleBackgroundSizeVec")]
 pub struct AzStyleBackgroundSizeVec {
     pub(crate) ptr: *const AzStyleBackgroundSizeEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyleBackgroundSizeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `SvgVertex`
 #[repr(C)]
-#[pyclass(name = "SvgVertexVec")]
 pub struct AzSvgVertexVec {
     pub(crate) ptr: *const AzSvgVertex,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzSvgVertexVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<u32>`
 #[repr(C)]
-#[pyclass(name = "U32Vec")]
 pub struct AzU32Vec {
     pub ptr: *const u32,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzU32VecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `XWindowType`
 #[repr(C)]
-#[pyclass(name = "XWindowTypeVec")]
 pub struct AzXWindowTypeVec {
     pub(crate) ptr: *const AzXWindowTypeEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzXWindowTypeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `VirtualKeyCode`
 #[repr(C)]
-#[pyclass(name = "VirtualKeyCodeVec")]
 pub struct AzVirtualKeyCodeVec {
     pub(crate) ptr: *const AzVirtualKeyCodeEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzVirtualKeyCodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `CascadeInfo`
 #[repr(C)]
-#[pyclass(name = "CascadeInfoVec")]
 pub struct AzCascadeInfoVec {
     pub(crate) ptr: *const AzCascadeInfo,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzCascadeInfoVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `ScanCode`
 #[repr(C)]
-#[pyclass(name = "ScanCodeVec")]
 pub struct AzScanCodeVec {
     pub ptr: *const u32,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzScanCodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<u16>`
 #[repr(C)]
-#[pyclass(name = "U16Vec")]
 pub struct AzU16Vec {
     pub ptr: *const u16,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzU16VecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<f32>`
 #[repr(C)]
-#[pyclass(name = "F32Vec")]
 pub struct AzF32Vec {
     pub ptr: *const f32,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzF32VecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `U8Vec`
 #[repr(C)]
-#[pyclass(name = "U8Vec")]
 pub struct AzU8Vec {
     pub ptr: *const u8,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzU8VecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `U32Vec`
 #[repr(C)]
-#[pyclass(name = "GLuintVec")]
 pub struct AzGLuintVec {
     pub ptr: *const u32,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzGLuintVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `GLintVec`
 #[repr(C)]
-#[pyclass(name = "GLintVec")]
 pub struct AzGLintVec {
     pub ptr: *const i32,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzGLintVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
 #[repr(C)]
-#[pyclass(name = "NormalizedLinearColorStopVec")]
 pub struct AzNormalizedLinearColorStopVec {
     pub(crate) ptr: *const AzNormalizedLinearColorStop,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNormalizedLinearColorStopVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
 #[repr(C)]
-#[pyclass(name = "NormalizedRadialColorStopVec")]
 pub struct AzNormalizedRadialColorStopVec {
     pub(crate) ptr: *const AzNormalizedRadialColorStop,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNormalizedRadialColorStopVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `NodeIdVec`
 #[repr(C)]
-#[pyclass(name = "NodeIdVec")]
 pub struct AzNodeIdVec {
     pub(crate) ptr: *const AzNodeId,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeIdVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
 #[repr(C)]
-#[pyclass(name = "NodeHierarchyItemVec")]
 pub struct AzNodeHierarchyItemVec {
     pub(crate) ptr: *const AzNodeHierarchyItem,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeHierarchyItemVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
 #[repr(C)]
-#[pyclass(name = "ParentWithNodeDepthVec")]
 pub struct AzParentWithNodeDepthVec {
     pub(crate) ptr: *const AzParentWithNodeDepth,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
 }
 
@@ -6402,93 +5632,63 @@ pub enum AzResultU8VecEncodeImageError {
 
 /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
 #[repr(C)]
-#[pyclass(name = "NonXmlCharError")]
 pub struct AzNonXmlCharError {
-    #[pyo3(get, set)]
     pub ch: u32,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
 #[repr(C)]
-#[pyclass(name = "InvalidCharError")]
 pub struct AzInvalidCharError {
-    #[pyo3(get, set)]
     pub expected: u8,
-    #[pyo3(get, set)]
     pub got: u8,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
 #[repr(C)]
-#[pyclass(name = "InvalidCharMultipleError")]
 pub struct AzInvalidCharMultipleError {
-    #[pyo3(get, set)]
     pub expected: u8,
-    #[pyo3(get, set)]
     pub got: AzU8Vec,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
 #[repr(C)]
-#[pyclass(name = "InvalidQuoteError")]
 pub struct AzInvalidQuoteError {
-    #[pyo3(get, set)]
     pub got: u8,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
 #[repr(C)]
-#[pyclass(name = "InvalidSpaceError")]
 pub struct AzInvalidSpaceError {
-    #[pyo3(get, set)]
     pub got: u8,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[repr(C)]
-#[pyclass(name = "AppConfig")]
 pub struct AzAppConfig {
-    #[pyo3(get, set)]
     pub layout_solver: AzLayoutSolverEnumWrapper,
-    #[pyo3(get, set)]
     pub log_level: AzAppLogLevelEnumWrapper,
-    #[pyo3(get, set)]
     pub enable_visual_panic_hook: bool,
-    #[pyo3(get, set)]
     pub enable_logging_on_panic: bool,
-    #[pyo3(get, set)]
     pub enable_tab_navigation: bool,
-    #[pyo3(get, set)]
     pub system_callbacks: AzSystemCallbacks,
 }
 
 /// Small (16x16x4) window icon, usually shown in the window titlebar
 #[repr(C)]
-#[pyclass(name = "SmallWindowIconBytes")]
 pub struct AzSmallWindowIconBytes {
-    #[pyo3(get, set)]
     pub key: AzIconKey,
-    #[pyo3(get, set)]
     pub rgba_bytes: AzU8Vec,
 }
 
 /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
 #[repr(C)]
-#[pyclass(name = "LargeWindowIconBytes")]
 pub struct AzLargeWindowIconBytes {
-    #[pyo3(get, set)]
     pub key: AzIconKey,
-    #[pyo3(get, set)]
     pub rgba_bytes: AzU8Vec,
 }
 
@@ -6501,92 +5701,59 @@ pub enum AzWindowIcon {
 
 /// Application taskbar icon, 256x256x4 bytes in size
 #[repr(C)]
-#[pyclass(name = "TaskBarIcon")]
 pub struct AzTaskBarIcon {
-    #[pyo3(get, set)]
     pub key: AzIconKey,
-    #[pyo3(get, set)]
     pub rgba_bytes: AzU8Vec,
 }
 
 /// Minimum / maximum / current size of the window in logical dimensions
 #[repr(C)]
-#[pyclass(name = "WindowSize")]
 pub struct AzWindowSize {
-    #[pyo3(get, set)]
     pub dimensions: AzLogicalSize,
-    #[pyo3(get, set)]
     pub hidpi_factor: f32,
-    #[pyo3(get, set)]
     pub system_hidpi_factor: f32,
-    #[pyo3(get, set)]
     pub dpi: u32,
-    #[pyo3(get, set)]
     pub min_dimensions: AzOptionLogicalSizeEnumWrapper,
-    #[pyo3(get, set)]
     pub max_dimensions: AzOptionLogicalSizeEnumWrapper,
 }
 
 /// Current keyboard state, stores what keys / characters have been pressed
 #[repr(C)]
-#[pyclass(name = "KeyboardState")]
 pub struct AzKeyboardState {
-    #[pyo3(get, set)]
     pub shift_down: bool,
-    #[pyo3(get, set)]
     pub ctrl_down: bool,
-    #[pyo3(get, set)]
     pub alt_down: bool,
-    #[pyo3(get, set)]
     pub super_down: bool,
-    #[pyo3(get, set)]
     pub current_char: AzOptionCharEnumWrapper,
-    #[pyo3(get, set)]
     pub current_virtual_keycode: AzOptionVirtualKeyCodeEnumWrapper,
-    #[pyo3(get, set)]
     pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
-    #[pyo3(get, set)]
     pub pressed_scancodes: AzScanCodeVec,
 }
 
 /// Current mouse / cursor state
 #[repr(C)]
-#[pyclass(name = "MouseState")]
 pub struct AzMouseState {
-    #[pyo3(get, set)]
     pub mouse_cursor_type: AzOptionMouseCursorTypeEnumWrapper,
-    #[pyo3(get, set)]
     pub cursor_position: AzCursorPositionEnumWrapper,
-    #[pyo3(get, set)]
     pub is_cursor_locked: bool,
-    #[pyo3(get, set)]
     pub left_down: bool,
-    #[pyo3(get, set)]
     pub right_down: bool,
-    #[pyo3(get, set)]
     pub middle_down: bool,
-    #[pyo3(get, set)]
     pub scroll_x: AzOptionF32EnumWrapper,
-    #[pyo3(get, set)]
     pub scroll_y: AzOptionF32EnumWrapper,
 }
 
 /// C-ABI stable wrapper over a `MarshaledLayoutCallback`
 #[repr(C)]
-#[pyclass(name = "MarshaledLayoutCallback")]
 pub struct AzMarshaledLayoutCallback {
-    #[pyo3(get, set)]
     pub marshal_data: AzRefAny,
     pub cb: AzMarshaledLayoutCallbackInner,
 }
 
 /// Re-export of rust-allocated (stack based) `InlineTextContents` struct
 #[repr(C)]
-#[pyclass(name = "InlineTextContents")]
 pub struct AzInlineTextContents {
-    #[pyo3(get, set)]
     pub glyphs: AzInlineGlyphVec,
-    #[pyo3(get, set)]
     pub bounds: AzLogicalRect,
 }
 
@@ -6603,11 +5770,8 @@ pub enum AzAnimationEasing {
 
 /// Re-export of rust-allocated (stack based) `RenderImageCallbackInfo` struct
 #[repr(C)]
-#[pyclass(name = "RenderImageCallbackInfo")]
 pub struct AzRenderImageCallbackInfo {
-    #[pyo3(get, set)]
     pub callback_node_id: AzDomNodeId,
-    #[pyo3(get, set)]
     pub bounds: AzHidpiAdjustedBounds,
     pub gl_context: *const AzOptionGlEnumWrapper,
     pub image_cache: *const c_void,
@@ -6623,11 +5787,8 @@ pub struct AzRenderImageCallbackInfo {
 
 /// Re-export of rust-allocated (stack based) `LayoutCallbackInfo` struct
 #[repr(C)]
-#[pyclass(name = "LayoutCallbackInfo")]
 pub struct AzLayoutCallbackInfo {
-    #[pyo3(get, set)]
     pub window_size: AzWindowSize,
-    #[pyo3(get, set)]
     pub theme: AzWindowThemeEnumWrapper,
     pub image_cache: *const c_void,
     pub gl_context: *const AzOptionGlEnumWrapper,
@@ -6649,21 +5810,15 @@ pub enum AzEventFilter {
 
 /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
 #[repr(C)]
-#[pyclass(name = "Menu")]
 pub struct AzMenu {
-    #[pyo3(get, set)]
     pub items: AzMenuItemVec,
-    #[pyo3(get, set)]
     pub position: AzMenuPopupPositionEnumWrapper,
-    #[pyo3(get, set)]
     pub context_mouse_btn: AzContextMenuMouseButtonEnumWrapper,
 }
 
 /// Combination of virtual key codes that have to be pressed together
 #[repr(C)]
-#[pyclass(name = "VirtualKeyCodeCombo")]
 pub struct AzVirtualKeyCodeCombo {
-    #[pyo3(get, set)]
     pub keys: AzVirtualKeyCodeVec,
 }
 
@@ -6691,59 +5846,38 @@ pub enum AzAnimationInterpolationFunction {
 
 /// Re-export of rust-allocated (stack based) `InterpolateContext` struct
 #[repr(C)]
-#[pyclass(name = "InterpolateContext")]
 pub struct AzInterpolateContext {
-    #[pyo3(get, set)]
     pub animation_func: AzAnimationInterpolationFunctionEnumWrapper,
-    #[pyo3(get, set)]
     pub parent_rect_width: f32,
-    #[pyo3(get, set)]
     pub parent_rect_height: f32,
-    #[pyo3(get, set)]
     pub current_rect_width: f32,
-    #[pyo3(get, set)]
     pub current_rect_height: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `LinearGradient` struct
 #[repr(C)]
-#[pyclass(name = "LinearGradient")]
 pub struct AzLinearGradient {
-    #[pyo3(get, set)]
     pub direction: AzDirectionEnumWrapper,
-    #[pyo3(get, set)]
     pub extend_mode: AzExtendModeEnumWrapper,
-    #[pyo3(get, set)]
     pub stops: AzNormalizedLinearColorStopVec,
 }
 
 /// Re-export of rust-allocated (stack based) `RadialGradient` struct
 #[repr(C)]
-#[pyclass(name = "RadialGradient")]
 pub struct AzRadialGradient {
-    #[pyo3(get, set)]
     pub shape: AzShapeEnumWrapper,
-    #[pyo3(get, set)]
     pub size: AzRadialGradientSizeEnumWrapper,
-    #[pyo3(get, set)]
     pub position: AzStyleBackgroundPosition,
-    #[pyo3(get, set)]
     pub extend_mode: AzExtendModeEnumWrapper,
-    #[pyo3(get, set)]
     pub stops: AzNormalizedLinearColorStopVec,
 }
 
 /// Re-export of rust-allocated (stack based) `ConicGradient` struct
 #[repr(C)]
-#[pyclass(name = "ConicGradient")]
 pub struct AzConicGradient {
-    #[pyo3(get, set)]
     pub extend_mode: AzExtendModeEnumWrapper,
-    #[pyo3(get, set)]
     pub center: AzStyleBackgroundPosition,
-    #[pyo3(get, set)]
     pub angle: AzAngleValue,
-    #[pyo3(get, set)]
     pub stops: AzNormalizedRadialColorStopVec,
 }
 
@@ -6805,115 +5939,76 @@ pub enum AzStyleBackgroundSizeVecValue {
 
 /// Re-export of rust-allocated (stack based) `CheckBoxStateWrapper` struct
 #[repr(C)]
-#[pyclass(name = "CheckBoxStateWrapper")]
 pub struct AzCheckBoxStateWrapper {
-    #[pyo3(get, set)]
     pub inner: AzCheckBoxState,
-    #[pyo3(get, set)]
     pub on_toggle: AzOptionCheckBoxOnToggleEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `NumberInputStateWrapper` struct
 #[repr(C)]
-#[pyclass(name = "NumberInputStateWrapper")]
 pub struct AzNumberInputStateWrapper {
-    #[pyo3(get, set)]
     pub inner: AzNumberInputState,
-    #[pyo3(get, set)]
     pub on_value_change: AzOptionNumberInputOnValueChangeEnumWrapper,
-    #[pyo3(get, set)]
     pub on_focus_lost: AzOptionNumberInputOnFocusLostEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraphCallbacks` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraphCallbacks")]
 pub struct AzNodeGraphCallbacks {
-    #[pyo3(get, set)]
     pub on_node_added: AzOptionNodeGraphOnNodeAddedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_removed: AzOptionNodeGraphOnNodeRemovedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_dragged: AzOptionNodeGraphOnNodeDraggedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_graph_dragged: AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_connected: AzOptionNodeGraphOnNodeConnectedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_input_disconnected: AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_output_disconnected: AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper,
-    #[pyo3(get, set)]
     pub on_node_field_edited: AzOptionNodeGraphOnNodeFieldEditedEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `InputConnection` struct
 #[repr(C)]
-#[pyclass(name = "InputConnection")]
 pub struct AzInputConnection {
-    #[pyo3(get, set)]
     pub input_index: usize,
-    #[pyo3(get, set)]
     pub connects_to: AzOutputNodeAndIndexVec,
 }
 
 /// Re-export of rust-allocated (stack based) `OutputConnection` struct
 #[repr(C)]
-#[pyclass(name = "OutputConnection")]
 pub struct AzOutputConnection {
-    #[pyo3(get, set)]
     pub output_index: usize,
-    #[pyo3(get, set)]
     pub connects_to: AzInputNodeAndIndexVec,
 }
 
 /// Re-export of rust-allocated (stack based) `StyledNode` struct
 #[repr(C)]
-#[pyclass(name = "StyledNode")]
 pub struct AzStyledNode {
-    #[pyo3(get, set)]
     pub state: AzStyledNodeState,
-    #[pyo3(get, set)]
     pub tag_id: AzOptionTagIdEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `TagIdToNodeIdMapping` struct
 #[repr(C)]
-#[pyclass(name = "TagIdToNodeIdMapping")]
 pub struct AzTagIdToNodeIdMapping {
-    #[pyo3(get, set)]
     pub tag_id: AzTagId,
-    #[pyo3(get, set)]
     pub node_id: AzNodeId,
-    #[pyo3(get, set)]
     pub tab_index: AzOptionTabIndexEnumWrapper,
-    #[pyo3(get, set)]
     pub parents: AzNodeIdVec,
 }
 
 /// Re-export of rust-allocated (stack based) `Texture` struct
 #[repr(C)]
-#[pyclass(name = "Texture")]
 pub struct AzTexture {
-    #[pyo3(get, set)]
     pub texture_id: u32,
-    #[pyo3(get, set)]
     pub format: AzRawImageFormatEnumWrapper,
-    #[pyo3(get, set)]
     pub flags: AzTextureFlags,
-    #[pyo3(get, set)]
     pub size: AzPhysicalSizeU32,
-    #[pyo3(get, set)]
     pub gl_context: AzGl,
 }
 
 /// C-ABI stable reexport of `(U8Vec, u32)`
 #[repr(C)]
-#[pyclass(name = "GetProgramBinaryReturn")]
 pub struct AzGetProgramBinaryReturn {
-    #[pyo3(get, set)]
     pub _0: AzU8Vec,
-    #[pyo3(get, set)]
     pub _1: u32,
 }
 
@@ -6927,13 +6022,9 @@ pub enum AzRawImageData {
 
 /// Source data of a font file (bytes)
 #[repr(C)]
-#[pyclass(name = "FontSource")]
 pub struct AzFontSource {
-    #[pyo3(get, set)]
     pub data: AzU8Vec,
-    #[pyo3(get, set)]
     pub font_index: u32,
-    #[pyo3(get, set)]
     pub parse_glyph_outlines: bool,
 }
 
@@ -6947,68 +6038,45 @@ pub enum AzSvgPathElement {
 
 /// Re-export of rust-allocated (stack based) `TessellatedSvgNode` struct
 #[repr(C)]
-#[pyclass(name = "TessellatedSvgNode")]
 pub struct AzTessellatedSvgNode {
-    #[pyo3(get, set)]
     pub vertices: AzSvgVertexVec,
-    #[pyo3(get, set)]
     pub indices: AzU32Vec,
 }
 
 /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
 #[repr(C)]
-#[pyclass(name = "TessellatedSvgNodeVecRef")]
 pub struct AzTessellatedSvgNodeVecRef {
     pub(crate) ptr: *const AzTessellatedSvgNode,
-    #[pyo3(get, set)]
     pub len: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
 #[repr(C)]
-#[pyclass(name = "SvgRenderOptions")]
 pub struct AzSvgRenderOptions {
-    #[pyo3(get, set)]
     pub target_size: AzOptionLayoutSizeEnumWrapper,
-    #[pyo3(get, set)]
     pub background_color: AzOptionColorUEnumWrapper,
-    #[pyo3(get, set)]
     pub fit: AzSvgFitToEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
 #[repr(C)]
-#[pyclass(name = "SvgStrokeStyle")]
 pub struct AzSvgStrokeStyle {
-    #[pyo3(get, set)]
     pub start_cap: AzSvgLineCapEnumWrapper,
-    #[pyo3(get, set)]
     pub end_cap: AzSvgLineCapEnumWrapper,
-    #[pyo3(get, set)]
     pub line_join: AzSvgLineJoinEnumWrapper,
-    #[pyo3(get, set)]
     pub dash_pattern: AzOptionSvgDashPatternEnumWrapper,
-    #[pyo3(get, set)]
     pub line_width: f32,
-    #[pyo3(get, set)]
     pub miter_limit: f32,
-    #[pyo3(get, set)]
     pub tolerance: f32,
-    #[pyo3(get, set)]
     pub apply_line_width: bool,
-    #[pyo3(get, set)]
     pub transform: AzSvgTransform,
-    #[pyo3(get, set)]
     pub anti_alias: bool,
-    #[pyo3(get, set)]
     pub high_quality_aa: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `Xml` struct
 #[repr(C)]
-#[pyclass(name = "Xml")]
 pub struct AzXml {
-    #[pyo3(get, set)]
     pub root: AzXmlNodeVec,
 }
 
@@ -7028,113 +6096,79 @@ pub enum AzThreadReceiveMsg {
 
 /// Re-export of rust-allocated (stack based) `String` struct
 #[repr(C)]
-#[pyclass(name = "String")]
 pub struct AzString {
-    #[pyo3(get, set)]
     pub vec: AzU8Vec,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InputConnection>`
 #[repr(C)]
-#[pyclass(name = "InputConnectionVec")]
 pub struct AzInputConnectionVec {
     pub(crate) ptr: *const AzInputConnection,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInputConnectionVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<OutputConnection>`
 #[repr(C)]
-#[pyclass(name = "OutputConnectionVec")]
 pub struct AzOutputConnectionVec {
     pub(crate) ptr: *const AzOutputConnection,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzOutputConnectionVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
 #[repr(C)]
-#[pyclass(name = "TessellatedSvgNodeVec")]
 pub struct AzTessellatedSvgNodeVec {
     pub(crate) ptr: *const AzTessellatedSvgNode,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzTessellatedSvgNodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
 #[repr(C)]
-#[pyclass(name = "StyleTransformVec")]
 pub struct AzStyleTransformVec {
     pub(crate) ptr: *const AzStyleTransformEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyleTransformVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `VertexAttribute`
 #[repr(C)]
-#[pyclass(name = "SvgPathElementVec")]
 pub struct AzSvgPathElementVec {
     pub(crate) ptr: *const AzSvgPathElementEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzSvgPathElementVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `StringVec`
 #[repr(C)]
-#[pyclass(name = "StringVec")]
 pub struct AzStringVec {
     pub(crate) ptr: *const AzString,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStringVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `StyledNodeVec`
 #[repr(C)]
-#[pyclass(name = "StyledNodeVec")]
 pub struct AzStyledNodeVec {
     pub(crate) ptr: *const AzStyledNode,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyledNodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `TagIdToNodeIdMappingVec`
 #[repr(C)]
-#[pyclass(name = "TagIdToNodeIdMappingVec")]
 pub struct AzTagIdToNodeIdMappingVec {
     pub(crate) ptr: *const AzTagIdToNodeIdMapping,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzTagIdToNodeIdMappingVecDestructorEnumWrapper,
 }
 
@@ -7210,85 +6244,59 @@ pub enum AzOptionInstant {
 
 /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
 #[repr(C)]
-#[pyclass(name = "DuplicatedNamespaceError")]
 pub struct AzDuplicatedNamespaceError {
-    #[pyo3(get, set)]
     pub ns: AzString,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
 #[repr(C)]
-#[pyclass(name = "UnknownNamespaceError")]
 pub struct AzUnknownNamespaceError {
-    #[pyo3(get, set)]
     pub ns: AzString,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
 #[repr(C)]
-#[pyclass(name = "UnexpectedCloseTagError")]
 pub struct AzUnexpectedCloseTagError {
-    #[pyo3(get, set)]
     pub expected: AzString,
-    #[pyo3(get, set)]
     pub actual: AzString,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
 #[repr(C)]
-#[pyclass(name = "UnknownEntityReferenceError")]
 pub struct AzUnknownEntityReferenceError {
-    #[pyo3(get, set)]
     pub entity: AzString,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
 #[repr(C)]
-#[pyclass(name = "DuplicatedAttributeError")]
 pub struct AzDuplicatedAttributeError {
-    #[pyo3(get, set)]
     pub attribute: AzString,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
 #[repr(C)]
-#[pyclass(name = "InvalidStringError")]
 pub struct AzInvalidStringError {
-    #[pyo3(get, set)]
     pub got: AzString,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Window configuration specific to Win32
 #[repr(C)]
-#[pyclass(name = "WindowsWindowOptions")]
 pub struct AzWindowsWindowOptions {
-    #[pyo3(get, set)]
     pub allow_drag_drop: bool,
-    #[pyo3(get, set)]
     pub no_redirection_bitmap: bool,
-    #[pyo3(get, set)]
     pub window_icon: AzOptionWindowIconEnumWrapper,
-    #[pyo3(get, set)]
     pub taskbar_icon: AzOptionTaskBarIconEnumWrapper,
-    #[pyo3(get, set)]
     pub parent_window: AzOptionHwndHandleEnumWrapper,
 }
 
 /// CSD theme of the window title / button controls
 #[repr(C)]
-#[pyclass(name = "WaylandTheme")]
 pub struct AzWaylandTheme {
     pub title_bar_active_background_color: [u8;4],
     pub title_bar_active_separator_color: [u8;4],
@@ -7332,39 +6340,26 @@ pub struct AzWaylandTheme {
     pub maximize_disabled_background_active_color: [u8;4],
     pub minimize_disabled_background_active_color: [u8;4],
     pub close_disabled_background_active_color: [u8;4],
-    #[pyo3(get, set)]
     pub title_bar_font: AzString,
-    #[pyo3(get, set)]
     pub title_bar_font_size: f32,
 }
 
 /// Key-value pair, used for setting WM hints values specific to GNOME
 #[repr(C)]
-#[pyclass(name = "StringPair")]
 pub struct AzStringPair {
-    #[pyo3(get, set)]
     pub key: AzString,
-    #[pyo3(get, set)]
     pub value: AzString,
 }
 
 /// Information about a single (or many) monitors, useful for dock widgets
 #[repr(C)]
-#[pyclass(name = "Monitor")]
 pub struct AzMonitor {
-    #[pyo3(get, set)]
     pub id: usize,
-    #[pyo3(get, set)]
     pub name: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub size: AzLayoutSize,
-    #[pyo3(get, set)]
     pub position: AzLayoutPoint,
-    #[pyo3(get, set)]
     pub scale_factor: f64,
-    #[pyo3(get, set)]
     pub video_modes: AzVideoModeVec,
-    #[pyo3(get, set)]
     pub is_primary_monitor: bool,
 }
 
@@ -7386,13 +6381,9 @@ pub enum AzInlineWord {
 
 /// Re-export of rust-allocated (stack based) `CallbackData` struct
 #[repr(C)]
-#[pyclass(name = "CallbackData")]
 pub struct AzCallbackData {
-    #[pyo3(get, set)]
     pub event: AzEventFilterEnumWrapper,
-    #[pyo3(get, set)]
     pub callback: AzCallback,
-    #[pyo3(get, set)]
     pub data: AzRefAny,
 }
 
@@ -7409,19 +6400,12 @@ pub enum AzNodeType {
 
 /// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
 #[repr(C)]
-#[pyclass(name = "AccessibilityInfo")]
 pub struct AzAccessibilityInfo {
-    #[pyo3(get, set)]
     pub name: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub value: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub role: AzAccessibilityRoleEnumWrapper,
-    #[pyo3(get, set)]
     pub states: AzAccessibilityStateVec,
-    #[pyo3(get, set)]
     pub accelerator: AzOptionVirtualKeyCodeComboEnumWrapper,
-    #[pyo3(get, set)]
     pub default_action: AzOptionStringEnumWrapper,
 }
 
@@ -7434,19 +6418,12 @@ pub enum AzIdOrClass {
 
 /// Regular labeled menu item
 #[repr(C)]
-#[pyclass(name = "StringMenuItem")]
 pub struct AzStringMenuItem {
-    #[pyo3(get, set)]
     pub label: AzString,
-    #[pyo3(get, set)]
     pub accelerator: AzOptionVirtualKeyCodeComboEnumWrapper,
-    #[pyo3(get, set)]
     pub callback: AzOptionMenuCallbackEnumWrapper,
-    #[pyo3(get, set)]
     pub state: AzMenuItemStateEnumWrapper,
-    #[pyo3(get, set)]
     pub icon: AzOptionMenuItemIconEnumWrapper,
-    #[pyo3(get, set)]
     pub children: AzMenuItemVec,
 }
 
@@ -7474,33 +6451,21 @@ pub enum AzStyleBackgroundContent {
 
 /// Re-export of rust-allocated (stack based) `ScrollbarInfo` struct
 #[repr(C)]
-#[pyclass(name = "ScrollbarInfo")]
 pub struct AzScrollbarInfo {
-    #[pyo3(get, set)]
     pub width: AzLayoutWidth,
-    #[pyo3(get, set)]
     pub padding_left: AzLayoutPaddingLeft,
-    #[pyo3(get, set)]
     pub padding_right: AzLayoutPaddingRight,
-    #[pyo3(get, set)]
     pub track: AzStyleBackgroundContentEnumWrapper,
-    #[pyo3(get, set)]
     pub thumb: AzStyleBackgroundContentEnumWrapper,
-    #[pyo3(get, set)]
     pub button: AzStyleBackgroundContentEnumWrapper,
-    #[pyo3(get, set)]
     pub corner: AzStyleBackgroundContentEnumWrapper,
-    #[pyo3(get, set)]
     pub resizer: AzStyleBackgroundContentEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `ScrollbarStyle` struct
 #[repr(C)]
-#[pyclass(name = "ScrollbarStyle")]
 pub struct AzScrollbarStyle {
-    #[pyo3(get, set)]
     pub horizontal: AzScrollbarInfo,
-    #[pyo3(get, set)]
     pub vertical: AzScrollbarInfo,
 }
 
@@ -7534,29 +6499,19 @@ pub enum AzStyleTransformVecValue {
 
 /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
 #[repr(C)]
-#[pyclass(name = "ColorInputStateWrapper")]
 pub struct AzColorInputStateWrapper {
-    #[pyo3(get, set)]
     pub inner: AzColorInputState,
-    #[pyo3(get, set)]
     pub title: AzString,
-    #[pyo3(get, set)]
     pub on_value_change: AzOptionColorInputOnValueChangeEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `TextInputState` struct
 #[repr(C)]
-#[pyclass(name = "TextInputState")]
 pub struct AzTextInputState {
-    #[pyo3(get, set)]
     pub text: AzU32Vec,
-    #[pyo3(get, set)]
     pub placeholder: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub max_len: usize,
-    #[pyo3(get, set)]
     pub selection: AzOptionTextInputSelectionEnumWrapper,
-    #[pyo3(get, set)]
     pub cursor_pos: usize,
 }
 
@@ -7571,129 +6526,83 @@ pub enum AzNodeTypeFieldValue {
 
 /// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
 #[repr(C)]
-#[pyclass(name = "NodeTypeInfo")]
 pub struct AzNodeTypeInfo {
-    #[pyo3(get, set)]
     pub is_root: bool,
-    #[pyo3(get, set)]
     pub name: AzString,
-    #[pyo3(get, set)]
     pub inputs: AzInputOutputTypeIdVec,
-    #[pyo3(get, set)]
     pub outputs: AzInputOutputTypeIdVec,
 }
 
 /// Re-export of rust-allocated (stack based) `InputOutputInfo` struct
 #[repr(C)]
-#[pyclass(name = "InputOutputInfo")]
 pub struct AzInputOutputInfo {
-    #[pyo3(get, set)]
     pub data_type: AzString,
-    #[pyo3(get, set)]
     pub color: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
 #[repr(C)]
-#[pyclass(name = "VertexAttribute")]
 pub struct AzVertexAttribute {
-    #[pyo3(get, set)]
     pub name: AzString,
-    #[pyo3(get, set)]
     pub layout_location: AzOptionUsizeEnumWrapper,
-    #[pyo3(get, set)]
     pub attribute_type: AzVertexAttributeTypeEnumWrapper,
-    #[pyo3(get, set)]
     pub item_count: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `DebugMessage` struct
 #[repr(C)]
-#[pyclass(name = "DebugMessage")]
 pub struct AzDebugMessage {
-    #[pyo3(get, set)]
     pub message: AzString,
-    #[pyo3(get, set)]
     pub source: u32,
-    #[pyo3(get, set)]
     pub ty: u32,
-    #[pyo3(get, set)]
     pub id: u32,
-    #[pyo3(get, set)]
     pub severity: u32,
 }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 #[repr(C)]
-#[pyclass(name = "GetActiveAttribReturn")]
 pub struct AzGetActiveAttribReturn {
-    #[pyo3(get, set)]
     pub _0: i32,
-    #[pyo3(get, set)]
     pub _1: u32,
-    #[pyo3(get, set)]
     pub _2: AzString,
 }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 #[repr(C)]
-#[pyclass(name = "GetActiveUniformReturn")]
 pub struct AzGetActiveUniformReturn {
-    #[pyo3(get, set)]
     pub _0: i32,
-    #[pyo3(get, set)]
     pub _1: u32,
-    #[pyo3(get, set)]
     pub _2: AzString,
 }
 
 /// Re-export of rust-allocated (stack based) `RawImage` struct
 #[repr(C)]
-#[pyclass(name = "RawImage")]
 pub struct AzRawImage {
-    #[pyo3(get, set)]
     pub pixels: AzRawImageDataEnumWrapper,
-    #[pyo3(get, set)]
     pub width: usize,
-    #[pyo3(get, set)]
     pub height: usize,
-    #[pyo3(get, set)]
     pub alpha_premultiplied: bool,
-    #[pyo3(get, set)]
     pub data_format: AzRawImageFormatEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgPath` struct
 #[repr(C)]
-#[pyclass(name = "SvgPath")]
 pub struct AzSvgPath {
-    #[pyo3(get, set)]
     pub items: AzSvgPathElementVec,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
 #[repr(C)]
-#[pyclass(name = "SvgParseOptions")]
 pub struct AzSvgParseOptions {
-    #[pyo3(get, set)]
     pub relative_image_path: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub dpi: f32,
-    #[pyo3(get, set)]
     pub default_font_family: AzString,
-    #[pyo3(get, set)]
     pub font_size: f32,
-    #[pyo3(get, set)]
     pub languages: AzStringVec,
-    #[pyo3(get, set)]
     pub shape_rendering: AzShapeRenderingEnumWrapper,
-    #[pyo3(get, set)]
     pub text_rendering: AzTextRenderingEnumWrapper,
-    #[pyo3(get, set)]
     pub image_rendering: AzImageRenderingEnumWrapper,
-    #[pyo3(get, set)]
     pub keep_named_groups: bool,
-    #[pyo3(get, set)]
     pub fontdb: AzFontDatabaseEnumWrapper,
 }
 
@@ -7706,44 +6615,29 @@ pub enum AzSvgStyle {
 
 /// **Reference-counted** file handle
 #[repr(C)]
-#[pyclass(name = "File")]
 pub struct AzFile {
     pub ptr: *const c_void,
-    #[pyo3(get, set)]
     pub path: AzString,
 }
 
 /// Re-export of rust-allocated (stack based) `FileTypeList` struct
 #[repr(C)]
-#[pyclass(name = "FileTypeList")]
 pub struct AzFileTypeList {
-    #[pyo3(get, set)]
     pub document_types: AzStringVec,
-    #[pyo3(get, set)]
     pub document_descriptor: AzString,
 }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 #[repr(C)]
-#[pyclass(name = "Timer")]
 pub struct AzTimer {
-    #[pyo3(get, set)]
     pub data: AzRefAny,
-    #[pyo3(get, set)]
     pub node_id: AzOptionDomNodeIdEnumWrapper,
-    #[pyo3(get, set)]
     pub created: AzInstantEnumWrapper,
-    #[pyo3(get, set)]
     pub last_run: AzOptionInstantEnumWrapper,
-    #[pyo3(get, set)]
     pub run_count: usize,
-    #[pyo3(get, set)]
     pub delay: AzOptionDurationEnumWrapper,
-    #[pyo3(get, set)]
     pub interval: AzOptionDurationEnumWrapper,
-    #[pyo3(get, set)]
     pub timeout: AzOptionDurationEnumWrapper,
-    #[pyo3(get, set)]
     pub callback: AzTimerCallback,
 }
 
@@ -7769,167 +6663,116 @@ pub enum AzFmtValue {
 
 /// Re-export of rust-allocated (stack based) `FmtArg` struct
 #[repr(C)]
-#[pyclass(name = "FmtArg")]
 pub struct AzFmtArg {
-    #[pyo3(get, set)]
     pub key: AzString,
-    #[pyo3(get, set)]
     pub value: AzFmtValueEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
 #[repr(C)]
-#[pyclass(name = "StyleFontFamilyVec")]
 pub struct AzStyleFontFamilyVec {
     pub(crate) ptr: *const AzStyleFontFamilyEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyleFontFamilyVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<FmtArg>`
 #[repr(C)]
-#[pyclass(name = "FmtArgVec")]
 pub struct AzFmtArgVec {
     pub(crate) ptr: *const AzFmtArg,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzFmtArgVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InlineWord>`
 #[repr(C)]
-#[pyclass(name = "InlineWordVec")]
 pub struct AzInlineWordVec {
     pub(crate) ptr: *const AzInlineWordEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInlineWordVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<Monitor>`
 #[repr(C)]
-#[pyclass(name = "MonitorVec")]
 pub struct AzMonitorVec {
     pub(crate) ptr: *const AzMonitor,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzMonitorVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
 #[repr(C)]
-#[pyclass(name = "IdOrClassVec")]
 pub struct AzIdOrClassVec {
     pub(crate) ptr: *const AzIdOrClassEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzIdOrClassVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
 #[repr(C)]
-#[pyclass(name = "StyleBackgroundContentVec")]
 pub struct AzStyleBackgroundContentVec {
     pub(crate) ptr: *const AzStyleBackgroundContentEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStyleBackgroundContentVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<SvgPath>`
 #[repr(C)]
-#[pyclass(name = "SvgPathVec")]
 pub struct AzSvgPathVec {
     pub(crate) ptr: *const AzSvgPath,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzSvgPathVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
 #[repr(C)]
-#[pyclass(name = "VertexAttributeVec")]
 pub struct AzVertexAttributeVec {
     pub(crate) ptr: *const AzVertexAttribute,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzVertexAttributeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `CssPathSelector`
 #[repr(C)]
-#[pyclass(name = "CssPathSelectorVec")]
 pub struct AzCssPathSelectorVec {
     pub(crate) ptr: *const AzCssPathSelectorEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzCssPathSelectorVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `CallbackData`
 #[repr(C)]
-#[pyclass(name = "CallbackDataVec")]
 pub struct AzCallbackDataVec {
     pub(crate) ptr: *const AzCallbackData,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzCallbackDataVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
 #[repr(C)]
-#[pyclass(name = "DebugMessageVec")]
 pub struct AzDebugMessageVec {
     pub(crate) ptr: *const AzDebugMessage,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzDebugMessageVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `StringPairVec`
 #[repr(C)]
-#[pyclass(name = "StringPairVec")]
 pub struct AzStringPairVec {
     pub(crate) ptr: *const AzStringPair,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStringPairVecDestructorEnumWrapper,
 }
 
@@ -7988,41 +6831,25 @@ pub enum AzXmlStreamError {
 
 /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
 #[repr(C)]
-#[pyclass(name = "LinuxWindowOptions")]
 pub struct AzLinuxWindowOptions {
-    #[pyo3(get, set)]
     pub x11_visual: AzOptionX11VisualEnumWrapper,
-    #[pyo3(get, set)]
     pub x11_screen: AzOptionI32EnumWrapper,
-    #[pyo3(get, set)]
     pub x11_wm_classes: AzStringPairVec,
-    #[pyo3(get, set)]
     pub x11_override_redirect: bool,
-    #[pyo3(get, set)]
     pub x11_window_types: AzXWindowTypeVec,
-    #[pyo3(get, set)]
     pub x11_gtk_theme_variant: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub x11_resize_increments: AzOptionLogicalSizeEnumWrapper,
-    #[pyo3(get, set)]
     pub x11_base_size: AzOptionLogicalSizeEnumWrapper,
-    #[pyo3(get, set)]
     pub wayland_app_id: AzOptionStringEnumWrapper,
-    #[pyo3(get, set)]
     pub wayland_theme: AzOptionWaylandThemeEnumWrapper,
-    #[pyo3(get, set)]
     pub request_user_attention: bool,
-    #[pyo3(get, set)]
     pub window_icon: AzOptionWindowIconEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `InlineLine` struct
 #[repr(C)]
-#[pyclass(name = "InlineLine")]
 pub struct AzInlineLine {
-    #[pyo3(get, set)]
     pub words: AzInlineWordVec,
-    #[pyo3(get, set)]
     pub bounds: AzLogicalRect,
 }
 
@@ -8036,9 +6863,7 @@ pub enum AzMenuItem {
 
 /// Re-export of rust-allocated (stack based) `CssPath` struct
 #[repr(C)]
-#[pyclass(name = "CssPath")]
 pub struct AzCssPath {
-    #[pyo3(get, set)]
     pub selectors: AzCssPathSelectorVec,
 }
 
@@ -8139,63 +6964,42 @@ pub enum AzCssProperty {
 
 /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
 #[repr(C)]
-#[pyclass(name = "TextInputStateWrapper")]
 pub struct AzTextInputStateWrapper {
-    #[pyo3(get, set)]
     pub inner: AzTextInputState,
-    #[pyo3(get, set)]
     pub on_text_input: AzOptionTextInputOnTextInputEnumWrapper,
-    #[pyo3(get, set)]
     pub on_virtual_key_down: AzOptionTextInputOnVirtualKeyDownEnumWrapper,
-    #[pyo3(get, set)]
     pub on_focus_lost: AzOptionTextInputOnFocusLostEnumWrapper,
-    #[pyo3(get, set)]
     pub update_text_input_before_calling_focus_lost_fn: bool,
-    #[pyo3(get, set)]
     pub update_text_input_before_calling_vk_down_fn: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `ProgressBar` struct
 #[repr(C)]
-#[pyclass(name = "ProgressBar")]
 pub struct AzProgressBar {
-    #[pyo3(get, set)]
     pub state: AzProgressBarState,
-    #[pyo3(get, set)]
     pub height: AzPixelValue,
-    #[pyo3(get, set)]
     pub bar_background: AzStyleBackgroundContentVec,
-    #[pyo3(get, set)]
     pub container_background: AzStyleBackgroundContentVec,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMap` struct
 #[repr(C)]
-#[pyclass(name = "NodeTypeIdInfoMap")]
 pub struct AzNodeTypeIdInfoMap {
-    #[pyo3(get, set)]
     pub node_type_id: AzNodeTypeId,
-    #[pyo3(get, set)]
     pub node_type_info: AzNodeTypeInfo,
 }
 
 /// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMap` struct
 #[repr(C)]
-#[pyclass(name = "InputOutputTypeIdInfoMap")]
 pub struct AzInputOutputTypeIdInfoMap {
-    #[pyo3(get, set)]
     pub io_type_id: AzInputOutputTypeId,
-    #[pyo3(get, set)]
     pub io_info: AzInputOutputInfo,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeTypeField` struct
 #[repr(C)]
-#[pyclass(name = "NodeTypeField")]
 pub struct AzNodeTypeField {
-    #[pyo3(get, set)]
     pub key: AzString,
-    #[pyo3(get, set)]
     pub value: AzNodeTypeFieldValueEnumWrapper,
 }
 
@@ -8208,139 +7012,95 @@ pub enum AzCssPropertySource {
 
 /// Re-export of rust-allocated (stack based) `VertexLayout` struct
 #[repr(C)]
-#[pyclass(name = "VertexLayout")]
 pub struct AzVertexLayout {
-    #[pyo3(get, set)]
     pub fields: AzVertexAttributeVec,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
 #[repr(C)]
-#[pyclass(name = "VertexArrayObject")]
 pub struct AzVertexArrayObject {
-    #[pyo3(get, set)]
     pub vertex_layout: AzVertexLayout,
-    #[pyo3(get, set)]
     pub vao_id: u32,
-    #[pyo3(get, set)]
     pub gl_context: AzGl,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
 #[repr(C)]
-#[pyclass(name = "VertexBuffer")]
 pub struct AzVertexBuffer {
-    #[pyo3(get, set)]
     pub vertex_buffer_id: u32,
-    #[pyo3(get, set)]
     pub vertex_buffer_len: usize,
-    #[pyo3(get, set)]
     pub vao: AzVertexArrayObject,
-    #[pyo3(get, set)]
     pub index_buffer_id: u32,
-    #[pyo3(get, set)]
     pub index_buffer_len: usize,
-    #[pyo3(get, set)]
     pub index_buffer_format: AzIndexBufferFormatEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
 #[repr(C)]
-#[pyclass(name = "SvgMultiPolygon")]
 pub struct AzSvgMultiPolygon {
-    #[pyo3(get, set)]
     pub rings: AzSvgPathVec,
 }
 
 /// Re-export of rust-allocated (stack based) `XmlNode` struct
 #[repr(C)]
-#[pyclass(name = "XmlNode")]
 pub struct AzXmlNode {
-    #[pyo3(get, set)]
     pub tag: AzString,
-    #[pyo3(get, set)]
     pub attributes: AzStringPairVec,
-    #[pyo3(get, set)]
     pub children: AzXmlNodeVec,
-    #[pyo3(get, set)]
     pub text: AzOptionStringEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
 #[repr(C)]
-#[pyclass(name = "NodeTypeIdInfoMapVec")]
 pub struct AzNodeTypeIdInfoMapVec {
     pub(crate) ptr: *const AzNodeTypeIdInfoMap,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeTypeIdInfoMapVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
 #[repr(C)]
-#[pyclass(name = "InputOutputTypeIdInfoMapVec")]
 pub struct AzInputOutputTypeIdInfoMapVec {
     pub(crate) ptr: *const AzInputOutputTypeIdInfoMap,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
 #[repr(C)]
-#[pyclass(name = "NodeTypeFieldVec")]
 pub struct AzNodeTypeFieldVec {
     pub(crate) ptr: *const AzNodeTypeField,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeTypeFieldVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InlineLine>`
 #[repr(C)]
-#[pyclass(name = "InlineLineVec")]
 pub struct AzInlineLineVec {
     pub(crate) ptr: *const AzInlineLine,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzInlineLineVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<CssProperty>`
 #[repr(C)]
-#[pyclass(name = "CssPropertyVec")]
 pub struct AzCssPropertyVec {
     pub(crate) ptr: *const AzCssPropertyEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzCssPropertyVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
 #[repr(C)]
-#[pyclass(name = "SvgMultiPolygonVec")]
 pub struct AzSvgMultiPolygonVec {
     pub(crate) ptr: *const AzSvgMultiPolygon,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzSvgMultiPolygonVecDestructorEnumWrapper,
 }
 
@@ -8353,69 +7113,43 @@ pub enum AzOptionCssProperty {
 
 /// Re-export of rust-allocated (stack based) `XmlTextError` struct
 #[repr(C)]
-#[pyclass(name = "XmlTextError")]
 pub struct AzXmlTextError {
-    #[pyo3(get, set)]
     pub stream_error: AzXmlStreamErrorEnumWrapper,
-    #[pyo3(get, set)]
     pub pos: AzSvgParseErrorPosition,
 }
 
 /// Platform-specific window configuration, i.e. WM options that are not cross-platform
 #[repr(C)]
-#[pyclass(name = "PlatformSpecificOptions")]
 pub struct AzPlatformSpecificOptions {
-    #[pyo3(get, set)]
     pub windows_options: AzWindowsWindowOptions,
-    #[pyo3(get, set)]
     pub linux_options: AzLinuxWindowOptions,
-    #[pyo3(get, set)]
     pub mac_options: AzMacWindowOptions,
-    #[pyo3(get, set)]
     pub wasm_options: AzWasmWindowOptions,
 }
 
 /// Re-export of rust-allocated (stack based) `WindowState` struct
 #[repr(C)]
-#[pyclass(name = "WindowState")]
 pub struct AzWindowState {
-    #[pyo3(get, set)]
     pub title: AzString,
-    #[pyo3(get, set)]
     pub theme: AzWindowThemeEnumWrapper,
-    #[pyo3(get, set)]
     pub size: AzWindowSize,
-    #[pyo3(get, set)]
     pub position: AzWindowPositionEnumWrapper,
-    #[pyo3(get, set)]
     pub flags: AzWindowFlags,
-    #[pyo3(get, set)]
     pub debug_state: AzDebugState,
-    #[pyo3(get, set)]
     pub keyboard_state: AzKeyboardState,
-    #[pyo3(get, set)]
     pub mouse_state: AzMouseState,
-    #[pyo3(get, set)]
     pub touch_state: AzTouchState,
-    #[pyo3(get, set)]
     pub ime_position: AzImePositionEnumWrapper,
-    #[pyo3(get, set)]
     pub monitor: AzMonitor,
-    #[pyo3(get, set)]
     pub platform_specific_options: AzPlatformSpecificOptions,
-    #[pyo3(get, set)]
     pub renderer_options: AzRendererOptions,
-    #[pyo3(get, set)]
     pub background_color: AzColorU,
-    #[pyo3(get, set)]
     pub layout_callback: AzLayoutCallbackEnumWrapper,
-    #[pyo3(get, set)]
     pub close_callback: AzOptionCallbackEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `CallbackInfo` struct
 #[repr(C)]
-#[pyclass(name = "CallbackInfo")]
 pub struct AzCallbackInfo {
     pub css_property_cache: *const c_void,
     pub styled_node_states: *const c_void,
@@ -8447,11 +7181,8 @@ pub struct AzCallbackInfo {
     pub css_properties_changed_in_callbacks: *mut c_void,
     pub current_scroll_states: *const c_void,
     pub nodes_scrolled_in_callback: *mut c_void,
-    #[pyo3(get, set)]
     pub hit_dom_node: AzDomNodeId,
-    #[pyo3(get, set)]
     pub cursor_relative_to_item: AzOptionLogicalPositionEnumWrapper,
-    #[pyo3(get, set)]
     pub cursor_in_viewport: AzOptionLogicalPositionEnumWrapper,
     pub _reserved_ref: *const c_void,
     pub _reserved_mut: *mut c_void,
@@ -8459,63 +7190,40 @@ pub struct AzCallbackInfo {
 
 /// Re-export of rust-allocated (stack based) `InlineText` struct
 #[repr(C)]
-#[pyclass(name = "InlineText")]
 pub struct AzInlineText {
-    #[pyo3(get, set)]
     pub lines: AzInlineLineVec,
-    #[pyo3(get, set)]
     pub content_size: AzLogicalSize,
-    #[pyo3(get, set)]
     pub font_size_px: f32,
-    #[pyo3(get, set)]
     pub last_word_index: usize,
-    #[pyo3(get, set)]
     pub baseline_descender_px: f32,
 }
 
 /// CSS path to set the keyboard input focus
 #[repr(C)]
-#[pyclass(name = "FocusTargetPath")]
 pub struct AzFocusTargetPath {
-    #[pyo3(get, set)]
     pub dom: AzDomId,
-    #[pyo3(get, set)]
     pub css_path: AzCssPath,
 }
 
 /// Animation struct to start a new animation
 #[repr(C)]
-#[pyclass(name = "Animation")]
 pub struct AzAnimation {
-    #[pyo3(get, set)]
     pub from: AzCssPropertyEnumWrapper,
-    #[pyo3(get, set)]
     pub to: AzCssPropertyEnumWrapper,
-    #[pyo3(get, set)]
     pub duration: AzDurationEnumWrapper,
-    #[pyo3(get, set)]
     pub repeat: AzAnimationRepeatEnumWrapper,
-    #[pyo3(get, set)]
     pub repeat_count: AzAnimationRepeatCountEnumWrapper,
-    #[pyo3(get, set)]
     pub easing: AzAnimationEasingEnumWrapper,
-    #[pyo3(get, set)]
     pub relayout_on_finish: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
 #[repr(C)]
-#[pyclass(name = "TimerCallbackInfo")]
 pub struct AzTimerCallbackInfo {
-    #[pyo3(get, set)]
     pub callback_info: AzCallbackInfo,
-    #[pyo3(get, set)]
     pub node_id: AzOptionDomNodeIdEnumWrapper,
-    #[pyo3(get, set)]
     pub frame_start: AzInstantEnumWrapper,
-    #[pyo3(get, set)]
     pub call_count: usize,
-    #[pyo3(get, set)]
     pub is_about_to_finish: bool,
     pub _reserved_ref: *const c_void,
     pub _reserved_mut: *mut c_void,
@@ -8532,27 +7240,18 @@ pub enum AzNodeDataInlineCssProperty {
 
 /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
 #[repr(C)]
-#[pyclass(name = "DynamicCssProperty")]
 pub struct AzDynamicCssProperty {
-    #[pyo3(get, set)]
     pub dynamic_id: AzString,
-    #[pyo3(get, set)]
     pub default_value: AzCssPropertyEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `Node` struct
 #[repr(C)]
-#[pyclass(name = "Node")]
 pub struct AzNode {
-    #[pyo3(get, set)]
     pub node_type: AzNodeTypeId,
-    #[pyo3(get, set)]
     pub position: AzNodePosition,
-    #[pyo3(get, set)]
     pub fields: AzNodeTypeFieldVec,
-    #[pyo3(get, set)]
     pub connect_in: AzInputConnectionVec,
-    #[pyo3(get, set)]
     pub connect_out: AzOutputConnectionVec,
 }
 
@@ -8568,24 +7267,17 @@ pub enum AzSvgNode {
 
 /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
 #[repr(C)]
-#[pyclass(name = "SvgStyledNode")]
 pub struct AzSvgStyledNode {
-    #[pyo3(get, set)]
     pub geometry: AzSvgNodeEnumWrapper,
-    #[pyo3(get, set)]
     pub style: AzSvgStyleEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
 #[repr(C)]
-#[pyclass(name = "NodeDataInlineCssPropertyVec")]
 pub struct AzNodeDataInlineCssPropertyVec {
     pub(crate) ptr: *const AzNodeDataInlineCssPropertyEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeDataInlineCssPropertyVecDestructorEnumWrapper,
 }
 
@@ -8620,19 +7312,12 @@ pub enum AzXmlParseError {
 
 /// Options on how to initially create the window
 #[repr(C)]
-#[pyclass(name = "WindowCreateOptions")]
 pub struct AzWindowCreateOptions {
-    #[pyo3(get, set)]
     pub state: AzWindowState,
-    #[pyo3(get, set)]
     pub size_to_content: bool,
-    #[pyo3(get, set)]
     pub renderer_type: AzOptionRendererOptionsEnumWrapper,
-    #[pyo3(get, set)]
     pub theme: AzOptionWindowThemeEnumWrapper,
-    #[pyo3(get, set)]
     pub create_callback: AzOptionCallbackEnumWrapper,
-    #[pyo3(get, set)]
     pub hot_reload: bool,
 }
 
@@ -8650,19 +7335,12 @@ pub enum AzFocusTarget {
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
-#[pyclass(name = "NodeData")]
 pub struct AzNodeData {
-    #[pyo3(get, set)]
     pub node_type: AzNodeTypeEnumWrapper,
-    #[pyo3(get, set)]
     pub dataset: AzOptionRefAnyEnumWrapper,
-    #[pyo3(get, set)]
     pub ids_and_classes: AzIdOrClassVec,
-    #[pyo3(get, set)]
     pub callbacks: AzCallbackDataVec,
-    #[pyo3(get, set)]
     pub inline_css_props: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub tab_index: AzOptionTabIndexEnumWrapper,
     pub extra: *const c_void,
 }
@@ -8676,124 +7354,84 @@ pub enum AzCssDeclaration {
 
 /// Re-export of rust-allocated (stack based) `Button` struct
 #[repr(C)]
-#[pyclass(name = "Button")]
 pub struct AzButton {
-    #[pyo3(get, set)]
     pub label: AzString,
-    #[pyo3(get, set)]
     pub image: AzOptionImageRefEnumWrapper,
-    #[pyo3(get, set)]
     pub container_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub label_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub image_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub on_click: AzOptionButtonOnClickEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `CheckBox` struct
 #[repr(C)]
-#[pyclass(name = "CheckBox")]
 pub struct AzCheckBox {
-    #[pyo3(get, set)]
     pub state: AzCheckBoxStateWrapper,
-    #[pyo3(get, set)]
     pub container_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub content_style: AzNodeDataInlineCssPropertyVec,
 }
 
 /// Re-export of rust-allocated (stack based) `Label` struct
 #[repr(C)]
-#[pyclass(name = "Label")]
 pub struct AzLabel {
-    #[pyo3(get, set)]
     pub text: AzString,
-    #[pyo3(get, set)]
     pub style: AzNodeDataInlineCssPropertyVec,
 }
 
 /// Re-export of rust-allocated (stack based) `ColorInput` struct
 #[repr(C)]
-#[pyclass(name = "ColorInput")]
 pub struct AzColorInput {
-    #[pyo3(get, set)]
     pub state: AzColorInputStateWrapper,
-    #[pyo3(get, set)]
     pub style: AzNodeDataInlineCssPropertyVec,
 }
 
 /// Re-export of rust-allocated (stack based) `TextInput` struct
 #[repr(C)]
-#[pyclass(name = "TextInput")]
 pub struct AzTextInput {
-    #[pyo3(get, set)]
     pub state: AzTextInputStateWrapper,
-    #[pyo3(get, set)]
     pub placeholder_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub container_style: AzNodeDataInlineCssPropertyVec,
-    #[pyo3(get, set)]
     pub label_style: AzNodeDataInlineCssPropertyVec,
 }
 
 /// Re-export of rust-allocated (stack based) `NumberInput` struct
 #[repr(C)]
-#[pyclass(name = "NumberInput")]
 pub struct AzNumberInput {
-    #[pyo3(get, set)]
     pub text_input: AzTextInput,
-    #[pyo3(get, set)]
     pub state: AzNumberInputStateWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeIdNodeMap` struct
 #[repr(C)]
-#[pyclass(name = "NodeIdNodeMap")]
 pub struct AzNodeIdNodeMap {
-    #[pyo3(get, set)]
     pub node_id: AzNodeGraphNodeId,
-    #[pyo3(get, set)]
     pub node: AzNode,
 }
 
 /// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
 #[repr(C)]
-#[pyclass(name = "NodeIdNodeMapVec")]
 pub struct AzNodeIdNodeMapVec {
     pub(crate) ptr: *const AzNodeIdNodeMap,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeIdNodeMapVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `CssDeclaration`
 #[repr(C)]
-#[pyclass(name = "CssDeclarationVec")]
 pub struct AzCssDeclarationVec {
     pub(crate) ptr: *const AzCssDeclarationEnumWrapper,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzCssDeclarationVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `NodeDataVec`
 #[repr(C)]
-#[pyclass(name = "NodeDataVec")]
 pub struct AzNodeDataVec {
     pub(crate) ptr: *const AzNodeData,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzNodeDataVecDestructorEnumWrapper,
 }
 
@@ -8821,121 +7459,78 @@ pub enum AzXmlError {
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 #[repr(C)]
-#[pyclass(name = "Dom")]
 pub struct AzDom {
-    #[pyo3(get, set)]
     pub root: AzNodeData,
-    #[pyo3(get, set)]
     pub children: AzDomVec,
-    #[pyo3(get, set)]
     pub total_children: usize,
 }
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 #[repr(C)]
-#[pyclass(name = "CssRuleBlock")]
 pub struct AzCssRuleBlock {
-    #[pyo3(get, set)]
     pub path: AzCssPath,
-    #[pyo3(get, set)]
     pub declarations: AzCssDeclarationVec,
 }
 
 /// Re-export of rust-allocated (stack based) `Tab` struct
 #[repr(C)]
-#[pyclass(name = "Tab")]
 pub struct AzTab {
-    #[pyo3(get, set)]
     pub title: AzString,
-    #[pyo3(get, set)]
     pub content: AzDom,
 }
 
 /// Re-export of rust-allocated (stack based) `Frame` struct
 #[repr(C)]
-#[pyclass(name = "Frame")]
 pub struct AzFrame {
-    #[pyo3(get, set)]
     pub title: AzString,
-    #[pyo3(get, set)]
     pub flex_grow: f32,
-    #[pyo3(get, set)]
     pub content: AzDom,
 }
 
 /// Re-export of rust-allocated (stack based) `NodeGraph` struct
 #[repr(C)]
-#[pyclass(name = "NodeGraph")]
 pub struct AzNodeGraph {
-    #[pyo3(get, set)]
     pub node_types: AzNodeTypeIdInfoMapVec,
-    #[pyo3(get, set)]
     pub input_output_types: AzInputOutputTypeIdInfoMapVec,
-    #[pyo3(get, set)]
     pub nodes: AzNodeIdNodeMapVec,
-    #[pyo3(get, set)]
     pub allow_multiple_root_nodes: bool,
-    #[pyo3(get, set)]
     pub offset: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub style: AzNodeGraphStyleEnumWrapper,
-    #[pyo3(get, set)]
     pub callbacks: AzNodeGraphCallbacks,
-    #[pyo3(get, set)]
     pub add_node_str: AzString,
 }
 
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
 #[repr(C)]
-#[pyclass(name = "StyledDom")]
 pub struct AzStyledDom {
-    #[pyo3(get, set)]
     pub root: AzNodeId,
-    #[pyo3(get, set)]
     pub node_hierarchy: AzNodeHierarchyItemVec,
-    #[pyo3(get, set)]
     pub node_data: AzNodeDataVec,
-    #[pyo3(get, set)]
     pub styled_nodes: AzStyledNodeVec,
-    #[pyo3(get, set)]
     pub cascade_info: AzCascadeInfoVec,
-    #[pyo3(get, set)]
     pub nodes_with_window_callbacks: AzNodeIdVec,
-    #[pyo3(get, set)]
     pub nodes_with_not_callbacks: AzNodeIdVec,
-    #[pyo3(get, set)]
     pub nodes_with_datasets_and_callbacks: AzNodeIdVec,
-    #[pyo3(get, set)]
     pub tag_ids_to_node_ids: AzTagIdToNodeIdMappingVec,
-    #[pyo3(get, set)]
     pub non_leaf_nodes: AzParentWithNodeDepthVec,
-    #[pyo3(get, set)]
     pub css_property_cache: AzCssPropertyCache,
 }
 
 /// Wrapper over a Rust-allocated `Vec<Tab>`
 #[repr(C)]
-#[pyclass(name = "TabVec")]
 pub struct AzTabVec {
     pub(crate) ptr: *const AzTab,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzTabVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `CssRuleBlock`
 #[repr(C)]
-#[pyclass(name = "CssRuleBlockVec")]
 pub struct AzCssRuleBlockVec {
     pub(crate) ptr: *const AzCssRuleBlock,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzCssRuleBlockVecDestructorEnumWrapper,
 }
 
@@ -8967,50 +7562,34 @@ pub enum AzSvgParseError {
 
 /// <img src="../images/scrollbounds.png"/>
 #[repr(C)]
-#[pyclass(name = "IFrameCallbackReturn")]
 pub struct AzIFrameCallbackReturn {
-    #[pyo3(get, set)]
     pub dom: AzStyledDom,
-    #[pyo3(get, set)]
     pub scroll_size: AzLogicalSize,
-    #[pyo3(get, set)]
     pub scroll_offset: AzLogicalPosition,
-    #[pyo3(get, set)]
     pub virtual_scroll_size: AzLogicalSize,
-    #[pyo3(get, set)]
     pub virtual_scroll_offset: AzLogicalPosition,
 }
 
 /// Re-export of rust-allocated (stack based) `Stylesheet` struct
 #[repr(C)]
-#[pyclass(name = "Stylesheet")]
 pub struct AzStylesheet {
-    #[pyo3(get, set)]
     pub rules: AzCssRuleBlockVec,
 }
 
 /// Re-export of rust-allocated (stack based) `TabContainer` struct
 #[repr(C)]
-#[pyclass(name = "TabContainer")]
 pub struct AzTabContainer {
-    #[pyo3(get, set)]
     pub tabs: AzTabVec,
-    #[pyo3(get, set)]
     pub active_tab: usize,
-    #[pyo3(get, set)]
     pub has_padding: bool,
 }
 
 /// Wrapper over a Rust-allocated `Stylesheet`
 #[repr(C)]
-#[pyclass(name = "StylesheetVec")]
 pub struct AzStylesheetVec {
     pub(crate) ptr: *const AzStylesheet,
-    #[pyo3(get, set)]
     pub len: usize,
-    #[pyo3(get, set)]
     pub cap: usize,
-    #[pyo3(get, set)]
     pub destructor: AzStylesheetVecDestructorEnumWrapper,
 }
 
@@ -9030,2325 +7609,1992 @@ pub enum AzResultSvgSvgParseError {
 
 /// Re-export of rust-allocated (stack based) `Css` struct
 #[repr(C)]
-#[pyclass(name = "Css")]
 pub struct AzCss {
-    #[pyo3(get, set)]
     pub stylesheets: AzStylesheetVec,
 }
 
 /// `AzAppLogLevelEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AppLogLevel")]
 pub struct AzAppLogLevelEnumWrapper {
     pub inner: AzAppLogLevel,
 }
 
 /// `AzLayoutSolverEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutSolver")]
 pub struct AzLayoutSolverEnumWrapper {
     pub inner: AzLayoutSolver,
 }
 
 /// `AzVsyncEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Vsync")]
 pub struct AzVsyncEnumWrapper {
     pub inner: AzVsync,
 }
 
 /// `AzSrgbEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Srgb")]
 pub struct AzSrgbEnumWrapper {
     pub inner: AzSrgb,
 }
 
 /// `AzHwAccelerationEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "HwAcceleration")]
 pub struct AzHwAccelerationEnumWrapper {
     pub inner: AzHwAcceleration,
 }
 
 /// `AzXWindowTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "XWindowType")]
 pub struct AzXWindowTypeEnumWrapper {
     pub inner: AzXWindowType,
 }
 
 /// `AzVirtualKeyCodeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "VirtualKeyCode")]
 pub struct AzVirtualKeyCodeEnumWrapper {
     pub inner: AzVirtualKeyCode,
 }
 
 /// `AzWindowFrameEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "WindowFrame")]
 pub struct AzWindowFrameEnumWrapper {
     pub inner: AzWindowFrame,
 }
 
 /// `AzMouseCursorTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MouseCursorType")]
 pub struct AzMouseCursorTypeEnumWrapper {
     pub inner: AzMouseCursorType,
 }
 
 /// `AzRendererTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "RendererType")]
 pub struct AzRendererTypeEnumWrapper {
     pub inner: AzRendererType,
 }
 
 /// `AzFullScreenModeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "FullScreenMode")]
 pub struct AzFullScreenModeEnumWrapper {
     pub inner: AzFullScreenMode,
 }
 
 /// `AzWindowThemeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "WindowTheme")]
 pub struct AzWindowThemeEnumWrapper {
     pub inner: AzWindowTheme,
 }
 
 /// `AzUpdateImageTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "UpdateImageType")]
 pub struct AzUpdateImageTypeEnumWrapper {
     pub inner: AzUpdateImageType,
 }
 
 /// `AzUpdateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Update")]
 pub struct AzUpdateEnumWrapper {
     pub inner: AzUpdate,
 }
 
 /// `AzAnimationRepeatEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AnimationRepeat")]
 pub struct AzAnimationRepeatEnumWrapper {
     pub inner: AzAnimationRepeat,
 }
 
 /// `AzAnimationRepeatCountEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AnimationRepeatCount")]
 pub struct AzAnimationRepeatCountEnumWrapper {
     pub inner: AzAnimationRepeatCount,
 }
 
 /// `AzOnEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "On")]
 pub struct AzOnEnumWrapper {
     pub inner: AzOn,
 }
 
 /// `AzHoverEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "HoverEventFilter")]
 pub struct AzHoverEventFilterEnumWrapper {
     pub inner: AzHoverEventFilter,
 }
 
 /// `AzFocusEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "FocusEventFilter")]
 pub struct AzFocusEventFilterEnumWrapper {
     pub inner: AzFocusEventFilter,
 }
 
 /// `AzWindowEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "WindowEventFilter")]
 pub struct AzWindowEventFilterEnumWrapper {
     pub inner: AzWindowEventFilter,
 }
 
 /// `AzComponentEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ComponentEventFilter")]
 pub struct AzComponentEventFilterEnumWrapper {
     pub inner: AzComponentEventFilter,
 }
 
 /// `AzApplicationEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ApplicationEventFilter")]
 pub struct AzApplicationEventFilterEnumWrapper {
     pub inner: AzApplicationEventFilter,
 }
 
 /// `AzAccessibilityRoleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AccessibilityRole")]
 pub struct AzAccessibilityRoleEnumWrapper {
     pub inner: AzAccessibilityRole,
 }
 
 /// `AzAccessibilityStateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AccessibilityState")]
 pub struct AzAccessibilityStateEnumWrapper {
     pub inner: AzAccessibilityState,
 }
 
 /// `AzTabIndexEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TabIndex")]
 pub struct AzTabIndexEnumWrapper {
     pub inner: AzTabIndex,
 }
 
 /// `AzContextMenuMouseButtonEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ContextMenuMouseButton")]
 pub struct AzContextMenuMouseButtonEnumWrapper {
     pub inner: AzContextMenuMouseButton,
 }
 
 /// `AzMenuPopupPositionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MenuPopupPosition")]
 pub struct AzMenuPopupPositionEnumWrapper {
     pub inner: AzMenuPopupPosition,
 }
 
 /// `AzMenuItemStateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MenuItemState")]
 pub struct AzMenuItemStateEnumWrapper {
     pub inner: AzMenuItemState,
 }
 
 /// `AzNodeTypeKeyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeTypeKey")]
 pub struct AzNodeTypeKeyEnumWrapper {
     pub inner: AzNodeTypeKey,
 }
 
 /// `AzCssPropertyTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssPropertyType")]
 pub struct AzCssPropertyTypeEnumWrapper {
     pub inner: AzCssPropertyType,
 }
 
 /// `AzSizeMetricEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SizeMetric")]
 pub struct AzSizeMetricEnumWrapper {
     pub inner: AzSizeMetric,
 }
 
 /// `AzBoxShadowClipModeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "BoxShadowClipMode")]
 pub struct AzBoxShadowClipModeEnumWrapper {
     pub inner: AzBoxShadowClipMode,
 }
 
 /// `AzLayoutAlignContentEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutAlignContent")]
 pub struct AzLayoutAlignContentEnumWrapper {
     pub inner: AzLayoutAlignContent,
 }
 
 /// `AzLayoutAlignItemsEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutAlignItems")]
 pub struct AzLayoutAlignItemsEnumWrapper {
     pub inner: AzLayoutAlignItems,
 }
 
 /// `AzLayoutBoxSizingEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBoxSizing")]
 pub struct AzLayoutBoxSizingEnumWrapper {
     pub inner: AzLayoutBoxSizing,
 }
 
 /// `AzLayoutFlexDirectionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFlexDirection")]
 pub struct AzLayoutFlexDirectionEnumWrapper {
     pub inner: AzLayoutFlexDirection,
 }
 
 /// `AzLayoutDisplayEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutDisplay")]
 pub struct AzLayoutDisplayEnumWrapper {
     pub inner: AzLayoutDisplay,
 }
 
 /// `AzLayoutFloatEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFloat")]
 pub struct AzLayoutFloatEnumWrapper {
     pub inner: AzLayoutFloat,
 }
 
 /// `AzLayoutJustifyContentEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutJustifyContent")]
 pub struct AzLayoutJustifyContentEnumWrapper {
     pub inner: AzLayoutJustifyContent,
 }
 
 /// `AzLayoutPositionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutPosition")]
 pub struct AzLayoutPositionEnumWrapper {
     pub inner: AzLayoutPosition,
 }
 
 /// `AzLayoutFlexWrapEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFlexWrap")]
 pub struct AzLayoutFlexWrapEnumWrapper {
     pub inner: AzLayoutFlexWrap,
 }
 
 /// `AzLayoutOverflowEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutOverflow")]
 pub struct AzLayoutOverflowEnumWrapper {
     pub inner: AzLayoutOverflow,
 }
 
 /// `AzAngleMetricEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AngleMetric")]
 pub struct AzAngleMetricEnumWrapper {
     pub inner: AzAngleMetric,
 }
 
 /// `AzDirectionCornerEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "DirectionCorner")]
 pub struct AzDirectionCornerEnumWrapper {
     pub inner: AzDirectionCorner,
 }
 
 /// `AzExtendModeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ExtendMode")]
 pub struct AzExtendModeEnumWrapper {
     pub inner: AzExtendMode,
 }
 
 /// `AzShapeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Shape")]
 pub struct AzShapeEnumWrapper {
     pub inner: AzShape,
 }
 
 /// `AzRadialGradientSizeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "RadialGradientSize")]
 pub struct AzRadialGradientSizeEnumWrapper {
     pub inner: AzRadialGradientSize,
 }
 
 /// `AzStyleBackgroundRepeatEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundRepeat")]
 pub struct AzStyleBackgroundRepeatEnumWrapper {
     pub inner: AzStyleBackgroundRepeat,
 }
 
 /// `AzBorderStyleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "BorderStyle")]
 pub struct AzBorderStyleEnumWrapper {
     pub inner: AzBorderStyle,
 }
 
 /// `AzStyleCursorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleCursor")]
 pub struct AzStyleCursorEnumWrapper {
     pub inner: AzStyleCursor,
 }
 
 /// `AzStyleBackfaceVisibilityEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackfaceVisibility")]
 pub struct AzStyleBackfaceVisibilityEnumWrapper {
     pub inner: AzStyleBackfaceVisibility,
 }
 
 /// `AzStyleTextAlignEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTextAlign")]
 pub struct AzStyleTextAlignEnumWrapper {
     pub inner: AzStyleTextAlign,
 }
 
 /// `AzTextInputValidEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TextInputValid")]
 pub struct AzTextInputValidEnumWrapper {
     pub inner: AzTextInputValid,
 }
 
 /// `AzNodeGraphStyleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeGraphStyle")]
 pub struct AzNodeGraphStyleEnumWrapper {
     pub inner: AzNodeGraphStyle,
 }
 
 /// `AzVertexAttributeTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "VertexAttributeType")]
 pub struct AzVertexAttributeTypeEnumWrapper {
     pub inner: AzVertexAttributeType,
 }
 
 /// `AzIndexBufferFormatEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "IndexBufferFormat")]
 pub struct AzIndexBufferFormatEnumWrapper {
     pub inner: AzIndexBufferFormat,
 }
 
 /// `AzGlTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "GlType")]
 pub struct AzGlTypeEnumWrapper {
     pub inner: AzGlType,
 }
 
 /// `AzRawImageFormatEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "RawImageFormat")]
 pub struct AzRawImageFormatEnumWrapper {
     pub inner: AzRawImageFormat,
 }
 
 /// `AzEncodeImageErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "EncodeImageError")]
 pub struct AzEncodeImageErrorEnumWrapper {
     pub inner: AzEncodeImageError,
 }
 
 /// `AzDecodeImageErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "DecodeImageError")]
 pub struct AzDecodeImageErrorEnumWrapper {
     pub inner: AzDecodeImageError,
 }
 
 /// `AzShapeRenderingEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ShapeRendering")]
 pub struct AzShapeRenderingEnumWrapper {
     pub inner: AzShapeRendering,
 }
 
 /// `AzTextRenderingEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TextRendering")]
 pub struct AzTextRenderingEnumWrapper {
     pub inner: AzTextRendering,
 }
 
 /// `AzImageRenderingEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ImageRendering")]
 pub struct AzImageRenderingEnumWrapper {
     pub inner: AzImageRendering,
 }
 
 /// `AzFontDatabaseEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "FontDatabase")]
 pub struct AzFontDatabaseEnumWrapper {
     pub inner: AzFontDatabase,
 }
 
 /// `AzIndentEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Indent")]
 pub struct AzIndentEnumWrapper {
     pub inner: AzIndent,
 }
 
 /// `AzSvgFitToEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgFitTo")]
 pub struct AzSvgFitToEnumWrapper {
     pub inner: AzSvgFitTo,
 }
 
 /// `AzSvgFillRuleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgFillRule")]
 pub struct AzSvgFillRuleEnumWrapper {
     pub inner: AzSvgFillRule,
 }
 
 /// `AzSvgLineJoinEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgLineJoin")]
 pub struct AzSvgLineJoinEnumWrapper {
     pub inner: AzSvgLineJoin,
 }
 
 /// `AzSvgLineCapEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgLineCap")]
 pub struct AzSvgLineCapEnumWrapper {
     pub inner: AzSvgLineCap,
 }
 
 /// `AzMsgBoxIconEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MsgBoxIcon")]
 pub struct AzMsgBoxIconEnumWrapper {
     pub inner: AzMsgBoxIcon,
 }
 
 /// `AzMsgBoxYesNoEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MsgBoxYesNo")]
 pub struct AzMsgBoxYesNoEnumWrapper {
     pub inner: AzMsgBoxYesNo,
 }
 
 /// `AzMsgBoxOkCancelEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MsgBoxOkCancel")]
 pub struct AzMsgBoxOkCancelEnumWrapper {
     pub inner: AzMsgBoxOkCancel,
 }
 
 /// `AzTerminateTimerEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TerminateTimer")]
 pub struct AzTerminateTimerEnumWrapper {
     pub inner: AzTerminateTimer,
 }
 
 /// `AzStyleFontFamilyVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleFontFamilyVecDestructor")]
 pub struct AzStyleFontFamilyVecDestructorEnumWrapper {
     pub inner: AzStyleFontFamilyVecDestructor,
 }
 
 /// `AzNodeTypeIdInfoMapVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeTypeIdInfoMapVecDestructor")]
 pub struct AzNodeTypeIdInfoMapVecDestructorEnumWrapper {
     pub inner: AzNodeTypeIdInfoMapVecDestructor,
 }
 
 /// `AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InputOutputTypeIdInfoMapVecDestructor")]
 pub struct AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper {
     pub inner: AzInputOutputTypeIdInfoMapVecDestructor,
 }
 
 /// `AzNodeIdNodeMapVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeIdNodeMapVecDestructor")]
 pub struct AzNodeIdNodeMapVecDestructorEnumWrapper {
     pub inner: AzNodeIdNodeMapVecDestructor,
 }
 
 /// `AzInputOutputTypeIdVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InputOutputTypeIdVecDestructor")]
 pub struct AzInputOutputTypeIdVecDestructorEnumWrapper {
     pub inner: AzInputOutputTypeIdVecDestructor,
 }
 
 /// `AzNodeTypeFieldVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeTypeFieldVecDestructor")]
 pub struct AzNodeTypeFieldVecDestructorEnumWrapper {
     pub inner: AzNodeTypeFieldVecDestructor,
 }
 
 /// `AzInputConnectionVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InputConnectionVecDestructor")]
 pub struct AzInputConnectionVecDestructorEnumWrapper {
     pub inner: AzInputConnectionVecDestructor,
 }
 
 /// `AzOutputNodeAndIndexVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OutputNodeAndIndexVecDestructor")]
 pub struct AzOutputNodeAndIndexVecDestructorEnumWrapper {
     pub inner: AzOutputNodeAndIndexVecDestructor,
 }
 
 /// `AzOutputConnectionVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OutputConnectionVecDestructor")]
 pub struct AzOutputConnectionVecDestructorEnumWrapper {
     pub inner: AzOutputConnectionVecDestructor,
 }
 
 /// `AzInputNodeAndIndexVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InputNodeAndIndexVecDestructor")]
 pub struct AzInputNodeAndIndexVecDestructorEnumWrapper {
     pub inner: AzInputNodeAndIndexVecDestructor,
 }
 
 /// `AzTabVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TabVecDestructor")]
 pub struct AzTabVecDestructorEnumWrapper {
     pub inner: AzTabVecDestructor,
 }
 
 /// `AzAccessibilityStateVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AccessibilityStateVecDestructor")]
 pub struct AzAccessibilityStateVecDestructorEnumWrapper {
     pub inner: AzAccessibilityStateVecDestructor,
 }
 
 /// `AzMenuItemVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MenuItemVecDestructor")]
 pub struct AzMenuItemVecDestructorEnumWrapper {
     pub inner: AzMenuItemVecDestructor,
 }
 
 /// `AzTessellatedSvgNodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TessellatedSvgNodeVecDestructor")]
 pub struct AzTessellatedSvgNodeVecDestructorEnumWrapper {
     pub inner: AzTessellatedSvgNodeVecDestructor,
 }
 
 /// `AzXmlNodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "XmlNodeVecDestructor")]
 pub struct AzXmlNodeVecDestructorEnumWrapper {
     pub inner: AzXmlNodeVecDestructor,
 }
 
 /// `AzFmtArgVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "FmtArgVecDestructor")]
 pub struct AzFmtArgVecDestructorEnumWrapper {
     pub inner: AzFmtArgVecDestructor,
 }
 
 /// `AzInlineLineVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InlineLineVecDestructor")]
 pub struct AzInlineLineVecDestructorEnumWrapper {
     pub inner: AzInlineLineVecDestructor,
 }
 
 /// `AzInlineWordVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InlineWordVecDestructor")]
 pub struct AzInlineWordVecDestructorEnumWrapper {
     pub inner: AzInlineWordVecDestructor,
 }
 
 /// `AzInlineGlyphVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InlineGlyphVecDestructor")]
 pub struct AzInlineGlyphVecDestructorEnumWrapper {
     pub inner: AzInlineGlyphVecDestructor,
 }
 
 /// `AzInlineTextHitVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InlineTextHitVecDestructor")]
 pub struct AzInlineTextHitVecDestructorEnumWrapper {
     pub inner: AzInlineTextHitVecDestructor,
 }
 
 /// `AzMonitorVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MonitorVecDestructor")]
 pub struct AzMonitorVecDestructorEnumWrapper {
     pub inner: AzMonitorVecDestructor,
 }
 
 /// `AzVideoModeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "VideoModeVecDestructor")]
 pub struct AzVideoModeVecDestructorEnumWrapper {
     pub inner: AzVideoModeVecDestructor,
 }
 
 /// `AzDomVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "DomVecDestructor")]
 pub struct AzDomVecDestructorEnumWrapper {
     pub inner: AzDomVecDestructor,
 }
 
 /// `AzIdOrClassVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "IdOrClassVecDestructor")]
 pub struct AzIdOrClassVecDestructorEnumWrapper {
     pub inner: AzIdOrClassVecDestructor,
 }
 
 /// `AzNodeDataInlineCssPropertyVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeDataInlineCssPropertyVecDestructor")]
 pub struct AzNodeDataInlineCssPropertyVecDestructorEnumWrapper {
     pub inner: AzNodeDataInlineCssPropertyVecDestructor,
 }
 
 /// `AzStyleBackgroundContentVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundContentVecDestructor")]
 pub struct AzStyleBackgroundContentVecDestructorEnumWrapper {
     pub inner: AzStyleBackgroundContentVecDestructor,
 }
 
 /// `AzStyleBackgroundPositionVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundPositionVecDestructor")]
 pub struct AzStyleBackgroundPositionVecDestructorEnumWrapper {
     pub inner: AzStyleBackgroundPositionVecDestructor,
 }
 
 /// `AzStyleBackgroundRepeatVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundRepeatVecDestructor")]
 pub struct AzStyleBackgroundRepeatVecDestructorEnumWrapper {
     pub inner: AzStyleBackgroundRepeatVecDestructor,
 }
 
 /// `AzStyleBackgroundSizeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundSizeVecDestructor")]
 pub struct AzStyleBackgroundSizeVecDestructorEnumWrapper {
     pub inner: AzStyleBackgroundSizeVecDestructor,
 }
 
 /// `AzStyleTransformVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTransformVecDestructor")]
 pub struct AzStyleTransformVecDestructorEnumWrapper {
     pub inner: AzStyleTransformVecDestructor,
 }
 
 /// `AzCssPropertyVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssPropertyVecDestructor")]
 pub struct AzCssPropertyVecDestructorEnumWrapper {
     pub inner: AzCssPropertyVecDestructor,
 }
 
 /// `AzSvgMultiPolygonVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgMultiPolygonVecDestructor")]
 pub struct AzSvgMultiPolygonVecDestructorEnumWrapper {
     pub inner: AzSvgMultiPolygonVecDestructor,
 }
 
 /// `AzSvgPathVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgPathVecDestructor")]
 pub struct AzSvgPathVecDestructorEnumWrapper {
     pub inner: AzSvgPathVecDestructor,
 }
 
 /// `AzVertexAttributeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "VertexAttributeVecDestructor")]
 pub struct AzVertexAttributeVecDestructorEnumWrapper {
     pub inner: AzVertexAttributeVecDestructor,
 }
 
 /// `AzSvgPathElementVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgPathElementVecDestructor")]
 pub struct AzSvgPathElementVecDestructorEnumWrapper {
     pub inner: AzSvgPathElementVecDestructor,
 }
 
 /// `AzSvgVertexVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgVertexVecDestructor")]
 pub struct AzSvgVertexVecDestructorEnumWrapper {
     pub inner: AzSvgVertexVecDestructor,
 }
 
 /// `AzU32VecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "U32VecDestructor")]
 pub struct AzU32VecDestructorEnumWrapper {
     pub inner: AzU32VecDestructor,
 }
 
 /// `AzXWindowTypeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "XWindowTypeVecDestructor")]
 pub struct AzXWindowTypeVecDestructorEnumWrapper {
     pub inner: AzXWindowTypeVecDestructor,
 }
 
 /// `AzVirtualKeyCodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "VirtualKeyCodeVecDestructor")]
 pub struct AzVirtualKeyCodeVecDestructorEnumWrapper {
     pub inner: AzVirtualKeyCodeVecDestructor,
 }
 
 /// `AzCascadeInfoVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CascadeInfoVecDestructor")]
 pub struct AzCascadeInfoVecDestructorEnumWrapper {
     pub inner: AzCascadeInfoVecDestructor,
 }
 
 /// `AzScanCodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ScanCodeVecDestructor")]
 pub struct AzScanCodeVecDestructorEnumWrapper {
     pub inner: AzScanCodeVecDestructor,
 }
 
 /// `AzCssDeclarationVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssDeclarationVecDestructor")]
 pub struct AzCssDeclarationVecDestructorEnumWrapper {
     pub inner: AzCssDeclarationVecDestructor,
 }
 
 /// `AzCssPathSelectorVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssPathSelectorVecDestructor")]
 pub struct AzCssPathSelectorVecDestructorEnumWrapper {
     pub inner: AzCssPathSelectorVecDestructor,
 }
 
 /// `AzStylesheetVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StylesheetVecDestructor")]
 pub struct AzStylesheetVecDestructorEnumWrapper {
     pub inner: AzStylesheetVecDestructor,
 }
 
 /// `AzCssRuleBlockVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssRuleBlockVecDestructor")]
 pub struct AzCssRuleBlockVecDestructorEnumWrapper {
     pub inner: AzCssRuleBlockVecDestructor,
 }
 
 /// `AzF32VecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "F32VecDestructor")]
 pub struct AzF32VecDestructorEnumWrapper {
     pub inner: AzF32VecDestructor,
 }
 
 /// `AzU16VecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "U16VecDestructor")]
 pub struct AzU16VecDestructorEnumWrapper {
     pub inner: AzU16VecDestructor,
 }
 
 /// `AzU8VecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "U8VecDestructor")]
 pub struct AzU8VecDestructorEnumWrapper {
     pub inner: AzU8VecDestructor,
 }
 
 /// `AzCallbackDataVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CallbackDataVecDestructor")]
 pub struct AzCallbackDataVecDestructorEnumWrapper {
     pub inner: AzCallbackDataVecDestructor,
 }
 
 /// `AzDebugMessageVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "DebugMessageVecDestructor")]
 pub struct AzDebugMessageVecDestructorEnumWrapper {
     pub inner: AzDebugMessageVecDestructor,
 }
 
 /// `AzGLuintVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "GLuintVecDestructor")]
 pub struct AzGLuintVecDestructorEnumWrapper {
     pub inner: AzGLuintVecDestructor,
 }
 
 /// `AzGLintVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "GLintVecDestructor")]
 pub struct AzGLintVecDestructorEnumWrapper {
     pub inner: AzGLintVecDestructor,
 }
 
 /// `AzStringVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StringVecDestructor")]
 pub struct AzStringVecDestructorEnumWrapper {
     pub inner: AzStringVecDestructor,
 }
 
 /// `AzStringPairVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StringPairVecDestructor")]
 pub struct AzStringPairVecDestructorEnumWrapper {
     pub inner: AzStringPairVecDestructor,
 }
 
 /// `AzNormalizedLinearColorStopVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NormalizedLinearColorStopVecDestructor")]
 pub struct AzNormalizedLinearColorStopVecDestructorEnumWrapper {
     pub inner: AzNormalizedLinearColorStopVecDestructor,
 }
 
 /// `AzNormalizedRadialColorStopVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NormalizedRadialColorStopVecDestructor")]
 pub struct AzNormalizedRadialColorStopVecDestructorEnumWrapper {
     pub inner: AzNormalizedRadialColorStopVecDestructor,
 }
 
 /// `AzNodeIdVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeIdVecDestructor")]
 pub struct AzNodeIdVecDestructorEnumWrapper {
     pub inner: AzNodeIdVecDestructor,
 }
 
 /// `AzNodeHierarchyItemVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeHierarchyItemVecDestructor")]
 pub struct AzNodeHierarchyItemVecDestructorEnumWrapper {
     pub inner: AzNodeHierarchyItemVecDestructor,
 }
 
 /// `AzStyledNodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyledNodeVecDestructor")]
 pub struct AzStyledNodeVecDestructorEnumWrapper {
     pub inner: AzStyledNodeVecDestructor,
 }
 
 /// `AzTagIdToNodeIdMappingVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TagIdToNodeIdMappingVecDestructor")]
 pub struct AzTagIdToNodeIdMappingVecDestructorEnumWrapper {
     pub inner: AzTagIdToNodeIdMappingVecDestructor,
 }
 
 /// `AzParentWithNodeDepthVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ParentWithNodeDepthVecDestructor")]
 pub struct AzParentWithNodeDepthVecDestructorEnumWrapper {
     pub inner: AzParentWithNodeDepthVecDestructor,
 }
 
 /// `AzNodeDataVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeDataVecDestructor")]
 pub struct AzNodeDataVecDestructorEnumWrapper {
     pub inner: AzNodeDataVecDestructor,
 }
 
 /// `AzOptionI16EnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionI16")]
 pub struct AzOptionI16EnumWrapper {
     pub inner: AzOptionI16,
 }
 
 /// `AzOptionU16EnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionU16")]
 pub struct AzOptionU16EnumWrapper {
     pub inner: AzOptionU16,
 }
 
 /// `AzOptionU32EnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionU32")]
 pub struct AzOptionU32EnumWrapper {
     pub inner: AzOptionU32,
 }
 
 /// `AzOptionHwndHandleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionHwndHandle")]
 pub struct AzOptionHwndHandleEnumWrapper {
     pub inner: AzOptionHwndHandle,
 }
 
 /// `AzOptionX11VisualEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionX11Visual")]
 pub struct AzOptionX11VisualEnumWrapper {
     pub inner: AzOptionX11Visual,
 }
 
 /// `AzOptionI32EnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionI32")]
 pub struct AzOptionI32EnumWrapper {
     pub inner: AzOptionI32,
 }
 
 /// `AzOptionF32EnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionF32")]
 pub struct AzOptionF32EnumWrapper {
     pub inner: AzOptionF32,
 }
 
 /// `AzOptionCharEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionChar")]
 pub struct AzOptionCharEnumWrapper {
     pub inner: AzOptionChar,
 }
 
 /// `AzOptionUsizeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionUsize")]
 pub struct AzOptionUsizeEnumWrapper {
     pub inner: AzOptionUsize,
 }
 
 /// `AzRawWindowHandleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "RawWindowHandle")]
 pub struct AzRawWindowHandleEnumWrapper {
     pub inner: AzRawWindowHandle,
 }
 
 /// `AzAcceleratorKeyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AcceleratorKey")]
 pub struct AzAcceleratorKeyEnumWrapper {
     pub inner: AzAcceleratorKey,
 }
 
 /// `AzCursorPositionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CursorPosition")]
 pub struct AzCursorPositionEnumWrapper {
     pub inner: AzCursorPosition,
 }
 
 /// `AzWindowPositionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "WindowPosition")]
 pub struct AzWindowPositionEnumWrapper {
     pub inner: AzWindowPosition,
 }
 
 /// `AzImePositionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ImePosition")]
 pub struct AzImePositionEnumWrapper {
     pub inner: AzImePosition,
 }
 
 /// `AzPositionInfoEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "PositionInfo")]
 pub struct AzPositionInfoEnumWrapper {
     pub inner: AzPositionInfo,
 }
 
 /// `AzNotEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NotEventFilter")]
 pub struct AzNotEventFilterEnumWrapper {
     pub inner: AzNotEventFilter,
 }
 
 /// `AzMenuItemIconEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MenuItemIcon")]
 pub struct AzMenuItemIconEnumWrapper {
     pub inner: AzMenuItemIcon,
 }
 
 /// `AzCssNthChildSelectorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssNthChildSelector")]
 pub struct AzCssNthChildSelectorEnumWrapper {
     pub inner: AzCssNthChildSelector,
 }
 
 /// `AzDirectionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Direction")]
 pub struct AzDirectionEnumWrapper {
     pub inner: AzDirection,
 }
 
 /// `AzBackgroundPositionHorizontalEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "BackgroundPositionHorizontal")]
 pub struct AzBackgroundPositionHorizontalEnumWrapper {
     pub inner: AzBackgroundPositionHorizontal,
 }
 
 /// `AzBackgroundPositionVerticalEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "BackgroundPositionVertical")]
 pub struct AzBackgroundPositionVerticalEnumWrapper {
     pub inner: AzBackgroundPositionVertical,
 }
 
 /// `AzStyleBackgroundSizeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundSize")]
 pub struct AzStyleBackgroundSizeEnumWrapper {
     pub inner: AzStyleBackgroundSize,
 }
 
 /// `AzStyleBoxShadowValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBoxShadowValue")]
 pub struct AzStyleBoxShadowValueEnumWrapper {
     pub inner: AzStyleBoxShadowValue,
 }
 
 /// `AzLayoutAlignContentValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutAlignContentValue")]
 pub struct AzLayoutAlignContentValueEnumWrapper {
     pub inner: AzLayoutAlignContentValue,
 }
 
 /// `AzLayoutAlignItemsValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutAlignItemsValue")]
 pub struct AzLayoutAlignItemsValueEnumWrapper {
     pub inner: AzLayoutAlignItemsValue,
 }
 
 /// `AzLayoutBottomValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBottomValue")]
 pub struct AzLayoutBottomValueEnumWrapper {
     pub inner: AzLayoutBottomValue,
 }
 
 /// `AzLayoutBoxSizingValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBoxSizingValue")]
 pub struct AzLayoutBoxSizingValueEnumWrapper {
     pub inner: AzLayoutBoxSizingValue,
 }
 
 /// `AzLayoutFlexDirectionValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFlexDirectionValue")]
 pub struct AzLayoutFlexDirectionValueEnumWrapper {
     pub inner: AzLayoutFlexDirectionValue,
 }
 
 /// `AzLayoutDisplayValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutDisplayValue")]
 pub struct AzLayoutDisplayValueEnumWrapper {
     pub inner: AzLayoutDisplayValue,
 }
 
 /// `AzLayoutFlexGrowValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFlexGrowValue")]
 pub struct AzLayoutFlexGrowValueEnumWrapper {
     pub inner: AzLayoutFlexGrowValue,
 }
 
 /// `AzLayoutFlexShrinkValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFlexShrinkValue")]
 pub struct AzLayoutFlexShrinkValueEnumWrapper {
     pub inner: AzLayoutFlexShrinkValue,
 }
 
 /// `AzLayoutFloatValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFloatValue")]
 pub struct AzLayoutFloatValueEnumWrapper {
     pub inner: AzLayoutFloatValue,
 }
 
 /// `AzLayoutHeightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutHeightValue")]
 pub struct AzLayoutHeightValueEnumWrapper {
     pub inner: AzLayoutHeightValue,
 }
 
 /// `AzLayoutJustifyContentValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutJustifyContentValue")]
 pub struct AzLayoutJustifyContentValueEnumWrapper {
     pub inner: AzLayoutJustifyContentValue,
 }
 
 /// `AzLayoutLeftValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutLeftValue")]
 pub struct AzLayoutLeftValueEnumWrapper {
     pub inner: AzLayoutLeftValue,
 }
 
 /// `AzLayoutMarginBottomValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMarginBottomValue")]
 pub struct AzLayoutMarginBottomValueEnumWrapper {
     pub inner: AzLayoutMarginBottomValue,
 }
 
 /// `AzLayoutMarginLeftValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMarginLeftValue")]
 pub struct AzLayoutMarginLeftValueEnumWrapper {
     pub inner: AzLayoutMarginLeftValue,
 }
 
 /// `AzLayoutMarginRightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMarginRightValue")]
 pub struct AzLayoutMarginRightValueEnumWrapper {
     pub inner: AzLayoutMarginRightValue,
 }
 
 /// `AzLayoutMarginTopValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMarginTopValue")]
 pub struct AzLayoutMarginTopValueEnumWrapper {
     pub inner: AzLayoutMarginTopValue,
 }
 
 /// `AzLayoutMaxHeightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMaxHeightValue")]
 pub struct AzLayoutMaxHeightValueEnumWrapper {
     pub inner: AzLayoutMaxHeightValue,
 }
 
 /// `AzLayoutMaxWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMaxWidthValue")]
 pub struct AzLayoutMaxWidthValueEnumWrapper {
     pub inner: AzLayoutMaxWidthValue,
 }
 
 /// `AzLayoutMinHeightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMinHeightValue")]
 pub struct AzLayoutMinHeightValueEnumWrapper {
     pub inner: AzLayoutMinHeightValue,
 }
 
 /// `AzLayoutMinWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutMinWidthValue")]
 pub struct AzLayoutMinWidthValueEnumWrapper {
     pub inner: AzLayoutMinWidthValue,
 }
 
 /// `AzLayoutPaddingBottomValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutPaddingBottomValue")]
 pub struct AzLayoutPaddingBottomValueEnumWrapper {
     pub inner: AzLayoutPaddingBottomValue,
 }
 
 /// `AzLayoutPaddingLeftValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutPaddingLeftValue")]
 pub struct AzLayoutPaddingLeftValueEnumWrapper {
     pub inner: AzLayoutPaddingLeftValue,
 }
 
 /// `AzLayoutPaddingRightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutPaddingRightValue")]
 pub struct AzLayoutPaddingRightValueEnumWrapper {
     pub inner: AzLayoutPaddingRightValue,
 }
 
 /// `AzLayoutPaddingTopValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutPaddingTopValue")]
 pub struct AzLayoutPaddingTopValueEnumWrapper {
     pub inner: AzLayoutPaddingTopValue,
 }
 
 /// `AzLayoutPositionValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutPositionValue")]
 pub struct AzLayoutPositionValueEnumWrapper {
     pub inner: AzLayoutPositionValue,
 }
 
 /// `AzLayoutRightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutRightValue")]
 pub struct AzLayoutRightValueEnumWrapper {
     pub inner: AzLayoutRightValue,
 }
 
 /// `AzLayoutTopValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutTopValue")]
 pub struct AzLayoutTopValueEnumWrapper {
     pub inner: AzLayoutTopValue,
 }
 
 /// `AzLayoutWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutWidthValue")]
 pub struct AzLayoutWidthValueEnumWrapper {
     pub inner: AzLayoutWidthValue,
 }
 
 /// `AzLayoutFlexWrapValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutFlexWrapValue")]
 pub struct AzLayoutFlexWrapValueEnumWrapper {
     pub inner: AzLayoutFlexWrapValue,
 }
 
 /// `AzLayoutOverflowValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutOverflowValue")]
 pub struct AzLayoutOverflowValueEnumWrapper {
     pub inner: AzLayoutOverflowValue,
 }
 
 /// `AzStyleBorderBottomColorValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderBottomColorValue")]
 pub struct AzStyleBorderBottomColorValueEnumWrapper {
     pub inner: AzStyleBorderBottomColorValue,
 }
 
 /// `AzStyleBorderBottomLeftRadiusValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderBottomLeftRadiusValue")]
 pub struct AzStyleBorderBottomLeftRadiusValueEnumWrapper {
     pub inner: AzStyleBorderBottomLeftRadiusValue,
 }
 
 /// `AzStyleBorderBottomRightRadiusValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderBottomRightRadiusValue")]
 pub struct AzStyleBorderBottomRightRadiusValueEnumWrapper {
     pub inner: AzStyleBorderBottomRightRadiusValue,
 }
 
 /// `AzStyleBorderBottomStyleValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderBottomStyleValue")]
 pub struct AzStyleBorderBottomStyleValueEnumWrapper {
     pub inner: AzStyleBorderBottomStyleValue,
 }
 
 /// `AzLayoutBorderBottomWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBorderBottomWidthValue")]
 pub struct AzLayoutBorderBottomWidthValueEnumWrapper {
     pub inner: AzLayoutBorderBottomWidthValue,
 }
 
 /// `AzStyleBorderLeftColorValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderLeftColorValue")]
 pub struct AzStyleBorderLeftColorValueEnumWrapper {
     pub inner: AzStyleBorderLeftColorValue,
 }
 
 /// `AzStyleBorderLeftStyleValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderLeftStyleValue")]
 pub struct AzStyleBorderLeftStyleValueEnumWrapper {
     pub inner: AzStyleBorderLeftStyleValue,
 }
 
 /// `AzLayoutBorderLeftWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBorderLeftWidthValue")]
 pub struct AzLayoutBorderLeftWidthValueEnumWrapper {
     pub inner: AzLayoutBorderLeftWidthValue,
 }
 
 /// `AzStyleBorderRightColorValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderRightColorValue")]
 pub struct AzStyleBorderRightColorValueEnumWrapper {
     pub inner: AzStyleBorderRightColorValue,
 }
 
 /// `AzStyleBorderRightStyleValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderRightStyleValue")]
 pub struct AzStyleBorderRightStyleValueEnumWrapper {
     pub inner: AzStyleBorderRightStyleValue,
 }
 
 /// `AzLayoutBorderRightWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBorderRightWidthValue")]
 pub struct AzLayoutBorderRightWidthValueEnumWrapper {
     pub inner: AzLayoutBorderRightWidthValue,
 }
 
 /// `AzStyleBorderTopColorValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderTopColorValue")]
 pub struct AzStyleBorderTopColorValueEnumWrapper {
     pub inner: AzStyleBorderTopColorValue,
 }
 
 /// `AzStyleBorderTopLeftRadiusValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderTopLeftRadiusValue")]
 pub struct AzStyleBorderTopLeftRadiusValueEnumWrapper {
     pub inner: AzStyleBorderTopLeftRadiusValue,
 }
 
 /// `AzStyleBorderTopRightRadiusValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderTopRightRadiusValue")]
 pub struct AzStyleBorderTopRightRadiusValueEnumWrapper {
     pub inner: AzStyleBorderTopRightRadiusValue,
 }
 
 /// `AzStyleBorderTopStyleValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBorderTopStyleValue")]
 pub struct AzStyleBorderTopStyleValueEnumWrapper {
     pub inner: AzStyleBorderTopStyleValue,
 }
 
 /// `AzLayoutBorderTopWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutBorderTopWidthValue")]
 pub struct AzLayoutBorderTopWidthValueEnumWrapper {
     pub inner: AzLayoutBorderTopWidthValue,
 }
 
 /// `AzStyleCursorValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleCursorValue")]
 pub struct AzStyleCursorValueEnumWrapper {
     pub inner: AzStyleCursorValue,
 }
 
 /// `AzStyleFontSizeValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleFontSizeValue")]
 pub struct AzStyleFontSizeValueEnumWrapper {
     pub inner: AzStyleFontSizeValue,
 }
 
 /// `AzStyleLetterSpacingValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleLetterSpacingValue")]
 pub struct AzStyleLetterSpacingValueEnumWrapper {
     pub inner: AzStyleLetterSpacingValue,
 }
 
 /// `AzStyleLineHeightValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleLineHeightValue")]
 pub struct AzStyleLineHeightValueEnumWrapper {
     pub inner: AzStyleLineHeightValue,
 }
 
 /// `AzStyleTabWidthValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTabWidthValue")]
 pub struct AzStyleTabWidthValueEnumWrapper {
     pub inner: AzStyleTabWidthValue,
 }
 
 /// `AzStyleTextAlignValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTextAlignValue")]
 pub struct AzStyleTextAlignValueEnumWrapper {
     pub inner: AzStyleTextAlignValue,
 }
 
 /// `AzStyleTextColorValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTextColorValue")]
 pub struct AzStyleTextColorValueEnumWrapper {
     pub inner: AzStyleTextColorValue,
 }
 
 /// `AzStyleWordSpacingValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleWordSpacingValue")]
 pub struct AzStyleWordSpacingValueEnumWrapper {
     pub inner: AzStyleWordSpacingValue,
 }
 
 /// `AzStyleOpacityValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleOpacityValue")]
 pub struct AzStyleOpacityValueEnumWrapper {
     pub inner: AzStyleOpacityValue,
 }
 
 /// `AzStyleTransformOriginValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTransformOriginValue")]
 pub struct AzStyleTransformOriginValueEnumWrapper {
     pub inner: AzStyleTransformOriginValue,
 }
 
 /// `AzStylePerspectiveOriginValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StylePerspectiveOriginValue")]
 pub struct AzStylePerspectiveOriginValueEnumWrapper {
     pub inner: AzStylePerspectiveOriginValue,
 }
 
 /// `AzStyleBackfaceVisibilityValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackfaceVisibilityValue")]
 pub struct AzStyleBackfaceVisibilityValueEnumWrapper {
     pub inner: AzStyleBackfaceVisibilityValue,
 }
 
 /// `AzTextInputSelectionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "TextInputSelection")]
 pub struct AzTextInputSelectionEnumWrapper {
     pub inner: AzTextInputSelection,
 }
 
 /// `AzDurationEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Duration")]
 pub struct AzDurationEnumWrapper {
     pub inner: AzDuration,
 }
 
 /// `AzThreadSendMsgEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ThreadSendMsg")]
 pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
 /// `AzOptionNodeGraphOnNodeAddedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeAdded")]
 pub struct AzOptionNodeGraphOnNodeAddedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeAdded,
 }
 
 /// `AzOptionNodeGraphOnNodeRemovedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeRemoved")]
 pub struct AzOptionNodeGraphOnNodeRemovedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeRemoved,
 }
 
 /// `AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeGraphDragged")]
 pub struct AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeGraphDragged,
 }
 
 /// `AzOptionNodeGraphOnNodeDraggedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeDragged")]
 pub struct AzOptionNodeGraphOnNodeDraggedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeDragged,
 }
 
 /// `AzOptionNodeGraphOnNodeConnectedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeConnected")]
 pub struct AzOptionNodeGraphOnNodeConnectedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeConnected,
 }
 
 /// `AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeInputDisconnected")]
 pub struct AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeInputDisconnected,
 }
 
 /// `AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeOutputDisconnected")]
 pub struct AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeOutputDisconnected,
 }
 
 /// `AzOptionNodeGraphOnNodeFieldEditedEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeGraphOnNodeFieldEdited")]
 pub struct AzOptionNodeGraphOnNodeFieldEditedEnumWrapper {
     pub inner: AzOptionNodeGraphOnNodeFieldEdited,
 }
 
 /// `AzOptionColorInputOnValueChangeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionColorInputOnValueChange")]
 pub struct AzOptionColorInputOnValueChangeEnumWrapper {
     pub inner: AzOptionColorInputOnValueChange,
 }
 
 /// `AzOptionButtonOnClickEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionButtonOnClick")]
 pub struct AzOptionButtonOnClickEnumWrapper {
     pub inner: AzOptionButtonOnClick,
 }
 
 /// `AzOptionCheckBoxOnToggleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionCheckBoxOnToggle")]
 pub struct AzOptionCheckBoxOnToggleEnumWrapper {
     pub inner: AzOptionCheckBoxOnToggle,
 }
 
 /// `AzOptionTextInputOnTextInputEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTextInputOnTextInput")]
 pub struct AzOptionTextInputOnTextInputEnumWrapper {
     pub inner: AzOptionTextInputOnTextInput,
 }
 
 /// `AzOptionTextInputOnVirtualKeyDownEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTextInputOnVirtualKeyDown")]
 pub struct AzOptionTextInputOnVirtualKeyDownEnumWrapper {
     pub inner: AzOptionTextInputOnVirtualKeyDown,
 }
 
 /// `AzOptionTextInputOnFocusLostEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTextInputOnFocusLost")]
 pub struct AzOptionTextInputOnFocusLostEnumWrapper {
     pub inner: AzOptionTextInputOnFocusLost,
 }
 
 /// `AzOptionTextInputSelectionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTextInputSelection")]
 pub struct AzOptionTextInputSelectionEnumWrapper {
     pub inner: AzOptionTextInputSelection,
 }
 
 /// `AzOptionNumberInputOnFocusLostEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNumberInputOnFocusLost")]
 pub struct AzOptionNumberInputOnFocusLostEnumWrapper {
     pub inner: AzOptionNumberInputOnFocusLost,
 }
 
 /// `AzOptionNumberInputOnValueChangeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNumberInputOnValueChange")]
 pub struct AzOptionNumberInputOnValueChangeEnumWrapper {
     pub inner: AzOptionNumberInputOnValueChange,
 }
 
 /// `AzOptionMenuItemIconEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionMenuItemIcon")]
 pub struct AzOptionMenuItemIconEnumWrapper {
     pub inner: AzOptionMenuItemIcon,
 }
 
 /// `AzOptionMenuCallbackEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionMenuCallback")]
 pub struct AzOptionMenuCallbackEnumWrapper {
     pub inner: AzOptionMenuCallback,
 }
 
 /// `AzOptionPositionInfoEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionPositionInfo")]
 pub struct AzOptionPositionInfoEnumWrapper {
     pub inner: AzOptionPositionInfo,
 }
 
 /// `AzOptionTimerIdEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTimerId")]
 pub struct AzOptionTimerIdEnumWrapper {
     pub inner: AzOptionTimerId,
 }
 
 /// `AzOptionThreadIdEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionThreadId")]
 pub struct AzOptionThreadIdEnumWrapper {
     pub inner: AzOptionThreadId,
 }
 
 /// `AzOptionImageRefEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionImageRef")]
 pub struct AzOptionImageRefEnumWrapper {
     pub inner: AzOptionImageRef,
 }
 
 /// `AzOptionFontRefEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionFontRef")]
 pub struct AzOptionFontRefEnumWrapper {
     pub inner: AzOptionFontRef,
 }
 
 /// `AzOptionSystemClipboardEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionSystemClipboard")]
 pub struct AzOptionSystemClipboardEnumWrapper {
     pub inner: AzOptionSystemClipboard,
 }
 
 /// `AzOptionGlEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionGl")]
 pub struct AzOptionGlEnumWrapper {
     pub inner: AzOptionGl,
 }
 
 /// `AzOptionPercentageValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionPercentageValue")]
 pub struct AzOptionPercentageValueEnumWrapper {
     pub inner: AzOptionPercentageValue,
 }
 
 /// `AzOptionAngleValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionAngleValue")]
 pub struct AzOptionAngleValueEnumWrapper {
     pub inner: AzOptionAngleValue,
 }
 
 /// `AzOptionRendererOptionsEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionRendererOptions")]
 pub struct AzOptionRendererOptionsEnumWrapper {
     pub inner: AzOptionRendererOptions,
 }
 
 /// `AzOptionCallbackEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionCallback")]
 pub struct AzOptionCallbackEnumWrapper {
     pub inner: AzOptionCallback,
 }
 
 /// `AzOptionThreadSendMsgEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionThreadSendMsg")]
 pub struct AzOptionThreadSendMsgEnumWrapper {
     pub inner: AzOptionThreadSendMsg,
 }
 
 /// `AzOptionLayoutRectEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionLayoutRect")]
 pub struct AzOptionLayoutRectEnumWrapper {
     pub inner: AzOptionLayoutRect,
 }
 
 /// `AzOptionRefAnyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionRefAny")]
 pub struct AzOptionRefAnyEnumWrapper {
     pub inner: AzOptionRefAny,
 }
 
 /// `AzOptionLayoutPointEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionLayoutPoint")]
 pub struct AzOptionLayoutPointEnumWrapper {
     pub inner: AzOptionLayoutPoint,
 }
 
 /// `AzOptionLayoutSizeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionLayoutSize")]
 pub struct AzOptionLayoutSizeEnumWrapper {
     pub inner: AzOptionLayoutSize,
 }
 
 /// `AzOptionWindowThemeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionWindowTheme")]
 pub struct AzOptionWindowThemeEnumWrapper {
     pub inner: AzOptionWindowTheme,
 }
 
 /// `AzOptionNodeIdEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionNodeId")]
 pub struct AzOptionNodeIdEnumWrapper {
     pub inner: AzOptionNodeId,
 }
 
 /// `AzOptionDomNodeIdEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionDomNodeId")]
 pub struct AzOptionDomNodeIdEnumWrapper {
     pub inner: AzOptionDomNodeId,
 }
 
 /// `AzOptionColorUEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionColorU")]
 pub struct AzOptionColorUEnumWrapper {
     pub inner: AzOptionColorU,
 }
 
 /// `AzOptionSvgDashPatternEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionSvgDashPattern")]
 pub struct AzOptionSvgDashPatternEnumWrapper {
     pub inner: AzOptionSvgDashPattern,
 }
 
 /// `AzOptionLogicalPositionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionLogicalPosition")]
 pub struct AzOptionLogicalPositionEnumWrapper {
     pub inner: AzOptionLogicalPosition,
 }
 
 /// `AzOptionPhysicalPositionI32EnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionPhysicalPositionI32")]
 pub struct AzOptionPhysicalPositionI32EnumWrapper {
     pub inner: AzOptionPhysicalPositionI32,
 }
 
 /// `AzOptionMouseCursorTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionMouseCursorType")]
 pub struct AzOptionMouseCursorTypeEnumWrapper {
     pub inner: AzOptionMouseCursorType,
 }
 
 /// `AzOptionLogicalSizeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionLogicalSize")]
 pub struct AzOptionLogicalSizeEnumWrapper {
     pub inner: AzOptionLogicalSize,
 }
 
 /// `AzOptionVirtualKeyCodeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionVirtualKeyCode")]
 pub struct AzOptionVirtualKeyCodeEnumWrapper {
     pub inner: AzOptionVirtualKeyCode,
 }
 
 /// `AzOptionImageMaskEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionImageMask")]
 pub struct AzOptionImageMaskEnumWrapper {
     pub inner: AzOptionImageMask,
 }
 
 /// `AzOptionTabIndexEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTabIndex")]
 pub struct AzOptionTabIndexEnumWrapper {
     pub inner: AzOptionTabIndex,
 }
 
 /// `AzOptionTagIdEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTagId")]
 pub struct AzOptionTagIdEnumWrapper {
     pub inner: AzOptionTagId,
 }
 
 /// `AzOptionDurationEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionDuration")]
 pub struct AzOptionDurationEnumWrapper {
     pub inner: AzOptionDuration,
 }
 
 /// `AzOptionU8VecEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionU8Vec")]
 pub struct AzOptionU8VecEnumWrapper {
     pub inner: AzOptionU8Vec,
 }
 
 /// `AzOptionU8VecRefEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionU8VecRef")]
 pub struct AzOptionU8VecRefEnumWrapper {
     pub inner: AzOptionU8VecRef,
 }
 
 /// `AzResultU8VecEncodeImageErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ResultU8VecEncodeImageError")]
 pub struct AzResultU8VecEncodeImageErrorEnumWrapper {
     pub inner: AzResultU8VecEncodeImageError,
 }
 
 /// `AzWindowIconEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "WindowIcon")]
 pub struct AzWindowIconEnumWrapper {
     pub inner: AzWindowIcon,
 }
 
 /// `AzAnimationEasingEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AnimationEasing")]
 pub struct AzAnimationEasingEnumWrapper {
     pub inner: AzAnimationEasing,
 }
 
 /// `AzEventFilterEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "EventFilter")]
 pub struct AzEventFilterEnumWrapper {
     pub inner: AzEventFilter,
 }
 
 /// `AzCssPathPseudoSelectorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssPathPseudoSelector")]
 pub struct AzCssPathPseudoSelectorEnumWrapper {
     pub inner: AzCssPathPseudoSelector,
 }
 
 /// `AzAnimationInterpolationFunctionEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "AnimationInterpolationFunction")]
 pub struct AzAnimationInterpolationFunctionEnumWrapper {
     pub inner: AzAnimationInterpolationFunction,
 }
 
 /// `AzStyleTransformEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTransform")]
 pub struct AzStyleTransformEnumWrapper {
     pub inner: AzStyleTransform,
 }
 
 /// `AzStyleBackgroundPositionVecValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundPositionVecValue")]
 pub struct AzStyleBackgroundPositionVecValueEnumWrapper {
     pub inner: AzStyleBackgroundPositionVecValue,
 }
 
 /// `AzStyleBackgroundRepeatVecValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundRepeatVecValue")]
 pub struct AzStyleBackgroundRepeatVecValueEnumWrapper {
     pub inner: AzStyleBackgroundRepeatVecValue,
 }
 
 /// `AzStyleBackgroundSizeVecValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundSizeVecValue")]
 pub struct AzStyleBackgroundSizeVecValueEnumWrapper {
     pub inner: AzStyleBackgroundSizeVecValue,
 }
 
 /// `AzRawImageDataEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "RawImageData")]
 pub struct AzRawImageDataEnumWrapper {
     pub inner: AzRawImageData,
 }
 
 /// `AzSvgPathElementEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgPathElement")]
 pub struct AzSvgPathElementEnumWrapper {
     pub inner: AzSvgPathElement,
 }
 
 /// `AzInstantEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "Instant")]
 pub struct AzInstantEnumWrapper {
     pub inner: AzInstant,
 }
 
 /// `AzThreadReceiveMsgEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ThreadReceiveMsg")]
 pub struct AzThreadReceiveMsgEnumWrapper {
     pub inner: AzThreadReceiveMsg,
 }
 
 /// `AzOptionVirtualKeyCodeComboEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionVirtualKeyCodeCombo")]
 pub struct AzOptionVirtualKeyCodeComboEnumWrapper {
     pub inner: AzOptionVirtualKeyCodeCombo,
 }
 
 /// `AzOptionMouseStateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionMouseState")]
 pub struct AzOptionMouseStateEnumWrapper {
     pub inner: AzOptionMouseState,
 }
 
 /// `AzOptionKeyboardStateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionKeyboardState")]
 pub struct AzOptionKeyboardStateEnumWrapper {
     pub inner: AzOptionKeyboardState,
 }
 
 /// `AzOptionStringVecEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionStringVec")]
 pub struct AzOptionStringVecEnumWrapper {
     pub inner: AzOptionStringVec,
 }
 
 /// `AzOptionThreadReceiveMsgEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionThreadReceiveMsg")]
 pub struct AzOptionThreadReceiveMsgEnumWrapper {
     pub inner: AzOptionThreadReceiveMsg,
 }
 
 /// `AzOptionTaskBarIconEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTaskBarIcon")]
 pub struct AzOptionTaskBarIconEnumWrapper {
     pub inner: AzOptionTaskBarIcon,
 }
 
 /// `AzOptionWindowIconEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionWindowIcon")]
 pub struct AzOptionWindowIconEnumWrapper {
     pub inner: AzOptionWindowIcon,
 }
 
 /// `AzOptionStringEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionString")]
 pub struct AzOptionStringEnumWrapper {
     pub inner: AzOptionString,
 }
 
 /// `AzOptionTextureEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionTexture")]
 pub struct AzOptionTextureEnumWrapper {
     pub inner: AzOptionTexture,
 }
 
 /// `AzOptionInstantEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionInstant")]
 pub struct AzOptionInstantEnumWrapper {
     pub inner: AzOptionInstant,
 }
 
 /// `AzLayoutCallbackEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "LayoutCallback")]
 pub struct AzLayoutCallbackEnumWrapper {
     pub inner: AzLayoutCallback,
 }
 
 /// `AzInlineWordEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "InlineWord")]
 pub struct AzInlineWordEnumWrapper {
     pub inner: AzInlineWord,
 }
 
 /// `AzNodeTypeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeType")]
 pub struct AzNodeTypeEnumWrapper {
     pub inner: AzNodeType,
 }
 
 /// `AzIdOrClassEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "IdOrClass")]
 pub struct AzIdOrClassEnumWrapper {
     pub inner: AzIdOrClass,
 }
 
 /// `AzCssPathSelectorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssPathSelector")]
 pub struct AzCssPathSelectorEnumWrapper {
     pub inner: AzCssPathSelector,
 }
 
 /// `AzStyleBackgroundContentEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundContent")]
 pub struct AzStyleBackgroundContentEnumWrapper {
     pub inner: AzStyleBackgroundContent,
 }
 
 /// `AzStyleFontFamilyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleFontFamily")]
 pub struct AzStyleFontFamilyEnumWrapper {
     pub inner: AzStyleFontFamily,
 }
 
 /// `AzScrollbarStyleValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ScrollbarStyleValue")]
 pub struct AzScrollbarStyleValueEnumWrapper {
     pub inner: AzScrollbarStyleValue,
 }
 
 /// `AzStyleTransformVecValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleTransformVecValue")]
 pub struct AzStyleTransformVecValueEnumWrapper {
     pub inner: AzStyleTransformVecValue,
 }
 
 /// `AzNodeTypeFieldValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeTypeFieldValue")]
 pub struct AzNodeTypeFieldValueEnumWrapper {
     pub inner: AzNodeTypeFieldValue,
 }
 
 /// `AzSvgStyleEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgStyle")]
 pub struct AzSvgStyleEnumWrapper {
     pub inner: AzSvgStyle,
 }
 
 /// `AzFmtValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "FmtValue")]
 pub struct AzFmtValueEnumWrapper {
     pub inner: AzFmtValue,
 }
 
 /// `AzOptionFileTypeListEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionFileTypeList")]
 pub struct AzOptionFileTypeListEnumWrapper {
     pub inner: AzOptionFileTypeList,
 }
 
 /// `AzOptionFileEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionFile")]
 pub struct AzOptionFileEnumWrapper {
     pub inner: AzOptionFile,
 }
 
 /// `AzOptionRawImageEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionRawImage")]
 pub struct AzOptionRawImageEnumWrapper {
     pub inner: AzOptionRawImage,
 }
 
 /// `AzOptionWaylandThemeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionWaylandTheme")]
 pub struct AzOptionWaylandThemeEnumWrapper {
     pub inner: AzOptionWaylandTheme,
 }
 
 /// `AzResultRawImageDecodeImageErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ResultRawImageDecodeImageError")]
 pub struct AzResultRawImageDecodeImageErrorEnumWrapper {
     pub inner: AzResultRawImageDecodeImageError,
 }
 
 /// `AzXmlStreamErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "XmlStreamError")]
 pub struct AzXmlStreamErrorEnumWrapper {
     pub inner: AzXmlStreamError,
 }
 
 /// `AzMenuItemEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "MenuItem")]
 pub struct AzMenuItemEnumWrapper {
     pub inner: AzMenuItem,
 }
 
 /// `AzStyleBackgroundContentVecValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleBackgroundContentVecValue")]
 pub struct AzStyleBackgroundContentVecValueEnumWrapper {
     pub inner: AzStyleBackgroundContentVecValue,
 }
 
 /// `AzStyleFontFamilyVecValueEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "StyleFontFamilyVecValue")]
 pub struct AzStyleFontFamilyVecValueEnumWrapper {
     pub inner: AzStyleFontFamilyVecValue,
 }
 
 /// `AzCssPropertyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssProperty")]
 pub struct AzCssPropertyEnumWrapper {
     pub inner: AzCssProperty,
 }
 
 /// `AzCssPropertySourceEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssPropertySource")]
 pub struct AzCssPropertySourceEnumWrapper {
     pub inner: AzCssPropertySource,
 }
 
 /// `AzOptionCssPropertyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionCssProperty")]
 pub struct AzOptionCssPropertyEnumWrapper {
     pub inner: AzOptionCssProperty,
 }
 
 /// `AzNodeDataInlineCssPropertyEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeDataInlineCssProperty")]
 pub struct AzNodeDataInlineCssPropertyEnumWrapper {
     pub inner: AzNodeDataInlineCssProperty,
 }
 
 /// `AzSvgNodeEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgNode")]
 pub struct AzSvgNodeEnumWrapper {
     pub inner: AzSvgNode,
 }
 
 /// `AzOptionWindowStateEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionWindowState")]
 pub struct AzOptionWindowStateEnumWrapper {
     pub inner: AzOptionWindowState,
 }
 
 /// `AzOptionInlineTextEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionInlineText")]
 pub struct AzOptionInlineTextEnumWrapper {
     pub inner: AzOptionInlineText,
 }
 
 /// `AzXmlParseErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "XmlParseError")]
 pub struct AzXmlParseErrorEnumWrapper {
     pub inner: AzXmlParseError,
 }
 
 /// `AzFocusTargetEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "FocusTarget")]
 pub struct AzFocusTargetEnumWrapper {
     pub inner: AzFocusTarget,
 }
 
 /// `AzCssDeclarationEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "CssDeclaration")]
 pub struct AzCssDeclarationEnumWrapper {
     pub inner: AzCssDeclaration,
 }
 
 /// `AzXmlErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "XmlError")]
 pub struct AzXmlErrorEnumWrapper {
     pub inner: AzXmlError,
 }
 
 /// `AzOptionDomEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "OptionDom")]
 pub struct AzOptionDomEnumWrapper {
     pub inner: AzOptionDom,
 }
 
 /// `AzResultXmlXmlErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ResultXmlXmlError")]
 pub struct AzResultXmlXmlErrorEnumWrapper {
     pub inner: AzResultXmlXmlError,
 }
 
 /// `AzSvgParseErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "SvgParseError")]
 pub struct AzSvgParseErrorEnumWrapper {
     pub inner: AzSvgParseError,
 }
 
 /// `AzResultSvgXmlNodeSvgParseErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ResultSvgXmlNodeSvgParseError")]
 pub struct AzResultSvgXmlNodeSvgParseErrorEnumWrapper {
     pub inner: AzResultSvgXmlNodeSvgParseError,
 }
 
 /// `AzResultSvgSvgParseErrorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "ResultSvgSvgParseError")]
 pub struct AzResultSvgSvgParseErrorEnumWrapper {
     pub inner: AzResultSvgSvgParseError,
 }
@@ -24198,6 +22444,11 @@ impl AzNodeGraph {
         }
     }
 
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzNodeGraph_dom(
+            mem::transmute(self),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -25257,13 +23508,13 @@ impl AzStyledDom {
             mem::transmute(self),
         )) }
     }
-    fn get_html_string_test(&self) -> String {
-        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlStringTest(
+    fn get_html_string(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlString(
             mem::transmute(self),
         )) })
     }
-    fn get_html_string_debug(&self) -> String {
-        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlStringDebug(
+    fn get_html_string_test(&self) -> String {
+        az_string_to_py_string(unsafe { mem::transmute(crate::AzStyledDom_getHtmlStringTest(
             mem::transmute(self),
         )) })
     }

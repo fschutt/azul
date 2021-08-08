@@ -887,10 +887,6 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
 
-        opt_extra_derive = ""
-        if "extra_derive" in struct.keys():
-            opt_extra_derive = struct["extra_derive"] + "\r\n"
-
         if "doc" in struct.keys():
             code += indent_str + "/// " + struct["doc"] + "\r\n"
         else:
@@ -898,6 +894,9 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
 
         class_is_callback_typedef = "callback_typedef" in struct.keys() and (len(struct["callback_typedef"].keys()) > 0)
         class_can_be_copied = "derive" in struct.keys() and "Copy" in struct["derive"]
+        class_implements_eq = "derive" in struct.keys() and "Eq" in struct["derive"]
+        class_implements_ord = "derive" in struct.keys() and "Ord" in struct["derive"]
+        class_implements_hash = "derive" in struct.keys() and "Hash" in struct["derive"]
         class_has_custom_destructor = "custom_destructor" in struct.keys() and struct["custom_destructor"]
         class_can_be_cloned = True
         if "clone" in struct.keys():
@@ -918,6 +917,9 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             opt_derive_clone = indent_str + "#[derive(Clone)]\r\n"
             opt_derive_copy = indent_str + "#[derive(Copy)]\r\n"
             opt_derive_other = indent_str + "#[derive(PartialEq, PartialOrd)]\r\n"
+            opt_derive_eq = ""
+            opt_derive_ord = ""
+            opt_derive_hash = ""
 
             if no_derive:
                 opt_derive_debug = ""
@@ -937,6 +939,14 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                 opt_derive_clone = ""
                 opt_derive_other = ""
 
+            if len(opt_derive_other) > 0:
+                if class_implements_eq:
+                    opt_derive_eq = indent_str + "#[derive(Eq)]\r\n"
+                if class_implements_ord:
+                    opt_derive_ord = indent_str + "#[derive(Ord)]\r\n"
+                if class_implements_hash:
+                    opt_derive_hash = indent_str + "#[derive(Hash)]\r\n"
+
             for field in struct:
                 if "type" in list(field.values())[0]:
                     analyzed_arg_type = analyze_type(list(field.values())[0]["type"])
@@ -954,7 +964,12 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             if "repr" in structs_map[struct_name].keys():
                 repr = "#[repr(" + structs_map[struct_name]["repr"] + ")]\r\n"
 
-            code += indent_str + repr + opt_derive_debug + opt_derive_clone + opt_derive_other + opt_derive_copy + opt_extra_derive + indent_str + "pub struct " + struct_name + " {\r\n"
+            code += indent_str + repr
+            code += opt_derive_debug + opt_derive_clone
+            code += opt_derive_other + opt_derive_copy
+            code += opt_derive_eq + opt_derive_ord
+            code += opt_derive_hash
+            code += indent_str + "pub struct " + struct_name + " {\r\n"
 
             for field in struct:
                 if type(field) is str:
@@ -964,8 +979,8 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                 if "type" in field_type:
                     field_type = field_type["type"]
                     field_extra_derive = ""
-                    if "extra_derive" in field[field_name].keys():
-                        field_extra_derive = field[field_name]["extra_derive"] + "\r\n"
+                    if "derive" in field[field_name].keys():
+                        field_extra_derive = field[field_name]["derive"] + "\r\n"
                     code += field_extra_derive
                     analyzed_arg_type = analyze_type(field_type)
                     if is_primitive_arg(analyzed_arg_type[1]):
@@ -1012,6 +1027,9 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             opt_derive_clone = indent_str + "#[derive(Clone)]\r\n"
             opt_derive_copy = indent_str + "#[derive(Copy)]\r\n"
             opt_derive_other = indent_str + "#[derive(PartialEq, PartialOrd)]\r\n"
+            opt_derive_eq = ""
+            opt_derive_ord = ""
+            opt_derive_hash = ""
 
             if no_derive:
                 opt_derive_debug = ""
@@ -1031,6 +1049,14 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                 opt_derive_clone = ""
                 opt_derive_other = ""
 
+            if len(opt_derive_other) > 0:
+                if class_implements_eq:
+                    opt_derive_eq = indent_str + "#[derive(Eq)]\r\n"
+                if class_implements_ord:
+                    opt_derive_ord = indent_str + "#[derive(Ord)]\r\n"
+                if class_implements_hash:
+                    opt_derive_hash = indent_str + "#[derive(Hash)]\r\n"
+
             for variant in enum:
                 variant = list(variant.values())[0]
                 if "type" in variant.keys():
@@ -1046,7 +1072,13 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                             opt_derive_debug = ""
                             opt_derive_other = ""
 
-            code += indent_str + repr + opt_derive_debug + opt_derive_clone + opt_derive_other + opt_derive_copy + opt_extra_derive + indent_str + "pub enum " + struct_name + " {\r\n"
+            code += indent_str + repr
+            code += opt_derive_debug + opt_derive_clone
+            code += opt_derive_other + opt_derive_copy
+            code += opt_derive_ord + opt_derive_eq
+            code += opt_derive_hash
+            code += indent_str + "pub enum " + struct_name + " {\r\n"
+
             for variant in enum:
                 variant_name = list(variant.keys())[0]
                 variant = list(variant.values())[0]

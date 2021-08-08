@@ -270,14 +270,21 @@ mod dll {
     impl ::core::fmt::Debug for AzInstantPtrCloneFn                 { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzThreadSendFn                      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
-    impl ::core::fmt::Debug for AzCheckBoxOnToggleCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzColorInputOnValueChangeCallback   { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzTextInputOnTextInputCallback      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzTextInputOnVirtualKeyDownCallback { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzTextInputOnFocusLostCallback      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzNumberInputOnFocusLostCallback    { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::core::fmt::Debug for AzNumberInputOnValueChangeCallback  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-
+    impl ::core::fmt::Debug for AzCheckBoxOnToggleCallback                  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzColorInputOnValueChangeCallback           { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzTextInputOnTextInputCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzTextInputOnVirtualKeyDownCallback         { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzTextInputOnFocusLostCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNumberInputOnFocusLostCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNumberInputOnValueChangeCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeAddedCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeRemovedCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeDraggedCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeGraphDraggedCallback       { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeConnectedCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeInputDisconnectedCallback  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeOutputDisconnectedCallback { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzNodeGraphOnNodeFieldEditedCallback        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
     impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzLayoutCallbackInner { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
@@ -306,6 +313,14 @@ mod dll {
     impl PartialEq for AzTextInputOnFocusLostCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzNumberInputOnFocusLostCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzNumberInputOnValueChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeAddedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeRemovedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeDraggedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeGraphDraggedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeConnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeInputDisconnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeOutputDisconnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzNodeGraphOnNodeFieldEditedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzLayoutCallbackInner { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
@@ -333,7 +348,15 @@ mod dll {
     impl PartialOrd for AzTextInputOnVirtualKeyDownCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
     impl PartialOrd for AzTextInputOnFocusLostCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
     impl PartialOrd for AzNumberInputOnFocusLostCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    impl PartialOrd for AzNumberInputOnValueChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}    #[cfg(not(feature = "link_static"))]
+    impl PartialOrd for AzNumberInputOnValueChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
+    impl PartialOrd for AzNodeGraphOnNodeAddedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeRemovedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeDraggedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeGraphDraggedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeConnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeInputDisconnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeOutputDisconnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzNodeGraphOnNodeFieldEditedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }    #[cfg(not(feature = "link_static"))]
     mod dynamic_link {
     use core::ffi::c_void;
 
@@ -1968,7 +1991,7 @@ mod dll {
     }
 
     /// `AzNodeGraphOnNodeAddedCallbackType` struct
-    pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+    pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodeGraphNodeId, AzNodePosition) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
     #[repr(C)]
@@ -2052,6 +2075,10 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[derive(Eq)]
+    #[derive(Ord)]
+    #[derive(Hash)]
     pub struct AzInputOutputTypeId {
         pub inner: u64,
     }
@@ -2061,6 +2088,10 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[derive(Eq)]
+    #[derive(Ord)]
+    #[derive(Hash)]
     pub struct AzNodeTypeId {
         pub inner: u64,
     }
@@ -2070,6 +2101,10 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[derive(Eq)]
+    #[derive(Ord)]
+    #[derive(Hash)]
     pub struct AzNodeGraphNodeId {
         pub inner: u64,
     }
@@ -2079,6 +2114,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
     pub struct AzNodePosition {
         pub x: f32,
         pub y: f32,
@@ -2089,6 +2125,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
     pub struct AzGraphDragAmount {
         pub x: f32,
         pub y: f32,
@@ -2099,6 +2136,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
     pub struct AzNodeDragAmount {
         pub x: f32,
         pub y: f32,
@@ -9625,6 +9663,7 @@ mod dll {
         pub(crate) fn AzFrame_setFlexGrow(_:  &mut AzFrame, _:  f32);
         pub(crate) fn AzFrame_withFlexGrow(_:  &mut AzFrame, _:  f32) -> AzFrame;
         pub(crate) fn AzFrame_dom(_:  &mut AzFrame) -> AzDom;
+        pub(crate) fn AzNodeGraph_dom(_:  &mut AzNodeGraph) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -9634,8 +9673,8 @@ mod dll {
         pub(crate) fn AzStyledDom_appendChild(_:  &mut AzStyledDom, _:  AzStyledDom);
         pub(crate) fn AzStyledDom_restyle(_:  &mut AzStyledDom, _:  AzCss);
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
+        pub(crate) fn AzStyledDom_getHtmlString(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzStyledDom_getHtmlStringTest(_:  &AzStyledDom) -> AzString;
-        pub(crate) fn AzStyledDom_getHtmlStringDebug(_:  &AzStyledDom) -> AzString;
         pub(crate) fn AzStyledDom_setMenuBar(_:  &mut AzStyledDom, _:  AzMenu);
         pub(crate) fn AzStyledDom_withMenuBar(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
         pub(crate) fn AzStyledDom_setContextMenu(_:  &mut AzStyledDom, _:  AzMenu);
@@ -12753,6 +12792,11 @@ pub mod widgets {
     /// `NodeGraph` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeGraph as NodeGraph;
+    impl NodeGraph {
+        /// Calls the `NodeGraph::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzNodeGraph_dom(self) } }
+    }
+
     /// `NodeTypeIdInfoMap` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMap as NodeTypeIdInfoMap;
@@ -12943,10 +12987,10 @@ pub mod style {
         pub fn restyle(&mut self, css: Css)  { unsafe { crate::dll::AzStyledDom_restyle(self, css) } }
         /// Returns the number of nodes in the styled DOM
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzStyledDom_nodeCount(self) } }
+        /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+        pub fn get_html_string(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlString(self) } }
         /// Returns a HTML for unit testing
         pub fn get_html_string_test(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlStringTest(self) } }
-        /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-        pub fn get_html_string_debug(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlStringDebug(self) } }
         /// Adds a menu to the root node
         pub fn set_menu_bar(&mut self, menu: Menu)  { unsafe { crate::dll::AzStyledDom_setMenuBar(self, menu) } }
         /// Adds a menu to the root node (builder method)
@@ -16166,8 +16210,8 @@ pub mod vec {
     impl_vec_clone!(AzNormalizedRadialColorStop, AzNormalizedRadialColorStopVec, AzNormalizedRadialColorStopVecDestructor);
     impl_vec!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor, az_node_id_vec_destructor, AzNodeIdVec_delete);
     impl_vec_clone!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor);
-    impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor, az_node_vec_destructor, AzNodeVec_delete);
-    impl_vec_clone!(AzNode, AzNodeVec, AzNodeVecDestructor);
+    impl_vec!(AzNodeHierarchyItem, AzNodeHierarchyItemVec, AzNodeHierarchyItemVecDestructor, az_node_hierarchy_item_vec_destructor, AzNodeHierarchyItemVec_delete);
+    impl_vec_clone!(AzNodeHierarchyItem, AzNodeHierarchyItemVec, AzNodeHierarchyItemVecDestructor);
     impl_vec!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor, az_styled_node_vec_destructor, AzStyledNodeVec_delete);
     impl_vec_clone!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor);
     impl_vec!(AzTagIdToNodeIdMapping, AzTagIdToNodeIdMappingVec, AzTagIdToNodeIdMappingVecDestructor, az_tag_id_to_node_id_mapping_vec_destructor, AzTagIdToNodeIdMappingVec_delete);
@@ -16192,6 +16236,24 @@ pub mod vec {
     impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
     impl_vec!(AzTab, AzTabVec, AzTabVecDestructor, az_tab_vec_destructor, AzTabVec_delete);
     impl_vec_clone!(AzTab, AzTabVec, AzTabVecDestructor);
+    impl_vec!(AzNodeTypeIdInfoMap, AzNodeTypeIdInfoMapVec, AzNodeTypeIdInfoMapVecDestructor, az_node_type_id_info_map_vec_destructor, AzNodeTypeIdInfoMapVec_delete);
+    impl_vec_clone!(AzNodeTypeIdInfoMap, AzNodeTypeIdInfoMapVec, AzNodeTypeIdInfoMapVecDestructor);
+    impl_vec!(AzInputOutputTypeIdInfoMap, AzInputOutputTypeIdInfoMapVec, AzInputOutputTypeIdInfoMapVecDestructor, az_input_output_type_id_info_map_vec_destructor, AzInputOutputTypeIdInfoMapVec_delete);
+    impl_vec_clone!(AzInputOutputTypeIdInfoMap, AzInputOutputTypeIdInfoMapVec, AzInputOutputTypeIdInfoMapVecDestructor);
+    impl_vec!(AzNodeIdNodeMap, AzNodeIdNodeMapVec, AzNodeIdNodeMapVecDestructor, az_node_id_node_map_vec_destructor, AzNodeIdNodeMapVec_delete);
+    impl_vec_clone!(AzNodeIdNodeMap, AzNodeIdNodeMapVec, AzNodeIdNodeMapVecDestructor);
+    impl_vec!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor, az_input_output_type_id_vec_destructor, AzInputOutputTypeIdVec_delete);
+    impl_vec_clone!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor);
+    impl_vec!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor, az_node_type_field_vec_destructor, AzNodeTypeFieldVec_delete);
+    impl_vec_clone!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor);
+    impl_vec!(AzInputConnection, AzInputConnectionVec, AzInputConnectionVecDestructor, az_input_connection_vec_destructor, AzInputConnectionVec_delete);
+    impl_vec_clone!(AzInputConnection, AzInputConnectionVec, AzInputConnectionVecDestructor);
+    impl_vec!(AzOutputNodeAndIndex, AzOutputNodeAndIndexVec, AzOutputNodeAndIndexVecDestructor, az_output_node_and_index_vec_destructor, AzOutputNodeAndIndexVec_delete);
+    impl_vec_clone!(AzOutputNodeAndIndex, AzOutputNodeAndIndexVec, AzOutputNodeAndIndexVecDestructor);
+    impl_vec!(AzOutputConnection, AzOutputConnectionVec, AzOutputConnectionVecDestructor, az_output_connection_vec_destructor, AzOutputConnectionVec_delete);
+    impl_vec_clone!(AzOutputConnection, AzOutputConnectionVec, AzOutputConnectionVecDestructor);
+    impl_vec!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor, az_input_node_and_index_vec_destructor, AzInputNodeAndIndexVec_delete);
+    impl_vec_clone!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
@@ -16947,7 +17009,14 @@ pub mod option {
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
     impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
-    /// `OptionNodeGraphOnNodeAdded` struct
+    impl_option!(AzNodeGraphOnNodeAdded, AzOptionNodeGraphOnNodeAdded, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeRemoved, AzOptionNodeGraphOnNodeRemoved, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeDragged, AzOptionNodeGraphOnNodeDragged, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeGraphDragged, AzOptionNodeGraphOnNodeGraphDragged, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeConnected, AzOptionNodeGraphOnNodeConnected, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeInputDisconnected, AzOptionNodeGraphOnNodeInputDisconnected, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeOutputDisconnected, AzOptionNodeGraphOnNodeOutputDisconnected, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);    /// `OptionNodeGraphOnNodeAdded` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeAdded as OptionNodeGraphOnNodeAdded;
     /// `OptionNodeGraphOnNodeRemoved` struct

@@ -6030,7 +6030,16 @@
                         {"style": {"type": "NodeGraphStyle"}},
                         {"callbacks": {"type": "NodeGraphCallbacks"}},
                         {"add_node_str": {"type": "String"}}
-                    ]
+                    ],
+                    "functions": {
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut nodegraph = nodegraph.swap_with_default(); nodegraph.dom()"
+                        }
+                    }
                 },
                 "NodeTypeIdInfoMap": {
                     "external": "crate::widgets::node_graph::NodeTypeIdInfoMap",
@@ -6078,6 +6087,7 @@
                             {"type": "RefAny", "ref": "refmut"},
                             {"type": "CallbackInfo", "ref": "refmut"},
                             {"type": "NodeTypeId", "ref": "value"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
                             {"type": "NodePosition", "ref": "value"}
                         ],
                         "returns": {"type": "Update"}
@@ -6268,18 +6278,21 @@
                 },
                 "InputOutputTypeId": {
                     "external": "crate::widgets::node_graph::InputOutputTypeId",
+                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash"],
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
                 },
                 "NodeTypeId": {
                     "external": "crate::widgets::node_graph::NodeTypeId",
+                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash"],
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
                 },
                 "NodeGraphNodeId": {
                     "external": "crate::widgets::node_graph::NodeGraphNodeId",
+                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash"],
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
@@ -6356,6 +6369,7 @@
                 },
                 "NodePosition": {
                     "external": "crate::widgets::node_graph::NodePosition",
+                    "derive": ["Copy"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -6363,6 +6377,7 @@
                 },
                 "GraphDragAmount": {
                     "external": "crate::widgets::node_graph::GraphDragAmount",
+                    "derive": ["Copy"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -6370,6 +6385,7 @@
                 },
                 "NodeDragAmount": {
                     "external": "crate::widgets::node_graph::NodeDragAmount",
+                    "derive": ["Copy"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -6522,6 +6538,14 @@
                             "returns": {"type": "usize"},
                             "fn_body": "styleddom.node_count()"
                         },
+                        "get_html_string": {
+                            "doc": "Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "String"},
+                            "fn_body": "styleddom.get_html_string(\"\", \"\", false).into()"
+                        },
                         "get_html_string_test": {
                             "doc": "Returns a HTML for unit testing",
                             "fn_args": [
@@ -6529,14 +6553,6 @@
                             ],
                             "returns": {"type": "String"},
                             "fn_body": "styleddom.get_html_string(\"\", \"\", true).into()"
-                        },
-                        "get_html_string_debug": {
-                            "doc": "Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues",
-                            "fn_args": [
-                                {"self": "ref"}
-                            ],
-                            "returns": {"type": "String"},
-                            "fn_body": "styleddom.get_html_string(\"\", \"\", false).into()"
                         },
                         "set_menu_bar": {
                             "doc": "Adds a menu to the root node",

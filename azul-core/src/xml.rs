@@ -1109,7 +1109,7 @@ use azul::{
 
 struct Data { }
 
-extern \"C\" fn render(_: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern \"C\" fn render(_: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     crate::ui::render()
     .style(Css::empty()) // styles are applied inline
 }

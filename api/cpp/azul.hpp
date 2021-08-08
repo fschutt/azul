@@ -57,10 +57,10 @@ namespace dll {
     using NumberInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NumberInputState* const);
     
     struct NodeTypeId;
-    struct NodePosition;
-    using NodeGraphOnNodeAddedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeTypeId, NodePosition);
-    
     struct NodeGraphNodeId;
+    struct NodePosition;
+    using NodeGraphOnNodeAddedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeTypeId, NodeGraphNodeId, NodePosition);
+    
     using NodeGraphOnNodeRemovedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId);
     
     struct GraphDragAmount;
@@ -1524,21 +1524,18 @@ namespace dll {
     struct InputOutputTypeId {
         uint64_t inner;
         InputOutputTypeId& operator=(const InputOutputTypeId&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        InputOutputTypeId(const InputOutputTypeId&) = delete; /* disable copy constructor, use explicit .clone() */
         InputOutputTypeId() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct NodeTypeId {
         uint64_t inner;
         NodeTypeId& operator=(const NodeTypeId&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        NodeTypeId(const NodeTypeId&) = delete; /* disable copy constructor, use explicit .clone() */
         NodeTypeId() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct NodeGraphNodeId {
         uint64_t inner;
         NodeGraphNodeId& operator=(const NodeGraphNodeId&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        NodeGraphNodeId(const NodeGraphNodeId&) = delete; /* disable copy constructor, use explicit .clone() */
         NodeGraphNodeId() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
@@ -1546,7 +1543,6 @@ namespace dll {
         float x;
         float y;
         NodePosition& operator=(const NodePosition&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        NodePosition(const NodePosition&) = delete; /* disable copy constructor, use explicit .clone() */
         NodePosition() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
@@ -1554,7 +1550,6 @@ namespace dll {
         float x;
         float y;
         GraphDragAmount& operator=(const GraphDragAmount&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        GraphDragAmount(const GraphDragAmount&) = delete; /* disable copy constructor, use explicit .clone() */
         GraphDragAmount() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
@@ -1562,7 +1557,6 @@ namespace dll {
         float x;
         float y;
         NodeDragAmount& operator=(const NodeDragAmount&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        NodeDragAmount(const NodeDragAmount&) = delete; /* disable copy constructor, use explicit .clone() */
         NodeDragAmount() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
@@ -9879,6 +9873,7 @@ namespace dll {
         Frame Frame_withFlexGrow(Frame* restrict frame, float flex_grow);
         Dom Frame_dom(Frame* restrict frame);
         void Frame_delete(Frame* restrict instance);
+        Dom NodeGraph_dom(NodeGraph* restrict nodegraph);
         void NodeGraph_delete(NodeGraph* restrict instance);
         void NodeTypeIdInfoMap_delete(NodeTypeIdInfoMap* restrict instance);
         void InputOutputTypeIdInfoMap_delete(InputOutputTypeIdInfoMap* restrict instance);
@@ -9910,8 +9905,8 @@ namespace dll {
         void StyledDom_appendChild(StyledDom* restrict styleddom, AzStyledDom  dom);
         void StyledDom_restyle(StyledDom* restrict styleddom, AzCss  css);
         size_t StyledDom_nodeCount(const StyledDom* styleddom);
+        String StyledDom_getHtmlString(const StyledDom* styleddom);
         String StyledDom_getHtmlStringTest(const StyledDom* styleddom);
-        String StyledDom_getHtmlStringDebug(const StyledDom* styleddom);
         void StyledDom_setMenuBar(StyledDom* restrict styleddom, AzMenu  menu);
         StyledDom StyledDom_withMenuBar(StyledDom* restrict styleddom, AzMenu  menu);
         void StyledDom_setContextMenu(StyledDom* restrict styleddom, AzMenu  menu);

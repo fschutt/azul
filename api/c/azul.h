@@ -106,12 +106,12 @@ typedef AzUpdate (*AzNumberInputOnFocusLostCallbackType)(AzRefAny* restrict A, A
 
 struct AzNodeTypeId;
 typedef struct AzNodeTypeId AzNodeTypeId;
-struct AzNodePosition;
-typedef struct AzNodePosition AzNodePosition;
-typedef AzUpdate (*AzNodeGraphOnNodeAddedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeTypeId C, AzNodePosition D);
-
 struct AzNodeGraphNodeId;
 typedef struct AzNodeGraphNodeId AzNodeGraphNodeId;
+struct AzNodePosition;
+typedef struct AzNodePosition AzNodePosition;
+typedef AzUpdate (*AzNodeGraphOnNodeAddedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeTypeId C, AzNodeGraphNodeId D, AzNodePosition E);
+
 typedef AzUpdate (*AzNodeGraphOnNodeRemovedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C);
 
 struct AzGraphDragAmount;
@@ -11903,6 +11903,7 @@ extern DLLIMPORT void AzFrame_setFlexGrow(AzFrame* restrict frame, float flex_gr
 extern DLLIMPORT AzFrame AzFrame_withFlexGrow(AzFrame* restrict frame, float flex_grow);
 extern DLLIMPORT AzDom AzFrame_dom(AzFrame* restrict frame);
 extern DLLIMPORT void AzFrame_delete(AzFrame* restrict instance);
+extern DLLIMPORT AzDom AzNodeGraph_dom(AzNodeGraph* restrict nodegraph);
 extern DLLIMPORT void AzNodeGraph_delete(AzNodeGraph* restrict instance);
 extern DLLIMPORT void AzNodeTypeIdInfoMap_delete(AzNodeTypeIdInfoMap* restrict instance);
 extern DLLIMPORT void AzInputOutputTypeIdInfoMap_delete(AzInputOutputTypeIdInfoMap* restrict instance);
@@ -11934,8 +11935,8 @@ extern DLLIMPORT AzStyledDom AzStyledDom_fromFile(AzString  xml_file_path);
 extern DLLIMPORT void AzStyledDom_appendChild(AzStyledDom* restrict styleddom, AzStyledDom  dom);
 extern DLLIMPORT void AzStyledDom_restyle(AzStyledDom* restrict styleddom, AzCss  css);
 extern DLLIMPORT size_t AzStyledDom_nodeCount(const AzStyledDom* styleddom);
+extern DLLIMPORT AzString AzStyledDom_getHtmlString(const AzStyledDom* styleddom);
 extern DLLIMPORT AzString AzStyledDom_getHtmlStringTest(const AzStyledDom* styleddom);
-extern DLLIMPORT AzString AzStyledDom_getHtmlStringDebug(const AzStyledDom* styleddom);
 extern DLLIMPORT void AzStyledDom_setMenuBar(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT AzStyledDom AzStyledDom_withMenuBar(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT void AzStyledDom_setContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);

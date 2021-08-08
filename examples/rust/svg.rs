@@ -17,7 +17,7 @@ struct MyAppData {
     svg: ImageRef,
 }
 
-extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     let rendered_svg = match data.downcast_ref::<MyAppData>() {
         Some(s) => s.svg.clone(),
         None => return StyledDom::default(),

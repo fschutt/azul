@@ -278,8 +278,8 @@
     impl_vec_clone!(AzNormalizedRadialColorStop, AzNormalizedRadialColorStopVec, AzNormalizedRadialColorStopVecDestructor);
     impl_vec!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor, az_node_id_vec_destructor, AzNodeIdVec_delete);
     impl_vec_clone!(AzNodeId, AzNodeIdVec, AzNodeIdVecDestructor);
-    impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor, az_node_vec_destructor, AzNodeVec_delete);
-    impl_vec_clone!(AzNode, AzNodeVec, AzNodeVecDestructor);
+    impl_vec!(AzNodeHierarchyItem, AzNodeHierarchyItemVec, AzNodeHierarchyItemVecDestructor, az_node_hierarchy_item_vec_destructor, AzNodeHierarchyItemVec_delete);
+    impl_vec_clone!(AzNodeHierarchyItem, AzNodeHierarchyItemVec, AzNodeHierarchyItemVecDestructor);
     impl_vec!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor, az_styled_node_vec_destructor, AzStyledNodeVec_delete);
     impl_vec_clone!(AzStyledNode, AzStyledNodeVec, AzStyledNodeVecDestructor);
     impl_vec!(AzTagIdToNodeIdMapping, AzTagIdToNodeIdMappingVec, AzTagIdToNodeIdMappingVecDestructor, az_tag_id_to_node_id_mapping_vec_destructor, AzTagIdToNodeIdMappingVec_delete);
@@ -304,6 +304,24 @@
     impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
     impl_vec!(AzTab, AzTabVec, AzTabVecDestructor, az_tab_vec_destructor, AzTabVec_delete);
     impl_vec_clone!(AzTab, AzTabVec, AzTabVecDestructor);
+    impl_vec!(AzNodeTypeIdInfoMap, AzNodeTypeIdInfoMapVec, AzNodeTypeIdInfoMapVecDestructor, az_node_type_id_info_map_vec_destructor, AzNodeTypeIdInfoMapVec_delete);
+    impl_vec_clone!(AzNodeTypeIdInfoMap, AzNodeTypeIdInfoMapVec, AzNodeTypeIdInfoMapVecDestructor);
+    impl_vec!(AzInputOutputTypeIdInfoMap, AzInputOutputTypeIdInfoMapVec, AzInputOutputTypeIdInfoMapVecDestructor, az_input_output_type_id_info_map_vec_destructor, AzInputOutputTypeIdInfoMapVec_delete);
+    impl_vec_clone!(AzInputOutputTypeIdInfoMap, AzInputOutputTypeIdInfoMapVec, AzInputOutputTypeIdInfoMapVecDestructor);
+    impl_vec!(AzNodeIdNodeMap, AzNodeIdNodeMapVec, AzNodeIdNodeMapVecDestructor, az_node_id_node_map_vec_destructor, AzNodeIdNodeMapVec_delete);
+    impl_vec_clone!(AzNodeIdNodeMap, AzNodeIdNodeMapVec, AzNodeIdNodeMapVecDestructor);
+    impl_vec!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor, az_input_output_type_id_vec_destructor, AzInputOutputTypeIdVec_delete);
+    impl_vec_clone!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor);
+    impl_vec!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor, az_node_type_field_vec_destructor, AzNodeTypeFieldVec_delete);
+    impl_vec_clone!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor);
+    impl_vec!(AzInputConnection, AzInputConnectionVec, AzInputConnectionVecDestructor, az_input_connection_vec_destructor, AzInputConnectionVec_delete);
+    impl_vec_clone!(AzInputConnection, AzInputConnectionVec, AzInputConnectionVecDestructor);
+    impl_vec!(AzOutputNodeAndIndex, AzOutputNodeAndIndexVec, AzOutputNodeAndIndexVecDestructor, az_output_node_and_index_vec_destructor, AzOutputNodeAndIndexVec_delete);
+    impl_vec_clone!(AzOutputNodeAndIndex, AzOutputNodeAndIndexVec, AzOutputNodeAndIndexVecDestructor);
+    impl_vec!(AzOutputConnection, AzOutputConnectionVec, AzOutputConnectionVecDestructor, az_output_connection_vec_destructor, AzOutputConnectionVec_delete);
+    impl_vec_clone!(AzOutputConnection, AzOutputConnectionVec, AzOutputConnectionVecDestructor);
+    impl_vec!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor, az_input_node_and_index_vec_destructor, AzInputNodeAndIndexVec_delete);
+    impl_vec_clone!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);

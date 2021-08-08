@@ -2101,6 +2101,8 @@ pub use AzFrameTT as AzFrame;
 /// Re-export of rust-allocated (stack based) `NodeGraph` struct
 pub type AzNodeGraphTT = crate::widgets::node_graph::NodeGraph;
 pub use AzNodeGraphTT as AzNodeGraph;
+/// Equivalent to the Rust `NodeGraph::dom()` function.
+#[no_mangle] pub extern "C" fn AzNodeGraph_dom(nodegraph: &mut AzNodeGraph) -> AzDom { let mut nodegraph = nodegraph.swap_with_default(); nodegraph.dom() }
 /// Destructor: Takes ownership of the `NodeGraph` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeGraph_delete(object: &mut AzNodeGraph) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -2132,7 +2134,7 @@ pub use AzNodeGraphCallbacksTT as AzNodeGraphCallbacks;
 /// Destructor: Takes ownership of the `NodeGraphCallbacks` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeGraphCallbacks_delete(object: &mut AzNodeGraphCallbacks) {  unsafe { core::ptr::drop_in_place(object); } }
 
-pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodeGraphNodeId, AzNodePosition) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
 pub type AzNodeGraphOnNodeAddedCallbackTT = crate::widgets::node_graph::OnNodeAddedCallback;
 pub use AzNodeGraphOnNodeAddedCallbackTT as AzNodeGraphOnNodeAddedCallback;
@@ -2355,10 +2357,10 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) { let mut css = css; styleddom.restyle(&mut css); }
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
+/// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
+#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlString(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", false).into() }
 /// Returns a HTML for unit testing
 #[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringTest(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", true).into() }
-/// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-#[no_mangle] pub extern "C" fn AzStyledDom_getHtmlStringDebug(styleddom: &AzStyledDom) -> AzString { styleddom.get_html_string("", "", false).into() }
 /// Adds a menu to the root node
 #[no_mangle] pub extern "C" fn AzStyledDom_setMenuBar(styleddom: &mut AzStyledDom, menu: AzMenu) { styleddom.set_menu_bar(menu) }
 /// Adds a menu to the root node (builder method)
@@ -6152,7 +6154,7 @@ mod test_sizes {
     }
 
     /// `AzNodeGraphOnNodeAddedCallbackType` struct
-    pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+    pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodeGraphNodeId, AzNodePosition) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
     #[repr(C)]

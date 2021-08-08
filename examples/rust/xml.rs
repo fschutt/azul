@@ -4,7 +4,7 @@ use azul::prelude::*;
 
 struct Data { }
 
-extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
     StyledDom::from_file("./ui.xml".into())
     .with_menu_bar(Menu::new(vec![
         MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
@@ -18,12 +18,12 @@ extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom 
     ].into()))
 }
 
-extern "C" fn on_menu_click(data: &mut RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_menu_click(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     println!("menu item clicked!");
     Update::RefreshDom
 }
 
-extern "C" fn on_context_clicked(data: &mut RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_context_clicked(data: &mut RefAny, _info: &mut CallbackInfo) -> Update {
     println!("reload clicked!");
     Update::RefreshDom
 }

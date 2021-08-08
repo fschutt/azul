@@ -60,7 +60,7 @@ pub mod ui {
         event: Event,
     }
 
-    pub extern "C" fn layout(data: &mut RefAny, _info: LayoutCallbackInfo) -> StyledDom {
+    pub extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> StyledDom {
 
         let (result, expression, font) = match data.downcast_ref::<Calculator>() {
             Some(s) => {
@@ -505,7 +505,7 @@ pub mod ui {
         ])).style(Css::empty())
     }
 
-    extern "C" fn handle_mouseclick_numpad_btn(data: &mut RefAny, info: CallbackInfo) -> Update {
+    extern "C" fn handle_mouseclick_numpad_btn(data: &mut RefAny, info:  &mut CallbackInfo) -> Update {
 
         let mut data = match data.downcast_mut::<ButtonLocalDataset>() {
             Some(s) => s,
@@ -522,7 +522,7 @@ pub mod ui {
         return calculator.process_event(event);
     }
 
-    extern "C" fn handle_text_input(data: &mut RefAny, info: CallbackInfo) -> Update {
+    extern "C" fn handle_text_input(data: &mut RefAny, info:  &mut CallbackInfo) -> Update {
         let current_char: Option<char> = info
             .get_current_keyboard_state().current_char
             .into_option()
@@ -556,7 +556,7 @@ pub mod ui {
         return calculator.process_event(event);
     }
 
-    extern "C" fn handle_virtual_key_input(data: &mut RefAny, info: CallbackInfo) -> Update {
+    extern "C" fn handle_virtual_key_input(data: &mut RefAny, info:  &mut CallbackInfo) -> Update {
         let mut event = match info.get_current_keyboard_state().current_virtual_keycode.into_option() {
             Some(VirtualKeyCode::Return) => Event::EqualSign,
             Some(VirtualKeyCode::Back) => Event::Clear,

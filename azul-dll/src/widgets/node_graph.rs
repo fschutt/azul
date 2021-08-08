@@ -40,6 +40,35 @@ pub struct NodeGraph {
     pub add_node_str: AzString,
 }
 
+impl Default for NodeGraph {
+    fn default() -> Self {
+        Self {
+            node_types: NodeTypeIdInfoMapVec::from_const_slice(&[]),
+            input_output_types: InputOutputTypeIdInfoMapVec::from_const_slice(&[]),
+            nodes: NodeIdNodeMapVec::from_const_slice(&[]),
+            allow_multiple_root_nodes: false,
+            offset: LogicalPosition::zero(),
+            style: NodeGraphStyle::Default,
+            callbacks: NodeGraphCallbacks::default(),
+            add_node_str: AzString::from_const_str(""),
+        }
+    }
+}
+
+impl NodeGraph {
+    /// Generates a new NodeId that is unique in the graph
+    pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
+        NodeGraphNodeId {
+            inner: self.nodes
+                .iter()
+                .map(|i| i.node_id.inner)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct NodeTypeIdInfoMap {
@@ -96,7 +125,7 @@ pub struct NodeGraphCallbacks {
     pub on_node_field_edited: OptionOnNodeFieldEdited,
 }
 
-pub type OnNodeAddedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, new_node_type: NodeTypeId, new_node_position: NodePosition) -> Update;
+pub type OnNodeAddedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, new_node_type: NodeTypeId, new_node_id: NodeGraphNodeId, new_node_position: NodePosition) -> Update;
 impl_callback!(OnNodeAdded, OptionOnNodeAdded, OnNodeAddedCallback, OnNodeAddedCallbackType);
 
 pub type OnNodeRemovedCallbackType = extern "C" fn(data: &mut RefAny, info: &mut CallbackInfo, node_id_to_remove: NodeGraphNodeId) -> Update;
@@ -297,6 +326,12 @@ pub struct NodeDragAmount {
 
 impl NodeGraph {
 
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut default = Self::default();
+        ::core::mem::swap(&mut default, self);
+        default
+    }
+
     /// Connects the current nodes input with another nodes output
     ///
     /// ## Inputs
@@ -315,7 +350,7 @@ impl NodeGraph {
     /// - `NodeGraphError::NodeMimeTypeMismatch`: The types of two connected
     ///    `outputs` and `inputs` isn't the same
     /// - `Ok`: The insertion of the new node went well.
-    pub fn connect_input_output(
+    fn connect_input_output(
         &mut self,
         input_node_id: NodeGraphNodeId,
         input_index: usize,
@@ -380,7 +415,7 @@ impl NodeGraph {
     /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and `output` does not match
     /// - `Ok(())`: The insertion of the new node went well.
     ///
-    pub fn disconnect_input(
+    fn disconnect_input(
         &mut self,
         input_node_id: NodeGraphNodeId,
         input_index: usize,
@@ -448,7 +483,7 @@ impl NodeGraph {
     /// - `Err(NodeGraphError::NodeMimeTypeMismatch)`: The types of two connected `input` and `output` does not match
     /// - `Ok(())`: The insertion of the new node went well.
     ///
-    pub fn disconnect_output(
+    fn disconnect_output(
         &mut self,
         output_node_id: NodeGraphNodeId,
         output_index: usize,
@@ -500,7 +535,7 @@ impl NodeGraph {
     }
 
     /// Verifies that the node types of two connections match
-    pub fn verify_nodetype_match(
+    fn verify_nodetype_match(
         &self,
         output_node_id: NodeGraphNodeId,
         output_index: usize,
@@ -2682,8 +2717,10 @@ extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut Callbac
 
     let new_node_position = info.get_cursor_relative_to_node().map(|p| (p.x, p.y)).unwrap_or((0.0, 0.0));
 
+    let new_node_id = backref.node_graph.generate_unique_node_id();
+
     let result = match backref.callbacks.on_node_added.as_mut() {
-        Some(OnNodeAdded { callback, data }) => (callback.cb)(data, info, new_node_type, NodePosition { x: new_node_position.0, y: new_node_position.1 }),
+        Some(OnNodeAdded { callback, data }) => (callback.cb)(data, info, new_node_type, new_node_id, NodePosition { x: new_node_position.0, y: new_node_position.1 }),
         None => Update::DoNothing,
     };
 

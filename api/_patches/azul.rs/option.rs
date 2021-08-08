@@ -163,3 +163,11 @@
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
     impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
+    impl_option!(AzNodeGraphOnNodeAdded, AzOptionNodeGraphOnNodeAdded, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeRemoved, AzOptionNodeGraphOnNodeRemoved, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeDragged, AzOptionNodeGraphOnNodeDragged, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeGraphDragged, AzOptionNodeGraphOnNodeGraphDragged, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeConnected, AzOptionNodeGraphOnNodeConnected, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeInputDisconnected, AzOptionNodeGraphOnNodeInputDisconnected, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeOutputDisconnected, AzOptionNodeGraphOnNodeOutputDisconnected, [Debug, Copy, Clone]);
+    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);

@@ -8,7 +8,7 @@ struct WidgetShowcase {
     enable_padding: bool,
 }
 
-extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
 
     let enable_padding = match data.downcast_ref::<WidgetShowcase>() {
         Some(s) => s.enable_padding,
@@ -60,7 +60,7 @@ extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
     dom.style(Css::empty())
 }
 
-extern "C" fn enable_disable_padding(data: &mut RefAny, _: CallbackInfo) -> Update {
+extern "C" fn enable_disable_padding(data: &mut RefAny, _: &mut CallbackInfo) -> Update {
     match data.downcast_mut::<WidgetShowcase>() {
         Some(mut s) => { s.enable_padding = !s.enable_padding; Update::RefreshDom },
         None => Update::DoNothing,

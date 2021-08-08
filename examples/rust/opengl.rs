@@ -26,7 +26,7 @@ static CSS: AzString = AzString::from_const_str("
 
 struct OpenGlAppState { }
 
-extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body().with_child(
         Dom::image(ImageRef::callback(RenderImageCallback { cb: render_my_texture }, data.clone()))
         .with_child(Button::new("Button composited over OpenGL content!".into()).dom().with_id("the_button".into()))

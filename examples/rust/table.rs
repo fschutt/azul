@@ -7,7 +7,7 @@ struct TableDemo {
     // cells: BTreeMap<TableCell, String>,
 }
 
-extern "C" fn layout(data: &mut RefAny, _: LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
 
     let mut table_view_state = TableViewState::default();
     table_view_state.set_cell_content(TableCellIndex { row: 2, column: 2 }, "Hello World");
