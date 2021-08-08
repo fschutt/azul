@@ -62,6 +62,8 @@ With the [correct CSS styles](https://gist.github.com/fschutt/9731ceec50d5fe211a
 
 ![image](https://user-images.githubusercontent.com/12084016/128640029-056deef3-06f2-44b1-86f9-782929c69698.png)
 
+![image](https://user-images.githubusercontent.com/12084016/128640276-0f7e6a15-a086-4840-acda-2a3f554f6768.png)
+
 Azul currently features:
 
 - Text input / text entry (see "widgets" demo)
@@ -88,12 +90,15 @@ Currently available widgets:
 - `Frame`
 - `TabControl`
 
-Azul also allows for easy creation of custom widgets, for example a [node graph widget](https://github.com/fschutt/azul/blob/master/examples/rust/nodegraph.rs)
+Azul also allows for easy creation of custom widgets, 
+for example a [node graph widget](https://github.com/fschutt/azul/blob/master/examples/rust/nodegraph.rs)
 
 ![image](https://user-images.githubusercontent.com/12084016/128639991-e98c0b92-66df-4ad8-973b-c9d45c68d5b3.png)
 
 All widgets are stylable via CSS. Widgets in progress:
 
+- `ListView`
+- `Spreadsheet`
 - `Slider`
 - `Dropdown`
 - `RadioSelect`
