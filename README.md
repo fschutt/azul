@@ -60,7 +60,7 @@ The application currently takes ~40MB to run and of course almost no CPU at all.
 
 With the [correct CSS styles](https://gist.github.com/fschutt/9731ceec50d5fe211ab0f08082e8082f), the window is indistinguishable from a native application:
 
-![image](https://user-images.githubusercontent.com/12084016/128162918-d7ae5020-7cf0-4863-ad82-7427a41456fa.png)
+![image](https://user-images.githubusercontent.com/12084016/128640029-056deef3-06f2-44b1-86f9-782929c69698.png)
 
 Azul currently features:
 
@@ -83,10 +83,17 @@ Currently available widgets:
 - `CheckBox`
 - `ColorInput` (opens a native color picker dialog)
 - `NumberInput` (same as `TextInput`, but only accepts numeric input)
+- `ProgressBar`
+- `NodeGraph`
+- `Frame`
+- `TabControl`
+
+Azul also allows for easy creation of custom widgets, for example a [node graph widget](https://github.com/fschutt/azul/blob/master/examples/rust/nodegraph.rs)
+
+![image](https://user-images.githubusercontent.com/12084016/128639991-e98c0b92-66df-4ad8-973b-c9d45c68d5b3.png)
 
 All widgets are stylable via CSS. Widgets in progress:
 
-- `ProgressBar`
 - `Slider`
 - `Dropdown`
 - `RadioSelect`
