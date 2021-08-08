@@ -130,8 +130,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
     Normal(CssProperty::const_cursor(StyleCursor::Text)),
     Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(200))),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
+    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
 
     Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
     Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),
@@ -180,7 +181,7 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_cursor(StyleCursor::Text)),
     Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(200))),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
 
@@ -234,8 +235,9 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
     Normal(CssProperty::const_cursor(StyleCursor::Text)),
     Normal(CssProperty::const_box_sizing(LayoutBoxSizing::BorderBox)),
-    Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(200))),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
+    Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
 
     Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(2))),
     Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(2))),

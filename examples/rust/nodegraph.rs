@@ -72,6 +72,18 @@ struct MyNode {
     data: MyNodeType,
 }
 
+impl MyNode {
+    pub fn create_default(node_type: NodeTypeId) -> Self {
+        Self {
+            node_type,
+            position: NodePosition { x: 0.0, y: 0.0 },
+            connect_in: BTreeMap::new(),
+            connect_out: BTreeMap::new(),
+            data: MyNodeType::create_default(node_type),
+        }
+    }
+}
+
 // Custom node type
 enum MyNodeType {
     MyTypeVariant1 {
@@ -409,6 +421,7 @@ fn userfunc_on_node_field_edited(
 
 extern "C" fn layout_window(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     let data_clone = data.clone();
+
     match data.downcast_ref::<MyNodeGraph>() {
         Some(s) => translate_node_graph(&*s, data_clone).dom().style(Css::empty()),
         None => StyledDom::default(),
@@ -416,7 +429,14 @@ extern "C" fn layout_window(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> St
 }
 
 fn main() {
-    let data = RefAny::new(MyNodeGraph::default());
+
+    let mut node_graph = MyNodeGraph::default();
+    node_graph.nodes.insert(
+        NodeGraphNodeId { inner: 0 },
+        MyNode::create_default(NodeTypeId { inner: 0 })
+    );
+
+    let data = RefAny::new(node_graph);
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut window = WindowCreateOptions::new(layout_window);
     window.state.flags.frame = WindowFrame::Maximized;

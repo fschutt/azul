@@ -1760,6 +1760,12 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
     ].into())
     .with_inline_css_props(vec![
         // .node_graph_node
+        NodeDataInlineCssProperty::Normal(CssProperty::OverflowX(
+            LayoutOverflowValue::Exact(LayoutOverflow::Visible)
+        )),
+        NodeDataInlineCssProperty::Normal(CssProperty::OverflowY(
+            LayoutOverflowValue::Exact(LayoutOverflow::Visible)
+        )),
         NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
             StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
                 STYLE_BACKGROUND_CONTENT_11535310356736632656_ITEMS,
@@ -2939,7 +2945,6 @@ extern "C" fn nodegraph_on_colorinput_value_changed(data: &mut RefAny, info: &mu
     };
 
     let node_id = node_local_dataset.node_id;
-
     let mut node_graph = match node_local_dataset.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
