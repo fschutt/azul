@@ -2111,10 +2111,150 @@ pub struct AzProgressBarState {
     pub display_percentage: bool,
 }
 
-/// Re-export of rust-allocated (stack based) `Node` struct
+/// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
 #[repr(C)]
-#[pyclass(name = "Node")]
-pub struct AzNode {
+pub enum AzNodeGraphStyle {
+    Default,
+}
+
+/// `AzNodeGraphOnNodeAddedCallbackType` struct
+pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeAddedCallback")]
+pub struct AzNodeGraphOnNodeAddedCallback {
+    pub cb: AzNodeGraphOnNodeAddedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeRemovedCallbackType` struct
+pub type AzNodeGraphOnNodeRemovedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemovedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeRemovedCallback")]
+pub struct AzNodeGraphOnNodeRemovedCallback {
+    pub cb: AzNodeGraphOnNodeRemovedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeGraphDraggedCallbackType` struct
+pub type AzNodeGraphOnNodeGraphDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzGraphDragAmount) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDraggedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeGraphDraggedCallback")]
+pub struct AzNodeGraphOnNodeGraphDraggedCallback {
+    pub cb: AzNodeGraphOnNodeGraphDraggedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeDraggedCallbackType` struct
+pub type AzNodeGraphOnNodeDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, AzNodeDragAmount) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDraggedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeDraggedCallback")]
+pub struct AzNodeGraphOnNodeDraggedCallback {
+    pub cb: AzNodeGraphOnNodeDraggedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeConnectedCallbackType` struct
+pub type AzNodeGraphOnNodeConnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnectedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeConnectedCallback")]
+pub struct AzNodeGraphOnNodeConnectedCallback {
+    pub cb: AzNodeGraphOnNodeConnectedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeInputDisconnectedCallbackType` struct
+pub type AzNodeGraphOnNodeInputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnectedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeInputDisconnectedCallback")]
+pub struct AzNodeGraphOnNodeInputDisconnectedCallback {
+    pub cb: AzNodeGraphOnNodeInputDisconnectedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeOutputDisconnectedCallbackType` struct
+pub type AzNodeGraphOnNodeOutputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnectedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeOutputDisconnectedCallback")]
+pub struct AzNodeGraphOnNodeOutputDisconnectedCallback {
+    pub cb: AzNodeGraphOnNodeOutputDisconnectedCallbackType,
+}
+
+/// `AzNodeGraphOnNodeFieldEditedCallbackType` struct
+pub type AzNodeGraphOnNodeFieldEditedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeTypeId, AzNodeTypeFieldValue) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEditedCallback` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeFieldEditedCallback")]
+pub struct AzNodeGraphOnNodeFieldEditedCallback {
+    pub cb: AzNodeGraphOnNodeFieldEditedCallbackType,
+}
+
+/// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
+#[repr(C)]
+#[pyclass(name = "InputOutputTypeId")]
+pub struct AzInputOutputTypeId {
+    #[pyo3(get, set)]
+    pub inner: u64,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeTypeId` struct
+#[repr(C)]
+#[pyclass(name = "NodeTypeId")]
+pub struct AzNodeTypeId {
+    #[pyo3(get, set)]
+    pub inner: u64,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphNodeId")]
+pub struct AzNodeGraphNodeId {
+    #[pyo3(get, set)]
+    pub inner: u64,
+}
+
+/// Re-export of rust-allocated (stack based) `NodePosition` struct
+#[repr(C)]
+#[pyclass(name = "NodePosition")]
+pub struct AzNodePosition {
+    #[pyo3(get, set)]
+    pub x: f32,
+    #[pyo3(get, set)]
+    pub y: f32,
+}
+
+/// Re-export of rust-allocated (stack based) `GraphDragAmount` struct
+#[repr(C)]
+#[pyclass(name = "GraphDragAmount")]
+pub struct AzGraphDragAmount {
+    #[pyo3(get, set)]
+    pub x: f32,
+    #[pyo3(get, set)]
+    pub y: f32,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeDragAmount` struct
+#[repr(C)]
+#[pyclass(name = "NodeDragAmount")]
+pub struct AzNodeDragAmount {
+    #[pyo3(get, set)]
+    pub x: f32,
+    #[pyo3(get, set)]
+    pub y: f32,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
+#[repr(C)]
+#[pyclass(name = "NodeHierarchyItem")]
+pub struct AzNodeHierarchyItem {
     #[pyo3(get, set)]
     pub parent: usize,
     #[pyo3(get, set)]
@@ -2817,6 +2957,105 @@ pub enum AzStyleFontFamilyVecDestructor {
 /// `AzStyleFontFamilyVecDestructorType` struct
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+/// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzNodeTypeIdInfoMapVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzNodeTypeIdInfoMapVecDestructorType),
+}
+
+/// `AzNodeTypeIdInfoMapVecDestructorType` struct
+pub type AzNodeTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzNodeTypeIdInfoMapVec);
+
+/// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMapVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzInputOutputTypeIdInfoMapVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzInputOutputTypeIdInfoMapVecDestructorType),
+}
+
+/// `AzInputOutputTypeIdInfoMapVecDestructorType` struct
+pub type AzInputOutputTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdInfoMapVec);
+
+/// Re-export of rust-allocated (stack based) `NodeIdNodeMapVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzNodeIdNodeMapVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzNodeIdNodeMapVecDestructorType),
+}
+
+/// `AzNodeIdNodeMapVecDestructorType` struct
+pub type AzNodeIdNodeMapVecDestructorType = extern "C" fn(&mut AzNodeIdNodeMapVec);
+
+/// Re-export of rust-allocated (stack based) `InputOutputTypeIdVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzInputOutputTypeIdVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzInputOutputTypeIdVecDestructorType),
+}
+
+/// `AzInputOutputTypeIdVecDestructorType` struct
+pub type AzInputOutputTypeIdVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdVec);
+
+/// Re-export of rust-allocated (stack based) `NodeTypeFieldVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzNodeTypeFieldVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzNodeTypeFieldVecDestructorType),
+}
+
+/// `AzNodeTypeFieldVecDestructorType` struct
+pub type AzNodeTypeFieldVecDestructorType = extern "C" fn(&mut AzNodeTypeFieldVec);
+
+/// Re-export of rust-allocated (stack based) `InputConnectionVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzInputConnectionVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzInputConnectionVecDestructorType),
+}
+
+/// `AzInputConnectionVecDestructorType` struct
+pub type AzInputConnectionVecDestructorType = extern "C" fn(&mut AzInputConnectionVec);
+
+/// Re-export of rust-allocated (stack based) `OutputNodeAndIndexVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzOutputNodeAndIndexVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzOutputNodeAndIndexVecDestructorType),
+}
+
+/// `AzOutputNodeAndIndexVecDestructorType` struct
+pub type AzOutputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzOutputNodeAndIndexVec);
+
+/// Re-export of rust-allocated (stack based) `OutputConnectionVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzOutputConnectionVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzOutputConnectionVecDestructorType),
+}
+
+/// `AzOutputConnectionVecDestructorType` struct
+pub type AzOutputConnectionVecDestructorType = extern "C" fn(&mut AzOutputConnectionVec);
+
+/// Re-export of rust-allocated (stack based) `InputNodeAndIndexVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzInputNodeAndIndexVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzInputNodeAndIndexVecDestructorType),
+}
+
+/// `AzInputNodeAndIndexVecDestructorType` struct
+pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
+
 /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
 #[repr(C, u8)]
 pub enum AzTabVecDestructor {
@@ -3334,16 +3573,16 @@ pub enum AzNodeIdVecDestructor {
 /// `AzNodeIdVecDestructorType` struct
 pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
 
-/// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+/// Re-export of rust-allocated (stack based) `NodeHierarchyItemVecDestructor` struct
 #[repr(C, u8)]
-pub enum AzNodeVecDestructor {
+pub enum AzNodeHierarchyItemVecDestructor {
     DefaultRust,
     NoDestructor,
-    External(AzNodeVecDestructorType),
+    External(AzNodeHierarchyItemVecDestructorType),
 }
 
-/// `AzNodeVecDestructorType` struct
-pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+/// `AzNodeHierarchyItemVecDestructorType` struct
+pub type AzNodeHierarchyItemVecDestructorType = extern "C" fn(&mut AzNodeHierarchyItemVec);
 
 /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
 #[repr(C, u8)]
@@ -5061,6 +5300,106 @@ pub struct AzNumberInputOnFocusLost {
     pub callback: AzNumberInputOnFocusLostCallback,
 }
 
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeAdded")]
+pub struct AzNodeGraphOnNodeAdded {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeAddedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemoved` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeRemoved")]
+pub struct AzNodeGraphOnNodeRemoved {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeRemovedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDragged` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeGraphDragged")]
+pub struct AzNodeGraphOnNodeGraphDragged {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeGraphDraggedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDragged` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeDragged")]
+pub struct AzNodeGraphOnNodeDragged {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeDraggedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnected` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeConnected")]
+pub struct AzNodeGraphOnNodeConnected {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeConnectedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnected` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeInputDisconnected")]
+pub struct AzNodeGraphOnNodeInputDisconnected {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeInputDisconnectedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnected` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeOutputDisconnected")]
+pub struct AzNodeGraphOnNodeOutputDisconnected {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeOutputDisconnectedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEdited` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphOnNodeFieldEdited")]
+pub struct AzNodeGraphOnNodeFieldEdited {
+    #[pyo3(get, set)]
+    pub data: AzRefAny,
+    #[pyo3(get, set)]
+    pub callback: AzNodeGraphOnNodeFieldEditedCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `OutputNodeAndIndex` struct
+#[repr(C)]
+#[pyclass(name = "OutputNodeAndIndex")]
+pub struct AzOutputNodeAndIndex {
+    #[pyo3(get, set)]
+    pub node_id: AzNodeGraphNodeId,
+    #[pyo3(get, set)]
+    pub output_index: usize,
+}
+
+/// Re-export of rust-allocated (stack based) `InputNodeAndIndex` struct
+#[repr(C)]
+#[pyclass(name = "InputNodeAndIndex")]
+pub struct AzInputNodeAndIndex {
+    #[pyo3(get, set)]
+    pub node_id: AzNodeGraphNodeId,
+    #[pyo3(get, set)]
+    pub input_index: usize,
+}
+
 /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
 #[repr(C)]
 #[pyclass(name = "ParentWithNodeDepth")]
@@ -5318,6 +5657,45 @@ pub struct AzThreadWriteBackMsg {
     pub data: AzRefAny,
     #[pyo3(get, set)]
     pub callback: AzWriteBackCallback,
+}
+
+/// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
+#[repr(C)]
+#[pyclass(name = "InputOutputTypeIdVec")]
+pub struct AzInputOutputTypeIdVec {
+    pub(crate) ptr: *const AzInputOutputTypeId,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzInputOutputTypeIdVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
+#[repr(C)]
+#[pyclass(name = "OutputNodeAndIndexVec")]
+pub struct AzOutputNodeAndIndexVec {
+    pub(crate) ptr: *const AzOutputNodeAndIndex,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzOutputNodeAndIndexVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
+#[repr(C)]
+#[pyclass(name = "InputNodeAndIndexVec")]
+pub struct AzInputNodeAndIndexVec {
+    pub(crate) ptr: *const AzInputNodeAndIndex,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzInputNodeAndIndexVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
@@ -5632,17 +6010,17 @@ pub struct AzNodeIdVec {
     pub destructor: AzNodeIdVecDestructorEnumWrapper,
 }
 
-/// Wrapper over a Rust-allocated `NodeVec`
+/// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
 #[repr(C)]
-#[pyclass(name = "NodeVec")]
-pub struct AzNodeVec {
-    pub(crate) ptr: *const AzNode,
+#[pyclass(name = "NodeHierarchyItemVec")]
+pub struct AzNodeHierarchyItemVec {
+    pub(crate) ptr: *const AzNodeHierarchyItem,
     #[pyo3(get, set)]
     pub len: usize,
     #[pyo3(get, set)]
     pub cap: usize,
     #[pyo3(get, set)]
-    pub destructor: AzNodeVecDestructorEnumWrapper,
+    pub destructor: AzNodeHierarchyItemVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
@@ -5656,6 +6034,62 @@ pub struct AzParentWithNodeDepthVec {
     pub cap: usize,
     #[pyo3(get, set)]
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeAdded {
+    None,
+    Some(AzNodeGraphOnNodeAdded),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeRemoved` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeRemoved {
+    None,
+    Some(AzNodeGraphOnNodeRemoved),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeGraphDragged` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeGraphDragged {
+    None,
+    Some(AzNodeGraphOnNodeGraphDragged),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeDragged` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeDragged {
+    None,
+    Some(AzNodeGraphOnNodeDragged),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeConnected` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeConnected {
+    None,
+    Some(AzNodeGraphOnNodeConnected),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeInputDisconnected` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeInputDisconnected {
+    None,
+    Some(AzNodeGraphOnNodeInputDisconnected),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeOutputDisconnected` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeOutputDisconnected {
+    None,
+    Some(AzNodeGraphOnNodeOutputDisconnected),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeFieldEdited` struct
+#[repr(C, u8)]
+pub enum AzOptionNodeGraphOnNodeFieldEdited {
+    None,
+    Some(AzNodeGraphOnNodeFieldEdited),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
@@ -6178,7 +6612,7 @@ pub struct AzRenderImageCallbackInfo {
     pub gl_context: *const AzOptionGlEnumWrapper,
     pub image_cache: *const c_void,
     pub system_fonts: *const c_void,
-    pub node_hierarchy: *const AzNodeVec,
+    pub node_hierarchy: *const AzNodeHierarchyItemVec,
     pub words_cache: *const c_void,
     pub shaped_words_cache: *const c_void,
     pub positioned_words_cache: *const c_void,
@@ -6391,6 +6825,48 @@ pub struct AzNumberInputStateWrapper {
     pub on_focus_lost: AzOptionNumberInputOnFocusLostEnumWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `NodeGraphCallbacks` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraphCallbacks")]
+pub struct AzNodeGraphCallbacks {
+    #[pyo3(get, set)]
+    pub on_node_added: AzOptionNodeGraphOnNodeAddedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_removed: AzOptionNodeGraphOnNodeRemovedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_dragged: AzOptionNodeGraphOnNodeDraggedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_graph_dragged: AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_connected: AzOptionNodeGraphOnNodeConnectedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_input_disconnected: AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_output_disconnected: AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper,
+    #[pyo3(get, set)]
+    pub on_node_field_edited: AzOptionNodeGraphOnNodeFieldEditedEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `InputConnection` struct
+#[repr(C)]
+#[pyclass(name = "InputConnection")]
+pub struct AzInputConnection {
+    #[pyo3(get, set)]
+    pub input_index: usize,
+    #[pyo3(get, set)]
+    pub connects_to: AzOutputNodeAndIndexVec,
+}
+
+/// Re-export of rust-allocated (stack based) `OutputConnection` struct
+#[repr(C)]
+#[pyclass(name = "OutputConnection")]
+pub struct AzOutputConnection {
+    #[pyo3(get, set)]
+    pub output_index: usize,
+    #[pyo3(get, set)]
+    pub connects_to: AzInputNodeAndIndexVec,
+}
+
 /// Re-export of rust-allocated (stack based) `StyledNode` struct
 #[repr(C)]
 #[pyclass(name = "StyledNode")]
@@ -6556,6 +7032,32 @@ pub enum AzThreadReceiveMsg {
 pub struct AzString {
     #[pyo3(get, set)]
     pub vec: AzU8Vec,
+}
+
+/// Wrapper over a Rust-allocated `Vec<InputConnection>`
+#[repr(C)]
+#[pyclass(name = "InputConnectionVec")]
+pub struct AzInputConnectionVec {
+    pub(crate) ptr: *const AzInputConnection,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzInputConnectionVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<OutputConnection>`
+#[repr(C)]
+#[pyclass(name = "OutputConnectionVec")]
+pub struct AzOutputConnectionVec {
+    pub(crate) ptr: *const AzOutputConnection,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzOutputConnectionVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
@@ -7056,6 +7558,39 @@ pub struct AzTextInputState {
     pub selection: AzOptionTextInputSelectionEnumWrapper,
     #[pyo3(get, set)]
     pub cursor_pos: usize,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
+#[repr(C, u8)]
+pub enum AzNodeTypeFieldValue {
+    TextInput(AzString),
+    NumberInput(f32),
+    CheckBox(bool),
+    ColorInput(AzColorU),
+}
+
+/// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
+#[repr(C)]
+#[pyclass(name = "NodeTypeInfo")]
+pub struct AzNodeTypeInfo {
+    #[pyo3(get, set)]
+    pub is_root: bool,
+    #[pyo3(get, set)]
+    pub name: AzString,
+    #[pyo3(get, set)]
+    pub inputs: AzInputOutputTypeIdVec,
+    #[pyo3(get, set)]
+    pub outputs: AzInputOutputTypeIdVec,
+}
+
+/// Re-export of rust-allocated (stack based) `InputOutputInfo` struct
+#[repr(C)]
+#[pyclass(name = "InputOutputInfo")]
+pub struct AzInputOutputInfo {
+    #[pyo3(get, set)]
+    pub data_type: AzString,
+    #[pyo3(get, set)]
+    pub color: AzColorU,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
@@ -7634,6 +8169,36 @@ pub struct AzProgressBar {
     pub container_background: AzStyleBackgroundContentVec,
 }
 
+/// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMap` struct
+#[repr(C)]
+#[pyclass(name = "NodeTypeIdInfoMap")]
+pub struct AzNodeTypeIdInfoMap {
+    #[pyo3(get, set)]
+    pub node_type_id: AzNodeTypeId,
+    #[pyo3(get, set)]
+    pub node_type_info: AzNodeTypeInfo,
+}
+
+/// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMap` struct
+#[repr(C)]
+#[pyclass(name = "InputOutputTypeIdInfoMap")]
+pub struct AzInputOutputTypeIdInfoMap {
+    #[pyo3(get, set)]
+    pub io_type_id: AzInputOutputTypeId,
+    #[pyo3(get, set)]
+    pub io_info: AzInputOutputInfo,
+}
+
+/// Re-export of rust-allocated (stack based) `NodeTypeField` struct
+#[repr(C)]
+#[pyclass(name = "NodeTypeField")]
+pub struct AzNodeTypeField {
+    #[pyo3(get, set)]
+    pub key: AzString,
+    #[pyo3(get, set)]
+    pub value: AzNodeTypeFieldValueEnumWrapper,
+}
+
 /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
 #[repr(C, u8)]
 pub enum AzCssPropertySource {
@@ -7699,6 +8264,45 @@ pub struct AzXmlNode {
     pub children: AzXmlNodeVec,
     #[pyo3(get, set)]
     pub text: AzOptionStringEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
+#[repr(C)]
+#[pyclass(name = "NodeTypeIdInfoMapVec")]
+pub struct AzNodeTypeIdInfoMapVec {
+    pub(crate) ptr: *const AzNodeTypeIdInfoMap,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzNodeTypeIdInfoMapVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
+#[repr(C)]
+#[pyclass(name = "InputOutputTypeIdInfoMapVec")]
+pub struct AzInputOutputTypeIdInfoMapVec {
+    pub(crate) ptr: *const AzInputOutputTypeIdInfoMap,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
+#[repr(C)]
+#[pyclass(name = "NodeTypeFieldVec")]
+pub struct AzNodeTypeFieldVec {
+    pub(crate) ptr: *const AzNodeTypeField,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzNodeTypeFieldVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<InlineLine>`
@@ -7936,6 +8540,22 @@ pub struct AzDynamicCssProperty {
     pub default_value: AzCssPropertyEnumWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `Node` struct
+#[repr(C)]
+#[pyclass(name = "Node")]
+pub struct AzNode {
+    #[pyo3(get, set)]
+    pub node_type: AzNodeTypeId,
+    #[pyo3(get, set)]
+    pub position: AzNodePosition,
+    #[pyo3(get, set)]
+    pub fields: AzNodeTypeFieldVec,
+    #[pyo3(get, set)]
+    pub connect_in: AzInputConnectionVec,
+    #[pyo3(get, set)]
+    pub connect_out: AzOutputConnectionVec,
+}
+
 /// Re-export of rust-allocated (stack based) `SvgNode` struct
 #[repr(C, u8)]
 pub enum AzSvgNode {
@@ -8128,6 +8748,29 @@ pub struct AzNumberInput {
     pub state: AzNumberInputStateWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `NodeIdNodeMap` struct
+#[repr(C)]
+#[pyclass(name = "NodeIdNodeMap")]
+pub struct AzNodeIdNodeMap {
+    #[pyo3(get, set)]
+    pub node_id: AzNodeGraphNodeId,
+    #[pyo3(get, set)]
+    pub node: AzNode,
+}
+
+/// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
+#[repr(C)]
+#[pyclass(name = "NodeIdNodeMapVec")]
+pub struct AzNodeIdNodeMapVec {
+    pub(crate) ptr: *const AzNodeIdNodeMap,
+    #[pyo3(get, set)]
+    pub len: usize,
+    #[pyo3(get, set)]
+    pub cap: usize,
+    #[pyo3(get, set)]
+    pub destructor: AzNodeIdNodeMapVecDestructorEnumWrapper,
+}
+
 /// Wrapper over a Rust-allocated `CssDeclaration`
 #[repr(C)]
 #[pyclass(name = "CssDeclarationVec")]
@@ -8220,6 +8863,28 @@ pub struct AzFrame {
     pub content: AzDom,
 }
 
+/// Re-export of rust-allocated (stack based) `NodeGraph` struct
+#[repr(C)]
+#[pyclass(name = "NodeGraph")]
+pub struct AzNodeGraph {
+    #[pyo3(get, set)]
+    pub node_types: AzNodeTypeIdInfoMapVec,
+    #[pyo3(get, set)]
+    pub input_output_types: AzInputOutputTypeIdInfoMapVec,
+    #[pyo3(get, set)]
+    pub nodes: AzNodeIdNodeMapVec,
+    #[pyo3(get, set)]
+    pub allow_multiple_root_nodes: bool,
+    #[pyo3(get, set)]
+    pub offset: AzLogicalPosition,
+    #[pyo3(get, set)]
+    pub style: AzNodeGraphStyleEnumWrapper,
+    #[pyo3(get, set)]
+    pub callbacks: AzNodeGraphCallbacks,
+    #[pyo3(get, set)]
+    pub add_node_str: AzString,
+}
+
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
 #[repr(C)]
 #[pyclass(name = "StyledDom")]
@@ -8227,7 +8892,7 @@ pub struct AzStyledDom {
     #[pyo3(get, set)]
     pub root: AzNodeId,
     #[pyo3(get, set)]
-    pub node_hierarchy: AzNodeVec,
+    pub node_hierarchy: AzNodeHierarchyItemVec,
     #[pyo3(get, set)]
     pub node_data: AzNodeDataVec,
     #[pyo3(get, set)]
@@ -8742,6 +9407,13 @@ pub struct AzTextInputValidEnumWrapper {
     pub inner: AzTextInputValid,
 }
 
+/// `AzNodeGraphStyleEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "NodeGraphStyle")]
+pub struct AzNodeGraphStyleEnumWrapper {
+    pub inner: AzNodeGraphStyle,
+}
+
 /// `AzVertexAttributeTypeEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "VertexAttributeType")]
@@ -8880,6 +9552,69 @@ pub struct AzTerminateTimerEnumWrapper {
 #[pyclass(name = "StyleFontFamilyVecDestructor")]
 pub struct AzStyleFontFamilyVecDestructorEnumWrapper {
     pub inner: AzStyleFontFamilyVecDestructor,
+}
+
+/// `AzNodeTypeIdInfoMapVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "NodeTypeIdInfoMapVecDestructor")]
+pub struct AzNodeTypeIdInfoMapVecDestructorEnumWrapper {
+    pub inner: AzNodeTypeIdInfoMapVecDestructor,
+}
+
+/// `AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "InputOutputTypeIdInfoMapVecDestructor")]
+pub struct AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper {
+    pub inner: AzInputOutputTypeIdInfoMapVecDestructor,
+}
+
+/// `AzNodeIdNodeMapVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "NodeIdNodeMapVecDestructor")]
+pub struct AzNodeIdNodeMapVecDestructorEnumWrapper {
+    pub inner: AzNodeIdNodeMapVecDestructor,
+}
+
+/// `AzInputOutputTypeIdVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "InputOutputTypeIdVecDestructor")]
+pub struct AzInputOutputTypeIdVecDestructorEnumWrapper {
+    pub inner: AzInputOutputTypeIdVecDestructor,
+}
+
+/// `AzNodeTypeFieldVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "NodeTypeFieldVecDestructor")]
+pub struct AzNodeTypeFieldVecDestructorEnumWrapper {
+    pub inner: AzNodeTypeFieldVecDestructor,
+}
+
+/// `AzInputConnectionVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "InputConnectionVecDestructor")]
+pub struct AzInputConnectionVecDestructorEnumWrapper {
+    pub inner: AzInputConnectionVecDestructor,
+}
+
+/// `AzOutputNodeAndIndexVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OutputNodeAndIndexVecDestructor")]
+pub struct AzOutputNodeAndIndexVecDestructorEnumWrapper {
+    pub inner: AzOutputNodeAndIndexVecDestructor,
+}
+
+/// `AzOutputConnectionVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OutputConnectionVecDestructor")]
+pub struct AzOutputConnectionVecDestructorEnumWrapper {
+    pub inner: AzOutputConnectionVecDestructor,
+}
+
+/// `AzInputNodeAndIndexVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "InputNodeAndIndexVecDestructor")]
+pub struct AzInputNodeAndIndexVecDestructorEnumWrapper {
+    pub inner: AzInputNodeAndIndexVecDestructor,
 }
 
 /// `AzTabVecDestructorEnumWrapper` struct
@@ -9211,11 +9946,11 @@ pub struct AzNodeIdVecDestructorEnumWrapper {
     pub inner: AzNodeIdVecDestructor,
 }
 
-/// `AzNodeVecDestructorEnumWrapper` struct
+/// `AzNodeHierarchyItemVecDestructorEnumWrapper` struct
 #[repr(transparent)]
-#[pyclass(name = "NodeVecDestructor")]
-pub struct AzNodeVecDestructorEnumWrapper {
-    pub inner: AzNodeVecDestructor,
+#[pyclass(name = "NodeHierarchyItemVecDestructor")]
+pub struct AzNodeHierarchyItemVecDestructorEnumWrapper {
+    pub inner: AzNodeHierarchyItemVecDestructor,
 }
 
 /// `AzStyledNodeVecDestructorEnumWrapper` struct
@@ -9834,6 +10569,62 @@ pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
+/// `AzOptionNodeGraphOnNodeAddedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeAdded")]
+pub struct AzOptionNodeGraphOnNodeAddedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeAdded,
+}
+
+/// `AzOptionNodeGraphOnNodeRemovedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeRemoved")]
+pub struct AzOptionNodeGraphOnNodeRemovedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeRemoved,
+}
+
+/// `AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeGraphDragged")]
+pub struct AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeGraphDragged,
+}
+
+/// `AzOptionNodeGraphOnNodeDraggedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeDragged")]
+pub struct AzOptionNodeGraphOnNodeDraggedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeDragged,
+}
+
+/// `AzOptionNodeGraphOnNodeConnectedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeConnected")]
+pub struct AzOptionNodeGraphOnNodeConnectedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeConnected,
+}
+
+/// `AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeInputDisconnected")]
+pub struct AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeInputDisconnected,
+}
+
+/// `AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeOutputDisconnected")]
+pub struct AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeOutputDisconnected,
+}
+
+/// `AzOptionNodeGraphOnNodeFieldEditedEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "OptionNodeGraphOnNodeFieldEdited")]
+pub struct AzOptionNodeGraphOnNodeFieldEditedEnumWrapper {
+    pub inner: AzOptionNodeGraphOnNodeFieldEdited,
+}
+
 /// `AzOptionColorInputOnValueChangeEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "OptionColorInputOnValueChange")]
@@ -10366,6 +11157,13 @@ pub struct AzStyleTransformVecValueEnumWrapper {
     pub inner: AzStyleTransformVecValue,
 }
 
+/// `AzNodeTypeFieldValueEnumWrapper` struct
+#[repr(transparent)]
+#[pyclass(name = "NodeTypeFieldValue")]
+pub struct AzNodeTypeFieldValueEnumWrapper {
+    pub inner: AzNodeTypeFieldValue,
+}
+
 /// `AzSvgStyleEnumWrapper` struct
 #[repr(transparent)]
 #[pyclass(name = "SvgStyle")]
@@ -10599,6 +11397,9 @@ unsafe impl Send for AzGl { }
 unsafe impl Send for AzRefstrVecRef { }
 unsafe impl Send for AzFontMetrics { }
 unsafe impl Send for AzInstantPtr { }
+unsafe impl Send for AzInputOutputTypeIdVec { }
+unsafe impl Send for AzOutputNodeAndIndexVec { }
+unsafe impl Send for AzInputNodeAndIndexVec { }
 unsafe impl Send for AzAccessibilityStateVec { }
 unsafe impl Send for AzMenuItemVec { }
 unsafe impl Send for AzXmlNodeVec { }
@@ -10623,11 +11424,13 @@ unsafe impl Send for AzGLintVec { }
 unsafe impl Send for AzNormalizedLinearColorStopVec { }
 unsafe impl Send for AzNormalizedRadialColorStopVec { }
 unsafe impl Send for AzNodeIdVec { }
-unsafe impl Send for AzNodeVec { }
+unsafe impl Send for AzNodeHierarchyItemVec { }
 unsafe impl Send for AzParentWithNodeDepthVec { }
 unsafe impl Send for AzRenderImageCallbackInfo { }
 unsafe impl Send for AzLayoutCallbackInfo { }
 unsafe impl Send for AzTessellatedSvgNodeVecRef { }
+unsafe impl Send for AzInputConnectionVec { }
+unsafe impl Send for AzOutputConnectionVec { }
 unsafe impl Send for AzTessellatedSvgNodeVec { }
 unsafe impl Send for AzStyleTransformVec { }
 unsafe impl Send for AzSvgPathElementVec { }
@@ -10648,6 +11451,9 @@ unsafe impl Send for AzCssPathSelectorVec { }
 unsafe impl Send for AzCallbackDataVec { }
 unsafe impl Send for AzDebugMessageVec { }
 unsafe impl Send for AzStringPairVec { }
+unsafe impl Send for AzNodeTypeIdInfoMapVec { }
+unsafe impl Send for AzInputOutputTypeIdInfoMapVec { }
+unsafe impl Send for AzNodeTypeFieldVec { }
 unsafe impl Send for AzInlineLineVec { }
 unsafe impl Send for AzCssPropertyVec { }
 unsafe impl Send for AzSvgMultiPolygonVec { }
@@ -10655,6 +11461,7 @@ unsafe impl Send for AzCallbackInfo { }
 unsafe impl Send for AzTimerCallbackInfo { }
 unsafe impl Send for AzNodeDataInlineCssPropertyVec { }
 unsafe impl Send for AzNodeData { }
+unsafe impl Send for AzNodeIdNodeMapVec { }
 unsafe impl Send for AzCssDeclarationVec { }
 unsafe impl Send for AzNodeDataVec { }
 unsafe impl Send for AzTabVec { }
@@ -10762,7 +11569,22 @@ impl Clone for AzNumberInputState { fn clone(&self) -> Self { let r: &crate::wid
 impl Clone for AzNumberInputOnValueChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnFocusLostCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLostCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzProgressBarState { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphStyleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeAddedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeAddedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeRemovedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeRemovedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeGraphDraggedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeGraphDraggedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeDraggedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeDraggedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeConnectedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeConnectedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeInputDisconnectedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeInputDisconnectedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeOutputDisconnectedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeOutputDisconnectedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeFieldEditedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeFieldEditedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeId { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeId { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphNodeId { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraphNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodePosition { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzGraphDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::GraphDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeHierarchyItem { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfo { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeState { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzTagId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10837,6 +11659,15 @@ impl Clone for AzThreadDestructorFn { fn clone(&self) -> Self { let r: &azul_imp
 impl Clone for AzThreadReceiverDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiverDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSenderDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSenderDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeIdInfoMapVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeIdNodeMapVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMapVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeFieldVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeFieldVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputConnectionVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnectionVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputNodeAndIndexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputConnectionVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnectionVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputNodeAndIndexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTabVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10884,7 +11715,7 @@ impl Clone for AzStringPairVecDestructorEnumWrapper { fn clone(&self) -> Self { 
 impl Clone for AzNormalizedLinearColorStopVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedLinearColorStopVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNormalizedRadialColorStopVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedRadialColorStopVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeIdVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeHierarchyItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMappingVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11059,6 +11890,16 @@ impl Clone for AzTextInputOnFocusLost { fn clone(&self) -> Self { let r: &crate:
 impl Clone for AzOnTextInputReturn { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OnTextInputReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnValueChange { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnFocusLost { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeAdded { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeAdded = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeRemoved { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeRemoved = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeGraphDragged { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeGraphDragged = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeDragged { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeDragged = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeConnected { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeConnected = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeInputDisconnected { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeInputDisconnected = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeOutputDisconnected { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeOutputDisconnected = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphOnNodeFieldEdited { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeFieldEdited = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputNodeAndIndex { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputNodeAndIndex { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepth { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepth = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGl { fn clone(&self) -> Self { let r: &azul_impl::gl::GlContextPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRefstrVecRef { fn clone(&self) -> Self { let r: &azul_impl::gl::RefstrVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11073,6 +11914,9 @@ impl Clone for AzInstantPtr { fn clone(&self) -> Self { let r: &azul_impl::task:
 impl Clone for AzDurationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Duration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSendMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSendMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadWriteBackMsg { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadWriteBackMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputNodeAndIndexVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputNodeAndIndexVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVec { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemVec { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVec { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11097,8 +11941,16 @@ impl Clone for AzGLintVec { fn clone(&self) -> Self { let r: &azul_impl::gl::GLi
 impl Clone for AzNormalizedLinearColorStopVec { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedLinearColorStopVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedRadialColorStopVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeHierarchyItemVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeAddedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeAdded = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeRemovedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeRemoved = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeGraphDragged = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeDraggedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeDragged = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeConnectedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeConnected = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeInputDisconnected = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeOutputDisconnected = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeFieldEdited = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionColorInputOnValueChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::OptionColorInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionButtonOnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::button::OptionButtonOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCheckBoxOnToggleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::check_box::OptionCheckBoxOnToggle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11176,6 +12028,9 @@ impl Clone for AzStyleBackgroundRepeatVecValueEnumWrapper { fn clone(&self) -> S
 impl Clone for AzStyleBackgroundSizeVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundSizeVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphCallbacks { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraphCallbacks = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputConnection { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputConnection { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMapping { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMapping = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTexture { fn clone(&self) -> Self { let r: &azul_impl::gl::Texture = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11191,6 +12046,8 @@ impl Clone for AzXml { fn clone(&self) -> Self { let r: &azul_impl::xml::Xml = u
 impl Clone for AzInstantEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Instant = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadReceiveMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiveMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzString { fn clone(&self) -> Self { let r: &azul_impl::css::AzString = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTransformVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11233,6 +12090,9 @@ impl Clone for AzScrollbarStyleValueEnumWrapper { fn clone(&self) -> Self { let 
 impl Clone for AzStyleTransformVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputState { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeFieldValueEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeFieldValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexAttribute { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexAttribute = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDebugMessage { fn clone(&self) -> Self { let r: &azul_impl::gl::AzDebugMessage = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGetActiveAttribReturn { fn clone(&self) -> Self { let r: &azul_impl::gl::GetActiveAttribReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11273,12 +12133,18 @@ impl Clone for AzStyleFontFamilyVecValueEnumWrapper { fn clone(&self) -> Self { 
 impl Clone for AzCssPropertyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzProgressBar { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeIdInfoMap { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdInfoMap { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeField { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertySourceEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::CssPropertySource = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexLayout { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexLayout = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexArrayObject { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexArrayObject = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexBuffer { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexBuffer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygon { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNode { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeFieldVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineLineVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLineVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssPropertyVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygonVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygonVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11293,6 +12159,7 @@ impl Clone for AzAnimation { fn clone(&self) -> Self { let r: &azul_impl::callba
 impl Clone for AzTimerCallbackInfo { fn clone(&self) -> Self { let r: &azul_impl::callbacks::TimerCallbackInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataInlineCssPropertyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataInlineCssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDynamicCssProperty { fn clone(&self) -> Self { let r: &azul_impl::css::DynamicCssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNode { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::Node = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgNodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgStyledNode { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgStyledNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataInlineCssPropertyVec { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataInlineCssPropertyVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11309,6 +12176,8 @@ impl Clone for AzLabel { fn clone(&self) -> Self { let r: &crate::widgets::label
 impl Clone for AzColorInput { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInput { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInput { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeIdNodeMap { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeIdNodeMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclarationVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataVec { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11316,6 +12185,7 @@ impl Clone for AzDom { fn clone(&self) -> Self { let r: &azul_impl::dom::Dom = u
 impl Clone for AzCssRuleBlock { fn clone(&self) -> Self { let r: &azul_impl::css::CssRuleBlock = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTab { fn clone(&self) -> Self { let r: &crate::widgets::tabs::Tab = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFrame { fn clone(&self) -> Self { let r: &crate::widgets::frame::Frame = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraph { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraph = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledDom { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledDom = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTabVec { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssRuleBlockVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssRuleBlockVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11347,6 +12217,9 @@ impl Drop for AzThreadReceiver { fn drop(&mut self) { crate::AzThreadReceiver_de
 impl Drop for AzRefAny { fn drop(&mut self) { crate::AzRefAny_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzGl { fn drop(&mut self) { crate::AzGl_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInstantPtr { fn drop(&mut self) { crate::AzInstantPtr_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInputOutputTypeIdVec { fn drop(&mut self) { crate::AzInputOutputTypeIdVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzOutputNodeAndIndexVec { fn drop(&mut self) { crate::AzOutputNodeAndIndexVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInputNodeAndIndexVec { fn drop(&mut self) { crate::AzInputNodeAndIndexVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzAccessibilityStateVec { fn drop(&mut self) { crate::AzAccessibilityStateVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzMenuItemVec { fn drop(&mut self) { crate::AzMenuItemVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzXmlNodeVec { fn drop(&mut self) { crate::AzXmlNodeVec_delete(unsafe { mem::transmute(self) }); } }
@@ -11371,9 +12244,11 @@ impl Drop for AzGLintVec { fn drop(&mut self) { crate::AzGLintVec_delete(unsafe 
 impl Drop for AzNormalizedLinearColorStopVec { fn drop(&mut self) { crate::AzNormalizedLinearColorStopVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNormalizedRadialColorStopVec { fn drop(&mut self) { crate::AzNormalizedRadialColorStopVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeIdVec { fn drop(&mut self) { crate::AzNodeIdVec_delete(unsafe { mem::transmute(self) }); } }
-impl Drop for AzNodeVec { fn drop(&mut self) { crate::AzNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeHierarchyItemVec { fn drop(&mut self) { crate::AzNodeHierarchyItemVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzParentWithNodeDepthVec { fn drop(&mut self) { crate::AzParentWithNodeDepthVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzTexture { fn drop(&mut self) { crate::AzTexture_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInputConnectionVec { fn drop(&mut self) { crate::AzInputConnectionVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzOutputConnectionVec { fn drop(&mut self) { crate::AzOutputConnectionVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzTessellatedSvgNodeVec { fn drop(&mut self) { crate::AzTessellatedSvgNodeVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStyleTransformVec { fn drop(&mut self) { crate::AzStyleTransformVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzSvgPathElementVec { fn drop(&mut self) { crate::AzSvgPathElementVec_delete(unsafe { mem::transmute(self) }); } }
@@ -11393,10 +12268,14 @@ impl Drop for AzCssPathSelectorVec { fn drop(&mut self) { crate::AzCssPathSelect
 impl Drop for AzCallbackDataVec { fn drop(&mut self) { crate::AzCallbackDataVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzDebugMessageVec { fn drop(&mut self) { crate::AzDebugMessageVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStringPairVec { fn drop(&mut self) { crate::AzStringPairVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeTypeIdInfoMapVec { fn drop(&mut self) { crate::AzNodeTypeIdInfoMapVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzInputOutputTypeIdInfoMapVec { fn drop(&mut self) { crate::AzInputOutputTypeIdInfoMapVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeTypeFieldVec { fn drop(&mut self) { crate::AzNodeTypeFieldVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInlineLineVec { fn drop(&mut self) { crate::AzInlineLineVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssPropertyVec { fn drop(&mut self) { crate::AzCssPropertyVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzSvgMultiPolygonVec { fn drop(&mut self) { crate::AzSvgMultiPolygonVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeDataInlineCssPropertyVec { fn drop(&mut self) { crate::AzNodeDataInlineCssPropertyVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzNodeIdNodeMapVec { fn drop(&mut self) { crate::AzNodeIdNodeMapVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssDeclarationVec { fn drop(&mut self) { crate::AzCssDeclarationVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeDataVec { fn drop(&mut self) { crate::AzNodeDataVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzTabVec { fn drop(&mut self) { crate::AzTabVec_delete(unsafe { mem::transmute(self) }); } }
@@ -23304,7 +24183,836 @@ impl PyObjectProtocol for AzFrame {
 }
 
 #[pymethods]
+impl AzNodeGraph {
+    #[new]
+    fn __new__(node_types: AzNodeTypeIdInfoMapVec, input_output_types: AzInputOutputTypeIdInfoMapVec, nodes: AzNodeIdNodeMapVec, allow_multiple_root_nodes: bool, offset: AzLogicalPosition, style: AzNodeGraphStyleEnumWrapper, callbacks: AzNodeGraphCallbacks, add_node_str: AzString) -> Self {
+        Self {
+            node_types,
+            input_output_types,
+            nodes,
+            allow_multiple_root_nodes,
+            offset,
+            style,
+            callbacks,
+            add_node_str,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraph {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeGraph = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeGraph = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeIdInfoMap {
+    #[new]
+    fn __new__(node_type_id: AzNodeTypeId, node_type_info: AzNodeTypeInfo) -> Self {
+        Self {
+            node_type_id,
+            node_type_info,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeIdInfoMap {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputTypeIdInfoMap {
+    #[new]
+    fn __new__(io_type_id: AzInputOutputTypeId, io_info: AzInputOutputInfo) -> Self {
+        Self {
+            io_type_id,
+            io_info,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputTypeIdInfoMap {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeIdNodeMap {
+    #[new]
+    fn __new__(node_id: AzNodeGraphNodeId, node: AzNode) -> Self {
+        Self {
+            node_id,
+            node,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeIdNodeMap {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphStyleEnumWrapper {
+    #[classattr]
+    fn Default() -> AzNodeGraphStyleEnumWrapper { AzNodeGraphStyleEnumWrapper { inner: AzNodeGraphStyle::Default } }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphStyleEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __richcmp__(&self, other: AzNodeGraphStyleEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
+        match op {
+            pyo3::class::basic::CompareOp::Lt => { Ok((self.clone().inner as usize) <  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Le => { Ok((self.clone().inner as usize) <= (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Eq => { Ok((self.clone().inner as usize) == (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ne => { Ok((self.clone().inner as usize) != (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Gt => { Ok((self.clone().inner as usize) >  (other.clone().inner as usize)) }
+            pyo3::class::basic::CompareOp::Ge => { Ok((self.clone().inner as usize) >= (other.clone().inner as usize)) }
+        }
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphCallbacks {
+    #[new]
+    fn __new__(on_node_added: AzOptionNodeGraphOnNodeAddedEnumWrapper, on_node_removed: AzOptionNodeGraphOnNodeRemovedEnumWrapper, on_node_dragged: AzOptionNodeGraphOnNodeDraggedEnumWrapper, on_node_graph_dragged: AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper, on_node_connected: AzOptionNodeGraphOnNodeConnectedEnumWrapper, on_node_input_disconnected: AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper, on_node_output_disconnected: AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper, on_node_field_edited: AzOptionNodeGraphOnNodeFieldEditedEnumWrapper) -> Self {
+        Self {
+            on_node_added,
+            on_node_removed,
+            on_node_dragged,
+            on_node_graph_dragged,
+            on_node_connected,
+            on_node_input_disconnected,
+            on_node_output_disconnected,
+            on_node_field_edited,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphCallbacks {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeGraphCallbacks = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeGraphCallbacks = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeAddedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeAddedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeAddedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeAddedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeAdded {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeAddedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeAdded {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeAdded = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeAdded = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeRemovedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeRemovedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeRemovedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeRemovedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeRemoved {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeRemovedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeRemoved {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeRemoved = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeRemoved = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeGraphDraggedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeGraphDraggedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeGraphDraggedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeGraphDraggedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeGraphDragged {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeGraphDraggedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeGraphDragged {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeGraphDragged = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeGraphDragged = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeDraggedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeDraggedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeDraggedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeDraggedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeDragged {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeDraggedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeDragged {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeDragged = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeDragged = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeConnectedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeConnectedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeConnectedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeConnectedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeConnected {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeConnectedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeConnected {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeConnected = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeConnected = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeInputDisconnectedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeInputDisconnectedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeInputDisconnectedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeInputDisconnectedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeInputDisconnected {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeInputDisconnectedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeInputDisconnected {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeInputDisconnected = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeInputDisconnected = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeOutputDisconnectedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeOutputDisconnectedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeOutputDisconnectedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeOutputDisconnectedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeOutputDisconnected {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeOutputDisconnectedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeOutputDisconnected {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeOutputDisconnected = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeOutputDisconnected = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeFieldEditedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeFieldEditedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeFieldEditedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeFieldEditedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphOnNodeFieldEdited {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzNodeGraphOnNodeFieldEditedCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphOnNodeFieldEdited {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeFieldEdited = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OnNodeFieldEdited = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputTypeId {
+    #[new]
+    fn __new__(inner: u64) -> Self {
+        Self {
+            inner,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputTypeId {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeId {
+    #[new]
+    fn __new__(inner: u64) -> Self {
+        Self {
+            inner,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeId {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeGraphNodeId {
+    #[new]
+    fn __new__(inner: u64) -> Self {
+        Self {
+            inner,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeGraphNodeId {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeGraphNodeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeGraphNodeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzNode {
+    #[new]
+    fn __new__(node_type: AzNodeTypeId, position: AzNodePosition, fields: AzNodeTypeFieldVec, connect_in: AzInputConnectionVec, connect_out: AzOutputConnectionVec) -> Self {
+        Self {
+            node_type,
+            position,
+            fields,
+            connect_in,
+            connect_out,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNode {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::Node = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::Node = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeField {
+    #[new]
+    fn __new__(key: AzString, value: AzNodeTypeFieldValueEnumWrapper) -> Self {
+        Self {
+            key,
+            value,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeField {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeFieldValueEnumWrapper {
+    #[staticmethod]
+    fn TextInput(v: AzString) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::TextInput(v) } }
+    #[staticmethod]
+    fn NumberInput(v: f32) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::NumberInput(v) } }
+    #[staticmethod]
+    fn CheckBox(v: bool) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::CheckBox(v) } }
+    #[staticmethod]
+    fn ColorInput(v: AzColorU) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::ColorInput(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeTypeFieldValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeTypeFieldValue::TextInput(v) => Ok(vec!["TextInput".into_py(py), v.clone().into_py(py)]),
+            AzNodeTypeFieldValue::NumberInput(v) => Ok(vec!["NumberInput".into_py(py), v.into_py(py)]),
+            AzNodeTypeFieldValue::CheckBox(v) => Ok(vec!["CheckBox".into_py(py), v.into_py(py)]),
+            AzNodeTypeFieldValue::ColorInput(v) => Ok(vec!["ColorInput".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeFieldValueEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeFieldValue = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeFieldValue = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputConnection {
+    #[new]
+    fn __new__(input_index: usize, connects_to: AzOutputNodeAndIndexVec) -> Self {
+        Self {
+            input_index,
+            connects_to,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputConnection {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOutputNodeAndIndex {
+    #[new]
+    fn __new__(node_id: AzNodeGraphNodeId, output_index: usize) -> Self {
+        Self {
+            node_id,
+            output_index,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOutputNodeAndIndex {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOutputConnection {
+    #[new]
+    fn __new__(output_index: usize, connects_to: AzInputNodeAndIndexVec) -> Self {
+        Self {
+            output_index,
+            connects_to,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOutputConnection {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputNodeAndIndex {
+    #[new]
+    fn __new__(node_id: AzNodeGraphNodeId, input_index: usize) -> Self {
+        Self {
+            node_id,
+            input_index,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputNodeAndIndex {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeInfo {
+    #[new]
+    fn __new__(is_root: bool, name: AzString, inputs: AzInputOutputTypeIdVec, outputs: AzInputOutputTypeIdVec) -> Self {
+        Self {
+            is_root,
+            name,
+            inputs,
+            outputs,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeInfo {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputInfo {
+    #[new]
+    fn __new__(data_type: AzString, color: AzColorU) -> Self {
+        Self {
+            data_type,
+            color,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputInfo {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodePosition {
+    #[new]
+    fn __new__(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodePosition {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodePosition = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodePosition = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzGraphDragAmount {
+    #[new]
+    fn __new__(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzGraphDragAmount {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::GraphDragAmount = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::GraphDragAmount = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeDragAmount {
+    #[new]
+    fn __new__(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeDragAmount {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeHierarchyItem {
     #[new]
     fn __new__(parent: usize, previous_sibling: usize, next_sibling: usize, last_child: usize) -> Self {
         Self {
@@ -23318,7 +25026,7 @@ impl AzNode {
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzNode {
+impl PyObjectProtocol for AzNodeHierarchyItem {
     fn __str__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
@@ -31326,6 +33034,231 @@ impl PyObjectProtocol for AzString {
 }
 
 #[pymethods]
+impl AzNodeTypeIdInfoMapVec {
+    /// Creates a new `NodeTypeIdInfoMapVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzNodeTypeIdInfoMap>) -> Self {
+        let m: crate::widgets::node_graph::NodeTypeIdInfoMap = crate::widgets::node_graph::NodeTypeIdInfoMap::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the NodeTypeIdInfoMap as a Python array
+    fn array(&self) -> Vec<AzNodeTypeIdInfoMap> {
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeIdInfoMapVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputTypeIdInfoMapVec {
+    /// Creates a new `InputOutputTypeIdInfoMapVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzInputOutputTypeIdInfoMap>) -> Self {
+        let m: crate::widgets::node_graph::InputOutputTypeIdInfoMap = crate::widgets::node_graph::InputOutputTypeIdInfoMap::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the InputOutputTypeIdInfoMap as a Python array
+    fn array(&self) -> Vec<AzInputOutputTypeIdInfoMap> {
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputTypeIdInfoMapVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeIdNodeMapVec {
+    /// Creates a new `NodeIdNodeMapVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzNodeIdNodeMap>) -> Self {
+        let m: crate::widgets::node_graph::NodeIdNodeMap = crate::widgets::node_graph::NodeIdNodeMap::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the NodeIdNodeMap as a Python array
+    fn array(&self) -> Vec<AzNodeIdNodeMap> {
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeIdNodeMapVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputTypeIdVec {
+    /// Creates a new `InputOutputTypeIdVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzInputOutputTypeId>) -> Self {
+        let m: crate::widgets::node_graph::InputOutputTypeId = crate::widgets::node_graph::InputOutputTypeId::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the InputOutputTypeId as a Python array
+    fn array(&self) -> Vec<AzInputOutputTypeId> {
+        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputTypeIdVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeFieldVec {
+    /// Creates a new `NodeTypeFieldVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzNodeTypeField>) -> Self {
+        let m: crate::widgets::node_graph::NodeTypeField = crate::widgets::node_graph::NodeTypeField::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the NodeTypeField as a Python array
+    fn array(&self) -> Vec<AzNodeTypeField> {
+        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeFieldVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputConnectionVec {
+    /// Creates a new `InputConnectionVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzInputConnection>) -> Self {
+        let m: crate::widgets::node_graph::InputConnection = crate::widgets::node_graph::InputConnection::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the InputConnection as a Python array
+    fn array(&self) -> Vec<AzInputConnection> {
+        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputConnectionVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOutputNodeAndIndexVec {
+    /// Creates a new `OutputNodeAndIndexVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzOutputNodeAndIndex>) -> Self {
+        let m: crate::widgets::node_graph::OutputNodeAndIndex = crate::widgets::node_graph::OutputNodeAndIndex::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the OutputNodeAndIndex as a Python array
+    fn array(&self) -> Vec<AzOutputNodeAndIndex> {
+        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOutputNodeAndIndexVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOutputConnectionVec {
+    /// Creates a new `OutputConnectionVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzOutputConnection>) -> Self {
+        let m: crate::widgets::node_graph::OutputConnection = crate::widgets::node_graph::OutputConnection::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the OutputConnection as a Python array
+    fn array(&self) -> Vec<AzOutputConnection> {
+        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOutputConnectionVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputNodeAndIndexVec {
+    /// Creates a new `InputNodeAndIndexVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzInputNodeAndIndex>) -> Self {
+        let m: crate::widgets::node_graph::InputNodeAndIndex = crate::widgets::node_graph::InputNodeAndIndex::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the InputNodeAndIndex as a Python array
+    fn array(&self) -> Vec<AzInputNodeAndIndex> {
+        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputNodeAndIndexVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzTabVec {
     /// Creates a new `TabVec` from a Python array
     #[new]
@@ -32520,22 +34453,22 @@ impl PyObjectProtocol for AzNodeIdVec {
 }
 
 #[pymethods]
-impl AzNodeVec {
-    /// Creates a new `NodeVec` from a Python array
+impl AzNodeHierarchyItemVec {
+    /// Creates a new `NodeHierarchyItemVec` from a Python array
     #[new]
-    fn __new__(input: Vec<AzNode>) -> Self {
+    fn __new__(input: Vec<AzNodeHierarchyItem>) -> Self {
         let m: azul_impl::styled_dom::AzNodeVec = azul_impl::styled_dom::AzNodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
-    /// Returns the Node as a Python array
-    fn array(&self) -> Vec<AzNode> {
+    /// Returns the NodeHierarchyItem as a Python array
+    fn array(&self) -> Vec<AzNodeHierarchyItem> {
         let m: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzNodeVec {
+impl PyObjectProtocol for AzNodeHierarchyItemVec {
     fn __str__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
@@ -32671,6 +34604,276 @@ impl PyObjectProtocol for AzStyleFontFamilyVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeIdInfoMapVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzNodeTypeIdInfoMapVecDestructorEnumWrapper { AzNodeTypeIdInfoMapVecDestructorEnumWrapper { inner: AzNodeTypeIdInfoMapVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzNodeTypeIdInfoMapVecDestructorEnumWrapper { AzNodeTypeIdInfoMapVecDestructorEnumWrapper { inner: AzNodeTypeIdInfoMapVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeTypeIdInfoMapVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeTypeIdInfoMapVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeTypeIdInfoMapVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeTypeIdInfoMapVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeIdInfoMapVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper { AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper { inner: AzInputOutputTypeIdInfoMapVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper { AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper { inner: AzInputOutputTypeIdInfoMapVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInputOutputTypeIdInfoMapVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInputOutputTypeIdInfoMapVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInputOutputTypeIdInfoMapVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInputOutputTypeIdInfoMapVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeIdNodeMapVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzNodeIdNodeMapVecDestructorEnumWrapper { AzNodeIdNodeMapVecDestructorEnumWrapper { inner: AzNodeIdNodeMapVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzNodeIdNodeMapVecDestructorEnumWrapper { AzNodeIdNodeMapVecDestructorEnumWrapper { inner: AzNodeIdNodeMapVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeIdNodeMapVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeIdNodeMapVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeIdNodeMapVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeIdNodeMapVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeIdNodeMapVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMapVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeIdNodeMapVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputOutputTypeIdVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzInputOutputTypeIdVecDestructorEnumWrapper { AzInputOutputTypeIdVecDestructorEnumWrapper { inner: AzInputOutputTypeIdVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzInputOutputTypeIdVecDestructorEnumWrapper { AzInputOutputTypeIdVecDestructorEnumWrapper { inner: AzInputOutputTypeIdVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInputOutputTypeIdVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInputOutputTypeIdVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInputOutputTypeIdVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInputOutputTypeIdVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputOutputTypeIdVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputOutputTypeIdVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzNodeTypeFieldVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzNodeTypeFieldVecDestructorEnumWrapper { AzNodeTypeFieldVecDestructorEnumWrapper { inner: AzNodeTypeFieldVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzNodeTypeFieldVecDestructorEnumWrapper { AzNodeTypeFieldVecDestructorEnumWrapper { inner: AzNodeTypeFieldVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzNodeTypeFieldVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzNodeTypeFieldVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeTypeFieldVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeTypeFieldVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzNodeTypeFieldVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeFieldVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::NodeTypeFieldVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputConnectionVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzInputConnectionVecDestructorEnumWrapper { AzInputConnectionVecDestructorEnumWrapper { inner: AzInputConnectionVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzInputConnectionVecDestructorEnumWrapper { AzInputConnectionVecDestructorEnumWrapper { inner: AzInputConnectionVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInputConnectionVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInputConnectionVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInputConnectionVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInputConnectionVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputConnectionVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputConnectionVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputConnectionVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOutputNodeAndIndexVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzOutputNodeAndIndexVecDestructorEnumWrapper { AzOutputNodeAndIndexVecDestructorEnumWrapper { inner: AzOutputNodeAndIndexVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzOutputNodeAndIndexVecDestructorEnumWrapper { AzOutputNodeAndIndexVecDestructorEnumWrapper { inner: AzOutputNodeAndIndexVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOutputNodeAndIndexVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOutputNodeAndIndexVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzOutputNodeAndIndexVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzOutputNodeAndIndexVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOutputNodeAndIndexVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputNodeAndIndexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputNodeAndIndexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOutputConnectionVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzOutputConnectionVecDestructorEnumWrapper { AzOutputConnectionVecDestructorEnumWrapper { inner: AzOutputConnectionVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzOutputConnectionVecDestructorEnumWrapper { AzOutputConnectionVecDestructorEnumWrapper { inner: AzOutputConnectionVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOutputConnectionVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOutputConnectionVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzOutputConnectionVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzOutputConnectionVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOutputConnectionVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputConnectionVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OutputConnectionVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzInputNodeAndIndexVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzInputNodeAndIndexVecDestructorEnumWrapper { AzInputNodeAndIndexVecDestructorEnumWrapper { inner: AzInputNodeAndIndexVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzInputNodeAndIndexVecDestructorEnumWrapper { AzInputNodeAndIndexVecDestructorEnumWrapper { inner: AzInputNodeAndIndexVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzInputNodeAndIndexVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzInputNodeAndIndexVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzInputNodeAndIndexVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzInputNodeAndIndexVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzInputNodeAndIndexVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputNodeAndIndexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::InputNodeAndIndexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -34085,27 +36288,27 @@ impl PyObjectProtocol for AzNodeIdVecDestructorEnumWrapper {
 }
 
 #[pymethods]
-impl AzNodeVecDestructorEnumWrapper {
+impl AzNodeHierarchyItemVecDestructorEnumWrapper {
     #[classattr]
-    fn DefaultRust() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::DefaultRust } }
+    fn DefaultRust() -> AzNodeHierarchyItemVecDestructorEnumWrapper { AzNodeHierarchyItemVecDestructorEnumWrapper { inner: AzNodeHierarchyItemVecDestructor::DefaultRust } }
     #[classattr]
-    fn NoDestructor() -> AzNodeVecDestructorEnumWrapper { AzNodeVecDestructorEnumWrapper { inner: AzNodeVecDestructor::NoDestructor } }
+    fn NoDestructor() -> AzNodeHierarchyItemVecDestructorEnumWrapper { AzNodeHierarchyItemVecDestructorEnumWrapper { inner: AzNodeHierarchyItemVecDestructor::NoDestructor } }
 
     fn r#match(&self) -> PyResult<Vec<PyObject>> {
-        use crate::python::AzNodeVecDestructor;
+        use crate::python::AzNodeHierarchyItemVecDestructor;
         use pyo3::conversion::IntoPy;
         let gil = Python::acquire_gil();
         let py = gil.python();
         match &self.inner {
-            AzNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
-            AzNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
-            AzNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+            AzNodeHierarchyItemVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzNodeHierarchyItemVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzNodeHierarchyItemVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
         }
     }
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzNodeVecDestructorEnumWrapper {
+impl PyObjectProtocol for AzNodeHierarchyItemVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::styled_dom::AzNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
@@ -34231,6 +36434,238 @@ impl PyObjectProtocol for AzNodeDataVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::NodeDataVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeAddedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeAddedEnumWrapper { AzOptionNodeGraphOnNodeAddedEnumWrapper { inner: AzOptionNodeGraphOnNodeAdded::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeAdded) -> AzOptionNodeGraphOnNodeAddedEnumWrapper { AzOptionNodeGraphOnNodeAddedEnumWrapper { inner: AzOptionNodeGraphOnNodeAdded::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeAdded;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeAdded::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeAdded::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeAddedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeAdded = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeAdded = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeRemovedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeRemovedEnumWrapper { AzOptionNodeGraphOnNodeRemovedEnumWrapper { inner: AzOptionNodeGraphOnNodeRemoved::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeRemoved) -> AzOptionNodeGraphOnNodeRemovedEnumWrapper { AzOptionNodeGraphOnNodeRemovedEnumWrapper { inner: AzOptionNodeGraphOnNodeRemoved::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeRemoved;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeRemoved::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeRemoved::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeRemovedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeRemoved = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeRemoved = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper { AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper { inner: AzOptionNodeGraphOnNodeGraphDragged::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeGraphDragged) -> AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper { AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper { inner: AzOptionNodeGraphOnNodeGraphDragged::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeGraphDragged;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeGraphDragged::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeGraphDragged::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeGraphDragged = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeGraphDragged = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeDraggedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeDraggedEnumWrapper { AzOptionNodeGraphOnNodeDraggedEnumWrapper { inner: AzOptionNodeGraphOnNodeDragged::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeDragged) -> AzOptionNodeGraphOnNodeDraggedEnumWrapper { AzOptionNodeGraphOnNodeDraggedEnumWrapper { inner: AzOptionNodeGraphOnNodeDragged::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeDragged;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeDragged::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeDragged::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeDraggedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeDragged = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeDragged = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeConnectedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeConnectedEnumWrapper { AzOptionNodeGraphOnNodeConnectedEnumWrapper { inner: AzOptionNodeGraphOnNodeConnected::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeConnected) -> AzOptionNodeGraphOnNodeConnectedEnumWrapper { AzOptionNodeGraphOnNodeConnectedEnumWrapper { inner: AzOptionNodeGraphOnNodeConnected::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeConnected;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeConnected::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeConnected::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeConnectedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeConnected = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeConnected = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper { AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper { inner: AzOptionNodeGraphOnNodeInputDisconnected::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeInputDisconnected) -> AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper { AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper { inner: AzOptionNodeGraphOnNodeInputDisconnected::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeInputDisconnected;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeInputDisconnected::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeInputDisconnected::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeInputDisconnected = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeInputDisconnected = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { inner: AzOptionNodeGraphOnNodeOutputDisconnected::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeOutputDisconnected) -> AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { inner: AzOptionNodeGraphOnNodeOutputDisconnected::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeOutputDisconnected;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeOutputDisconnected::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeOutputDisconnected::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeOutputDisconnected = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeOutputDisconnected = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionNodeGraphOnNodeFieldEditedEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { inner: AzOptionNodeGraphOnNodeFieldEdited::None } }
+    #[staticmethod]
+    fn Some(v: AzNodeGraphOnNodeFieldEdited) -> AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { inner: AzOptionNodeGraphOnNodeFieldEdited::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionNodeGraphOnNodeFieldEdited;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionNodeGraphOnNodeFieldEdited::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionNodeGraphOnNodeFieldEdited::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionNodeGraphOnNodeFieldEditedEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeFieldEdited = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::node_graph::OptionOnNodeFieldEdited = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -37320,8 +39755,45 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzTabContainer>()?;
     m.add_class::<AzTab>()?;
     m.add_class::<AzFrame>()?;
-
+    m.add_class::<AzNodeGraph>()?;
+    m.add_class::<AzNodeTypeIdInfoMap>()?;
+    m.add_class::<AzInputOutputTypeIdInfoMap>()?;
+    m.add_class::<AzNodeIdNodeMap>()?;
+    m.add_class::<AzNodeGraphStyleEnumWrapper>()?;
+    m.add_class::<AzNodeGraphCallbacks>()?;
+    m.add_class::<AzNodeGraphOnNodeAddedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeAdded>()?;
+    m.add_class::<AzNodeGraphOnNodeRemovedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeRemoved>()?;
+    m.add_class::<AzNodeGraphOnNodeGraphDraggedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeGraphDragged>()?;
+    m.add_class::<AzNodeGraphOnNodeDraggedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeDragged>()?;
+    m.add_class::<AzNodeGraphOnNodeConnectedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeConnected>()?;
+    m.add_class::<AzNodeGraphOnNodeInputDisconnectedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeInputDisconnected>()?;
+    m.add_class::<AzNodeGraphOnNodeOutputDisconnectedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeOutputDisconnected>()?;
+    m.add_class::<AzNodeGraphOnNodeFieldEditedCallback>()?;
+    m.add_class::<AzNodeGraphOnNodeFieldEdited>()?;
+    m.add_class::<AzInputOutputTypeId>()?;
+    m.add_class::<AzNodeTypeId>()?;
+    m.add_class::<AzNodeGraphNodeId>()?;
     m.add_class::<AzNode>()?;
+    m.add_class::<AzNodeTypeField>()?;
+    m.add_class::<AzNodeTypeFieldValueEnumWrapper>()?;
+    m.add_class::<AzInputConnection>()?;
+    m.add_class::<AzOutputNodeAndIndex>()?;
+    m.add_class::<AzOutputConnection>()?;
+    m.add_class::<AzInputNodeAndIndex>()?;
+    m.add_class::<AzNodeTypeInfo>()?;
+    m.add_class::<AzInputOutputInfo>()?;
+    m.add_class::<AzNodePosition>()?;
+    m.add_class::<AzGraphDragAmount>()?;
+    m.add_class::<AzNodeDragAmount>()?;
+
+    m.add_class::<AzNodeHierarchyItem>()?;
     m.add_class::<AzCascadeInfo>()?;
     m.add_class::<AzCssPropertySourceEnumWrapper>()?;
     m.add_class::<AzStyledNodeState>()?;
@@ -37458,6 +39930,15 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzFmtArg>()?;
     m.add_class::<AzString>()?;
 
+    m.add_class::<AzNodeTypeIdInfoMapVec>()?;
+    m.add_class::<AzInputOutputTypeIdInfoMapVec>()?;
+    m.add_class::<AzNodeIdNodeMapVec>()?;
+    m.add_class::<AzInputOutputTypeIdVec>()?;
+    m.add_class::<AzNodeTypeFieldVec>()?;
+    m.add_class::<AzInputConnectionVec>()?;
+    m.add_class::<AzOutputNodeAndIndexVec>()?;
+    m.add_class::<AzOutputConnectionVec>()?;
+    m.add_class::<AzInputNodeAndIndexVec>()?;
     m.add_class::<AzTabVec>()?;
     m.add_class::<AzAccessibilityStateVec>()?;
     m.add_class::<AzMenuItemVec>()?;
@@ -37506,12 +39987,21 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNormalizedLinearColorStopVec>()?;
     m.add_class::<AzNormalizedRadialColorStopVec>()?;
     m.add_class::<AzNodeIdVec>()?;
-    m.add_class::<AzNodeVec>()?;
+    m.add_class::<AzNodeHierarchyItemVec>()?;
     m.add_class::<AzStyledNodeVec>()?;
     m.add_class::<AzTagIdToNodeIdMappingVec>()?;
     m.add_class::<AzParentWithNodeDepthVec>()?;
     m.add_class::<AzNodeDataVec>()?;
     m.add_class::<AzStyleFontFamilyVecDestructorEnumWrapper>()?;
+    m.add_class::<AzNodeTypeIdInfoMapVecDestructorEnumWrapper>()?;
+    m.add_class::<AzInputOutputTypeIdInfoMapVecDestructorEnumWrapper>()?;
+    m.add_class::<AzNodeIdNodeMapVecDestructorEnumWrapper>()?;
+    m.add_class::<AzInputOutputTypeIdVecDestructorEnumWrapper>()?;
+    m.add_class::<AzNodeTypeFieldVecDestructorEnumWrapper>()?;
+    m.add_class::<AzInputConnectionVecDestructorEnumWrapper>()?;
+    m.add_class::<AzOutputNodeAndIndexVecDestructorEnumWrapper>()?;
+    m.add_class::<AzOutputConnectionVecDestructorEnumWrapper>()?;
+    m.add_class::<AzInputNodeAndIndexVecDestructorEnumWrapper>()?;
     m.add_class::<AzTabVecDestructorEnumWrapper>()?;
     m.add_class::<AzAccessibilityStateVecDestructorEnumWrapper>()?;
     m.add_class::<AzMenuItemVecDestructorEnumWrapper>()?;
@@ -37559,12 +40049,20 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNormalizedLinearColorStopVecDestructorEnumWrapper>()?;
     m.add_class::<AzNormalizedRadialColorStopVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeIdVecDestructorEnumWrapper>()?;
-    m.add_class::<AzNodeVecDestructorEnumWrapper>()?;
+    m.add_class::<AzNodeHierarchyItemVecDestructorEnumWrapper>()?;
     m.add_class::<AzStyledNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzTagIdToNodeIdMappingVecDestructorEnumWrapper>()?;
     m.add_class::<AzParentWithNodeDepthVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
+    m.add_class::<AzOptionNodeGraphOnNodeAddedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeRemovedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeDraggedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeConnectedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeInputDisconnectedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper>()?;
+    m.add_class::<AzOptionNodeGraphOnNodeFieldEditedEnumWrapper>()?;
     m.add_class::<AzOptionColorInputOnValueChangeEnumWrapper>()?;
     m.add_class::<AzOptionButtonOnClickEnumWrapper>()?;
     m.add_class::<AzOptionCheckBoxOnToggleEnumWrapper>()?;

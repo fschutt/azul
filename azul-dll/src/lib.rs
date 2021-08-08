@@ -916,7 +916,7 @@ pub use AzNodeDataInlineCssPropertyTT as AzNodeDataInlineCssProperty;
 pub type AzMenuTT = azul_core::window::Menu;
 pub use AzMenuTT as AzMenu;
 /// Creates an new, empty Menu
-#[no_mangle] pub extern "C" fn AzMenu_new(items: AzMenuItemVec) -> AzMenu { AzMenu { items, position: AzMenuPopupPosition::AutoCursor, context_mouse_btn: AzContextMenuMouseButton::Right } }
+#[no_mangle] pub extern "C" fn AzMenu_new(items: AzMenuItemVec) -> AzMenu { AzMenu::new(items) }
 /// Sets the popup position of the menu, ignored on menu bars
 #[no_mangle] pub extern "C" fn AzMenu_setPopupPosition(menu: &mut AzMenu, position: AzMenuPopupPosition) { menu.position = position; }
 /// Sets the popup position of the menu, ignored on menu bars (builder method)
@@ -942,7 +942,7 @@ pub use AzMenuItemTT as AzMenuItem;
 pub type AzStringMenuItemTT = azul_core::window::StringMenuItem;
 pub use AzStringMenuItemTT as AzStringMenuItem;
 /// Creates a new menu item
-#[no_mangle] pub extern "C" fn AzStringMenuItem_new(label: AzString) -> AzStringMenuItem { AzStringMenuItem { label, accelerator: None.into(), callback: None.into(), state: AzMenuItemState::Normal, icon: None.into(), children: Vec::new().into() } }
+#[no_mangle] pub extern "C" fn AzStringMenuItem_new(label: AzString) -> AzStringMenuItem { AzStringMenuItem::new(label) }
 /// Adds a callback to the menu item
 #[no_mangle] pub extern "C" fn AzStringMenuItem_setCallback(stringmenuitem: &mut AzStringMenuItem, data: AzRefAny, callback: AzCallbackType) { stringmenuitem.callback = AzOptionMenuCallback::Some(AzMenuCallback { data, callback: AzCallback { cb: callback } }); }
 /// Adds a callback to the menu item
@@ -2098,9 +2098,205 @@ pub use AzFrameTT as AzFrame;
 /// Destructor: Takes ownership of the `Frame` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFrame_delete(object: &mut AzFrame) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `NodeGraph` struct
+pub type AzNodeGraphTT = crate::widgets::node_graph::NodeGraph;
+pub use AzNodeGraphTT as AzNodeGraph;
+/// Destructor: Takes ownership of the `NodeGraph` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraph_delete(object: &mut AzNodeGraph) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMap` struct
+pub type AzNodeTypeIdInfoMapTT = crate::widgets::node_graph::NodeTypeIdInfoMap;
+pub use AzNodeTypeIdInfoMapTT as AzNodeTypeIdInfoMap;
+/// Destructor: Takes ownership of the `NodeTypeIdInfoMap` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeTypeIdInfoMap_delete(object: &mut AzNodeTypeIdInfoMap) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMap` struct
+pub type AzInputOutputTypeIdInfoMapTT = crate::widgets::node_graph::InputOutputTypeIdInfoMap;
+pub use AzInputOutputTypeIdInfoMapTT as AzInputOutputTypeIdInfoMap;
+/// Destructor: Takes ownership of the `InputOutputTypeIdInfoMap` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputOutputTypeIdInfoMap_delete(object: &mut AzInputOutputTypeIdInfoMap) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NodeIdNodeMap` struct
+pub type AzNodeIdNodeMapTT = crate::widgets::node_graph::NodeIdNodeMap;
+pub use AzNodeIdNodeMapTT as AzNodeIdNodeMap;
+/// Destructor: Takes ownership of the `NodeIdNodeMap` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeIdNodeMap_delete(object: &mut AzNodeIdNodeMap) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
+pub type AzNodeGraphStyleTT = crate::widgets::node_graph::NodeIdNodeMap;
+pub use AzNodeGraphStyleTT as AzNodeGraphStyle;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphCallbacks` struct
+pub type AzNodeGraphCallbacksTT = crate::widgets::node_graph::NodeGraphCallbacks;
+pub use AzNodeGraphCallbacksTT as AzNodeGraphCallbacks;
+/// Destructor: Takes ownership of the `NodeGraphCallbacks` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphCallbacks_delete(object: &mut AzNodeGraphCallbacks) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
+pub type AzNodeGraphOnNodeAddedCallbackTT = crate::widgets::node_graph::OnNodeAddedCallback;
+pub use AzNodeGraphOnNodeAddedCallbackTT as AzNodeGraphOnNodeAddedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
+pub type AzNodeGraphOnNodeAddedTT = crate::widgets::node_graph::OnNodeAdded;
+pub use AzNodeGraphOnNodeAddedTT as AzNodeGraphOnNodeAdded;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeAdded` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeAdded_delete(object: &mut AzNodeGraphOnNodeAdded) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeRemovedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemovedCallback` struct
+pub type AzNodeGraphOnNodeRemovedCallbackTT = crate::widgets::node_graph::OnNodeRemovedCallback;
+pub use AzNodeGraphOnNodeRemovedCallbackTT as AzNodeGraphOnNodeRemovedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemoved` struct
+pub type AzNodeGraphOnNodeRemovedTT = crate::widgets::node_graph::OnNodeRemoved;
+pub use AzNodeGraphOnNodeRemovedTT as AzNodeGraphOnNodeRemoved;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeRemoved` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeRemoved_delete(object: &mut AzNodeGraphOnNodeRemoved) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeGraphDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzGraphDragAmount) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDraggedCallback` struct
+pub type AzNodeGraphOnNodeGraphDraggedCallbackTT = crate::widgets::node_graph::OnNodeGraphDraggedCallback;
+pub use AzNodeGraphOnNodeGraphDraggedCallbackTT as AzNodeGraphOnNodeGraphDraggedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDragged` struct
+pub type AzNodeGraphOnNodeGraphDraggedTT = crate::widgets::node_graph::OnNodeGraphDragged;
+pub use AzNodeGraphOnNodeGraphDraggedTT as AzNodeGraphOnNodeGraphDragged;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeGraphDragged` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeGraphDragged_delete(object: &mut AzNodeGraphOnNodeGraphDragged) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, AzNodeDragAmount) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDraggedCallback` struct
+pub type AzNodeGraphOnNodeDraggedCallbackTT = crate::widgets::node_graph::OnNodeDraggedCallback;
+pub use AzNodeGraphOnNodeDraggedCallbackTT as AzNodeGraphOnNodeDraggedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDragged` struct
+pub type AzNodeGraphOnNodeDraggedTT = crate::widgets::node_graph::OnNodeDragged;
+pub use AzNodeGraphOnNodeDraggedTT as AzNodeGraphOnNodeDragged;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeDragged` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeDragged_delete(object: &mut AzNodeGraphOnNodeDragged) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeConnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeGraphNodeId, usize) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnectedCallback` struct
+pub type AzNodeGraphOnNodeConnectedCallbackTT = crate::widgets::node_graph::OnNodeConnectedCallback;
+pub use AzNodeGraphOnNodeConnectedCallbackTT as AzNodeGraphOnNodeConnectedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnected` struct
+pub type AzNodeGraphOnNodeConnectedTT = crate::widgets::node_graph::OnNodeConnected;
+pub use AzNodeGraphOnNodeConnectedTT as AzNodeGraphOnNodeConnected;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeConnected` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeConnected_delete(object: &mut AzNodeGraphOnNodeConnected) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeInputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnectedCallback` struct
+pub type AzNodeGraphOnNodeInputDisconnectedCallbackTT = crate::widgets::node_graph::OnNodeInputDisconnectedCallback;
+pub use AzNodeGraphOnNodeInputDisconnectedCallbackTT as AzNodeGraphOnNodeInputDisconnectedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnected` struct
+pub type AzNodeGraphOnNodeInputDisconnectedTT = crate::widgets::node_graph::OnNodeInputDisconnected;
+pub use AzNodeGraphOnNodeInputDisconnectedTT as AzNodeGraphOnNodeInputDisconnected;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeInputDisconnected` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeInputDisconnected_delete(object: &mut AzNodeGraphOnNodeInputDisconnected) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeOutputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnectedCallback` struct
+pub type AzNodeGraphOnNodeOutputDisconnectedCallbackTT = crate::widgets::node_graph::OnNodeOutputDisconnectedCallback;
+pub use AzNodeGraphOnNodeOutputDisconnectedCallbackTT as AzNodeGraphOnNodeOutputDisconnectedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnected` struct
+pub type AzNodeGraphOnNodeOutputDisconnectedTT = crate::widgets::node_graph::OnNodeOutputDisconnected;
+pub use AzNodeGraphOnNodeOutputDisconnectedTT as AzNodeGraphOnNodeOutputDisconnected;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeOutputDisconnected` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeOutputDisconnected_delete(object: &mut AzNodeGraphOnNodeOutputDisconnected) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzNodeGraphOnNodeFieldEditedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeTypeId, AzNodeTypeFieldValue) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEditedCallback` struct
+pub type AzNodeGraphOnNodeFieldEditedCallbackTT = crate::widgets::node_graph::OnNodeFieldEditedCallback;
+pub use AzNodeGraphOnNodeFieldEditedCallbackTT as AzNodeGraphOnNodeFieldEditedCallback;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEdited` struct
+pub type AzNodeGraphOnNodeFieldEditedTT = crate::widgets::node_graph::OnNodeFieldEdited;
+pub use AzNodeGraphOnNodeFieldEditedTT as AzNodeGraphOnNodeFieldEdited;
+/// Destructor: Takes ownership of the `NodeGraphOnNodeFieldEdited` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeGraphOnNodeFieldEdited_delete(object: &mut AzNodeGraphOnNodeFieldEdited) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
+pub type AzInputOutputTypeIdTT = crate::widgets::node_graph::InputOutputTypeId;
+pub use AzInputOutputTypeIdTT as AzInputOutputTypeId;
+
+/// Re-export of rust-allocated (stack based) `NodeTypeId` struct
+pub type AzNodeTypeIdTT = crate::widgets::node_graph::NodeTypeId;
+pub use AzNodeTypeIdTT as AzNodeTypeId;
+
+/// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
+pub type AzNodeGraphNodeIdTT = crate::widgets::node_graph::NodeGraphNodeId;
+pub use AzNodeGraphNodeIdTT as AzNodeGraphNodeId;
+
 /// Re-export of rust-allocated (stack based) `Node` struct
-pub type AzNodeTT = azul_impl::styled_dom::AzNode;
+pub type AzNodeTT = crate::widgets::node_graph::Node;
 pub use AzNodeTT as AzNode;
+/// Destructor: Takes ownership of the `Node` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNode_delete(object: &mut AzNode) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NodeTypeField` struct
+pub type AzNodeTypeFieldTT = crate::widgets::node_graph::NodeTypeField;
+pub use AzNodeTypeFieldTT as AzNodeTypeField;
+/// Destructor: Takes ownership of the `NodeTypeField` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeTypeField_delete(object: &mut AzNodeTypeField) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
+pub type AzNodeTypeFieldValueTT = crate::widgets::node_graph::NodeTypeFieldValue;
+pub use AzNodeTypeFieldValueTT as AzNodeTypeFieldValue;
+/// Destructor: Takes ownership of the `NodeTypeFieldValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeTypeFieldValue_delete(object: &mut AzNodeTypeFieldValue) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `InputConnection` struct
+pub type AzInputConnectionTT = crate::widgets::node_graph::InputConnection;
+pub use AzInputConnectionTT as AzInputConnection;
+/// Destructor: Takes ownership of the `InputConnection` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputConnection_delete(object: &mut AzInputConnection) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OutputNodeAndIndex` struct
+pub type AzOutputNodeAndIndexTT = crate::widgets::node_graph::OutputNodeAndIndex;
+pub use AzOutputNodeAndIndexTT as AzOutputNodeAndIndex;
+
+/// Re-export of rust-allocated (stack based) `OutputConnection` struct
+pub type AzOutputConnectionTT = crate::widgets::node_graph::OutputConnection;
+pub use AzOutputConnectionTT as AzOutputConnection;
+/// Destructor: Takes ownership of the `OutputConnection` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOutputConnection_delete(object: &mut AzOutputConnection) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `InputNodeAndIndex` struct
+pub type AzInputNodeAndIndexTT = crate::widgets::node_graph::InputNodeAndIndex;
+pub use AzInputNodeAndIndexTT as AzInputNodeAndIndex;
+
+/// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
+pub type AzNodeTypeInfoTT = crate::widgets::node_graph::NodeTypeInfo;
+pub use AzNodeTypeInfoTT as AzNodeTypeInfo;
+/// Destructor: Takes ownership of the `NodeTypeInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeTypeInfo_delete(object: &mut AzNodeTypeInfo) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `InputOutputInfo` struct
+pub type AzInputOutputInfoTT = crate::widgets::node_graph::InputOutputInfo;
+pub use AzInputOutputInfoTT as AzInputOutputInfo;
+/// Destructor: Takes ownership of the `InputOutputInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputOutputInfo_delete(object: &mut AzInputOutputInfo) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `NodePosition` struct
+pub type AzNodePositionTT = crate::widgets::node_graph::NodePosition;
+pub use AzNodePositionTT as AzNodePosition;
+
+/// Re-export of rust-allocated (stack based) `GraphDragAmount` struct
+pub type AzGraphDragAmountTT = crate::widgets::node_graph::GraphDragAmount;
+pub use AzGraphDragAmountTT as AzGraphDragAmount;
+
+/// Re-export of rust-allocated (stack based) `NodeDragAmount` struct
+pub type AzNodeDragAmountTT = crate::widgets::node_graph::NodeDragAmount;
+pub use AzNodeDragAmountTT as AzNodeDragAmount;
+
+/// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
+pub type AzNodeHierarchyItemTT = azul_impl::styled_dom::AzNode;
+pub use AzNodeHierarchyItemTT as AzNodeHierarchyItem;
 
 /// Re-export of rust-allocated (stack based) `CascadeInfo` struct
 pub type AzCascadeInfoTT = azul_impl::style::CascadeInfo;
@@ -3381,6 +3577,60 @@ pub use AzStringTT as AzString;
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzString_delete(object: &mut AzString) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
+pub type AzNodeTypeIdInfoMapVecTT = crate::widgets::node_graph::NodeTypeIdInfoMap;
+pub use AzNodeTypeIdInfoMapVecTT as AzNodeTypeIdInfoMapVec;
+/// Destructor: Takes ownership of the `NodeTypeIdInfoMapVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeTypeIdInfoMapVec_delete(object: &mut AzNodeTypeIdInfoMapVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
+pub type AzInputOutputTypeIdInfoMapVecTT = crate::widgets::node_graph::InputOutputTypeIdInfoMap;
+pub use AzInputOutputTypeIdInfoMapVecTT as AzInputOutputTypeIdInfoMapVec;
+/// Destructor: Takes ownership of the `InputOutputTypeIdInfoMapVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputOutputTypeIdInfoMapVec_delete(object: &mut AzInputOutputTypeIdInfoMapVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
+pub type AzNodeIdNodeMapVecTT = crate::widgets::node_graph::NodeIdNodeMap;
+pub use AzNodeIdNodeMapVecTT as AzNodeIdNodeMapVec;
+/// Destructor: Takes ownership of the `NodeIdNodeMapVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeIdNodeMapVec_delete(object: &mut AzNodeIdNodeMapVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
+pub type AzInputOutputTypeIdVecTT = crate::widgets::node_graph::InputOutputTypeId;
+pub use AzInputOutputTypeIdVecTT as AzInputOutputTypeIdVec;
+/// Destructor: Takes ownership of the `InputOutputTypeIdVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputOutputTypeIdVec_delete(object: &mut AzInputOutputTypeIdVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
+pub type AzNodeTypeFieldVecTT = crate::widgets::node_graph::NodeTypeField;
+pub use AzNodeTypeFieldVecTT as AzNodeTypeFieldVec;
+/// Destructor: Takes ownership of the `NodeTypeFieldVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeTypeFieldVec_delete(object: &mut AzNodeTypeFieldVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InputConnection>`
+pub type AzInputConnectionVecTT = crate::widgets::node_graph::InputConnection;
+pub use AzInputConnectionVecTT as AzInputConnectionVec;
+/// Destructor: Takes ownership of the `InputConnectionVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputConnectionVec_delete(object: &mut AzInputConnectionVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
+pub type AzOutputNodeAndIndexVecTT = crate::widgets::node_graph::OutputNodeAndIndex;
+pub use AzOutputNodeAndIndexVecTT as AzOutputNodeAndIndexVec;
+/// Destructor: Takes ownership of the `OutputNodeAndIndexVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOutputNodeAndIndexVec_delete(object: &mut AzOutputNodeAndIndexVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<OutputConnection>`
+pub type AzOutputConnectionVecTT = crate::widgets::node_graph::OutputConnection;
+pub use AzOutputConnectionVecTT as AzOutputConnectionVec;
+/// Destructor: Takes ownership of the `OutputConnectionVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOutputConnectionVec_delete(object: &mut AzOutputConnectionVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
+pub type AzInputNodeAndIndexVecTT = crate::widgets::node_graph::InputNodeAndIndex;
+pub use AzInputNodeAndIndexVecTT as AzInputNodeAndIndexVec;
+/// Destructor: Takes ownership of the `InputNodeAndIndexVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzInputNodeAndIndexVec_delete(object: &mut AzInputNodeAndIndexVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<Tab>`
 pub type AzTabVecTT = crate::widgets::tabs::TabVec;
 pub use AzTabVecTT as AzTabVec;
@@ -3675,11 +3925,11 @@ pub use AzNodeIdVecTT as AzNodeIdVec;
 /// Destructor: Takes ownership of the `NodeIdVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzNodeIdVec_delete(object: &mut AzNodeIdVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Wrapper over a Rust-allocated `NodeVec`
-pub type AzNodeVecTT = azul_impl::styled_dom::AzNodeVec;
-pub use AzNodeVecTT as AzNodeVec;
-/// Destructor: Takes ownership of the `NodeVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzNodeVec_delete(object: &mut AzNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
+pub type AzNodeHierarchyItemVecTT = azul_impl::styled_dom::AzNodeVec;
+pub use AzNodeHierarchyItemVecTT as AzNodeHierarchyItemVec;
+/// Destructor: Takes ownership of the `NodeHierarchyItemVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzNodeHierarchyItemVec_delete(object: &mut AzNodeHierarchyItemVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `StyledNodeVec`
 pub type AzStyledNodeVecTT = azul_impl::styled_dom::StyledNodeVec;
@@ -3710,6 +3960,51 @@ pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDe
 pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
 
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+/// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
+pub type AzNodeTypeIdInfoMapVecDestructorTT = crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor;
+pub use AzNodeTypeIdInfoMapVecDestructorTT as AzNodeTypeIdInfoMapVecDestructor;
+
+pub type AzNodeTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzNodeTypeIdInfoMapVec);
+/// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMapVecDestructor` struct
+pub type AzInputOutputTypeIdInfoMapVecDestructorTT = crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor;
+pub use AzInputOutputTypeIdInfoMapVecDestructorTT as AzInputOutputTypeIdInfoMapVecDestructor;
+
+pub type AzInputOutputTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdInfoMapVec);
+/// Re-export of rust-allocated (stack based) `NodeIdNodeMapVecDestructor` struct
+pub type AzNodeIdNodeMapVecDestructorTT = crate::widgets::node_graph::NodeIdNodeMapVecDestructor;
+pub use AzNodeIdNodeMapVecDestructorTT as AzNodeIdNodeMapVecDestructor;
+
+pub type AzNodeIdNodeMapVecDestructorType = extern "C" fn(&mut AzNodeIdNodeMapVec);
+/// Re-export of rust-allocated (stack based) `InputOutputTypeIdVecDestructor` struct
+pub type AzInputOutputTypeIdVecDestructorTT = crate::widgets::node_graph::InputOutputTypeIdVecDestructor;
+pub use AzInputOutputTypeIdVecDestructorTT as AzInputOutputTypeIdVecDestructor;
+
+pub type AzInputOutputTypeIdVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdVec);
+/// Re-export of rust-allocated (stack based) `NodeTypeFieldVecDestructor` struct
+pub type AzNodeTypeFieldVecDestructorTT = crate::widgets::node_graph::NodeTypeFieldVecDestructor;
+pub use AzNodeTypeFieldVecDestructorTT as AzNodeTypeFieldVecDestructor;
+
+pub type AzNodeTypeFieldVecDestructorType = extern "C" fn(&mut AzNodeTypeFieldVec);
+/// Re-export of rust-allocated (stack based) `InputConnectionVecDestructor` struct
+pub type AzInputConnectionVecDestructorTT = crate::widgets::node_graph::InputConnectionVecDestructor;
+pub use AzInputConnectionVecDestructorTT as AzInputConnectionVecDestructor;
+
+pub type AzInputConnectionVecDestructorType = extern "C" fn(&mut AzInputConnectionVec);
+/// Re-export of rust-allocated (stack based) `OutputNodeAndIndexVecDestructor` struct
+pub type AzOutputNodeAndIndexVecDestructorTT = crate::widgets::node_graph::OutputNodeAndIndexVecDestructor;
+pub use AzOutputNodeAndIndexVecDestructorTT as AzOutputNodeAndIndexVecDestructor;
+
+pub type AzOutputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzOutputNodeAndIndexVec);
+/// Re-export of rust-allocated (stack based) `OutputConnectionVecDestructor` struct
+pub type AzOutputConnectionVecDestructorTT = crate::widgets::node_graph::OutputConnectionVecDestructor;
+pub use AzOutputConnectionVecDestructorTT as AzOutputConnectionVecDestructor;
+
+pub type AzOutputConnectionVecDestructorType = extern "C" fn(&mut AzOutputConnectionVec);
+/// Re-export of rust-allocated (stack based) `InputNodeAndIndexVecDestructor` struct
+pub type AzInputNodeAndIndexVecDestructorTT = crate::widgets::node_graph::InputNodeAndIndexVecDestructor;
+pub use AzInputNodeAndIndexVecDestructorTT as AzInputNodeAndIndexVecDestructor;
+
+pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
 /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
 pub type AzTabVecDestructorTT = crate::widgets::tabs::TabVecDestructor;
 pub use AzTabVecDestructorTT as AzTabVecDestructor;
@@ -3945,11 +4240,11 @@ pub type AzNodeIdVecDestructorTT = azul_impl::styled_dom::NodeIdVecDestructor;
 pub use AzNodeIdVecDestructorTT as AzNodeIdVecDestructor;
 
 pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
-/// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
-pub type AzNodeVecDestructorTT = azul_impl::styled_dom::AzNodeVecDestructor;
-pub use AzNodeVecDestructorTT as AzNodeVecDestructor;
+/// Re-export of rust-allocated (stack based) `NodeHierarchyItemVecDestructor` struct
+pub type AzNodeHierarchyItemVecDestructorTT = azul_impl::styled_dom::AzNodeVecDestructor;
+pub use AzNodeHierarchyItemVecDestructorTT as AzNodeHierarchyItemVecDestructor;
 
-pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+pub type AzNodeHierarchyItemVecDestructorType = extern "C" fn(&mut AzNodeHierarchyItemVec);
 /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
 pub type AzStyledNodeVecDestructorTT = azul_impl::styled_dom::StyledNodeVecDestructor;
 pub use AzStyledNodeVecDestructorTT as AzStyledNodeVecDestructor;
@@ -3970,6 +4265,54 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
+pub type AzOptionNodeGraphOnNodeAddedTT = crate::widgets::node_graph::OptionOnNodeAdded;
+pub use AzOptionNodeGraphOnNodeAddedTT as AzOptionNodeGraphOnNodeAdded;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeAdded` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeAdded_delete(object: &mut AzOptionNodeGraphOnNodeAdded) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeRemoved` struct
+pub type AzOptionNodeGraphOnNodeRemovedTT = crate::widgets::node_graph::OptionOnNodeRemoved;
+pub use AzOptionNodeGraphOnNodeRemovedTT as AzOptionNodeGraphOnNodeRemoved;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeRemoved` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeRemoved_delete(object: &mut AzOptionNodeGraphOnNodeRemoved) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeGraphDragged` struct
+pub type AzOptionNodeGraphOnNodeGraphDraggedTT = crate::widgets::node_graph::OptionOnNodeGraphDragged;
+pub use AzOptionNodeGraphOnNodeGraphDraggedTT as AzOptionNodeGraphOnNodeGraphDragged;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeGraphDragged` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeGraphDragged_delete(object: &mut AzOptionNodeGraphOnNodeGraphDragged) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeDragged` struct
+pub type AzOptionNodeGraphOnNodeDraggedTT = crate::widgets::node_graph::OptionOnNodeDragged;
+pub use AzOptionNodeGraphOnNodeDraggedTT as AzOptionNodeGraphOnNodeDragged;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeDragged` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeDragged_delete(object: &mut AzOptionNodeGraphOnNodeDragged) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeConnected` struct
+pub type AzOptionNodeGraphOnNodeConnectedTT = crate::widgets::node_graph::OptionOnNodeConnected;
+pub use AzOptionNodeGraphOnNodeConnectedTT as AzOptionNodeGraphOnNodeConnected;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeConnected` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeConnected_delete(object: &mut AzOptionNodeGraphOnNodeConnected) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeInputDisconnected` struct
+pub type AzOptionNodeGraphOnNodeInputDisconnectedTT = crate::widgets::node_graph::OptionOnNodeInputDisconnected;
+pub use AzOptionNodeGraphOnNodeInputDisconnectedTT as AzOptionNodeGraphOnNodeInputDisconnected;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeInputDisconnected` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeInputDisconnected_delete(object: &mut AzOptionNodeGraphOnNodeInputDisconnected) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeOutputDisconnected` struct
+pub type AzOptionNodeGraphOnNodeOutputDisconnectedTT = crate::widgets::node_graph::OptionOnNodeOutputDisconnected;
+pub use AzOptionNodeGraphOnNodeOutputDisconnectedTT as AzOptionNodeGraphOnNodeOutputDisconnected;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeOutputDisconnected` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeOutputDisconnected_delete(object: &mut AzOptionNodeGraphOnNodeOutputDisconnected) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeFieldEdited` struct
+pub type AzOptionNodeGraphOnNodeFieldEditedTT = crate::widgets::node_graph::OptionOnNodeFieldEdited;
+pub use AzOptionNodeGraphOnNodeFieldEditedTT as AzOptionNodeGraphOnNodeFieldEdited;
+/// Destructor: Takes ownership of the `OptionNodeGraphOnNodeFieldEdited` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionNodeGraphOnNodeFieldEdited_delete(object: &mut AzOptionNodeGraphOnNodeFieldEdited) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
 pub type AzOptionColorInputOnValueChangeTT = crate::widgets::color_input::OptionColorInputOnValueChange;
 pub use AzOptionColorInputOnValueChangeTT as AzOptionColorInputOnValueChange;
@@ -5802,9 +6145,126 @@ mod test_sizes {
         pub display_percentage: bool,
     }
 
-    /// Re-export of rust-allocated (stack based) `Node` struct
+    /// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
     #[repr(C)]
-    pub struct AzNode {
+    pub enum AzNodeGraphStyle {
+        Default,
+    }
+
+    /// `AzNodeGraphOnNodeAddedCallbackType` struct
+    pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeAddedCallback {
+        pub cb: AzNodeGraphOnNodeAddedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeRemovedCallbackType` struct
+    pub type AzNodeGraphOnNodeRemovedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemovedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeRemovedCallback {
+        pub cb: AzNodeGraphOnNodeRemovedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeGraphDraggedCallbackType` struct
+    pub type AzNodeGraphOnNodeGraphDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzGraphDragAmount) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDraggedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeGraphDraggedCallback {
+        pub cb: AzNodeGraphOnNodeGraphDraggedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeDraggedCallbackType` struct
+    pub type AzNodeGraphOnNodeDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, AzNodeDragAmount) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDraggedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeDraggedCallback {
+        pub cb: AzNodeGraphOnNodeDraggedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeConnectedCallbackType` struct
+    pub type AzNodeGraphOnNodeConnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnectedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeConnectedCallback {
+        pub cb: AzNodeGraphOnNodeConnectedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeInputDisconnectedCallbackType` struct
+    pub type AzNodeGraphOnNodeInputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnectedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeInputDisconnectedCallback {
+        pub cb: AzNodeGraphOnNodeInputDisconnectedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeOutputDisconnectedCallbackType` struct
+    pub type AzNodeGraphOnNodeOutputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnectedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeOutputDisconnectedCallback {
+        pub cb: AzNodeGraphOnNodeOutputDisconnectedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeFieldEditedCallbackType` struct
+    pub type AzNodeGraphOnNodeFieldEditedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeTypeId, AzNodeTypeFieldValue) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEditedCallback` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeFieldEditedCallback {
+        pub cb: AzNodeGraphOnNodeFieldEditedCallbackType,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
+    #[repr(C)]
+    pub struct AzInputOutputTypeId {
+        pub inner: u64,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeId` struct
+    #[repr(C)]
+    pub struct AzNodeTypeId {
+        pub inner: u64,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
+    #[repr(C)]
+    pub struct AzNodeGraphNodeId {
+        pub inner: u64,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodePosition` struct
+    #[repr(C)]
+    pub struct AzNodePosition {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `GraphDragAmount` struct
+    #[repr(C)]
+    pub struct AzGraphDragAmount {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeDragAmount` struct
+    #[repr(C)]
+    pub struct AzNodeDragAmount {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
+    #[repr(C)]
+    pub struct AzNodeHierarchyItem {
         pub parent: usize,
         pub previous_sibling: usize,
         pub next_sibling: usize,
@@ -6389,6 +6849,105 @@ mod test_sizes {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzNodeTypeIdInfoMapVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeTypeIdInfoMapVecDestructorType),
+    }
+
+    /// `AzNodeTypeIdInfoMapVecDestructorType` struct
+    pub type AzNodeTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzNodeTypeIdInfoMapVec);
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMapVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzInputOutputTypeIdInfoMapVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputOutputTypeIdInfoMapVecDestructorType),
+    }
+
+    /// `AzInputOutputTypeIdInfoMapVecDestructorType` struct
+    pub type AzInputOutputTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdInfoMapVec);
+
+    /// Re-export of rust-allocated (stack based) `NodeIdNodeMapVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzNodeIdNodeMapVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeIdNodeMapVecDestructorType),
+    }
+
+    /// `AzNodeIdNodeMapVecDestructorType` struct
+    pub type AzNodeIdNodeMapVecDestructorType = extern "C" fn(&mut AzNodeIdNodeMapVec);
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeIdVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzInputOutputTypeIdVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputOutputTypeIdVecDestructorType),
+    }
+
+    /// `AzInputOutputTypeIdVecDestructorType` struct
+    pub type AzInputOutputTypeIdVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdVec);
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeFieldVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzNodeTypeFieldVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeTypeFieldVecDestructorType),
+    }
+
+    /// `AzNodeTypeFieldVecDestructorType` struct
+    pub type AzNodeTypeFieldVecDestructorType = extern "C" fn(&mut AzNodeTypeFieldVec);
+
+    /// Re-export of rust-allocated (stack based) `InputConnectionVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzInputConnectionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputConnectionVecDestructorType),
+    }
+
+    /// `AzInputConnectionVecDestructorType` struct
+    pub type AzInputConnectionVecDestructorType = extern "C" fn(&mut AzInputConnectionVec);
+
+    /// Re-export of rust-allocated (stack based) `OutputNodeAndIndexVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzOutputNodeAndIndexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzOutputNodeAndIndexVecDestructorType),
+    }
+
+    /// `AzOutputNodeAndIndexVecDestructorType` struct
+    pub type AzOutputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzOutputNodeAndIndexVec);
+
+    /// Re-export of rust-allocated (stack based) `OutputConnectionVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzOutputConnectionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzOutputConnectionVecDestructorType),
+    }
+
+    /// `AzOutputConnectionVecDestructorType` struct
+    pub type AzOutputConnectionVecDestructorType = extern "C" fn(&mut AzOutputConnectionVec);
+
+    /// Re-export of rust-allocated (stack based) `InputNodeAndIndexVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzInputNodeAndIndexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputNodeAndIndexVecDestructorType),
+    }
+
+    /// `AzInputNodeAndIndexVecDestructorType` struct
+    pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
+
     /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
     #[repr(C, u8)]
     pub enum AzTabVecDestructor {
@@ -6906,16 +7465,16 @@ mod test_sizes {
     /// `AzNodeIdVecDestructorType` struct
     pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
 
-    /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+    /// Re-export of rust-allocated (stack based) `NodeHierarchyItemVecDestructor` struct
     #[repr(C, u8)]
-    pub enum AzNodeVecDestructor {
+    pub enum AzNodeHierarchyItemVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzNodeVecDestructorType),
+        External(AzNodeHierarchyItemVecDestructorType),
     }
 
-    /// `AzNodeVecDestructorType` struct
-    pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+    /// `AzNodeHierarchyItemVecDestructorType` struct
+    pub type AzNodeHierarchyItemVecDestructorType = extern "C" fn(&mut AzNodeHierarchyItemVec);
 
     /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
     #[repr(C, u8)]
@@ -8361,6 +8920,76 @@ mod test_sizes {
         pub callback: AzNumberInputOnFocusLostCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeAdded {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeAddedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemoved` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeRemoved {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeRemovedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDragged` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeGraphDragged {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeGraphDraggedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDragged` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeDragged {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeDraggedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnected` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeConnected {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeConnectedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnected` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeInputDisconnected {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeInputDisconnectedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnected` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeOutputDisconnected {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeOutputDisconnectedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEdited` struct
+    #[repr(C)]
+    pub struct AzNodeGraphOnNodeFieldEdited {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeFieldEditedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OutputNodeAndIndex` struct
+    #[repr(C)]
+    pub struct AzOutputNodeAndIndex {
+        pub node_id: AzNodeGraphNodeId,
+        pub output_index: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputNodeAndIndex` struct
+    #[repr(C)]
+    pub struct AzInputNodeAndIndex {
+        pub node_id: AzNodeGraphNodeId,
+        pub input_index: usize,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     pub struct AzParentWithNodeDepth {
@@ -8522,6 +9151,33 @@ mod test_sizes {
     pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
+    #[repr(C)]
+    pub struct AzInputOutputTypeIdVec {
+        pub(crate) ptr: *const AzInputOutputTypeId,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputOutputTypeIdVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
+    #[repr(C)]
+    pub struct AzOutputNodeAndIndexVec {
+        pub(crate) ptr: *const AzOutputNodeAndIndex,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzOutputNodeAndIndexVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
+    #[repr(C)]
+    pub struct AzInputNodeAndIndexVec {
+        pub(crate) ptr: *const AzInputNodeAndIndex,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputNodeAndIndexVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
@@ -8740,13 +9396,13 @@ mod test_sizes {
         pub destructor: AzNodeIdVecDestructor,
     }
 
-    /// Wrapper over a Rust-allocated `NodeVec`
+    /// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
     #[repr(C)]
-    pub struct AzNodeVec {
-        pub(crate) ptr: *const AzNode,
+    pub struct AzNodeHierarchyItemVec {
+        pub(crate) ptr: *const AzNodeHierarchyItem,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzNodeVecDestructor,
+        pub destructor: AzNodeHierarchyItemVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
@@ -8756,6 +9412,62 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeAdded {
+        None,
+        Some(AzNodeGraphOnNodeAdded),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeRemoved` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeRemoved {
+        None,
+        Some(AzNodeGraphOnNodeRemoved),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeGraphDragged` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeGraphDragged {
+        None,
+        Some(AzNodeGraphOnNodeGraphDragged),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeDragged` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeDragged {
+        None,
+        Some(AzNodeGraphOnNodeDragged),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeConnected` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeConnected {
+        None,
+        Some(AzNodeGraphOnNodeConnected),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeInputDisconnected` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeInputDisconnected {
+        None,
+        Some(AzNodeGraphOnNodeInputDisconnected),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeOutputDisconnected` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeOutputDisconnected {
+        None,
+        Some(AzNodeGraphOnNodeOutputDisconnected),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeFieldEdited` struct
+    #[repr(C, u8)]
+    pub enum AzOptionNodeGraphOnNodeFieldEdited {
+        None,
+        Some(AzNodeGraphOnNodeFieldEdited),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
@@ -9212,7 +9924,7 @@ mod test_sizes {
         pub gl_context: *const AzOptionGl,
         pub image_cache: *const c_void,
         pub system_fonts: *const c_void,
-        pub node_hierarchy: *const AzNodeVec,
+        pub node_hierarchy: *const AzNodeHierarchyItemVec,
         pub words_cache: *const c_void,
         pub shaped_words_cache: *const c_void,
         pub positioned_words_cache: *const c_void,
@@ -9388,6 +10100,33 @@ mod test_sizes {
         pub on_focus_lost: AzOptionNumberInputOnFocusLost,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeGraphCallbacks` struct
+    #[repr(C)]
+    pub struct AzNodeGraphCallbacks {
+        pub on_node_added: AzOptionNodeGraphOnNodeAdded,
+        pub on_node_removed: AzOptionNodeGraphOnNodeRemoved,
+        pub on_node_dragged: AzOptionNodeGraphOnNodeDragged,
+        pub on_node_graph_dragged: AzOptionNodeGraphOnNodeGraphDragged,
+        pub on_node_connected: AzOptionNodeGraphOnNodeConnected,
+        pub on_node_input_disconnected: AzOptionNodeGraphOnNodeInputDisconnected,
+        pub on_node_output_disconnected: AzOptionNodeGraphOnNodeOutputDisconnected,
+        pub on_node_field_edited: AzOptionNodeGraphOnNodeFieldEdited,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputConnection` struct
+    #[repr(C)]
+    pub struct AzInputConnection {
+        pub input_index: usize,
+        pub connects_to: AzOutputNodeAndIndexVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OutputConnection` struct
+    #[repr(C)]
+    pub struct AzOutputConnection {
+        pub output_index: usize,
+        pub connects_to: AzInputNodeAndIndexVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)]
     pub struct AzStyledNode {
@@ -9507,6 +10246,24 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzString {
         pub vec: AzU8Vec,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputConnection>`
+    #[repr(C)]
+    pub struct AzInputConnectionVec {
+        pub(crate) ptr: *const AzInputConnection,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputConnectionVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<OutputConnection>`
+    #[repr(C)]
+    pub struct AzOutputConnectionVec {
+        pub(crate) ptr: *const AzOutputConnection,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzOutputConnectionVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
@@ -9904,6 +10661,31 @@ mod test_sizes {
         pub max_len: usize,
         pub selection: AzOptionTextInputSelection,
         pub cursor_pos: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
+    #[repr(C, u8)]
+    pub enum AzNodeTypeFieldValue {
+        TextInput(AzString),
+        NumberInput(f32),
+        CheckBox(bool),
+        ColorInput(AzColorU),
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
+    #[repr(C)]
+    pub struct AzNodeTypeInfo {
+        pub is_root: bool,
+        pub name: AzString,
+        pub inputs: AzInputOutputTypeIdVec,
+        pub outputs: AzInputOutputTypeIdVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputOutputInfo` struct
+    #[repr(C)]
+    pub struct AzInputOutputInfo {
+        pub data_type: AzString,
+        pub color: AzColorU,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
@@ -10348,6 +11130,27 @@ mod test_sizes {
         pub container_background: AzStyleBackgroundContentVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMap` struct
+    #[repr(C)]
+    pub struct AzNodeTypeIdInfoMap {
+        pub node_type_id: AzNodeTypeId,
+        pub node_type_info: AzNodeTypeInfo,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMap` struct
+    #[repr(C)]
+    pub struct AzInputOutputTypeIdInfoMap {
+        pub io_type_id: AzInputOutputTypeId,
+        pub io_info: AzInputOutputInfo,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeField` struct
+    #[repr(C)]
+    pub struct AzNodeTypeField {
+        pub key: AzString,
+        pub value: AzNodeTypeFieldValue,
+    }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)]
     pub enum AzCssPropertySource {
@@ -10393,6 +11196,33 @@ mod test_sizes {
         pub attributes: AzStringPairVec,
         pub children: AzXmlNodeVec,
         pub text: AzOptionString,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
+    #[repr(C)]
+    pub struct AzNodeTypeIdInfoMapVec {
+        pub(crate) ptr: *const AzNodeTypeIdInfoMap,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeTypeIdInfoMapVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
+    #[repr(C)]
+    pub struct AzInputOutputTypeIdInfoMapVec {
+        pub(crate) ptr: *const AzInputOutputTypeIdInfoMap,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputOutputTypeIdInfoMapVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
+    #[repr(C)]
+    pub struct AzNodeTypeFieldVec {
+        pub(crate) ptr: *const AzNodeTypeField,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeTypeFieldVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
@@ -10563,6 +11393,16 @@ mod test_sizes {
         pub default_value: AzCssProperty,
     }
 
+    /// Re-export of rust-allocated (stack based) `Node` struct
+    #[repr(C)]
+    pub struct AzNode {
+        pub node_type: AzNodeTypeId,
+        pub position: AzNodePosition,
+        pub fields: AzNodeTypeFieldVec,
+        pub connect_in: AzInputConnectionVec,
+        pub connect_out: AzOutputConnectionVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `SvgNode` struct
     #[repr(C, u8)]
     pub enum AzSvgNode {
@@ -10709,6 +11549,22 @@ mod test_sizes {
         pub state: AzNumberInputStateWrapper,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeIdNodeMap` struct
+    #[repr(C)]
+    pub struct AzNodeIdNodeMap {
+        pub node_id: AzNodeGraphNodeId,
+        pub node: AzNode,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
+    #[repr(C)]
+    pub struct AzNodeIdNodeMapVec {
+        pub(crate) ptr: *const AzNodeIdNodeMap,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeIdNodeMapVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
     pub struct AzCssDeclarationVec {
@@ -10779,11 +11635,24 @@ mod test_sizes {
         pub content: AzDom,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeGraph` struct
+    #[repr(C)]
+    pub struct AzNodeGraph {
+        pub node_types: AzNodeTypeIdInfoMapVec,
+        pub input_output_types: AzInputOutputTypeIdInfoMapVec,
+        pub nodes: AzNodeIdNodeMapVec,
+        pub allow_multiple_root_nodes: bool,
+        pub offset: AzLogicalPosition,
+        pub style: AzNodeGraphStyle,
+        pub callbacks: AzNodeGraphCallbacks,
+        pub add_node_str: AzString,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     pub struct AzStyledDom {
         pub root: AzNodeId,
-        pub node_hierarchy: AzNodeVec,
+        pub node_hierarchy: AzNodeHierarchyItemVec,
         pub node_data: AzNodeDataVec,
         pub styled_nodes: AzStyledNodeVec,
         pub cascade_info: AzCascadeInfoVec,
@@ -10997,7 +11866,22 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnValueChangeCallback>(), "AzNumberInputOnValueChangeCallback"), (Layout::new::<AzNumberInputOnValueChangeCallback>(), "AzNumberInputOnValueChangeCallback"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnFocusLostCallback>(), "AzNumberInputOnFocusLostCallback"), (Layout::new::<AzNumberInputOnFocusLostCallback>(), "AzNumberInputOnFocusLostCallback"));
         assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBarState>(), "AzProgressBarState"), (Layout::new::<AzProgressBarState>(), "AzProgressBarState"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeIdNodeMap>(), "AzNodeGraphStyle"), (Layout::new::<AzNodeGraphStyle>(), "AzNodeGraphStyle"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeAddedCallback>(), "AzNodeGraphOnNodeAddedCallback"), (Layout::new::<AzNodeGraphOnNodeAddedCallback>(), "AzNodeGraphOnNodeAddedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeRemovedCallback>(), "AzNodeGraphOnNodeRemovedCallback"), (Layout::new::<AzNodeGraphOnNodeRemovedCallback>(), "AzNodeGraphOnNodeRemovedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeGraphDraggedCallback>(), "AzNodeGraphOnNodeGraphDraggedCallback"), (Layout::new::<AzNodeGraphOnNodeGraphDraggedCallback>(), "AzNodeGraphOnNodeGraphDraggedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeDraggedCallback>(), "AzNodeGraphOnNodeDraggedCallback"), (Layout::new::<AzNodeGraphOnNodeDraggedCallback>(), "AzNodeGraphOnNodeDraggedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeConnectedCallback>(), "AzNodeGraphOnNodeConnectedCallback"), (Layout::new::<AzNodeGraphOnNodeConnectedCallback>(), "AzNodeGraphOnNodeConnectedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeInputDisconnectedCallback>(), "AzNodeGraphOnNodeInputDisconnectedCallback"), (Layout::new::<AzNodeGraphOnNodeInputDisconnectedCallback>(), "AzNodeGraphOnNodeInputDisconnectedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeOutputDisconnectedCallback>(), "AzNodeGraphOnNodeOutputDisconnectedCallback"), (Layout::new::<AzNodeGraphOnNodeOutputDisconnectedCallback>(), "AzNodeGraphOnNodeOutputDisconnectedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeFieldEditedCallback>(), "AzNodeGraphOnNodeFieldEditedCallback"), (Layout::new::<AzNodeGraphOnNodeFieldEditedCallback>(), "AzNodeGraphOnNodeFieldEditedCallback"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeId>(), "AzInputOutputTypeId"), (Layout::new::<AzInputOutputTypeId>(), "AzInputOutputTypeId"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeId>(), "AzNodeTypeId"), (Layout::new::<AzNodeTypeId>(), "AzNodeTypeId"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeGraphNodeId>(), "AzNodeGraphNodeId"), (Layout::new::<AzNodeGraphNodeId>(), "AzNodeGraphNodeId"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodePosition>(), "AzNodePosition"), (Layout::new::<AzNodePosition>(), "AzNodePosition"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::GraphDragAmount>(), "AzGraphDragAmount"), (Layout::new::<AzGraphDragAmount>(), "AzGraphDragAmount"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeDragAmount>(), "AzNodeDragAmount"), (Layout::new::<AzNodeDragAmount>(), "AzNodeDragAmount"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNode>(), "AzNodeHierarchyItem"), (Layout::new::<AzNodeHierarchyItem>(), "AzNodeHierarchyItem"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::AzTagId>(), "AzTagId"), (Layout::new::<AzTagId>(), "AzTagId"));
@@ -11072,6 +11956,15 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"), (Layout::new::<AzNodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor>(), "AzInputOutputTypeIdInfoMapVecDestructor"), (Layout::new::<AzInputOutputTypeIdInfoMapVecDestructor>(), "AzInputOutputTypeIdInfoMapVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeIdNodeMapVecDestructor>(), "AzNodeIdNodeMapVecDestructor"), (Layout::new::<AzNodeIdNodeMapVecDestructor>(), "AzNodeIdNodeMapVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdVecDestructor>(), "AzInputOutputTypeIdVecDestructor"), (Layout::new::<AzInputOutputTypeIdVecDestructor>(), "AzInputOutputTypeIdVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeFieldVecDestructor>(), "AzNodeTypeFieldVecDestructor"), (Layout::new::<AzNodeTypeFieldVecDestructor>(), "AzNodeTypeFieldVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnectionVecDestructor>(), "AzInputConnectionVecDestructor"), (Layout::new::<AzInputConnectionVecDestructor>(), "AzInputConnectionVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndexVecDestructor>(), "AzOutputNodeAndIndexVecDestructor"), (Layout::new::<AzOutputNodeAndIndexVecDestructor>(), "AzOutputNodeAndIndexVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnectionVecDestructor>(), "AzOutputConnectionVecDestructor"), (Layout::new::<AzOutputConnectionVecDestructor>(), "AzOutputConnectionVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndexVecDestructor>(), "AzInputNodeAndIndexVecDestructor"), (Layout::new::<AzInputNodeAndIndexVecDestructor>(), "AzInputNodeAndIndexVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::tabs::TabVecDestructor>(), "AzTabVecDestructor"), (Layout::new::<AzTabVecDestructor>(), "AzTabVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
@@ -11119,7 +12012,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::NormalizedLinearColorStopVecDestructor>(), "AzNormalizedLinearColorStopVecDestructor"), (Layout::new::<AzNormalizedLinearColorStopVecDestructor>(), "AzNormalizedLinearColorStopVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::NormalizedRadialColorStopVecDestructor>(), "AzNormalizedRadialColorStopVecDestructor"), (Layout::new::<AzNormalizedRadialColorStopVecDestructor>(), "AzNormalizedRadialColorStopVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVecDestructor>(), "AzNodeIdVecDestructor"), (Layout::new::<AzNodeIdVecDestructor>(), "AzNodeIdVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), "AzNodeVecDestructor"), (Layout::new::<AzNodeVecDestructor>(), "AzNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVecDestructor>(), "AzNodeHierarchyItemVecDestructor"), (Layout::new::<AzNodeHierarchyItemVecDestructor>(), "AzNodeHierarchyItemVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"), (Layout::new::<AzStyledNodeVecDestructor>(), "AzStyledNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor>(), "AzTagIdToNodeIdMappingVecDestructor"), (Layout::new::<AzTagIdToNodeIdMappingVecDestructor>(), "AzTagIdToNodeIdMappingVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"), (Layout::new::<AzParentWithNodeDepthVecDestructor>(), "AzParentWithNodeDepthVecDestructor"));
@@ -11294,6 +12187,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::OnTextInputReturn>(), "AzOnTextInputReturn"), (Layout::new::<AzOnTextInputReturn>(), "AzOnTextInputReturn"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnValueChange>(), "AzNumberInputOnValueChange"), (Layout::new::<AzNumberInputOnValueChange>(), "AzNumberInputOnValueChange"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnFocusLost>(), "AzNumberInputOnFocusLost"), (Layout::new::<AzNumberInputOnFocusLost>(), "AzNumberInputOnFocusLost"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeAdded>(), "AzNodeGraphOnNodeAdded"), (Layout::new::<AzNodeGraphOnNodeAdded>(), "AzNodeGraphOnNodeAdded"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeRemoved>(), "AzNodeGraphOnNodeRemoved"), (Layout::new::<AzNodeGraphOnNodeRemoved>(), "AzNodeGraphOnNodeRemoved"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeGraphDragged>(), "AzNodeGraphOnNodeGraphDragged"), (Layout::new::<AzNodeGraphOnNodeGraphDragged>(), "AzNodeGraphOnNodeGraphDragged"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeDragged>(), "AzNodeGraphOnNodeDragged"), (Layout::new::<AzNodeGraphOnNodeDragged>(), "AzNodeGraphOnNodeDragged"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeConnected>(), "AzNodeGraphOnNodeConnected"), (Layout::new::<AzNodeGraphOnNodeConnected>(), "AzNodeGraphOnNodeConnected"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeInputDisconnected>(), "AzNodeGraphOnNodeInputDisconnected"), (Layout::new::<AzNodeGraphOnNodeInputDisconnected>(), "AzNodeGraphOnNodeInputDisconnected"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeOutputDisconnected>(), "AzNodeGraphOnNodeOutputDisconnected"), (Layout::new::<AzNodeGraphOnNodeOutputDisconnected>(), "AzNodeGraphOnNodeOutputDisconnected"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeFieldEdited>(), "AzNodeGraphOnNodeFieldEdited"), (Layout::new::<AzNodeGraphOnNodeFieldEdited>(), "AzNodeGraphOnNodeFieldEdited"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndex>(), "AzOutputNodeAndIndex"), (Layout::new::<AzOutputNodeAndIndex>(), "AzOutputNodeAndIndex"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndex>(), "AzInputNodeAndIndex"), (Layout::new::<AzInputNodeAndIndex>(), "AzInputNodeAndIndex"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
         assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
@@ -11308,6 +12211,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeId>(), "AzInputOutputTypeIdVec"), (Layout::new::<AzInputOutputTypeIdVec>(), "AzInputOutputTypeIdVec"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndex>(), "AzOutputNodeAndIndexVec"), (Layout::new::<AzOutputNodeAndIndexVec>(), "AzOutputNodeAndIndexVec"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndex>(), "AzInputNodeAndIndexVec"), (Layout::new::<AzInputNodeAndIndexVec>(), "AzInputNodeAndIndexVec"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVec>(), "AzAccessibilityStateVec"), (Layout::new::<AzAccessibilityStateVec>(), "AzAccessibilityStateVec"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemVec>(), "AzMenuItemVec"), (Layout::new::<AzMenuItemVec>(), "AzMenuItemVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVec>(), "AzXmlNodeVec"), (Layout::new::<AzXmlNodeVec>(), "AzXmlNodeVec"));
@@ -11332,8 +12238,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::NormalizedLinearColorStopVec>(), "AzNormalizedLinearColorStopVec"), (Layout::new::<AzNormalizedLinearColorStopVec>(), "AzNormalizedLinearColorStopVec"));
         assert_eq!((Layout::new::<azul_impl::css::NormalizedRadialColorStopVec>(), "AzNormalizedRadialColorStopVec"), (Layout::new::<AzNormalizedRadialColorStopVec>(), "AzNormalizedRadialColorStopVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
-        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeVec"), (Layout::new::<AzNodeVec>(), "AzNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::styled_dom::AzNodeVec>(), "AzNodeHierarchyItemVec"), (Layout::new::<AzNodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeAdded>(), "AzOptionNodeGraphOnNodeAdded"), (Layout::new::<AzOptionNodeGraphOnNodeAdded>(), "AzOptionNodeGraphOnNodeAdded"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeRemoved>(), "AzOptionNodeGraphOnNodeRemoved"), (Layout::new::<AzOptionNodeGraphOnNodeRemoved>(), "AzOptionNodeGraphOnNodeRemoved"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeGraphDragged>(), "AzOptionNodeGraphOnNodeGraphDragged"), (Layout::new::<AzOptionNodeGraphOnNodeGraphDragged>(), "AzOptionNodeGraphOnNodeGraphDragged"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeDragged>(), "AzOptionNodeGraphOnNodeDragged"), (Layout::new::<AzOptionNodeGraphOnNodeDragged>(), "AzOptionNodeGraphOnNodeDragged"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeConnected>(), "AzOptionNodeGraphOnNodeConnected"), (Layout::new::<AzOptionNodeGraphOnNodeConnected>(), "AzOptionNodeGraphOnNodeConnected"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeInputDisconnected>(), "AzOptionNodeGraphOnNodeInputDisconnected"), (Layout::new::<AzOptionNodeGraphOnNodeInputDisconnected>(), "AzOptionNodeGraphOnNodeInputDisconnected"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeOutputDisconnected>(), "AzOptionNodeGraphOnNodeOutputDisconnected"), (Layout::new::<AzOptionNodeGraphOnNodeOutputDisconnected>(), "AzOptionNodeGraphOnNodeOutputDisconnected"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeFieldEdited>(), "AzOptionNodeGraphOnNodeFieldEdited"), (Layout::new::<AzOptionNodeGraphOnNodeFieldEdited>(), "AzOptionNodeGraphOnNodeFieldEdited"));
         assert_eq!((Layout::new::<crate::widgets::color_input::OptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"), (Layout::new::<AzOptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"));
         assert_eq!((Layout::new::<crate::widgets::button::OptionButtonOnClick>(), "AzOptionButtonOnClick"), (Layout::new::<AzOptionButtonOnClick>(), "AzOptionButtonOnClick"));
         assert_eq!((Layout::new::<crate::widgets::check_box::OptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"), (Layout::new::<AzOptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"));
@@ -11411,6 +12325,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"), (Layout::new::<AzStyleBackgroundSizeVecValue>(), "AzStyleBackgroundSizeVecValue"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"), (Layout::new::<AzCheckBoxStateWrapper>(), "AzCheckBoxStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputStateWrapper>(), "AzNumberInputStateWrapper"), (Layout::new::<AzNumberInputStateWrapper>(), "AzNumberInputStateWrapper"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeGraphCallbacks>(), "AzNodeGraphCallbacks"), (Layout::new::<AzNodeGraphCallbacks>(), "AzNodeGraphCallbacks"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnection>(), "AzInputConnection"), (Layout::new::<AzInputConnection>(), "AzInputConnection"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnection>(), "AzOutputConnection"), (Layout::new::<AzOutputConnection>(), "AzOutputConnection"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
         assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
@@ -11426,6 +12343,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnection>(), "AzInputConnectionVec"), (Layout::new::<AzInputConnectionVec>(), "AzInputConnectionVec"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnection>(), "AzOutputConnectionVec"), (Layout::new::<AzOutputConnectionVec>(), "AzOutputConnectionVec"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"), (Layout::new::<AzTessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
@@ -11468,6 +12387,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecValue>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputStateWrapper>(), "AzColorInputStateWrapper"), (Layout::new::<AzColorInputStateWrapper>(), "AzColorInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputState>(), "AzTextInputState"), (Layout::new::<AzTextInputState>(), "AzTextInputState"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeFieldValue>(), "AzNodeTypeFieldValue"), (Layout::new::<AzNodeTypeFieldValue>(), "AzNodeTypeFieldValue"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeInfo>(), "AzNodeTypeInfo"), (Layout::new::<AzNodeTypeInfo>(), "AzNodeTypeInfo"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputInfo>(), "AzInputOutputInfo"), (Layout::new::<AzInputOutputInfo>(), "AzInputOutputInfo"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));
@@ -11508,12 +12430,18 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputStateWrapper>(), "AzTextInputStateWrapper"), (Layout::new::<AzTextInputStateWrapper>(), "AzTextInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBar>(), "AzProgressBar"), (Layout::new::<AzProgressBar>(), "AzProgressBar"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMap>(), "AzNodeTypeIdInfoMap"), (Layout::new::<AzNodeTypeIdInfoMap>(), "AzNodeTypeIdInfoMap"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdInfoMap>(), "AzInputOutputTypeIdInfoMap"), (Layout::new::<AzInputOutputTypeIdInfoMap>(), "AzInputOutputTypeIdInfoMap"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeField>(), "AzNodeTypeField"), (Layout::new::<AzNodeTypeField>(), "AzNodeTypeField"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::CssPropertySource>(), "AzCssPropertySource"), (Layout::new::<AzCssPropertySource>(), "AzCssPropertySource"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexLayout>(), "AzVertexLayout"), (Layout::new::<AzVertexLayout>(), "AzVertexLayout"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNode>(), "AzXmlNode"), (Layout::new::<AzXmlNode>(), "AzXmlNode"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMap>(), "AzNodeTypeIdInfoMapVec"), (Layout::new::<AzNodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdInfoMap>(), "AzInputOutputTypeIdInfoMapVec"), (Layout::new::<AzInputOutputTypeIdInfoMapVec>(), "AzInputOutputTypeIdInfoMapVec"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeField>(), "AzNodeTypeFieldVec"), (Layout::new::<AzNodeTypeFieldVec>(), "AzNodeTypeFieldVec"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVec>(), "AzInlineLineVec"), (Layout::new::<AzInlineLineVec>(), "AzInlineLineVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyVec>(), "AzCssPropertyVec"), (Layout::new::<AzCssPropertyVec>(), "AzCssPropertyVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
@@ -11528,6 +12456,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::TimerCallbackInfo>(), "AzTimerCallbackInfo"), (Layout::new::<AzTimerCallbackInfo>(), "AzTimerCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"), (Layout::new::<AzNodeDataInlineCssProperty>(), "AzNodeDataInlineCssProperty"));
         assert_eq!((Layout::new::<azul_impl::css::DynamicCssProperty>(), "AzDynamicCssProperty"), (Layout::new::<AzDynamicCssProperty>(), "AzDynamicCssProperty"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::Node>(), "AzNode"), (Layout::new::<AzNode>(), "AzNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgNode>(), "AzSvgNode"), (Layout::new::<AzSvgNode>(), "AzSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgStyledNode>(), "AzSvgStyledNode"), (Layout::new::<AzSvgStyledNode>(), "AzSvgStyledNode"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"), (Layout::new::<AzNodeDataInlineCssPropertyVec>(), "AzNodeDataInlineCssPropertyVec"));
@@ -11544,6 +12473,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInput>(), "AzColorInput"), (Layout::new::<AzColorInput>(), "AzColorInput"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInput>(), "AzTextInput"), (Layout::new::<AzTextInput>(), "AzTextInput"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInput>(), "AzNumberInput"), (Layout::new::<AzNumberInput>(), "AzNumberInput"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeIdNodeMap>(), "AzNodeIdNodeMap"), (Layout::new::<AzNodeIdNodeMap>(), "AzNodeIdNodeMap"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeIdNodeMap>(), "AzNodeIdNodeMapVec"), (Layout::new::<AzNodeIdNodeMapVec>(), "AzNodeIdNodeMapVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclarationVec>(), "AzCssDeclarationVec"), (Layout::new::<AzCssDeclarationVec>(), "AzCssDeclarationVec"));
         assert_eq!((Layout::new::<azul_impl::dom::NodeDataVec>(), "AzNodeDataVec"), (Layout::new::<AzNodeDataVec>(), "AzNodeDataVec"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));
@@ -11551,6 +12482,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
         assert_eq!((Layout::new::<crate::widgets::tabs::Tab>(), "AzTab"), (Layout::new::<AzTab>(), "AzTab"));
         assert_eq!((Layout::new::<crate::widgets::frame::Frame>(), "AzFrame"), (Layout::new::<AzFrame>(), "AzFrame"));
+        assert_eq!((Layout::new::<crate::widgets::node_graph::NodeGraph>(), "AzNodeGraph"), (Layout::new::<AzNodeGraph>(), "AzNodeGraph"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
         assert_eq!((Layout::new::<crate::widgets::tabs::TabVec>(), "AzTabVec"), (Layout::new::<AzTabVec>(), "AzTabVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));

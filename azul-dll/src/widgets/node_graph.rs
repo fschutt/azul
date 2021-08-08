@@ -255,14 +255,6 @@ pub struct NodePosition {
     pub y: f32,
 }
 
-// specifies what field has changed
-pub enum NodeFieldChange {
-    String { old: String, new: String },
-    Number { old: f32, new: f32 },
-    Color { old: ColorU, new: ColorU },
-    Checkbox { old: bool, new: bool },
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum NodeGraphError {

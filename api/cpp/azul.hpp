@@ -56,6 +56,28 @@ namespace dll {
     
     using NumberInputOnFocusLostCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NumberInputState* const);
     
+    struct NodeTypeId;
+    struct NodePosition;
+    using NodeGraphOnNodeAddedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeTypeId, NodePosition);
+    
+    struct NodeGraphNodeId;
+    using NodeGraphOnNodeRemovedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId);
+    
+    struct GraphDragAmount;
+    using NodeGraphOnNodeGraphDraggedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, GraphDragAmount);
+    
+    struct NodeDragAmount;
+    using NodeGraphOnNodeDraggedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, NodeDragAmount);
+    
+    using NodeGraphOnNodeConnectedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, size_t, NodeGraphNodeId, size_t);
+    
+    using NodeGraphOnNodeInputDisconnectedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, size_t);
+    
+    using NodeGraphOnNodeOutputDisconnectedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, size_t);
+    
+    union NodeTypeFieldValue;
+    using NodeGraphOnNodeFieldEditedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, size_t, NodeTypeId, NodeTypeFieldValue);
+    
     using ParsedFontDestructorFnType = void(*)(void* restrict);
     
     struct InstantPtr;
@@ -92,6 +114,33 @@ namespace dll {
     
     struct StyleFontFamilyVec;
     using StyleFontFamilyVecDestructorType = void(*)(StyleFontFamilyVec* restrict);
+    
+    struct NodeTypeIdInfoMapVec;
+    using NodeTypeIdInfoMapVecDestructorType = void(*)(NodeTypeIdInfoMapVec* restrict);
+    
+    struct InputOutputTypeIdInfoMapVec;
+    using InputOutputTypeIdInfoMapVecDestructorType = void(*)(InputOutputTypeIdInfoMapVec* restrict);
+    
+    struct NodeIdNodeMapVec;
+    using NodeIdNodeMapVecDestructorType = void(*)(NodeIdNodeMapVec* restrict);
+    
+    struct InputOutputTypeIdVec;
+    using InputOutputTypeIdVecDestructorType = void(*)(InputOutputTypeIdVec* restrict);
+    
+    struct NodeTypeFieldVec;
+    using NodeTypeFieldVecDestructorType = void(*)(NodeTypeFieldVec* restrict);
+    
+    struct InputConnectionVec;
+    using InputConnectionVecDestructorType = void(*)(InputConnectionVec* restrict);
+    
+    struct OutputNodeAndIndexVec;
+    using OutputNodeAndIndexVecDestructorType = void(*)(OutputNodeAndIndexVec* restrict);
+    
+    struct OutputConnectionVec;
+    using OutputConnectionVecDestructorType = void(*)(OutputConnectionVec* restrict);
+    
+    struct InputNodeAndIndexVec;
+    using InputNodeAndIndexVecDestructorType = void(*)(InputNodeAndIndexVec* restrict);
     
     struct TabVec;
     using TabVecDestructorType = void(*)(TabVec* restrict);
@@ -234,8 +283,8 @@ namespace dll {
     struct NodeIdVec;
     using NodeIdVecDestructorType = void(*)(NodeIdVec* restrict);
     
-    struct NodeVec;
-    using NodeVecDestructorType = void(*)(NodeVec* restrict);
+    struct NodeHierarchyItemVec;
+    using NodeHierarchyItemVecDestructorType = void(*)(NodeHierarchyItemVec* restrict);
     
     struct StyledNodeVec;
     using StyledNodeVecDestructorType = void(*)(StyledNodeVec* restrict);
@@ -1412,13 +1461,118 @@ namespace dll {
         ProgressBarState() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
-    struct Node {
+    enum class NodeGraphStyle {
+       Default,
+    };
+    
+    struct NodeGraphOnNodeAddedCallback {
+        NodeGraphOnNodeAddedCallbackType cb;
+        NodeGraphOnNodeAddedCallback& operator=(const NodeGraphOnNodeAddedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeAddedCallback(const NodeGraphOnNodeAddedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeAddedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeRemovedCallback {
+        NodeGraphOnNodeRemovedCallbackType cb;
+        NodeGraphOnNodeRemovedCallback& operator=(const NodeGraphOnNodeRemovedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeRemovedCallback(const NodeGraphOnNodeRemovedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeRemovedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeGraphDraggedCallback {
+        NodeGraphOnNodeGraphDraggedCallbackType cb;
+        NodeGraphOnNodeGraphDraggedCallback& operator=(const NodeGraphOnNodeGraphDraggedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeGraphDraggedCallback(const NodeGraphOnNodeGraphDraggedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeGraphDraggedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeDraggedCallback {
+        NodeGraphOnNodeDraggedCallbackType cb;
+        NodeGraphOnNodeDraggedCallback& operator=(const NodeGraphOnNodeDraggedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeDraggedCallback(const NodeGraphOnNodeDraggedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeDraggedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeConnectedCallback {
+        NodeGraphOnNodeConnectedCallbackType cb;
+        NodeGraphOnNodeConnectedCallback& operator=(const NodeGraphOnNodeConnectedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeConnectedCallback(const NodeGraphOnNodeConnectedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeConnectedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeInputDisconnectedCallback {
+        NodeGraphOnNodeInputDisconnectedCallbackType cb;
+        NodeGraphOnNodeInputDisconnectedCallback& operator=(const NodeGraphOnNodeInputDisconnectedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeInputDisconnectedCallback(const NodeGraphOnNodeInputDisconnectedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeInputDisconnectedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeOutputDisconnectedCallback {
+        NodeGraphOnNodeOutputDisconnectedCallbackType cb;
+        NodeGraphOnNodeOutputDisconnectedCallback& operator=(const NodeGraphOnNodeOutputDisconnectedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeOutputDisconnectedCallback(const NodeGraphOnNodeOutputDisconnectedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeOutputDisconnectedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeFieldEditedCallback {
+        NodeGraphOnNodeFieldEditedCallbackType cb;
+        NodeGraphOnNodeFieldEditedCallback& operator=(const NodeGraphOnNodeFieldEditedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeFieldEditedCallback(const NodeGraphOnNodeFieldEditedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeFieldEditedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputOutputTypeId {
+        uint64_t inner;
+        InputOutputTypeId& operator=(const InputOutputTypeId&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputOutputTypeId(const InputOutputTypeId&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputOutputTypeId() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeTypeId {
+        uint64_t inner;
+        NodeTypeId& operator=(const NodeTypeId&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeTypeId(const NodeTypeId&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeTypeId() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphNodeId {
+        uint64_t inner;
+        NodeGraphNodeId& operator=(const NodeGraphNodeId&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphNodeId(const NodeGraphNodeId&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphNodeId() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodePosition {
+        float x;
+        float y;
+        NodePosition& operator=(const NodePosition&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodePosition(const NodePosition&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodePosition() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct GraphDragAmount {
+        float x;
+        float y;
+        GraphDragAmount& operator=(const GraphDragAmount&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        GraphDragAmount(const GraphDragAmount&) = delete; /* disable copy constructor, use explicit .clone() */
+        GraphDragAmount() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeDragAmount {
+        float x;
+        float y;
+        NodeDragAmount& operator=(const NodeDragAmount&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeDragAmount(const NodeDragAmount&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeDragAmount() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeHierarchyItem {
         size_t parent;
         size_t previous_sibling;
         size_t next_sibling;
         size_t last_child;
-        Node& operator=(const Node&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        Node() = delete; /* disable default constructor, use C++20 designated initializer instead */
+        NodeHierarchyItem& operator=(const NodeHierarchyItem&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeHierarchyItem() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct CascadeInfo {
@@ -1982,6 +2136,150 @@ namespace dll {
         StyleFontFamilyVecDestructorVariant_DefaultRust DefaultRust;
         StyleFontFamilyVecDestructorVariant_NoDestructor NoDestructor;
         StyleFontFamilyVecDestructorVariant_External External;
+    };
+    
+    
+    enum class NodeTypeIdInfoMapVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct NodeTypeIdInfoMapVecDestructorVariant_DefaultRust { NodeTypeIdInfoMapVecDestructorTag tag; };
+    struct NodeTypeIdInfoMapVecDestructorVariant_NoDestructor { NodeTypeIdInfoMapVecDestructorTag tag; };
+    struct NodeTypeIdInfoMapVecDestructorVariant_External { NodeTypeIdInfoMapVecDestructorTag tag; NodeTypeIdInfoMapVecDestructorType payload; };
+    union NodeTypeIdInfoMapVecDestructor {
+        NodeTypeIdInfoMapVecDestructorVariant_DefaultRust DefaultRust;
+        NodeTypeIdInfoMapVecDestructorVariant_NoDestructor NoDestructor;
+        NodeTypeIdInfoMapVecDestructorVariant_External External;
+    };
+    
+    
+    enum class InputOutputTypeIdInfoMapVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct InputOutputTypeIdInfoMapVecDestructorVariant_DefaultRust { InputOutputTypeIdInfoMapVecDestructorTag tag; };
+    struct InputOutputTypeIdInfoMapVecDestructorVariant_NoDestructor { InputOutputTypeIdInfoMapVecDestructorTag tag; };
+    struct InputOutputTypeIdInfoMapVecDestructorVariant_External { InputOutputTypeIdInfoMapVecDestructorTag tag; InputOutputTypeIdInfoMapVecDestructorType payload; };
+    union InputOutputTypeIdInfoMapVecDestructor {
+        InputOutputTypeIdInfoMapVecDestructorVariant_DefaultRust DefaultRust;
+        InputOutputTypeIdInfoMapVecDestructorVariant_NoDestructor NoDestructor;
+        InputOutputTypeIdInfoMapVecDestructorVariant_External External;
+    };
+    
+    
+    enum class NodeIdNodeMapVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct NodeIdNodeMapVecDestructorVariant_DefaultRust { NodeIdNodeMapVecDestructorTag tag; };
+    struct NodeIdNodeMapVecDestructorVariant_NoDestructor { NodeIdNodeMapVecDestructorTag tag; };
+    struct NodeIdNodeMapVecDestructorVariant_External { NodeIdNodeMapVecDestructorTag tag; NodeIdNodeMapVecDestructorType payload; };
+    union NodeIdNodeMapVecDestructor {
+        NodeIdNodeMapVecDestructorVariant_DefaultRust DefaultRust;
+        NodeIdNodeMapVecDestructorVariant_NoDestructor NoDestructor;
+        NodeIdNodeMapVecDestructorVariant_External External;
+    };
+    
+    
+    enum class InputOutputTypeIdVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct InputOutputTypeIdVecDestructorVariant_DefaultRust { InputOutputTypeIdVecDestructorTag tag; };
+    struct InputOutputTypeIdVecDestructorVariant_NoDestructor { InputOutputTypeIdVecDestructorTag tag; };
+    struct InputOutputTypeIdVecDestructorVariant_External { InputOutputTypeIdVecDestructorTag tag; InputOutputTypeIdVecDestructorType payload; };
+    union InputOutputTypeIdVecDestructor {
+        InputOutputTypeIdVecDestructorVariant_DefaultRust DefaultRust;
+        InputOutputTypeIdVecDestructorVariant_NoDestructor NoDestructor;
+        InputOutputTypeIdVecDestructorVariant_External External;
+    };
+    
+    
+    enum class NodeTypeFieldVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct NodeTypeFieldVecDestructorVariant_DefaultRust { NodeTypeFieldVecDestructorTag tag; };
+    struct NodeTypeFieldVecDestructorVariant_NoDestructor { NodeTypeFieldVecDestructorTag tag; };
+    struct NodeTypeFieldVecDestructorVariant_External { NodeTypeFieldVecDestructorTag tag; NodeTypeFieldVecDestructorType payload; };
+    union NodeTypeFieldVecDestructor {
+        NodeTypeFieldVecDestructorVariant_DefaultRust DefaultRust;
+        NodeTypeFieldVecDestructorVariant_NoDestructor NoDestructor;
+        NodeTypeFieldVecDestructorVariant_External External;
+    };
+    
+    
+    enum class InputConnectionVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct InputConnectionVecDestructorVariant_DefaultRust { InputConnectionVecDestructorTag tag; };
+    struct InputConnectionVecDestructorVariant_NoDestructor { InputConnectionVecDestructorTag tag; };
+    struct InputConnectionVecDestructorVariant_External { InputConnectionVecDestructorTag tag; InputConnectionVecDestructorType payload; };
+    union InputConnectionVecDestructor {
+        InputConnectionVecDestructorVariant_DefaultRust DefaultRust;
+        InputConnectionVecDestructorVariant_NoDestructor NoDestructor;
+        InputConnectionVecDestructorVariant_External External;
+    };
+    
+    
+    enum class OutputNodeAndIndexVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct OutputNodeAndIndexVecDestructorVariant_DefaultRust { OutputNodeAndIndexVecDestructorTag tag; };
+    struct OutputNodeAndIndexVecDestructorVariant_NoDestructor { OutputNodeAndIndexVecDestructorTag tag; };
+    struct OutputNodeAndIndexVecDestructorVariant_External { OutputNodeAndIndexVecDestructorTag tag; OutputNodeAndIndexVecDestructorType payload; };
+    union OutputNodeAndIndexVecDestructor {
+        OutputNodeAndIndexVecDestructorVariant_DefaultRust DefaultRust;
+        OutputNodeAndIndexVecDestructorVariant_NoDestructor NoDestructor;
+        OutputNodeAndIndexVecDestructorVariant_External External;
+    };
+    
+    
+    enum class OutputConnectionVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct OutputConnectionVecDestructorVariant_DefaultRust { OutputConnectionVecDestructorTag tag; };
+    struct OutputConnectionVecDestructorVariant_NoDestructor { OutputConnectionVecDestructorTag tag; };
+    struct OutputConnectionVecDestructorVariant_External { OutputConnectionVecDestructorTag tag; OutputConnectionVecDestructorType payload; };
+    union OutputConnectionVecDestructor {
+        OutputConnectionVecDestructorVariant_DefaultRust DefaultRust;
+        OutputConnectionVecDestructorVariant_NoDestructor NoDestructor;
+        OutputConnectionVecDestructorVariant_External External;
+    };
+    
+    
+    enum class InputNodeAndIndexVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct InputNodeAndIndexVecDestructorVariant_DefaultRust { InputNodeAndIndexVecDestructorTag tag; };
+    struct InputNodeAndIndexVecDestructorVariant_NoDestructor { InputNodeAndIndexVecDestructorTag tag; };
+    struct InputNodeAndIndexVecDestructorVariant_External { InputNodeAndIndexVecDestructorTag tag; InputNodeAndIndexVecDestructorType payload; };
+    union InputNodeAndIndexVecDestructor {
+        InputNodeAndIndexVecDestructorVariant_DefaultRust DefaultRust;
+        InputNodeAndIndexVecDestructorVariant_NoDestructor NoDestructor;
+        InputNodeAndIndexVecDestructorVariant_External External;
     };
     
     
@@ -2737,19 +3035,19 @@ namespace dll {
     };
     
     
-    enum class NodeVecDestructorTag {
+    enum class NodeHierarchyItemVecDestructorTag {
        DefaultRust,
        NoDestructor,
        External,
     };
     
-    struct NodeVecDestructorVariant_DefaultRust { NodeVecDestructorTag tag; };
-    struct NodeVecDestructorVariant_NoDestructor { NodeVecDestructorTag tag; };
-    struct NodeVecDestructorVariant_External { NodeVecDestructorTag tag; NodeVecDestructorType payload; };
-    union NodeVecDestructor {
-        NodeVecDestructorVariant_DefaultRust DefaultRust;
-        NodeVecDestructorVariant_NoDestructor NoDestructor;
-        NodeVecDestructorVariant_External External;
+    struct NodeHierarchyItemVecDestructorVariant_DefaultRust { NodeHierarchyItemVecDestructorTag tag; };
+    struct NodeHierarchyItemVecDestructorVariant_NoDestructor { NodeHierarchyItemVecDestructorTag tag; };
+    struct NodeHierarchyItemVecDestructorVariant_External { NodeHierarchyItemVecDestructorTag tag; NodeHierarchyItemVecDestructorType payload; };
+    union NodeHierarchyItemVecDestructor {
+        NodeHierarchyItemVecDestructorVariant_DefaultRust DefaultRust;
+        NodeHierarchyItemVecDestructorVariant_NoDestructor NoDestructor;
+        NodeHierarchyItemVecDestructorVariant_External External;
     };
     
     
@@ -5120,6 +5418,86 @@ namespace dll {
         NumberInputOnFocusLost() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct NodeGraphOnNodeAdded {
+        RefAny data;
+        NodeGraphOnNodeAddedCallback callback;
+        NodeGraphOnNodeAdded& operator=(const NodeGraphOnNodeAdded&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeAdded(const NodeGraphOnNodeAdded&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeAdded() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeRemoved {
+        RefAny data;
+        NodeGraphOnNodeRemovedCallback callback;
+        NodeGraphOnNodeRemoved& operator=(const NodeGraphOnNodeRemoved&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeRemoved(const NodeGraphOnNodeRemoved&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeRemoved() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeGraphDragged {
+        RefAny data;
+        NodeGraphOnNodeGraphDraggedCallback callback;
+        NodeGraphOnNodeGraphDragged& operator=(const NodeGraphOnNodeGraphDragged&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeGraphDragged(const NodeGraphOnNodeGraphDragged&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeGraphDragged() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeDragged {
+        RefAny data;
+        NodeGraphOnNodeDraggedCallback callback;
+        NodeGraphOnNodeDragged& operator=(const NodeGraphOnNodeDragged&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeDragged(const NodeGraphOnNodeDragged&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeDragged() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeConnected {
+        RefAny data;
+        NodeGraphOnNodeConnectedCallback callback;
+        NodeGraphOnNodeConnected& operator=(const NodeGraphOnNodeConnected&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeConnected(const NodeGraphOnNodeConnected&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeConnected() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeInputDisconnected {
+        RefAny data;
+        NodeGraphOnNodeInputDisconnectedCallback callback;
+        NodeGraphOnNodeInputDisconnected& operator=(const NodeGraphOnNodeInputDisconnected&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeInputDisconnected(const NodeGraphOnNodeInputDisconnected&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeInputDisconnected() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeOutputDisconnected {
+        RefAny data;
+        NodeGraphOnNodeOutputDisconnectedCallback callback;
+        NodeGraphOnNodeOutputDisconnected& operator=(const NodeGraphOnNodeOutputDisconnected&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeOutputDisconnected(const NodeGraphOnNodeOutputDisconnected&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeOutputDisconnected() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeGraphOnNodeFieldEdited {
+        RefAny data;
+        NodeGraphOnNodeFieldEditedCallback callback;
+        NodeGraphOnNodeFieldEdited& operator=(const NodeGraphOnNodeFieldEdited&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphOnNodeFieldEdited(const NodeGraphOnNodeFieldEdited&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphOnNodeFieldEdited() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct OutputNodeAndIndex {
+        NodeGraphNodeId node_id;
+        size_t output_index;
+        OutputNodeAndIndex& operator=(const OutputNodeAndIndex&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        OutputNodeAndIndex(const OutputNodeAndIndex&) = delete; /* disable copy constructor, use explicit .clone() */
+        OutputNodeAndIndex() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputNodeAndIndex {
+        NodeGraphNodeId node_id;
+        size_t input_index;
+        InputNodeAndIndex& operator=(const InputNodeAndIndex&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputNodeAndIndex(const InputNodeAndIndex&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputNodeAndIndex() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct ParentWithNodeDepth {
         size_t depth;
         NodeId node_id;
@@ -5302,6 +5680,36 @@ namespace dll {
         ThreadWriteBackMsg& operator=(const ThreadWriteBackMsg&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         ThreadWriteBackMsg(const ThreadWriteBackMsg&) = delete; /* disable copy constructor, use explicit .clone() */
         ThreadWriteBackMsg() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputOutputTypeIdVec {
+        InputOutputTypeId* ptr;
+        size_t len;
+        size_t cap;
+        InputOutputTypeIdVecDestructor destructor;
+        InputOutputTypeIdVec& operator=(const InputOutputTypeIdVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputOutputTypeIdVec(const InputOutputTypeIdVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputOutputTypeIdVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct OutputNodeAndIndexVec {
+        OutputNodeAndIndex* ptr;
+        size_t len;
+        size_t cap;
+        OutputNodeAndIndexVecDestructor destructor;
+        OutputNodeAndIndexVec& operator=(const OutputNodeAndIndexVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        OutputNodeAndIndexVec(const OutputNodeAndIndexVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        OutputNodeAndIndexVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputNodeAndIndexVec {
+        InputNodeAndIndex* ptr;
+        size_t len;
+        size_t cap;
+        InputNodeAndIndexVecDestructor destructor;
+        InputNodeAndIndexVec& operator=(const InputNodeAndIndexVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputNodeAndIndexVec(const InputNodeAndIndexVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputNodeAndIndexVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct AccessibilityStateVec {
@@ -5547,14 +5955,14 @@ namespace dll {
         NodeIdVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
-    struct NodeVec {
-        Node* ptr;
+    struct NodeHierarchyItemVec {
+        NodeHierarchyItem* ptr;
         size_t len;
         size_t cap;
-        NodeVecDestructor destructor;
-        NodeVec& operator=(const NodeVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        NodeVec(const NodeVec&) = delete; /* disable copy constructor, use explicit .clone() */
-        NodeVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+        NodeHierarchyItemVecDestructor destructor;
+        NodeHierarchyItemVec& operator=(const NodeHierarchyItemVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeHierarchyItemVec(const NodeHierarchyItemVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeHierarchyItemVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct ParentWithNodeDepthVec {
@@ -5566,6 +5974,110 @@ namespace dll {
         ParentWithNodeDepthVec(const ParentWithNodeDepthVec&) = delete; /* disable copy constructor, use explicit .clone() */
         ParentWithNodeDepthVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
+    
+    enum class OptionNodeGraphOnNodeAddedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeAddedVariant_None { OptionNodeGraphOnNodeAddedTag tag; };
+    struct OptionNodeGraphOnNodeAddedVariant_Some { OptionNodeGraphOnNodeAddedTag tag; NodeGraphOnNodeAdded payload; };
+    union OptionNodeGraphOnNodeAdded {
+        OptionNodeGraphOnNodeAddedVariant_None None;
+        OptionNodeGraphOnNodeAddedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeRemovedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeRemovedVariant_None { OptionNodeGraphOnNodeRemovedTag tag; };
+    struct OptionNodeGraphOnNodeRemovedVariant_Some { OptionNodeGraphOnNodeRemovedTag tag; NodeGraphOnNodeRemoved payload; };
+    union OptionNodeGraphOnNodeRemoved {
+        OptionNodeGraphOnNodeRemovedVariant_None None;
+        OptionNodeGraphOnNodeRemovedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeGraphDraggedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeGraphDraggedVariant_None { OptionNodeGraphOnNodeGraphDraggedTag tag; };
+    struct OptionNodeGraphOnNodeGraphDraggedVariant_Some { OptionNodeGraphOnNodeGraphDraggedTag tag; NodeGraphOnNodeGraphDragged payload; };
+    union OptionNodeGraphOnNodeGraphDragged {
+        OptionNodeGraphOnNodeGraphDraggedVariant_None None;
+        OptionNodeGraphOnNodeGraphDraggedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeDraggedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeDraggedVariant_None { OptionNodeGraphOnNodeDraggedTag tag; };
+    struct OptionNodeGraphOnNodeDraggedVariant_Some { OptionNodeGraphOnNodeDraggedTag tag; NodeGraphOnNodeDragged payload; };
+    union OptionNodeGraphOnNodeDragged {
+        OptionNodeGraphOnNodeDraggedVariant_None None;
+        OptionNodeGraphOnNodeDraggedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeConnectedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeConnectedVariant_None { OptionNodeGraphOnNodeConnectedTag tag; };
+    struct OptionNodeGraphOnNodeConnectedVariant_Some { OptionNodeGraphOnNodeConnectedTag tag; NodeGraphOnNodeConnected payload; };
+    union OptionNodeGraphOnNodeConnected {
+        OptionNodeGraphOnNodeConnectedVariant_None None;
+        OptionNodeGraphOnNodeConnectedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeInputDisconnectedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeInputDisconnectedVariant_None { OptionNodeGraphOnNodeInputDisconnectedTag tag; };
+    struct OptionNodeGraphOnNodeInputDisconnectedVariant_Some { OptionNodeGraphOnNodeInputDisconnectedTag tag; NodeGraphOnNodeInputDisconnected payload; };
+    union OptionNodeGraphOnNodeInputDisconnected {
+        OptionNodeGraphOnNodeInputDisconnectedVariant_None None;
+        OptionNodeGraphOnNodeInputDisconnectedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeOutputDisconnectedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeOutputDisconnectedVariant_None { OptionNodeGraphOnNodeOutputDisconnectedTag tag; };
+    struct OptionNodeGraphOnNodeOutputDisconnectedVariant_Some { OptionNodeGraphOnNodeOutputDisconnectedTag tag; NodeGraphOnNodeOutputDisconnected payload; };
+    union OptionNodeGraphOnNodeOutputDisconnected {
+        OptionNodeGraphOnNodeOutputDisconnectedVariant_None None;
+        OptionNodeGraphOnNodeOutputDisconnectedVariant_Some Some;
+    };
+    
+    
+    enum class OptionNodeGraphOnNodeFieldEditedTag {
+       None,
+       Some,
+    };
+    
+    struct OptionNodeGraphOnNodeFieldEditedVariant_None { OptionNodeGraphOnNodeFieldEditedTag tag; };
+    struct OptionNodeGraphOnNodeFieldEditedVariant_Some { OptionNodeGraphOnNodeFieldEditedTag tag; NodeGraphOnNodeFieldEdited payload; };
+    union OptionNodeGraphOnNodeFieldEdited {
+        OptionNodeGraphOnNodeFieldEditedVariant_None None;
+        OptionNodeGraphOnNodeFieldEditedVariant_Some Some;
+    };
+    
     
     enum class OptionColorInputOnValueChangeTag {
        None,
@@ -6312,7 +6824,7 @@ namespace dll {
         OptionGl* gl_context;
         void* image_cache;
         void* system_fonts;
-        NodeVec* node_hierarchy;
+        NodeHierarchyItemVec* node_hierarchy;
         void* words_cache;
         void* shaped_words_cache;
         void* positioned_words_cache;
@@ -6621,6 +7133,36 @@ namespace dll {
         NumberInputStateWrapper() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct NodeGraphCallbacks {
+        OptionNodeGraphOnNodeAdded on_node_added;
+        OptionNodeGraphOnNodeRemoved on_node_removed;
+        OptionNodeGraphOnNodeDragged on_node_dragged;
+        OptionNodeGraphOnNodeGraphDragged on_node_graph_dragged;
+        OptionNodeGraphOnNodeConnected on_node_connected;
+        OptionNodeGraphOnNodeInputDisconnected on_node_input_disconnected;
+        OptionNodeGraphOnNodeOutputDisconnected on_node_output_disconnected;
+        OptionNodeGraphOnNodeFieldEdited on_node_field_edited;
+        NodeGraphCallbacks& operator=(const NodeGraphCallbacks&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraphCallbacks(const NodeGraphCallbacks&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraphCallbacks() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputConnection {
+        size_t input_index;
+        OutputNodeAndIndexVec connects_to;
+        InputConnection& operator=(const InputConnection&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputConnection(const InputConnection&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputConnection() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct OutputConnection {
+        size_t output_index;
+        InputNodeAndIndexVec connects_to;
+        OutputConnection& operator=(const OutputConnection&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        OutputConnection(const OutputConnection&) = delete; /* disable copy constructor, use explicit .clone() */
+        OutputConnection() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct StyledNode {
         StyledNodeState state;
         OptionTagId tag_id;
@@ -6778,6 +7320,26 @@ namespace dll {
         String& operator=(const String&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         String(const String&) = delete; /* disable copy constructor, use explicit .clone() */
         String() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputConnectionVec {
+        InputConnection* ptr;
+        size_t len;
+        size_t cap;
+        InputConnectionVecDestructor destructor;
+        InputConnectionVec& operator=(const InputConnectionVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputConnectionVec(const InputConnectionVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputConnectionVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct OutputConnectionVec {
+        OutputConnection* ptr;
+        size_t len;
+        size_t cap;
+        OutputConnectionVecDestructor destructor;
+        OutputConnectionVec& operator=(const OutputConnectionVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        OutputConnectionVec(const OutputConnectionVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        OutputConnectionVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct TessellatedSvgNodeVec {
@@ -7354,6 +7916,43 @@ namespace dll {
         TextInputState& operator=(const TextInputState&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         TextInputState(const TextInputState&) = delete; /* disable copy constructor, use explicit .clone() */
         TextInputState() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    enum class NodeTypeFieldValueTag {
+       TextInput,
+       NumberInput,
+       CheckBox,
+       ColorInput,
+    };
+    
+    struct NodeTypeFieldValueVariant_TextInput { NodeTypeFieldValueTag tag; String payload; };
+    struct NodeTypeFieldValueVariant_NumberInput { NodeTypeFieldValueTag tag; float payload; };
+    struct NodeTypeFieldValueVariant_CheckBox { NodeTypeFieldValueTag tag; bool payload; };
+    struct NodeTypeFieldValueVariant_ColorInput { NodeTypeFieldValueTag tag; ColorU payload; };
+    union NodeTypeFieldValue {
+        NodeTypeFieldValueVariant_TextInput TextInput;
+        NodeTypeFieldValueVariant_NumberInput NumberInput;
+        NodeTypeFieldValueVariant_CheckBox CheckBox;
+        NodeTypeFieldValueVariant_ColorInput ColorInput;
+    };
+    
+    
+    struct NodeTypeInfo {
+        bool  is_root;
+        String name;
+        InputOutputTypeIdVec inputs;
+        InputOutputTypeIdVec outputs;
+        NodeTypeInfo& operator=(const NodeTypeInfo&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeTypeInfo(const NodeTypeInfo&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeTypeInfo() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputOutputInfo {
+        String data_type;
+        ColorU color;
+        InputOutputInfo& operator=(const InputOutputInfo&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputOutputInfo(const InputOutputInfo&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputOutputInfo() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct VertexAttribute {
@@ -8096,6 +8695,30 @@ namespace dll {
         ProgressBar() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct NodeTypeIdInfoMap {
+        NodeTypeId node_type_id;
+        NodeTypeInfo node_type_info;
+        NodeTypeIdInfoMap& operator=(const NodeTypeIdInfoMap&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeTypeIdInfoMap(const NodeTypeIdInfoMap&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeTypeIdInfoMap() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputOutputTypeIdInfoMap {
+        InputOutputTypeId io_type_id;
+        InputOutputInfo io_info;
+        InputOutputTypeIdInfoMap& operator=(const InputOutputTypeIdInfoMap&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputOutputTypeIdInfoMap(const InputOutputTypeIdInfoMap&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputOutputTypeIdInfoMap() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeTypeField {
+        String key;
+        NodeTypeFieldValue value;
+        NodeTypeField& operator=(const NodeTypeField&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeTypeField(const NodeTypeField&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeTypeField() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     enum class CssPropertySourceTag {
        Css,
        Inline,
@@ -8152,6 +8775,36 @@ namespace dll {
         XmlNode& operator=(const XmlNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         XmlNode(const XmlNode&) = delete; /* disable copy constructor, use explicit .clone() */
         XmlNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeTypeIdInfoMapVec {
+        NodeTypeIdInfoMap* ptr;
+        size_t len;
+        size_t cap;
+        NodeTypeIdInfoMapVecDestructor destructor;
+        NodeTypeIdInfoMapVec& operator=(const NodeTypeIdInfoMapVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeTypeIdInfoMapVec(const NodeTypeIdInfoMapVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeTypeIdInfoMapVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct InputOutputTypeIdInfoMapVec {
+        InputOutputTypeIdInfoMap* ptr;
+        size_t len;
+        size_t cap;
+        InputOutputTypeIdInfoMapVecDestructor destructor;
+        InputOutputTypeIdInfoMapVec& operator=(const InputOutputTypeIdInfoMapVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        InputOutputTypeIdInfoMapVec(const InputOutputTypeIdInfoMapVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        InputOutputTypeIdInfoMapVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeTypeFieldVec {
+        NodeTypeField* ptr;
+        size_t len;
+        size_t cap;
+        NodeTypeFieldVecDestructor destructor;
+        NodeTypeFieldVec& operator=(const NodeTypeFieldVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeTypeFieldVec(const NodeTypeFieldVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeTypeFieldVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct InlineLineVec {
@@ -8348,6 +9001,17 @@ namespace dll {
         DynamicCssProperty& operator=(const DynamicCssProperty&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         DynamicCssProperty(const DynamicCssProperty&) = delete; /* disable copy constructor, use explicit .clone() */
         DynamicCssProperty() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct Node {
+        NodeTypeId node_type;
+        NodePosition position;
+        NodeTypeFieldVec fields;
+        InputConnectionVec connect_in;
+        OutputConnectionVec connect_out;
+        Node& operator=(const Node&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        Node(const Node&) = delete; /* disable copy constructor, use explicit .clone() */
+        Node() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     enum class SvgNodeTag {
@@ -8574,6 +9238,24 @@ namespace dll {
         NumberInput() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct NodeIdNodeMap {
+        NodeGraphNodeId node_id;
+        Node node;
+        NodeIdNodeMap& operator=(const NodeIdNodeMap&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeIdNodeMap(const NodeIdNodeMap&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeIdNodeMap() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct NodeIdNodeMapVec {
+        NodeIdNodeMap* ptr;
+        size_t len;
+        size_t cap;
+        NodeIdNodeMapVecDestructor destructor;
+        NodeIdNodeMapVec& operator=(const NodeIdNodeMapVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeIdNodeMapVec(const NodeIdNodeMapVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeIdNodeMapVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct CssDeclarationVec {
         CssDeclaration* ptr;
         size_t len;
@@ -8686,9 +9368,23 @@ namespace dll {
         Frame() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct NodeGraph {
+        NodeTypeIdInfoMapVec node_types;
+        InputOutputTypeIdInfoMapVec input_output_types;
+        NodeIdNodeMapVec nodes;
+        bool  allow_multiple_root_nodes;
+        LogicalPosition offset;
+        NodeGraphStyle style;
+        NodeGraphCallbacks callbacks;
+        String add_node_str;
+        NodeGraph& operator=(const NodeGraph&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        NodeGraph(const NodeGraph&) = delete; /* disable copy constructor, use explicit .clone() */
+        NodeGraph() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct StyledDom {
         NodeId root;
-        NodeVec node_hierarchy;
+        NodeHierarchyItemVec node_hierarchy;
         NodeDataVec node_data;
         StyledNodeVec styled_nodes;
         CascadeInfoVec cascade_info;
@@ -9183,6 +9879,26 @@ namespace dll {
         Frame Frame_withFlexGrow(Frame* restrict frame, float flex_grow);
         Dom Frame_dom(Frame* restrict frame);
         void Frame_delete(Frame* restrict instance);
+        void NodeGraph_delete(NodeGraph* restrict instance);
+        void NodeTypeIdInfoMap_delete(NodeTypeIdInfoMap* restrict instance);
+        void InputOutputTypeIdInfoMap_delete(InputOutputTypeIdInfoMap* restrict instance);
+        void NodeIdNodeMap_delete(NodeIdNodeMap* restrict instance);
+        void NodeGraphCallbacks_delete(NodeGraphCallbacks* restrict instance);
+        void NodeGraphOnNodeAdded_delete(NodeGraphOnNodeAdded* restrict instance);
+        void NodeGraphOnNodeRemoved_delete(NodeGraphOnNodeRemoved* restrict instance);
+        void NodeGraphOnNodeGraphDragged_delete(NodeGraphOnNodeGraphDragged* restrict instance);
+        void NodeGraphOnNodeDragged_delete(NodeGraphOnNodeDragged* restrict instance);
+        void NodeGraphOnNodeConnected_delete(NodeGraphOnNodeConnected* restrict instance);
+        void NodeGraphOnNodeInputDisconnected_delete(NodeGraphOnNodeInputDisconnected* restrict instance);
+        void NodeGraphOnNodeOutputDisconnected_delete(NodeGraphOnNodeOutputDisconnected* restrict instance);
+        void NodeGraphOnNodeFieldEdited_delete(NodeGraphOnNodeFieldEdited* restrict instance);
+        void Node_delete(Node* restrict instance);
+        void NodeTypeField_delete(NodeTypeField* restrict instance);
+        void NodeTypeFieldValue_delete(NodeTypeFieldValue* restrict instance);
+        void InputConnection_delete(InputConnection* restrict instance);
+        void OutputConnection_delete(OutputConnection* restrict instance);
+        void NodeTypeInfo_delete(NodeTypeInfo* restrict instance);
+        void InputOutputInfo_delete(InputOutputInfo* restrict instance);
         void CssPropertySource_delete(CssPropertySource* restrict instance);
         void TagIdToNodeIdMapping_delete(TagIdToNodeIdMapping* restrict instance);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);
@@ -9565,6 +10281,15 @@ namespace dll {
         String String_trim(const String* string);
         Refstr String_asRefstr(const String* string);
         void String_delete(String* restrict instance);
+        void NodeTypeIdInfoMapVec_delete(NodeTypeIdInfoMapVec* restrict instance);
+        void InputOutputTypeIdInfoMapVec_delete(InputOutputTypeIdInfoMapVec* restrict instance);
+        void NodeIdNodeMapVec_delete(NodeIdNodeMapVec* restrict instance);
+        void InputOutputTypeIdVec_delete(InputOutputTypeIdVec* restrict instance);
+        void NodeTypeFieldVec_delete(NodeTypeFieldVec* restrict instance);
+        void InputConnectionVec_delete(InputConnectionVec* restrict instance);
+        void OutputNodeAndIndexVec_delete(OutputNodeAndIndexVec* restrict instance);
+        void OutputConnectionVec_delete(OutputConnectionVec* restrict instance);
+        void InputNodeAndIndexVec_delete(InputNodeAndIndexVec* restrict instance);
         void TabVec_delete(TabVec* restrict instance);
         void AccessibilityStateVec_delete(AccessibilityStateVec* restrict instance);
         void MenuItemVec_delete(MenuItemVec* restrict instance);
@@ -9616,11 +10341,19 @@ namespace dll {
         void NormalizedLinearColorStopVec_delete(NormalizedLinearColorStopVec* restrict instance);
         void NormalizedRadialColorStopVec_delete(NormalizedRadialColorStopVec* restrict instance);
         void NodeIdVec_delete(NodeIdVec* restrict instance);
-        void NodeVec_delete(NodeVec* restrict instance);
+        void NodeHierarchyItemVec_delete(NodeHierarchyItemVec* restrict instance);
         void StyledNodeVec_delete(StyledNodeVec* restrict instance);
         void TagIdToNodeIdMappingVec_delete(TagIdToNodeIdMappingVec* restrict instance);
         void ParentWithNodeDepthVec_delete(ParentWithNodeDepthVec* restrict instance);
         void NodeDataVec_delete(NodeDataVec* restrict instance);
+        void OptionNodeGraphOnNodeAdded_delete(OptionNodeGraphOnNodeAdded* restrict instance);
+        void OptionNodeGraphOnNodeRemoved_delete(OptionNodeGraphOnNodeRemoved* restrict instance);
+        void OptionNodeGraphOnNodeGraphDragged_delete(OptionNodeGraphOnNodeGraphDragged* restrict instance);
+        void OptionNodeGraphOnNodeDragged_delete(OptionNodeGraphOnNodeDragged* restrict instance);
+        void OptionNodeGraphOnNodeConnected_delete(OptionNodeGraphOnNodeConnected* restrict instance);
+        void OptionNodeGraphOnNodeInputDisconnected_delete(OptionNodeGraphOnNodeInputDisconnected* restrict instance);
+        void OptionNodeGraphOnNodeOutputDisconnected_delete(OptionNodeGraphOnNodeOutputDisconnected* restrict instance);
+        void OptionNodeGraphOnNodeFieldEdited_delete(OptionNodeGraphOnNodeFieldEdited* restrict instance);
         void OptionColorInputOnValueChange_delete(OptionColorInputOnValueChange* restrict instance);
         void OptionButtonOnClick_delete(OptionButtonOnClick* restrict instance);
         void OptionCheckBoxOnToggle_delete(OptionCheckBoxOnToggle* restrict instance);

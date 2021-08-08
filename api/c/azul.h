@@ -104,6 +104,34 @@ typedef AzUpdate (*AzNumberInputOnValueChangeCallbackType)(AzRefAny* restrict A,
 
 typedef AzUpdate (*AzNumberInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNumberInputState* const C);
 
+struct AzNodeTypeId;
+typedef struct AzNodeTypeId AzNodeTypeId;
+struct AzNodePosition;
+typedef struct AzNodePosition AzNodePosition;
+typedef AzUpdate (*AzNodeGraphOnNodeAddedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeTypeId C, AzNodePosition D);
+
+struct AzNodeGraphNodeId;
+typedef struct AzNodeGraphNodeId AzNodeGraphNodeId;
+typedef AzUpdate (*AzNodeGraphOnNodeRemovedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C);
+
+struct AzGraphDragAmount;
+typedef struct AzGraphDragAmount AzGraphDragAmount;
+typedef AzUpdate (*AzNodeGraphOnNodeGraphDraggedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzGraphDragAmount C);
+
+struct AzNodeDragAmount;
+typedef struct AzNodeDragAmount AzNodeDragAmount;
+typedef AzUpdate (*AzNodeGraphOnNodeDraggedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, AzNodeDragAmount D);
+
+typedef AzUpdate (*AzNodeGraphOnNodeConnectedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, size_t D, AzNodeGraphNodeId E, size_t F);
+
+typedef AzUpdate (*AzNodeGraphOnNodeInputDisconnectedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, size_t D);
+
+typedef AzUpdate (*AzNodeGraphOnNodeOutputDisconnectedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, size_t D);
+
+union AzNodeTypeFieldValue;
+typedef union AzNodeTypeFieldValue AzNodeTypeFieldValue;
+typedef AzUpdate (*AzNodeGraphOnNodeFieldEditedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, size_t D, AzNodeTypeId E, AzNodeTypeFieldValue F);
+
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 
 struct AzInstantPtr;
@@ -149,6 +177,42 @@ typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 struct AzStyleFontFamilyVec;
 typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
+
+struct AzNodeTypeIdInfoMapVec;
+typedef struct AzNodeTypeIdInfoMapVec AzNodeTypeIdInfoMapVec;
+typedef void (*AzNodeTypeIdInfoMapVecDestructorType)(AzNodeTypeIdInfoMapVec* restrict A);
+
+struct AzInputOutputTypeIdInfoMapVec;
+typedef struct AzInputOutputTypeIdInfoMapVec AzInputOutputTypeIdInfoMapVec;
+typedef void (*AzInputOutputTypeIdInfoMapVecDestructorType)(AzInputOutputTypeIdInfoMapVec* restrict A);
+
+struct AzNodeIdNodeMapVec;
+typedef struct AzNodeIdNodeMapVec AzNodeIdNodeMapVec;
+typedef void (*AzNodeIdNodeMapVecDestructorType)(AzNodeIdNodeMapVec* restrict A);
+
+struct AzInputOutputTypeIdVec;
+typedef struct AzInputOutputTypeIdVec AzInputOutputTypeIdVec;
+typedef void (*AzInputOutputTypeIdVecDestructorType)(AzInputOutputTypeIdVec* restrict A);
+
+struct AzNodeTypeFieldVec;
+typedef struct AzNodeTypeFieldVec AzNodeTypeFieldVec;
+typedef void (*AzNodeTypeFieldVecDestructorType)(AzNodeTypeFieldVec* restrict A);
+
+struct AzInputConnectionVec;
+typedef struct AzInputConnectionVec AzInputConnectionVec;
+typedef void (*AzInputConnectionVecDestructorType)(AzInputConnectionVec* restrict A);
+
+struct AzOutputNodeAndIndexVec;
+typedef struct AzOutputNodeAndIndexVec AzOutputNodeAndIndexVec;
+typedef void (*AzOutputNodeAndIndexVecDestructorType)(AzOutputNodeAndIndexVec* restrict A);
+
+struct AzOutputConnectionVec;
+typedef struct AzOutputConnectionVec AzOutputConnectionVec;
+typedef void (*AzOutputConnectionVecDestructorType)(AzOutputConnectionVec* restrict A);
+
+struct AzInputNodeAndIndexVec;
+typedef struct AzInputNodeAndIndexVec AzInputNodeAndIndexVec;
+typedef void (*AzInputNodeAndIndexVecDestructorType)(AzInputNodeAndIndexVec* restrict A);
 
 struct AzTabVec;
 typedef struct AzTabVec AzTabVec;
@@ -338,9 +402,9 @@ struct AzNodeIdVec;
 typedef struct AzNodeIdVec AzNodeIdVec;
 typedef void (*AzNodeIdVecDestructorType)(AzNodeIdVec* restrict A);
 
-struct AzNodeVec;
-typedef struct AzNodeVec AzNodeVec;
-typedef void (*AzNodeVecDestructorType)(AzNodeVec* restrict A);
+struct AzNodeHierarchyItemVec;
+typedef struct AzNodeHierarchyItemVec AzNodeHierarchyItemVec;
+typedef void (*AzNodeHierarchyItemVecDestructorType)(AzNodeHierarchyItemVec* restrict A);
 
 struct AzStyledNodeVec;
 typedef struct AzStyledNodeVec AzStyledNodeVec;
@@ -1516,13 +1580,91 @@ struct AzProgressBarState {
 };
 typedef struct AzProgressBarState AzProgressBarState;
 
-struct AzNode {
+enum AzNodeGraphStyle {
+   AzNodeGraphStyle_Default,
+};
+typedef enum AzNodeGraphStyle AzNodeGraphStyle;
+
+struct AzNodeGraphOnNodeAddedCallback {
+    AzNodeGraphOnNodeAddedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeAddedCallback AzNodeGraphOnNodeAddedCallback;
+
+struct AzNodeGraphOnNodeRemovedCallback {
+    AzNodeGraphOnNodeRemovedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeRemovedCallback AzNodeGraphOnNodeRemovedCallback;
+
+struct AzNodeGraphOnNodeGraphDraggedCallback {
+    AzNodeGraphOnNodeGraphDraggedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeGraphDraggedCallback AzNodeGraphOnNodeGraphDraggedCallback;
+
+struct AzNodeGraphOnNodeDraggedCallback {
+    AzNodeGraphOnNodeDraggedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeDraggedCallback AzNodeGraphOnNodeDraggedCallback;
+
+struct AzNodeGraphOnNodeConnectedCallback {
+    AzNodeGraphOnNodeConnectedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeConnectedCallback AzNodeGraphOnNodeConnectedCallback;
+
+struct AzNodeGraphOnNodeInputDisconnectedCallback {
+    AzNodeGraphOnNodeInputDisconnectedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeInputDisconnectedCallback AzNodeGraphOnNodeInputDisconnectedCallback;
+
+struct AzNodeGraphOnNodeOutputDisconnectedCallback {
+    AzNodeGraphOnNodeOutputDisconnectedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeOutputDisconnectedCallback AzNodeGraphOnNodeOutputDisconnectedCallback;
+
+struct AzNodeGraphOnNodeFieldEditedCallback {
+    AzNodeGraphOnNodeFieldEditedCallbackType cb;
+};
+typedef struct AzNodeGraphOnNodeFieldEditedCallback AzNodeGraphOnNodeFieldEditedCallback;
+
+struct AzInputOutputTypeId {
+    uint64_t inner;
+};
+typedef struct AzInputOutputTypeId AzInputOutputTypeId;
+
+struct AzNodeTypeId {
+    uint64_t inner;
+};
+typedef struct AzNodeTypeId AzNodeTypeId;
+
+struct AzNodeGraphNodeId {
+    uint64_t inner;
+};
+typedef struct AzNodeGraphNodeId AzNodeGraphNodeId;
+
+struct AzNodePosition {
+    float x;
+    float y;
+};
+typedef struct AzNodePosition AzNodePosition;
+
+struct AzGraphDragAmount {
+    float x;
+    float y;
+};
+typedef struct AzGraphDragAmount AzGraphDragAmount;
+
+struct AzNodeDragAmount {
+    float x;
+    float y;
+};
+typedef struct AzNodeDragAmount AzNodeDragAmount;
+
+struct AzNodeHierarchyItem {
     size_t parent;
     size_t previous_sibling;
     size_t next_sibling;
     size_t last_child;
 };
-typedef struct AzNode AzNode;
+typedef struct AzNodeHierarchyItem AzNodeHierarchyItem;
 
 struct AzCascadeInfo {
     uint32_t index_in_parent;
@@ -2027,6 +2169,186 @@ union AzStyleFontFamilyVecDestructor {
     AzStyleFontFamilyVecDestructorVariant_External External;
 };
 typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
+
+enum AzNodeTypeIdInfoMapVecDestructorTag {
+   AzNodeTypeIdInfoMapVecDestructorTag_DefaultRust,
+   AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor,
+   AzNodeTypeIdInfoMapVecDestructorTag_External,
+};
+typedef enum AzNodeTypeIdInfoMapVecDestructorTag AzNodeTypeIdInfoMapVecDestructorTag;
+
+struct AzNodeTypeIdInfoMapVecDestructorVariant_DefaultRust { AzNodeTypeIdInfoMapVecDestructorTag tag; };
+typedef struct AzNodeTypeIdInfoMapVecDestructorVariant_DefaultRust AzNodeTypeIdInfoMapVecDestructorVariant_DefaultRust;
+struct AzNodeTypeIdInfoMapVecDestructorVariant_NoDestructor { AzNodeTypeIdInfoMapVecDestructorTag tag; };
+typedef struct AzNodeTypeIdInfoMapVecDestructorVariant_NoDestructor AzNodeTypeIdInfoMapVecDestructorVariant_NoDestructor;
+struct AzNodeTypeIdInfoMapVecDestructorVariant_External { AzNodeTypeIdInfoMapVecDestructorTag tag; AzNodeTypeIdInfoMapVecDestructorType payload; };
+typedef struct AzNodeTypeIdInfoMapVecDestructorVariant_External AzNodeTypeIdInfoMapVecDestructorVariant_External;
+union AzNodeTypeIdInfoMapVecDestructor {
+    AzNodeTypeIdInfoMapVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeTypeIdInfoMapVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeTypeIdInfoMapVecDestructorVariant_External External;
+};
+typedef union AzNodeTypeIdInfoMapVecDestructor AzNodeTypeIdInfoMapVecDestructor;
+
+enum AzInputOutputTypeIdInfoMapVecDestructorTag {
+   AzInputOutputTypeIdInfoMapVecDestructorTag_DefaultRust,
+   AzInputOutputTypeIdInfoMapVecDestructorTag_NoDestructor,
+   AzInputOutputTypeIdInfoMapVecDestructorTag_External,
+};
+typedef enum AzInputOutputTypeIdInfoMapVecDestructorTag AzInputOutputTypeIdInfoMapVecDestructorTag;
+
+struct AzInputOutputTypeIdInfoMapVecDestructorVariant_DefaultRust { AzInputOutputTypeIdInfoMapVecDestructorTag tag; };
+typedef struct AzInputOutputTypeIdInfoMapVecDestructorVariant_DefaultRust AzInputOutputTypeIdInfoMapVecDestructorVariant_DefaultRust;
+struct AzInputOutputTypeIdInfoMapVecDestructorVariant_NoDestructor { AzInputOutputTypeIdInfoMapVecDestructorTag tag; };
+typedef struct AzInputOutputTypeIdInfoMapVecDestructorVariant_NoDestructor AzInputOutputTypeIdInfoMapVecDestructorVariant_NoDestructor;
+struct AzInputOutputTypeIdInfoMapVecDestructorVariant_External { AzInputOutputTypeIdInfoMapVecDestructorTag tag; AzInputOutputTypeIdInfoMapVecDestructorType payload; };
+typedef struct AzInputOutputTypeIdInfoMapVecDestructorVariant_External AzInputOutputTypeIdInfoMapVecDestructorVariant_External;
+union AzInputOutputTypeIdInfoMapVecDestructor {
+    AzInputOutputTypeIdInfoMapVecDestructorVariant_DefaultRust DefaultRust;
+    AzInputOutputTypeIdInfoMapVecDestructorVariant_NoDestructor NoDestructor;
+    AzInputOutputTypeIdInfoMapVecDestructorVariant_External External;
+};
+typedef union AzInputOutputTypeIdInfoMapVecDestructor AzInputOutputTypeIdInfoMapVecDestructor;
+
+enum AzNodeIdNodeMapVecDestructorTag {
+   AzNodeIdNodeMapVecDestructorTag_DefaultRust,
+   AzNodeIdNodeMapVecDestructorTag_NoDestructor,
+   AzNodeIdNodeMapVecDestructorTag_External,
+};
+typedef enum AzNodeIdNodeMapVecDestructorTag AzNodeIdNodeMapVecDestructorTag;
+
+struct AzNodeIdNodeMapVecDestructorVariant_DefaultRust { AzNodeIdNodeMapVecDestructorTag tag; };
+typedef struct AzNodeIdNodeMapVecDestructorVariant_DefaultRust AzNodeIdNodeMapVecDestructorVariant_DefaultRust;
+struct AzNodeIdNodeMapVecDestructorVariant_NoDestructor { AzNodeIdNodeMapVecDestructorTag tag; };
+typedef struct AzNodeIdNodeMapVecDestructorVariant_NoDestructor AzNodeIdNodeMapVecDestructorVariant_NoDestructor;
+struct AzNodeIdNodeMapVecDestructorVariant_External { AzNodeIdNodeMapVecDestructorTag tag; AzNodeIdNodeMapVecDestructorType payload; };
+typedef struct AzNodeIdNodeMapVecDestructorVariant_External AzNodeIdNodeMapVecDestructorVariant_External;
+union AzNodeIdNodeMapVecDestructor {
+    AzNodeIdNodeMapVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeIdNodeMapVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeIdNodeMapVecDestructorVariant_External External;
+};
+typedef union AzNodeIdNodeMapVecDestructor AzNodeIdNodeMapVecDestructor;
+
+enum AzInputOutputTypeIdVecDestructorTag {
+   AzInputOutputTypeIdVecDestructorTag_DefaultRust,
+   AzInputOutputTypeIdVecDestructorTag_NoDestructor,
+   AzInputOutputTypeIdVecDestructorTag_External,
+};
+typedef enum AzInputOutputTypeIdVecDestructorTag AzInputOutputTypeIdVecDestructorTag;
+
+struct AzInputOutputTypeIdVecDestructorVariant_DefaultRust { AzInputOutputTypeIdVecDestructorTag tag; };
+typedef struct AzInputOutputTypeIdVecDestructorVariant_DefaultRust AzInputOutputTypeIdVecDestructorVariant_DefaultRust;
+struct AzInputOutputTypeIdVecDestructorVariant_NoDestructor { AzInputOutputTypeIdVecDestructorTag tag; };
+typedef struct AzInputOutputTypeIdVecDestructorVariant_NoDestructor AzInputOutputTypeIdVecDestructorVariant_NoDestructor;
+struct AzInputOutputTypeIdVecDestructorVariant_External { AzInputOutputTypeIdVecDestructorTag tag; AzInputOutputTypeIdVecDestructorType payload; };
+typedef struct AzInputOutputTypeIdVecDestructorVariant_External AzInputOutputTypeIdVecDestructorVariant_External;
+union AzInputOutputTypeIdVecDestructor {
+    AzInputOutputTypeIdVecDestructorVariant_DefaultRust DefaultRust;
+    AzInputOutputTypeIdVecDestructorVariant_NoDestructor NoDestructor;
+    AzInputOutputTypeIdVecDestructorVariant_External External;
+};
+typedef union AzInputOutputTypeIdVecDestructor AzInputOutputTypeIdVecDestructor;
+
+enum AzNodeTypeFieldVecDestructorTag {
+   AzNodeTypeFieldVecDestructorTag_DefaultRust,
+   AzNodeTypeFieldVecDestructorTag_NoDestructor,
+   AzNodeTypeFieldVecDestructorTag_External,
+};
+typedef enum AzNodeTypeFieldVecDestructorTag AzNodeTypeFieldVecDestructorTag;
+
+struct AzNodeTypeFieldVecDestructorVariant_DefaultRust { AzNodeTypeFieldVecDestructorTag tag; };
+typedef struct AzNodeTypeFieldVecDestructorVariant_DefaultRust AzNodeTypeFieldVecDestructorVariant_DefaultRust;
+struct AzNodeTypeFieldVecDestructorVariant_NoDestructor { AzNodeTypeFieldVecDestructorTag tag; };
+typedef struct AzNodeTypeFieldVecDestructorVariant_NoDestructor AzNodeTypeFieldVecDestructorVariant_NoDestructor;
+struct AzNodeTypeFieldVecDestructorVariant_External { AzNodeTypeFieldVecDestructorTag tag; AzNodeTypeFieldVecDestructorType payload; };
+typedef struct AzNodeTypeFieldVecDestructorVariant_External AzNodeTypeFieldVecDestructorVariant_External;
+union AzNodeTypeFieldVecDestructor {
+    AzNodeTypeFieldVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeTypeFieldVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeTypeFieldVecDestructorVariant_External External;
+};
+typedef union AzNodeTypeFieldVecDestructor AzNodeTypeFieldVecDestructor;
+
+enum AzInputConnectionVecDestructorTag {
+   AzInputConnectionVecDestructorTag_DefaultRust,
+   AzInputConnectionVecDestructorTag_NoDestructor,
+   AzInputConnectionVecDestructorTag_External,
+};
+typedef enum AzInputConnectionVecDestructorTag AzInputConnectionVecDestructorTag;
+
+struct AzInputConnectionVecDestructorVariant_DefaultRust { AzInputConnectionVecDestructorTag tag; };
+typedef struct AzInputConnectionVecDestructorVariant_DefaultRust AzInputConnectionVecDestructorVariant_DefaultRust;
+struct AzInputConnectionVecDestructorVariant_NoDestructor { AzInputConnectionVecDestructorTag tag; };
+typedef struct AzInputConnectionVecDestructorVariant_NoDestructor AzInputConnectionVecDestructorVariant_NoDestructor;
+struct AzInputConnectionVecDestructorVariant_External { AzInputConnectionVecDestructorTag tag; AzInputConnectionVecDestructorType payload; };
+typedef struct AzInputConnectionVecDestructorVariant_External AzInputConnectionVecDestructorVariant_External;
+union AzInputConnectionVecDestructor {
+    AzInputConnectionVecDestructorVariant_DefaultRust DefaultRust;
+    AzInputConnectionVecDestructorVariant_NoDestructor NoDestructor;
+    AzInputConnectionVecDestructorVariant_External External;
+};
+typedef union AzInputConnectionVecDestructor AzInputConnectionVecDestructor;
+
+enum AzOutputNodeAndIndexVecDestructorTag {
+   AzOutputNodeAndIndexVecDestructorTag_DefaultRust,
+   AzOutputNodeAndIndexVecDestructorTag_NoDestructor,
+   AzOutputNodeAndIndexVecDestructorTag_External,
+};
+typedef enum AzOutputNodeAndIndexVecDestructorTag AzOutputNodeAndIndexVecDestructorTag;
+
+struct AzOutputNodeAndIndexVecDestructorVariant_DefaultRust { AzOutputNodeAndIndexVecDestructorTag tag; };
+typedef struct AzOutputNodeAndIndexVecDestructorVariant_DefaultRust AzOutputNodeAndIndexVecDestructorVariant_DefaultRust;
+struct AzOutputNodeAndIndexVecDestructorVariant_NoDestructor { AzOutputNodeAndIndexVecDestructorTag tag; };
+typedef struct AzOutputNodeAndIndexVecDestructorVariant_NoDestructor AzOutputNodeAndIndexVecDestructorVariant_NoDestructor;
+struct AzOutputNodeAndIndexVecDestructorVariant_External { AzOutputNodeAndIndexVecDestructorTag tag; AzOutputNodeAndIndexVecDestructorType payload; };
+typedef struct AzOutputNodeAndIndexVecDestructorVariant_External AzOutputNodeAndIndexVecDestructorVariant_External;
+union AzOutputNodeAndIndexVecDestructor {
+    AzOutputNodeAndIndexVecDestructorVariant_DefaultRust DefaultRust;
+    AzOutputNodeAndIndexVecDestructorVariant_NoDestructor NoDestructor;
+    AzOutputNodeAndIndexVecDestructorVariant_External External;
+};
+typedef union AzOutputNodeAndIndexVecDestructor AzOutputNodeAndIndexVecDestructor;
+
+enum AzOutputConnectionVecDestructorTag {
+   AzOutputConnectionVecDestructorTag_DefaultRust,
+   AzOutputConnectionVecDestructorTag_NoDestructor,
+   AzOutputConnectionVecDestructorTag_External,
+};
+typedef enum AzOutputConnectionVecDestructorTag AzOutputConnectionVecDestructorTag;
+
+struct AzOutputConnectionVecDestructorVariant_DefaultRust { AzOutputConnectionVecDestructorTag tag; };
+typedef struct AzOutputConnectionVecDestructorVariant_DefaultRust AzOutputConnectionVecDestructorVariant_DefaultRust;
+struct AzOutputConnectionVecDestructorVariant_NoDestructor { AzOutputConnectionVecDestructorTag tag; };
+typedef struct AzOutputConnectionVecDestructorVariant_NoDestructor AzOutputConnectionVecDestructorVariant_NoDestructor;
+struct AzOutputConnectionVecDestructorVariant_External { AzOutputConnectionVecDestructorTag tag; AzOutputConnectionVecDestructorType payload; };
+typedef struct AzOutputConnectionVecDestructorVariant_External AzOutputConnectionVecDestructorVariant_External;
+union AzOutputConnectionVecDestructor {
+    AzOutputConnectionVecDestructorVariant_DefaultRust DefaultRust;
+    AzOutputConnectionVecDestructorVariant_NoDestructor NoDestructor;
+    AzOutputConnectionVecDestructorVariant_External External;
+};
+typedef union AzOutputConnectionVecDestructor AzOutputConnectionVecDestructor;
+
+enum AzInputNodeAndIndexVecDestructorTag {
+   AzInputNodeAndIndexVecDestructorTag_DefaultRust,
+   AzInputNodeAndIndexVecDestructorTag_NoDestructor,
+   AzInputNodeAndIndexVecDestructorTag_External,
+};
+typedef enum AzInputNodeAndIndexVecDestructorTag AzInputNodeAndIndexVecDestructorTag;
+
+struct AzInputNodeAndIndexVecDestructorVariant_DefaultRust { AzInputNodeAndIndexVecDestructorTag tag; };
+typedef struct AzInputNodeAndIndexVecDestructorVariant_DefaultRust AzInputNodeAndIndexVecDestructorVariant_DefaultRust;
+struct AzInputNodeAndIndexVecDestructorVariant_NoDestructor { AzInputNodeAndIndexVecDestructorTag tag; };
+typedef struct AzInputNodeAndIndexVecDestructorVariant_NoDestructor AzInputNodeAndIndexVecDestructorVariant_NoDestructor;
+struct AzInputNodeAndIndexVecDestructorVariant_External { AzInputNodeAndIndexVecDestructorTag tag; AzInputNodeAndIndexVecDestructorType payload; };
+typedef struct AzInputNodeAndIndexVecDestructorVariant_External AzInputNodeAndIndexVecDestructorVariant_External;
+union AzInputNodeAndIndexVecDestructor {
+    AzInputNodeAndIndexVecDestructorVariant_DefaultRust DefaultRust;
+    AzInputNodeAndIndexVecDestructorVariant_NoDestructor NoDestructor;
+    AzInputNodeAndIndexVecDestructorVariant_External External;
+};
+typedef union AzInputNodeAndIndexVecDestructor AzInputNodeAndIndexVecDestructor;
 
 enum AzTabVecDestructorTag {
    AzTabVecDestructorTag_DefaultRust,
@@ -2968,25 +3290,25 @@ union AzNodeIdVecDestructor {
 };
 typedef union AzNodeIdVecDestructor AzNodeIdVecDestructor;
 
-enum AzNodeVecDestructorTag {
-   AzNodeVecDestructorTag_DefaultRust,
-   AzNodeVecDestructorTag_NoDestructor,
-   AzNodeVecDestructorTag_External,
+enum AzNodeHierarchyItemVecDestructorTag {
+   AzNodeHierarchyItemVecDestructorTag_DefaultRust,
+   AzNodeHierarchyItemVecDestructorTag_NoDestructor,
+   AzNodeHierarchyItemVecDestructorTag_External,
 };
-typedef enum AzNodeVecDestructorTag AzNodeVecDestructorTag;
+typedef enum AzNodeHierarchyItemVecDestructorTag AzNodeHierarchyItemVecDestructorTag;
 
-struct AzNodeVecDestructorVariant_DefaultRust { AzNodeVecDestructorTag tag; };
-typedef struct AzNodeVecDestructorVariant_DefaultRust AzNodeVecDestructorVariant_DefaultRust;
-struct AzNodeVecDestructorVariant_NoDestructor { AzNodeVecDestructorTag tag; };
-typedef struct AzNodeVecDestructorVariant_NoDestructor AzNodeVecDestructorVariant_NoDestructor;
-struct AzNodeVecDestructorVariant_External { AzNodeVecDestructorTag tag; AzNodeVecDestructorType payload; };
-typedef struct AzNodeVecDestructorVariant_External AzNodeVecDestructorVariant_External;
-union AzNodeVecDestructor {
-    AzNodeVecDestructorVariant_DefaultRust DefaultRust;
-    AzNodeVecDestructorVariant_NoDestructor NoDestructor;
-    AzNodeVecDestructorVariant_External External;
+struct AzNodeHierarchyItemVecDestructorVariant_DefaultRust { AzNodeHierarchyItemVecDestructorTag tag; };
+typedef struct AzNodeHierarchyItemVecDestructorVariant_DefaultRust AzNodeHierarchyItemVecDestructorVariant_DefaultRust;
+struct AzNodeHierarchyItemVecDestructorVariant_NoDestructor { AzNodeHierarchyItemVecDestructorTag tag; };
+typedef struct AzNodeHierarchyItemVecDestructorVariant_NoDestructor AzNodeHierarchyItemVecDestructorVariant_NoDestructor;
+struct AzNodeHierarchyItemVecDestructorVariant_External { AzNodeHierarchyItemVecDestructorTag tag; AzNodeHierarchyItemVecDestructorType payload; };
+typedef struct AzNodeHierarchyItemVecDestructorVariant_External AzNodeHierarchyItemVecDestructorVariant_External;
+union AzNodeHierarchyItemVecDestructor {
+    AzNodeHierarchyItemVecDestructorVariant_DefaultRust DefaultRust;
+    AzNodeHierarchyItemVecDestructorVariant_NoDestructor NoDestructor;
+    AzNodeHierarchyItemVecDestructorVariant_External External;
 };
-typedef union AzNodeVecDestructor AzNodeVecDestructor;
+typedef union AzNodeHierarchyItemVecDestructor AzNodeHierarchyItemVecDestructor;
 
 enum AzStyledNodeVecDestructorTag {
    AzStyledNodeVecDestructorTag_DefaultRust,
@@ -5706,6 +6028,66 @@ struct AzNumberInputOnFocusLost {
 };
 typedef struct AzNumberInputOnFocusLost AzNumberInputOnFocusLost;
 
+struct AzNodeGraphOnNodeAdded {
+    AzRefAny data;
+    AzNodeGraphOnNodeAddedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeAdded AzNodeGraphOnNodeAdded;
+
+struct AzNodeGraphOnNodeRemoved {
+    AzRefAny data;
+    AzNodeGraphOnNodeRemovedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeRemoved AzNodeGraphOnNodeRemoved;
+
+struct AzNodeGraphOnNodeGraphDragged {
+    AzRefAny data;
+    AzNodeGraphOnNodeGraphDraggedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeGraphDragged AzNodeGraphOnNodeGraphDragged;
+
+struct AzNodeGraphOnNodeDragged {
+    AzRefAny data;
+    AzNodeGraphOnNodeDraggedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeDragged AzNodeGraphOnNodeDragged;
+
+struct AzNodeGraphOnNodeConnected {
+    AzRefAny data;
+    AzNodeGraphOnNodeConnectedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeConnected AzNodeGraphOnNodeConnected;
+
+struct AzNodeGraphOnNodeInputDisconnected {
+    AzRefAny data;
+    AzNodeGraphOnNodeInputDisconnectedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeInputDisconnected AzNodeGraphOnNodeInputDisconnected;
+
+struct AzNodeGraphOnNodeOutputDisconnected {
+    AzRefAny data;
+    AzNodeGraphOnNodeOutputDisconnectedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeOutputDisconnected AzNodeGraphOnNodeOutputDisconnected;
+
+struct AzNodeGraphOnNodeFieldEdited {
+    AzRefAny data;
+    AzNodeGraphOnNodeFieldEditedCallback callback;
+};
+typedef struct AzNodeGraphOnNodeFieldEdited AzNodeGraphOnNodeFieldEdited;
+
+struct AzOutputNodeAndIndex {
+    AzNodeGraphNodeId node_id;
+    size_t output_index;
+};
+typedef struct AzOutputNodeAndIndex AzOutputNodeAndIndex;
+
+struct AzInputNodeAndIndex {
+    AzNodeGraphNodeId node_id;
+    size_t input_index;
+};
+typedef struct AzInputNodeAndIndex AzInputNodeAndIndex;
+
 struct AzParentWithNodeDepth {
     size_t depth;
     AzNodeId node_id;
@@ -5877,6 +6259,30 @@ struct AzThreadWriteBackMsg {
     AzWriteBackCallback callback;
 };
 typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
+
+struct AzInputOutputTypeIdVec {
+    AzInputOutputTypeId* ptr;
+    size_t len;
+    size_t cap;
+    AzInputOutputTypeIdVecDestructor destructor;
+};
+typedef struct AzInputOutputTypeIdVec AzInputOutputTypeIdVec;
+
+struct AzOutputNodeAndIndexVec {
+    AzOutputNodeAndIndex* ptr;
+    size_t len;
+    size_t cap;
+    AzOutputNodeAndIndexVecDestructor destructor;
+};
+typedef struct AzOutputNodeAndIndexVec AzOutputNodeAndIndexVec;
+
+struct AzInputNodeAndIndexVec {
+    AzInputNodeAndIndex* ptr;
+    size_t len;
+    size_t cap;
+    AzInputNodeAndIndexVecDestructor destructor;
+};
+typedef struct AzInputNodeAndIndexVec AzInputNodeAndIndexVec;
 
 struct AzAccessibilityStateVec {
     AzAccessibilityState* ptr;
@@ -6076,13 +6482,13 @@ struct AzNodeIdVec {
 };
 typedef struct AzNodeIdVec AzNodeIdVec;
 
-struct AzNodeVec {
-    AzNode* ptr;
+struct AzNodeHierarchyItemVec {
+    AzNodeHierarchyItem* ptr;
     size_t len;
     size_t cap;
-    AzNodeVecDestructor destructor;
+    AzNodeHierarchyItemVecDestructor destructor;
 };
-typedef struct AzNodeVec AzNodeVec;
+typedef struct AzNodeHierarchyItemVec AzNodeHierarchyItemVec;
 
 struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepth* ptr;
@@ -6091,6 +6497,134 @@ struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepthVecDestructor destructor;
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
+
+enum AzOptionNodeGraphOnNodeAddedTag {
+   AzOptionNodeGraphOnNodeAddedTag_None,
+   AzOptionNodeGraphOnNodeAddedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeAddedTag AzOptionNodeGraphOnNodeAddedTag;
+
+struct AzOptionNodeGraphOnNodeAddedVariant_None { AzOptionNodeGraphOnNodeAddedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeAddedVariant_None AzOptionNodeGraphOnNodeAddedVariant_None;
+struct AzOptionNodeGraphOnNodeAddedVariant_Some { AzOptionNodeGraphOnNodeAddedTag tag; AzNodeGraphOnNodeAdded payload; };
+typedef struct AzOptionNodeGraphOnNodeAddedVariant_Some AzOptionNodeGraphOnNodeAddedVariant_Some;
+union AzOptionNodeGraphOnNodeAdded {
+    AzOptionNodeGraphOnNodeAddedVariant_None None;
+    AzOptionNodeGraphOnNodeAddedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeAdded AzOptionNodeGraphOnNodeAdded;
+
+enum AzOptionNodeGraphOnNodeRemovedTag {
+   AzOptionNodeGraphOnNodeRemovedTag_None,
+   AzOptionNodeGraphOnNodeRemovedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeRemovedTag AzOptionNodeGraphOnNodeRemovedTag;
+
+struct AzOptionNodeGraphOnNodeRemovedVariant_None { AzOptionNodeGraphOnNodeRemovedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeRemovedVariant_None AzOptionNodeGraphOnNodeRemovedVariant_None;
+struct AzOptionNodeGraphOnNodeRemovedVariant_Some { AzOptionNodeGraphOnNodeRemovedTag tag; AzNodeGraphOnNodeRemoved payload; };
+typedef struct AzOptionNodeGraphOnNodeRemovedVariant_Some AzOptionNodeGraphOnNodeRemovedVariant_Some;
+union AzOptionNodeGraphOnNodeRemoved {
+    AzOptionNodeGraphOnNodeRemovedVariant_None None;
+    AzOptionNodeGraphOnNodeRemovedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeRemoved AzOptionNodeGraphOnNodeRemoved;
+
+enum AzOptionNodeGraphOnNodeGraphDraggedTag {
+   AzOptionNodeGraphOnNodeGraphDraggedTag_None,
+   AzOptionNodeGraphOnNodeGraphDraggedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeGraphDraggedTag AzOptionNodeGraphOnNodeGraphDraggedTag;
+
+struct AzOptionNodeGraphOnNodeGraphDraggedVariant_None { AzOptionNodeGraphOnNodeGraphDraggedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeGraphDraggedVariant_None AzOptionNodeGraphOnNodeGraphDraggedVariant_None;
+struct AzOptionNodeGraphOnNodeGraphDraggedVariant_Some { AzOptionNodeGraphOnNodeGraphDraggedTag tag; AzNodeGraphOnNodeGraphDragged payload; };
+typedef struct AzOptionNodeGraphOnNodeGraphDraggedVariant_Some AzOptionNodeGraphOnNodeGraphDraggedVariant_Some;
+union AzOptionNodeGraphOnNodeGraphDragged {
+    AzOptionNodeGraphOnNodeGraphDraggedVariant_None None;
+    AzOptionNodeGraphOnNodeGraphDraggedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeGraphDragged AzOptionNodeGraphOnNodeGraphDragged;
+
+enum AzOptionNodeGraphOnNodeDraggedTag {
+   AzOptionNodeGraphOnNodeDraggedTag_None,
+   AzOptionNodeGraphOnNodeDraggedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeDraggedTag AzOptionNodeGraphOnNodeDraggedTag;
+
+struct AzOptionNodeGraphOnNodeDraggedVariant_None { AzOptionNodeGraphOnNodeDraggedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeDraggedVariant_None AzOptionNodeGraphOnNodeDraggedVariant_None;
+struct AzOptionNodeGraphOnNodeDraggedVariant_Some { AzOptionNodeGraphOnNodeDraggedTag tag; AzNodeGraphOnNodeDragged payload; };
+typedef struct AzOptionNodeGraphOnNodeDraggedVariant_Some AzOptionNodeGraphOnNodeDraggedVariant_Some;
+union AzOptionNodeGraphOnNodeDragged {
+    AzOptionNodeGraphOnNodeDraggedVariant_None None;
+    AzOptionNodeGraphOnNodeDraggedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeDragged AzOptionNodeGraphOnNodeDragged;
+
+enum AzOptionNodeGraphOnNodeConnectedTag {
+   AzOptionNodeGraphOnNodeConnectedTag_None,
+   AzOptionNodeGraphOnNodeConnectedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeConnectedTag AzOptionNodeGraphOnNodeConnectedTag;
+
+struct AzOptionNodeGraphOnNodeConnectedVariant_None { AzOptionNodeGraphOnNodeConnectedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeConnectedVariant_None AzOptionNodeGraphOnNodeConnectedVariant_None;
+struct AzOptionNodeGraphOnNodeConnectedVariant_Some { AzOptionNodeGraphOnNodeConnectedTag tag; AzNodeGraphOnNodeConnected payload; };
+typedef struct AzOptionNodeGraphOnNodeConnectedVariant_Some AzOptionNodeGraphOnNodeConnectedVariant_Some;
+union AzOptionNodeGraphOnNodeConnected {
+    AzOptionNodeGraphOnNodeConnectedVariant_None None;
+    AzOptionNodeGraphOnNodeConnectedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeConnected AzOptionNodeGraphOnNodeConnected;
+
+enum AzOptionNodeGraphOnNodeInputDisconnectedTag {
+   AzOptionNodeGraphOnNodeInputDisconnectedTag_None,
+   AzOptionNodeGraphOnNodeInputDisconnectedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeInputDisconnectedTag AzOptionNodeGraphOnNodeInputDisconnectedTag;
+
+struct AzOptionNodeGraphOnNodeInputDisconnectedVariant_None { AzOptionNodeGraphOnNodeInputDisconnectedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeInputDisconnectedVariant_None AzOptionNodeGraphOnNodeInputDisconnectedVariant_None;
+struct AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some { AzOptionNodeGraphOnNodeInputDisconnectedTag tag; AzNodeGraphOnNodeInputDisconnected payload; };
+typedef struct AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some;
+union AzOptionNodeGraphOnNodeInputDisconnected {
+    AzOptionNodeGraphOnNodeInputDisconnectedVariant_None None;
+    AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeInputDisconnected AzOptionNodeGraphOnNodeInputDisconnected;
+
+enum AzOptionNodeGraphOnNodeOutputDisconnectedTag {
+   AzOptionNodeGraphOnNodeOutputDisconnectedTag_None,
+   AzOptionNodeGraphOnNodeOutputDisconnectedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeOutputDisconnectedTag AzOptionNodeGraphOnNodeOutputDisconnectedTag;
+
+struct AzOptionNodeGraphOnNodeOutputDisconnectedVariant_None { AzOptionNodeGraphOnNodeOutputDisconnectedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeOutputDisconnectedVariant_None AzOptionNodeGraphOnNodeOutputDisconnectedVariant_None;
+struct AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some { AzOptionNodeGraphOnNodeOutputDisconnectedTag tag; AzNodeGraphOnNodeOutputDisconnected payload; };
+typedef struct AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some;
+union AzOptionNodeGraphOnNodeOutputDisconnected {
+    AzOptionNodeGraphOnNodeOutputDisconnectedVariant_None None;
+    AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeOutputDisconnected AzOptionNodeGraphOnNodeOutputDisconnected;
+
+enum AzOptionNodeGraphOnNodeFieldEditedTag {
+   AzOptionNodeGraphOnNodeFieldEditedTag_None,
+   AzOptionNodeGraphOnNodeFieldEditedTag_Some,
+};
+typedef enum AzOptionNodeGraphOnNodeFieldEditedTag AzOptionNodeGraphOnNodeFieldEditedTag;
+
+struct AzOptionNodeGraphOnNodeFieldEditedVariant_None { AzOptionNodeGraphOnNodeFieldEditedTag tag; };
+typedef struct AzOptionNodeGraphOnNodeFieldEditedVariant_None AzOptionNodeGraphOnNodeFieldEditedVariant_None;
+struct AzOptionNodeGraphOnNodeFieldEditedVariant_Some { AzOptionNodeGraphOnNodeFieldEditedTag tag; AzNodeGraphOnNodeFieldEdited payload; };
+typedef struct AzOptionNodeGraphOnNodeFieldEditedVariant_Some AzOptionNodeGraphOnNodeFieldEditedVariant_Some;
+union AzOptionNodeGraphOnNodeFieldEdited {
+    AzOptionNodeGraphOnNodeFieldEditedVariant_None None;
+    AzOptionNodeGraphOnNodeFieldEditedVariant_Some Some;
+};
+typedef union AzOptionNodeGraphOnNodeFieldEdited AzOptionNodeGraphOnNodeFieldEdited;
 
 enum AzOptionColorInputOnValueChangeTag {
    AzOptionColorInputOnValueChangeTag_None,
@@ -6956,7 +7490,7 @@ struct AzRenderImageCallbackInfo {
     AzOptionGl* gl_context;
     void* image_cache;
     void* system_fonts;
-    AzNodeVec* node_hierarchy;
+    AzNodeHierarchyItemVec* node_hierarchy;
     void* words_cache;
     void* shaped_words_cache;
     void* positioned_words_cache;
@@ -7307,6 +7841,30 @@ struct AzNumberInputStateWrapper {
 };
 typedef struct AzNumberInputStateWrapper AzNumberInputStateWrapper;
 
+struct AzNodeGraphCallbacks {
+    AzOptionNodeGraphOnNodeAdded on_node_added;
+    AzOptionNodeGraphOnNodeRemoved on_node_removed;
+    AzOptionNodeGraphOnNodeDragged on_node_dragged;
+    AzOptionNodeGraphOnNodeGraphDragged on_node_graph_dragged;
+    AzOptionNodeGraphOnNodeConnected on_node_connected;
+    AzOptionNodeGraphOnNodeInputDisconnected on_node_input_disconnected;
+    AzOptionNodeGraphOnNodeOutputDisconnected on_node_output_disconnected;
+    AzOptionNodeGraphOnNodeFieldEdited on_node_field_edited;
+};
+typedef struct AzNodeGraphCallbacks AzNodeGraphCallbacks;
+
+struct AzInputConnection {
+    size_t input_index;
+    AzOutputNodeAndIndexVec connects_to;
+};
+typedef struct AzInputConnection AzInputConnection;
+
+struct AzOutputConnection {
+    size_t output_index;
+    AzInputNodeAndIndexVec connects_to;
+};
+typedef struct AzOutputConnection AzOutputConnection;
+
 struct AzStyledNode {
     AzStyledNodeState state;
     AzOptionTagId tag_id;
@@ -7458,6 +8016,22 @@ struct AzString {
     AzU8Vec vec;
 };
 typedef struct AzString AzString;
+
+struct AzInputConnectionVec {
+    AzInputConnection* ptr;
+    size_t len;
+    size_t cap;
+    AzInputConnectionVecDestructor destructor;
+};
+typedef struct AzInputConnectionVec AzInputConnectionVec;
+
+struct AzOutputConnectionVec {
+    AzOutputConnection* ptr;
+    size_t len;
+    size_t cap;
+    AzOutputConnectionVecDestructor destructor;
+};
+typedef struct AzOutputConnectionVec AzOutputConnectionVec;
 
 struct AzTessellatedSvgNodeVec {
     AzTessellatedSvgNode* ptr;
@@ -8066,6 +8640,44 @@ struct AzTextInputState {
     size_t cursor_pos;
 };
 typedef struct AzTextInputState AzTextInputState;
+
+enum AzNodeTypeFieldValueTag {
+   AzNodeTypeFieldValueTag_TextInput,
+   AzNodeTypeFieldValueTag_NumberInput,
+   AzNodeTypeFieldValueTag_CheckBox,
+   AzNodeTypeFieldValueTag_ColorInput,
+};
+typedef enum AzNodeTypeFieldValueTag AzNodeTypeFieldValueTag;
+
+struct AzNodeTypeFieldValueVariant_TextInput { AzNodeTypeFieldValueTag tag; AzString payload; };
+typedef struct AzNodeTypeFieldValueVariant_TextInput AzNodeTypeFieldValueVariant_TextInput;
+struct AzNodeTypeFieldValueVariant_NumberInput { AzNodeTypeFieldValueTag tag; float payload; };
+typedef struct AzNodeTypeFieldValueVariant_NumberInput AzNodeTypeFieldValueVariant_NumberInput;
+struct AzNodeTypeFieldValueVariant_CheckBox { AzNodeTypeFieldValueTag tag; bool payload; };
+typedef struct AzNodeTypeFieldValueVariant_CheckBox AzNodeTypeFieldValueVariant_CheckBox;
+struct AzNodeTypeFieldValueVariant_ColorInput { AzNodeTypeFieldValueTag tag; AzColorU payload; };
+typedef struct AzNodeTypeFieldValueVariant_ColorInput AzNodeTypeFieldValueVariant_ColorInput;
+union AzNodeTypeFieldValue {
+    AzNodeTypeFieldValueVariant_TextInput TextInput;
+    AzNodeTypeFieldValueVariant_NumberInput NumberInput;
+    AzNodeTypeFieldValueVariant_CheckBox CheckBox;
+    AzNodeTypeFieldValueVariant_ColorInput ColorInput;
+};
+typedef union AzNodeTypeFieldValue AzNodeTypeFieldValue;
+
+struct AzNodeTypeInfo {
+    bool  is_root;
+    AzString name;
+    AzInputOutputTypeIdVec inputs;
+    AzInputOutputTypeIdVec outputs;
+};
+typedef struct AzNodeTypeInfo AzNodeTypeInfo;
+
+struct AzInputOutputInfo {
+    AzString data_type;
+    AzColorU color;
+};
+typedef struct AzInputOutputInfo AzInputOutputInfo;
 
 struct AzVertexAttribute {
     AzString name;
@@ -8886,6 +9498,24 @@ struct AzProgressBar {
 };
 typedef struct AzProgressBar AzProgressBar;
 
+struct AzNodeTypeIdInfoMap {
+    AzNodeTypeId node_type_id;
+    AzNodeTypeInfo node_type_info;
+};
+typedef struct AzNodeTypeIdInfoMap AzNodeTypeIdInfoMap;
+
+struct AzInputOutputTypeIdInfoMap {
+    AzInputOutputTypeId io_type_id;
+    AzInputOutputInfo io_info;
+};
+typedef struct AzInputOutputTypeIdInfoMap AzInputOutputTypeIdInfoMap;
+
+struct AzNodeTypeField {
+    AzString key;
+    AzNodeTypeFieldValue value;
+};
+typedef struct AzNodeTypeField AzNodeTypeField;
+
 enum AzCssPropertySourceTag {
    AzCssPropertySourceTag_Css,
    AzCssPropertySourceTag_Inline,
@@ -8936,6 +9566,30 @@ struct AzXmlNode {
     AzOptionString text;
 };
 typedef struct AzXmlNode AzXmlNode;
+
+struct AzNodeTypeIdInfoMapVec {
+    AzNodeTypeIdInfoMap* ptr;
+    size_t len;
+    size_t cap;
+    AzNodeTypeIdInfoMapVecDestructor destructor;
+};
+typedef struct AzNodeTypeIdInfoMapVec AzNodeTypeIdInfoMapVec;
+
+struct AzInputOutputTypeIdInfoMapVec {
+    AzInputOutputTypeIdInfoMap* ptr;
+    size_t len;
+    size_t cap;
+    AzInputOutputTypeIdInfoMapVecDestructor destructor;
+};
+typedef struct AzInputOutputTypeIdInfoMapVec AzInputOutputTypeIdInfoMapVec;
+
+struct AzNodeTypeFieldVec {
+    AzNodeTypeField* ptr;
+    size_t len;
+    size_t cap;
+    AzNodeTypeFieldVecDestructor destructor;
+};
+typedef struct AzNodeTypeFieldVec AzNodeTypeFieldVec;
 
 struct AzInlineLineVec {
     AzInlineLine* ptr;
@@ -9116,6 +9770,15 @@ struct AzDynamicCssProperty {
     AzCssProperty default_value;
 };
 typedef struct AzDynamicCssProperty AzDynamicCssProperty;
+
+struct AzNode {
+    AzNodeTypeId node_type;
+    AzNodePosition position;
+    AzNodeTypeFieldVec fields;
+    AzInputConnectionVec connect_in;
+    AzOutputConnectionVec connect_out;
+};
+typedef struct AzNode AzNode;
 
 enum AzSvgNodeTag {
    AzSvgNodeTag_MultiPolygonCollection,
@@ -9355,6 +10018,20 @@ struct AzNumberInput {
 };
 typedef struct AzNumberInput AzNumberInput;
 
+struct AzNodeIdNodeMap {
+    AzNodeGraphNodeId node_id;
+    AzNode node;
+};
+typedef struct AzNodeIdNodeMap AzNodeIdNodeMap;
+
+struct AzNodeIdNodeMapVec {
+    AzNodeIdNodeMap* ptr;
+    size_t len;
+    size_t cap;
+    AzNodeIdNodeMapVecDestructor destructor;
+};
+typedef struct AzNodeIdNodeMapVec AzNodeIdNodeMapVec;
+
 struct AzCssDeclarationVec {
     AzCssDeclaration* ptr;
     size_t len;
@@ -9473,9 +10150,21 @@ struct AzFrame {
 };
 typedef struct AzFrame AzFrame;
 
+struct AzNodeGraph {
+    AzNodeTypeIdInfoMapVec node_types;
+    AzInputOutputTypeIdInfoMapVec input_output_types;
+    AzNodeIdNodeMapVec nodes;
+    bool  allow_multiple_root_nodes;
+    AzLogicalPosition offset;
+    AzNodeGraphStyle style;
+    AzNodeGraphCallbacks callbacks;
+    AzString add_node_str;
+};
+typedef struct AzNodeGraph AzNodeGraph;
+
 struct AzStyledDom {
     AzNodeId root;
-    AzNodeVec node_hierarchy;
+    AzNodeHierarchyItemVec node_hierarchy;
     AzNodeDataVec node_data;
     AzStyledNodeVec styled_nodes;
     AzCascadeInfoVec cascade_info;
@@ -9653,6 +10342,33 @@ typedef struct AzCss AzCss;
 #define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
 #define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
 #define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+#define AzNodeTypeIdInfoMapVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_DefaultRust } }
+#define AzNodeTypeIdInfoMapVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor } }
+#define AzNodeTypeIdInfoMapVecDestructor_External(v) { .External = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_External, .payload = v } }
+#define AzInputOutputTypeIdInfoMapVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInputOutputTypeIdInfoMapVecDestructorTag_DefaultRust } }
+#define AzInputOutputTypeIdInfoMapVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInputOutputTypeIdInfoMapVecDestructorTag_NoDestructor } }
+#define AzInputOutputTypeIdInfoMapVecDestructor_External(v) { .External = { .tag = AzInputOutputTypeIdInfoMapVecDestructorTag_External, .payload = v } }
+#define AzNodeIdNodeMapVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeIdNodeMapVecDestructorTag_DefaultRust } }
+#define AzNodeIdNodeMapVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeIdNodeMapVecDestructorTag_NoDestructor } }
+#define AzNodeIdNodeMapVecDestructor_External(v) { .External = { .tag = AzNodeIdNodeMapVecDestructorTag_External, .payload = v } }
+#define AzInputOutputTypeIdVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInputOutputTypeIdVecDestructorTag_DefaultRust } }
+#define AzInputOutputTypeIdVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInputOutputTypeIdVecDestructorTag_NoDestructor } }
+#define AzInputOutputTypeIdVecDestructor_External(v) { .External = { .tag = AzInputOutputTypeIdVecDestructorTag_External, .payload = v } }
+#define AzNodeTypeFieldVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeTypeFieldVecDestructorTag_DefaultRust } }
+#define AzNodeTypeFieldVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeTypeFieldVecDestructorTag_NoDestructor } }
+#define AzNodeTypeFieldVecDestructor_External(v) { .External = { .tag = AzNodeTypeFieldVecDestructorTag_External, .payload = v } }
+#define AzInputConnectionVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInputConnectionVecDestructorTag_DefaultRust } }
+#define AzInputConnectionVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInputConnectionVecDestructorTag_NoDestructor } }
+#define AzInputConnectionVecDestructor_External(v) { .External = { .tag = AzInputConnectionVecDestructorTag_External, .payload = v } }
+#define AzOutputNodeAndIndexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzOutputNodeAndIndexVecDestructorTag_DefaultRust } }
+#define AzOutputNodeAndIndexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzOutputNodeAndIndexVecDestructorTag_NoDestructor } }
+#define AzOutputNodeAndIndexVecDestructor_External(v) { .External = { .tag = AzOutputNodeAndIndexVecDestructorTag_External, .payload = v } }
+#define AzOutputConnectionVecDestructor_DefaultRust { .DefaultRust = { .tag = AzOutputConnectionVecDestructorTag_DefaultRust } }
+#define AzOutputConnectionVecDestructor_NoDestructor { .NoDestructor = { .tag = AzOutputConnectionVecDestructorTag_NoDestructor } }
+#define AzOutputConnectionVecDestructor_External(v) { .External = { .tag = AzOutputConnectionVecDestructorTag_External, .payload = v } }
+#define AzInputNodeAndIndexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInputNodeAndIndexVecDestructorTag_DefaultRust } }
+#define AzInputNodeAndIndexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInputNodeAndIndexVecDestructorTag_NoDestructor } }
+#define AzInputNodeAndIndexVecDestructor_External(v) { .External = { .tag = AzInputNodeAndIndexVecDestructorTag_External, .payload = v } }
 #define AzTabVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTabVecDestructorTag_DefaultRust } }
 #define AzTabVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor } }
 #define AzTabVecDestructor_External(v) { .External = { .tag = AzTabVecDestructorTag_External, .payload = v } }
@@ -9794,9 +10510,9 @@ typedef struct AzCss AzCss;
 #define AzNodeIdVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeIdVecDestructorTag_DefaultRust } }
 #define AzNodeIdVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor } }
 #define AzNodeIdVecDestructor_External(v) { .External = { .tag = AzNodeIdVecDestructorTag_External, .payload = v } }
-#define AzNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeVecDestructorTag_DefaultRust } }
-#define AzNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor } }
-#define AzNodeVecDestructor_External(v) { .External = { .tag = AzNodeVecDestructorTag_External, .payload = v } }
+#define AzNodeHierarchyItemVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeHierarchyItemVecDestructorTag_DefaultRust } }
+#define AzNodeHierarchyItemVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeHierarchyItemVecDestructorTag_NoDestructor } }
+#define AzNodeHierarchyItemVecDestructor_External(v) { .External = { .tag = AzNodeHierarchyItemVecDestructorTag_External, .payload = v } }
 #define AzStyledNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyledNodeVecDestructorTag_DefaultRust } }
 #define AzStyledNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor } }
 #define AzStyledNodeVecDestructor_External(v) { .External = { .tag = AzStyledNodeVecDestructorTag_External, .payload = v } }
@@ -10174,6 +10890,22 @@ typedef struct AzCss AzCss;
 #define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
 #define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
 #define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
+#define AzOptionNodeGraphOnNodeAdded_None { .None = { .tag = AzOptionNodeGraphOnNodeAddedTag_None } }
+#define AzOptionNodeGraphOnNodeAdded_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeAddedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeRemoved_None { .None = { .tag = AzOptionNodeGraphOnNodeRemovedTag_None } }
+#define AzOptionNodeGraphOnNodeRemoved_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeRemovedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeGraphDragged_None { .None = { .tag = AzOptionNodeGraphOnNodeGraphDraggedTag_None } }
+#define AzOptionNodeGraphOnNodeGraphDragged_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeGraphDraggedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeDragged_None { .None = { .tag = AzOptionNodeGraphOnNodeDraggedTag_None } }
+#define AzOptionNodeGraphOnNodeDragged_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeDraggedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeConnected_None { .None = { .tag = AzOptionNodeGraphOnNodeConnectedTag_None } }
+#define AzOptionNodeGraphOnNodeConnected_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeConnectedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeInputDisconnected_None { .None = { .tag = AzOptionNodeGraphOnNodeInputDisconnectedTag_None } }
+#define AzOptionNodeGraphOnNodeInputDisconnected_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeInputDisconnectedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeOutputDisconnected_None { .None = { .tag = AzOptionNodeGraphOnNodeOutputDisconnectedTag_None } }
+#define AzOptionNodeGraphOnNodeOutputDisconnected_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeOutputDisconnectedTag_Some, .payload = v } }
+#define AzOptionNodeGraphOnNodeFieldEdited_None { .None = { .tag = AzOptionNodeGraphOnNodeFieldEditedTag_None } }
+#define AzOptionNodeGraphOnNodeFieldEdited_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeFieldEditedTag_Some, .payload = v } }
 #define AzOptionColorInputOnValueChange_None { .None = { .tag = AzOptionColorInputOnValueChangeTag_None } }
 #define AzOptionColorInputOnValueChange_Some(v) { .Some = { .tag = AzOptionColorInputOnValueChangeTag_Some, .payload = v } }
 #define AzOptionButtonOnClick_None { .None = { .tag = AzOptionButtonOnClickTag_None } }
@@ -10393,6 +11125,10 @@ typedef struct AzCss AzCss;
 #define AzStyleTransformVecValue_Inherit { .Inherit = { .tag = AzStyleTransformVecValueTag_Inherit } }
 #define AzStyleTransformVecValue_Initial { .Initial = { .tag = AzStyleTransformVecValueTag_Initial } }
 #define AzStyleTransformVecValue_Exact(v) { .Exact = { .tag = AzStyleTransformVecValueTag_Exact, .payload = v } }
+#define AzNodeTypeFieldValue_TextInput(v) { .TextInput = { .tag = AzNodeTypeFieldValueTag_TextInput, .payload = v } }
+#define AzNodeTypeFieldValue_NumberInput(v) { .NumberInput = { .tag = AzNodeTypeFieldValueTag_NumberInput, .payload = v } }
+#define AzNodeTypeFieldValue_CheckBox(v) { .CheckBox = { .tag = AzNodeTypeFieldValueTag_CheckBox, .payload = v } }
+#define AzNodeTypeFieldValue_ColorInput(v) { .ColorInput = { .tag = AzNodeTypeFieldValueTag_ColorInput, .payload = v } }
 #define AzSvgStyle_Fill(v) { .Fill = { .tag = AzSvgStyleTag_Fill, .payload = v } }
 #define AzSvgStyle_Stroke(v) { .Stroke = { .tag = AzSvgStyleTag_Stroke, .payload = v } }
 #define AzFmtValue_Bool(v) { .Bool = { .tag = AzFmtValueTag_Bool, .payload = v } }
@@ -10584,6 +11320,42 @@ typedef struct AzCss AzCss;
 #define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
 #define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
 #define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
+AzNodeTypeIdInfoMap AzNodeTypeIdInfoMapVecArray[] = {};
+#define AzNodeTypeIdInfoMapVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeTypeIdInfoMap), .cap = sizeof(v) / sizeof(AzNodeTypeIdInfoMap), .destructor = { .NoDestructor = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor, }, }, }
+#define AzNodeTypeIdInfoMapVec_empty { .ptr = &AzNodeTypeIdInfoMapVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor, }, }, }
+
+AzInputOutputTypeIdInfoMap AzInputOutputTypeIdInfoMapVecArray[] = {};
+#define AzInputOutputTypeIdInfoMapVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInputOutputTypeIdInfoMap), .cap = sizeof(v) / sizeof(AzInputOutputTypeIdInfoMap), .destructor = { .NoDestructor = { .tag = AzInputOutputTypeIdInfoMapVecDestructorTag_NoDestructor, }, }, }
+#define AzInputOutputTypeIdInfoMapVec_empty { .ptr = &AzInputOutputTypeIdInfoMapVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInputOutputTypeIdInfoMapVecDestructorTag_NoDestructor, }, }, }
+
+AzNodeIdNodeMap AzNodeIdNodeMapVecArray[] = {};
+#define AzNodeIdNodeMapVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeIdNodeMap), .cap = sizeof(v) / sizeof(AzNodeIdNodeMap), .destructor = { .NoDestructor = { .tag = AzNodeIdNodeMapVecDestructorTag_NoDestructor, }, }, }
+#define AzNodeIdNodeMapVec_empty { .ptr = &AzNodeIdNodeMapVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeIdNodeMapVecDestructorTag_NoDestructor, }, }, }
+
+AzInputOutputTypeId AzInputOutputTypeIdVecArray[] = {};
+#define AzInputOutputTypeIdVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInputOutputTypeId), .cap = sizeof(v) / sizeof(AzInputOutputTypeId), .destructor = { .NoDestructor = { .tag = AzInputOutputTypeIdVecDestructorTag_NoDestructor, }, }, }
+#define AzInputOutputTypeIdVec_empty { .ptr = &AzInputOutputTypeIdVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInputOutputTypeIdVecDestructorTag_NoDestructor, }, }, }
+
+AzNodeTypeField AzNodeTypeFieldVecArray[] = {};
+#define AzNodeTypeFieldVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeTypeField), .cap = sizeof(v) / sizeof(AzNodeTypeField), .destructor = { .NoDestructor = { .tag = AzNodeTypeFieldVecDestructorTag_NoDestructor, }, }, }
+#define AzNodeTypeFieldVec_empty { .ptr = &AzNodeTypeFieldVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeTypeFieldVecDestructorTag_NoDestructor, }, }, }
+
+AzInputConnection AzInputConnectionVecArray[] = {};
+#define AzInputConnectionVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInputConnection), .cap = sizeof(v) / sizeof(AzInputConnection), .destructor = { .NoDestructor = { .tag = AzInputConnectionVecDestructorTag_NoDestructor, }, }, }
+#define AzInputConnectionVec_empty { .ptr = &AzInputConnectionVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInputConnectionVecDestructorTag_NoDestructor, }, }, }
+
+AzOutputNodeAndIndex AzOutputNodeAndIndexVecArray[] = {};
+#define AzOutputNodeAndIndexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzOutputNodeAndIndex), .cap = sizeof(v) / sizeof(AzOutputNodeAndIndex), .destructor = { .NoDestructor = { .tag = AzOutputNodeAndIndexVecDestructorTag_NoDestructor, }, }, }
+#define AzOutputNodeAndIndexVec_empty { .ptr = &AzOutputNodeAndIndexVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzOutputNodeAndIndexVecDestructorTag_NoDestructor, }, }, }
+
+AzOutputConnection AzOutputConnectionVecArray[] = {};
+#define AzOutputConnectionVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzOutputConnection), .cap = sizeof(v) / sizeof(AzOutputConnection), .destructor = { .NoDestructor = { .tag = AzOutputConnectionVecDestructorTag_NoDestructor, }, }, }
+#define AzOutputConnectionVec_empty { .ptr = &AzOutputConnectionVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzOutputConnectionVecDestructorTag_NoDestructor, }, }, }
+
+AzInputNodeAndIndex AzInputNodeAndIndexVecArray[] = {};
+#define AzInputNodeAndIndexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInputNodeAndIndex), .cap = sizeof(v) / sizeof(AzInputNodeAndIndex), .destructor = { .NoDestructor = { .tag = AzInputNodeAndIndexVecDestructorTag_NoDestructor, }, }, }
+#define AzInputNodeAndIndexVec_empty { .ptr = &AzInputNodeAndIndexVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInputNodeAndIndexVecDestructorTag_NoDestructor, }, }, }
+
 AzTab AzTabVecArray[] = {};
 #define AzTabVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTab), .cap = sizeof(v) / sizeof(AzTab), .destructor = { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor, }, }, }
 #define AzTabVec_empty { .ptr = &AzTabVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor, }, }, }
@@ -10776,9 +11548,9 @@ AzNodeId AzNodeIdVecArray[] = {};
 #define AzNodeIdVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeId), .cap = sizeof(v) / sizeof(AzNodeId), .destructor = { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor, }, }, }
 #define AzNodeIdVec_empty { .ptr = &AzNodeIdVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeIdVecDestructorTag_NoDestructor, }, }, }
 
-AzNode AzNodeVecArray[] = {};
-#define AzNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNode), .cap = sizeof(v) / sizeof(AzNode), .destructor = { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor, }, }, }
-#define AzNodeVec_empty { .ptr = &AzNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeVecDestructorTag_NoDestructor, }, }, }
+AzNodeHierarchyItem AzNodeHierarchyItemVecArray[] = {};
+#define AzNodeHierarchyItemVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeHierarchyItem), .cap = sizeof(v) / sizeof(AzNodeHierarchyItem), .destructor = { .NoDestructor = { .tag = AzNodeHierarchyItemVecDestructorTag_NoDestructor, }, }, }
+#define AzNodeHierarchyItemVec_empty { .ptr = &AzNodeHierarchyItemVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeHierarchyItemVecDestructorTag_NoDestructor, }, }, }
 
 AzStyledNode AzStyledNodeVecArray[] = {};
 #define AzStyledNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyledNode), .cap = sizeof(v) / sizeof(AzStyledNode), .destructor = { .NoDestructor = { .tag = AzStyledNodeVecDestructorTag_NoDestructor, }, }, }
@@ -11131,6 +11903,26 @@ extern DLLIMPORT void AzFrame_setFlexGrow(AzFrame* restrict frame, float flex_gr
 extern DLLIMPORT AzFrame AzFrame_withFlexGrow(AzFrame* restrict frame, float flex_grow);
 extern DLLIMPORT AzDom AzFrame_dom(AzFrame* restrict frame);
 extern DLLIMPORT void AzFrame_delete(AzFrame* restrict instance);
+extern DLLIMPORT void AzNodeGraph_delete(AzNodeGraph* restrict instance);
+extern DLLIMPORT void AzNodeTypeIdInfoMap_delete(AzNodeTypeIdInfoMap* restrict instance);
+extern DLLIMPORT void AzInputOutputTypeIdInfoMap_delete(AzInputOutputTypeIdInfoMap* restrict instance);
+extern DLLIMPORT void AzNodeIdNodeMap_delete(AzNodeIdNodeMap* restrict instance);
+extern DLLIMPORT void AzNodeGraphCallbacks_delete(AzNodeGraphCallbacks* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeAdded_delete(AzNodeGraphOnNodeAdded* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeRemoved_delete(AzNodeGraphOnNodeRemoved* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeGraphDragged_delete(AzNodeGraphOnNodeGraphDragged* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeDragged_delete(AzNodeGraphOnNodeDragged* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeConnected_delete(AzNodeGraphOnNodeConnected* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeInputDisconnected_delete(AzNodeGraphOnNodeInputDisconnected* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeOutputDisconnected_delete(AzNodeGraphOnNodeOutputDisconnected* restrict instance);
+extern DLLIMPORT void AzNodeGraphOnNodeFieldEdited_delete(AzNodeGraphOnNodeFieldEdited* restrict instance);
+extern DLLIMPORT void AzNode_delete(AzNode* restrict instance);
+extern DLLIMPORT void AzNodeTypeField_delete(AzNodeTypeField* restrict instance);
+extern DLLIMPORT void AzNodeTypeFieldValue_delete(AzNodeTypeFieldValue* restrict instance);
+extern DLLIMPORT void AzInputConnection_delete(AzInputConnection* restrict instance);
+extern DLLIMPORT void AzOutputConnection_delete(AzOutputConnection* restrict instance);
+extern DLLIMPORT void AzNodeTypeInfo_delete(AzNodeTypeInfo* restrict instance);
+extern DLLIMPORT void AzInputOutputInfo_delete(AzInputOutputInfo* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
@@ -11513,6 +12305,15 @@ extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t ptr, size_t start, size
 extern DLLIMPORT AzString AzString_trim(const AzString* string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(const AzString* string);
 extern DLLIMPORT void AzString_delete(AzString* restrict instance);
+extern DLLIMPORT void AzNodeTypeIdInfoMapVec_delete(AzNodeTypeIdInfoMapVec* restrict instance);
+extern DLLIMPORT void AzInputOutputTypeIdInfoMapVec_delete(AzInputOutputTypeIdInfoMapVec* restrict instance);
+extern DLLIMPORT void AzNodeIdNodeMapVec_delete(AzNodeIdNodeMapVec* restrict instance);
+extern DLLIMPORT void AzInputOutputTypeIdVec_delete(AzInputOutputTypeIdVec* restrict instance);
+extern DLLIMPORT void AzNodeTypeFieldVec_delete(AzNodeTypeFieldVec* restrict instance);
+extern DLLIMPORT void AzInputConnectionVec_delete(AzInputConnectionVec* restrict instance);
+extern DLLIMPORT void AzOutputNodeAndIndexVec_delete(AzOutputNodeAndIndexVec* restrict instance);
+extern DLLIMPORT void AzOutputConnectionVec_delete(AzOutputConnectionVec* restrict instance);
+extern DLLIMPORT void AzInputNodeAndIndexVec_delete(AzInputNodeAndIndexVec* restrict instance);
 extern DLLIMPORT void AzTabVec_delete(AzTabVec* restrict instance);
 extern DLLIMPORT void AzAccessibilityStateVec_delete(AzAccessibilityStateVec* restrict instance);
 extern DLLIMPORT void AzMenuItemVec_delete(AzMenuItemVec* restrict instance);
@@ -11564,11 +12365,19 @@ extern DLLIMPORT void AzStringPairVec_delete(AzStringPairVec* restrict instance)
 extern DLLIMPORT void AzNormalizedLinearColorStopVec_delete(AzNormalizedLinearColorStopVec* restrict instance);
 extern DLLIMPORT void AzNormalizedRadialColorStopVec_delete(AzNormalizedRadialColorStopVec* restrict instance);
 extern DLLIMPORT void AzNodeIdVec_delete(AzNodeIdVec* restrict instance);
-extern DLLIMPORT void AzNodeVec_delete(AzNodeVec* restrict instance);
+extern DLLIMPORT void AzNodeHierarchyItemVec_delete(AzNodeHierarchyItemVec* restrict instance);
 extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMappingVec_delete(AzTagIdToNodeIdMappingVec* restrict instance);
 extern DLLIMPORT void AzParentWithNodeDepthVec_delete(AzParentWithNodeDepthVec* restrict instance);
 extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeAdded_delete(AzOptionNodeGraphOnNodeAdded* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeRemoved_delete(AzOptionNodeGraphOnNodeRemoved* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeGraphDragged_delete(AzOptionNodeGraphOnNodeGraphDragged* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeDragged_delete(AzOptionNodeGraphOnNodeDragged* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeConnected_delete(AzOptionNodeGraphOnNodeConnected* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeInputDisconnected_delete(AzOptionNodeGraphOnNodeInputDisconnected* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeOutputDisconnected_delete(AzOptionNodeGraphOnNodeOutputDisconnected* restrict instance);
+extern DLLIMPORT void AzOptionNodeGraphOnNodeFieldEdited_delete(AzOptionNodeGraphOnNodeFieldEdited* restrict instance);
 extern DLLIMPORT void AzOptionColorInputOnValueChange_delete(AzOptionColorInputOnValueChange* restrict instance);
 extern DLLIMPORT void AzOptionButtonOnClick_delete(AzOptionButtonOnClick* restrict instance);
 extern DLLIMPORT void AzOptionCheckBoxOnToggle_delete(AzOptionCheckBoxOnToggle* restrict instance);
@@ -16239,6 +17048,62 @@ bool AzTextInputSelection_matchMutFromTo(AzTextInputSelection* restrict value, A
     return valid;
 }
 
+bool AzNodeTypeFieldValue_matchRefTextInput(const AzNodeTypeFieldValue* value, const AzString** restrict out) {
+    const AzNodeTypeFieldValueVariant_TextInput* casted = (const AzNodeTypeFieldValueVariant_TextInput*)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_TextInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchMutTextInput(AzNodeTypeFieldValue* restrict value, AzString* restrict * restrict out) {
+    AzNodeTypeFieldValueVariant_TextInput* restrict casted = (AzNodeTypeFieldValueVariant_TextInput* restrict)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_TextInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchRefNumberInput(const AzNodeTypeFieldValue* value, const Azf32** restrict out) {
+    const AzNodeTypeFieldValueVariant_NumberInput* casted = (const AzNodeTypeFieldValueVariant_NumberInput*)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_NumberInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchMutNumberInput(AzNodeTypeFieldValue* restrict value, Azf32* restrict * restrict out) {
+    AzNodeTypeFieldValueVariant_NumberInput* restrict casted = (AzNodeTypeFieldValueVariant_NumberInput* restrict)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_NumberInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchRefCheckBox(const AzNodeTypeFieldValue* value, const Azbool** restrict out) {
+    const AzNodeTypeFieldValueVariant_CheckBox* casted = (const AzNodeTypeFieldValueVariant_CheckBox*)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_CheckBox;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchMutCheckBox(AzNodeTypeFieldValue* restrict value, Azbool* restrict * restrict out) {
+    AzNodeTypeFieldValueVariant_CheckBox* restrict casted = (AzNodeTypeFieldValueVariant_CheckBox* restrict)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_CheckBox;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchRefColorInput(const AzNodeTypeFieldValue* value, const AzColorU** restrict out) {
+    const AzNodeTypeFieldValueVariant_ColorInput* casted = (const AzNodeTypeFieldValueVariant_ColorInput*)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_ColorInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchMutColorInput(AzNodeTypeFieldValue* restrict value, AzColorU* restrict * restrict out) {
+    AzNodeTypeFieldValueVariant_ColorInput* restrict casted = (AzNodeTypeFieldValueVariant_ColorInput* restrict)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_ColorInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
 bool AzCssPropertySource_matchRefCss(const AzCssPropertySource* value, const AzCssPath** restrict out) {
     const AzCssPropertySourceVariant_Css* casted = (const AzCssPropertySourceVariant_Css*)value;
     bool valid = casted->tag == AzCssPropertySourceTag_Css;
@@ -16809,6 +17674,132 @@ bool AzStyleFontFamilyVecDestructor_matchRefExternal(const AzStyleFontFamilyVecD
 bool AzStyleFontFamilyVecDestructor_matchMutExternal(AzStyleFontFamilyVecDestructor* restrict value, AzStyleFontFamilyVecDestructorType* restrict * restrict out) {
     AzStyleFontFamilyVecDestructorVariant_External* restrict casted = (AzStyleFontFamilyVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzStyleFontFamilyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeIdInfoMapVecDestructor_matchRefExternal(const AzNodeTypeIdInfoMapVecDestructor* value, const AzNodeTypeIdInfoMapVecDestructorType** restrict out) {
+    const AzNodeTypeIdInfoMapVecDestructorVariant_External* casted = (const AzNodeTypeIdInfoMapVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeTypeIdInfoMapVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeIdInfoMapVecDestructor_matchMutExternal(AzNodeTypeIdInfoMapVecDestructor* restrict value, AzNodeTypeIdInfoMapVecDestructorType* restrict * restrict out) {
+    AzNodeTypeIdInfoMapVecDestructorVariant_External* restrict casted = (AzNodeTypeIdInfoMapVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeTypeIdInfoMapVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputOutputTypeIdInfoMapVecDestructor_matchRefExternal(const AzInputOutputTypeIdInfoMapVecDestructor* value, const AzInputOutputTypeIdInfoMapVecDestructorType** restrict out) {
+    const AzInputOutputTypeIdInfoMapVecDestructorVariant_External* casted = (const AzInputOutputTypeIdInfoMapVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInputOutputTypeIdInfoMapVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputOutputTypeIdInfoMapVecDestructor_matchMutExternal(AzInputOutputTypeIdInfoMapVecDestructor* restrict value, AzInputOutputTypeIdInfoMapVecDestructorType* restrict * restrict out) {
+    AzInputOutputTypeIdInfoMapVecDestructorVariant_External* restrict casted = (AzInputOutputTypeIdInfoMapVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInputOutputTypeIdInfoMapVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeIdNodeMapVecDestructor_matchRefExternal(const AzNodeIdNodeMapVecDestructor* value, const AzNodeIdNodeMapVecDestructorType** restrict out) {
+    const AzNodeIdNodeMapVecDestructorVariant_External* casted = (const AzNodeIdNodeMapVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeIdNodeMapVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeIdNodeMapVecDestructor_matchMutExternal(AzNodeIdNodeMapVecDestructor* restrict value, AzNodeIdNodeMapVecDestructorType* restrict * restrict out) {
+    AzNodeIdNodeMapVecDestructorVariant_External* restrict casted = (AzNodeIdNodeMapVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeIdNodeMapVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputOutputTypeIdVecDestructor_matchRefExternal(const AzInputOutputTypeIdVecDestructor* value, const AzInputOutputTypeIdVecDestructorType** restrict out) {
+    const AzInputOutputTypeIdVecDestructorVariant_External* casted = (const AzInputOutputTypeIdVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInputOutputTypeIdVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputOutputTypeIdVecDestructor_matchMutExternal(AzInputOutputTypeIdVecDestructor* restrict value, AzInputOutputTypeIdVecDestructorType* restrict * restrict out) {
+    AzInputOutputTypeIdVecDestructorVariant_External* restrict casted = (AzInputOutputTypeIdVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInputOutputTypeIdVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldVecDestructor_matchRefExternal(const AzNodeTypeFieldVecDestructor* value, const AzNodeTypeFieldVecDestructorType** restrict out) {
+    const AzNodeTypeFieldVecDestructorVariant_External* casted = (const AzNodeTypeFieldVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeTypeFieldVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldVecDestructor_matchMutExternal(AzNodeTypeFieldVecDestructor* restrict value, AzNodeTypeFieldVecDestructorType* restrict * restrict out) {
+    AzNodeTypeFieldVecDestructorVariant_External* restrict casted = (AzNodeTypeFieldVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeTypeFieldVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputConnectionVecDestructor_matchRefExternal(const AzInputConnectionVecDestructor* value, const AzInputConnectionVecDestructorType** restrict out) {
+    const AzInputConnectionVecDestructorVariant_External* casted = (const AzInputConnectionVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInputConnectionVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputConnectionVecDestructor_matchMutExternal(AzInputConnectionVecDestructor* restrict value, AzInputConnectionVecDestructorType* restrict * restrict out) {
+    AzInputConnectionVecDestructorVariant_External* restrict casted = (AzInputConnectionVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInputConnectionVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOutputNodeAndIndexVecDestructor_matchRefExternal(const AzOutputNodeAndIndexVecDestructor* value, const AzOutputNodeAndIndexVecDestructorType** restrict out) {
+    const AzOutputNodeAndIndexVecDestructorVariant_External* casted = (const AzOutputNodeAndIndexVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzOutputNodeAndIndexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOutputNodeAndIndexVecDestructor_matchMutExternal(AzOutputNodeAndIndexVecDestructor* restrict value, AzOutputNodeAndIndexVecDestructorType* restrict * restrict out) {
+    AzOutputNodeAndIndexVecDestructorVariant_External* restrict casted = (AzOutputNodeAndIndexVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzOutputNodeAndIndexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOutputConnectionVecDestructor_matchRefExternal(const AzOutputConnectionVecDestructor* value, const AzOutputConnectionVecDestructorType** restrict out) {
+    const AzOutputConnectionVecDestructorVariant_External* casted = (const AzOutputConnectionVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzOutputConnectionVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOutputConnectionVecDestructor_matchMutExternal(AzOutputConnectionVecDestructor* restrict value, AzOutputConnectionVecDestructorType* restrict * restrict out) {
+    AzOutputConnectionVecDestructorVariant_External* restrict casted = (AzOutputConnectionVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzOutputConnectionVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputNodeAndIndexVecDestructor_matchRefExternal(const AzInputNodeAndIndexVecDestructor* value, const AzInputNodeAndIndexVecDestructorType** restrict out) {
+    const AzInputNodeAndIndexVecDestructorVariant_External* casted = (const AzInputNodeAndIndexVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzInputNodeAndIndexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzInputNodeAndIndexVecDestructor_matchMutExternal(AzInputNodeAndIndexVecDestructor* restrict value, AzInputNodeAndIndexVecDestructorType* restrict * restrict out) {
+    AzInputNodeAndIndexVecDestructorVariant_External* restrict casted = (AzInputNodeAndIndexVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzInputNodeAndIndexVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }
@@ -17471,16 +18462,16 @@ bool AzNodeIdVecDestructor_matchMutExternal(AzNodeIdVecDestructor* restrict valu
     return valid;
 }
 
-bool AzNodeVecDestructor_matchRefExternal(const AzNodeVecDestructor* value, const AzNodeVecDestructorType** restrict out) {
-    const AzNodeVecDestructorVariant_External* casted = (const AzNodeVecDestructorVariant_External*)value;
-    bool valid = casted->tag == AzNodeVecDestructorTag_External;
+bool AzNodeHierarchyItemVecDestructor_matchRefExternal(const AzNodeHierarchyItemVecDestructor* value, const AzNodeHierarchyItemVecDestructorType** restrict out) {
+    const AzNodeHierarchyItemVecDestructorVariant_External* casted = (const AzNodeHierarchyItemVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzNodeHierarchyItemVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }
 
-bool AzNodeVecDestructor_matchMutExternal(AzNodeVecDestructor* restrict value, AzNodeVecDestructorType* restrict * restrict out) {
-    AzNodeVecDestructorVariant_External* restrict casted = (AzNodeVecDestructorVariant_External* restrict)value;
-    bool valid = casted->tag == AzNodeVecDestructorTag_External;
+bool AzNodeHierarchyItemVecDestructor_matchMutExternal(AzNodeHierarchyItemVecDestructor* restrict value, AzNodeHierarchyItemVecDestructorType* restrict * restrict out) {
+    AzNodeHierarchyItemVecDestructorVariant_External* restrict casted = (AzNodeHierarchyItemVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzNodeHierarchyItemVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }
@@ -17537,6 +18528,118 @@ bool AzNodeDataVecDestructor_matchRefExternal(const AzNodeDataVecDestructor* val
 bool AzNodeDataVecDestructor_matchMutExternal(AzNodeDataVecDestructor* restrict value, AzNodeDataVecDestructorType* restrict * restrict out) {
     AzNodeDataVecDestructorVariant_External* restrict casted = (AzNodeDataVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeAdded_matchRefSome(const AzOptionNodeGraphOnNodeAdded* value, const AzNodeGraphOnNodeAdded** restrict out) {
+    const AzOptionNodeGraphOnNodeAddedVariant_Some* casted = (const AzOptionNodeGraphOnNodeAddedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeAddedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeAdded_matchMutSome(AzOptionNodeGraphOnNodeAdded* restrict value, AzNodeGraphOnNodeAdded* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeAddedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeAddedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeAddedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeRemoved_matchRefSome(const AzOptionNodeGraphOnNodeRemoved* value, const AzNodeGraphOnNodeRemoved** restrict out) {
+    const AzOptionNodeGraphOnNodeRemovedVariant_Some* casted = (const AzOptionNodeGraphOnNodeRemovedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeRemovedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeRemoved_matchMutSome(AzOptionNodeGraphOnNodeRemoved* restrict value, AzNodeGraphOnNodeRemoved* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeRemovedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeRemovedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeRemovedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeGraphDragged_matchRefSome(const AzOptionNodeGraphOnNodeGraphDragged* value, const AzNodeGraphOnNodeGraphDragged** restrict out) {
+    const AzOptionNodeGraphOnNodeGraphDraggedVariant_Some* casted = (const AzOptionNodeGraphOnNodeGraphDraggedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeGraphDraggedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeGraphDragged_matchMutSome(AzOptionNodeGraphOnNodeGraphDragged* restrict value, AzNodeGraphOnNodeGraphDragged* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeGraphDraggedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeGraphDraggedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeGraphDraggedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeDragged_matchRefSome(const AzOptionNodeGraphOnNodeDragged* value, const AzNodeGraphOnNodeDragged** restrict out) {
+    const AzOptionNodeGraphOnNodeDraggedVariant_Some* casted = (const AzOptionNodeGraphOnNodeDraggedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeDraggedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeDragged_matchMutSome(AzOptionNodeGraphOnNodeDragged* restrict value, AzNodeGraphOnNodeDragged* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeDraggedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeDraggedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeDraggedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeConnected_matchRefSome(const AzOptionNodeGraphOnNodeConnected* value, const AzNodeGraphOnNodeConnected** restrict out) {
+    const AzOptionNodeGraphOnNodeConnectedVariant_Some* casted = (const AzOptionNodeGraphOnNodeConnectedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeConnectedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeConnected_matchMutSome(AzOptionNodeGraphOnNodeConnected* restrict value, AzNodeGraphOnNodeConnected* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeConnectedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeConnectedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeConnectedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeInputDisconnected_matchRefSome(const AzOptionNodeGraphOnNodeInputDisconnected* value, const AzNodeGraphOnNodeInputDisconnected** restrict out) {
+    const AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some* casted = (const AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeInputDisconnectedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeInputDisconnected_matchMutSome(AzOptionNodeGraphOnNodeInputDisconnected* restrict value, AzNodeGraphOnNodeInputDisconnected* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeInputDisconnectedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeInputDisconnectedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeOutputDisconnected_matchRefSome(const AzOptionNodeGraphOnNodeOutputDisconnected* value, const AzNodeGraphOnNodeOutputDisconnected** restrict out) {
+    const AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some* casted = (const AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeOutputDisconnectedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeOutputDisconnected_matchMutSome(AzOptionNodeGraphOnNodeOutputDisconnected* restrict value, AzNodeGraphOnNodeOutputDisconnected* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeOutputDisconnectedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeOutputDisconnectedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeFieldEdited_matchRefSome(const AzOptionNodeGraphOnNodeFieldEdited* value, const AzNodeGraphOnNodeFieldEdited** restrict out) {
+    const AzOptionNodeGraphOnNodeFieldEditedVariant_Some* casted = (const AzOptionNodeGraphOnNodeFieldEditedVariant_Some*)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeFieldEditedTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionNodeGraphOnNodeFieldEdited_matchMutSome(AzOptionNodeGraphOnNodeFieldEdited* restrict value, AzNodeGraphOnNodeFieldEdited* restrict * restrict out) {
+    AzOptionNodeGraphOnNodeFieldEditedVariant_Some* restrict casted = (AzOptionNodeGraphOnNodeFieldEditedVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionNodeGraphOnNodeFieldEditedTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

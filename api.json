@@ -1778,7 +1778,7 @@
                         {"gl_context": {"type": "*const OptionGl"}},
                         {"image_cache": {"type": "*const c_void"}},
                         {"system_fonts": {"type": "*const c_void"}},
-                        {"node_hierarchy": {"type": "*const NodeVec"}},
+                        {"node_hierarchy": {"type": "*const NodeHierarchyItemVec"}},
                         {"words_cache": {"type": "*const c_void"}},
                         {"shaped_words_cache": {"type": "*const c_void"}},
                         {"positioned_words_cache": {"type": "*const c_void"}},
@@ -6018,13 +6018,369 @@
                             "fn_body": "let mut frame = frame.swap_with_default(); frame.dom()"
                         }
                     }
+                },
+                "NodeGraph": {
+                    "external": "crate::widgets::node_graph::NodeGraph",
+                    "struct_fields": [
+                        {"node_types": {"type": "NodeTypeIdInfoMapVec"}},
+                        {"input_output_types": {"type": "InputOutputTypeIdInfoMapVec"}},
+                        {"nodes": {"type": "NodeIdNodeMapVec"}},
+                        {"allow_multiple_root_nodes": {"type": "bool"}},
+                        {"offset": {"type": "LogicalPosition"}},
+                        {"style": {"type": "NodeGraphStyle"}},
+                        {"callbacks": {"type": "NodeGraphCallbacks"}},
+                        {"add_node_str": {"type": "String"}}
+                    ]
+                },
+                "NodeTypeIdInfoMap": {
+                    "external": "crate::widgets::node_graph::NodeTypeIdInfoMap",
+                    "struct_fields": [
+                        {"node_type_id": {"type": "NodeTypeId" }},
+                        {"node_type_info": {"type": "NodeTypeInfo" }}
+                    ]
+                },
+                "InputOutputTypeIdInfoMap": {
+                    "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMap",
+                    "struct_fields": [
+                        {"io_type_id": {"type": "InputOutputTypeId" }},
+                        {"io_info": {"type": "InputOutputInfo" }}
+                    ]
+                },
+                "NodeIdNodeMap": {
+                    "external": "crate::widgets::node_graph::NodeIdNodeMap",
+                    "struct_fields": [
+                        {"node_id": {"type": "NodeGraphNodeId" }},
+                        {"node": {"type": "Node" }}
+                    ]
+                },
+                "NodeGraphStyle": {
+                    "external": "crate::widgets::node_graph::NodeIdNodeMap",
+                    "enum_fields": [
+                        {"Default": {}}
+                    ]
+                },
+                "NodeGraphCallbacks": {
+                    "external": "crate::widgets::node_graph::NodeGraphCallbacks",
+                    "struct_fields": [
+                        {"on_node_added": {"type": "OptionNodeGraphOnNodeAdded"}},
+                        {"on_node_removed": {"type": "OptionNodeGraphOnNodeRemoved"}},
+                        {"on_node_dragged": {"type": "OptionNodeGraphOnNodeDragged"}},
+                        {"on_node_graph_dragged": {"type": "OptionNodeGraphOnNodeGraphDragged"}},
+                        {"on_node_connected": {"type": "OptionNodeGraphOnNodeConnected"}},
+                        {"on_node_input_disconnected": {"type": "OptionNodeGraphOnNodeInputDisconnected"}},
+                        {"on_node_output_disconnected": {"type": "OptionNodeGraphOnNodeOutputDisconnected"}},
+                        {"on_node_field_edited": {"type": "OptionNodeGraphOnNodeFieldEdited"}}
+                    ]
+                },
+                "NodeGraphOnNodeAddedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeTypeId", "ref": "value"},
+                            {"type": "NodePosition", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeAddedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeAddedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeAddedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeAdded": {
+                    "external": "crate::widgets::node_graph::OnNodeAdded",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeAddedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeRemovedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeGraphNodeId", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeRemovedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeRemovedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeRemovedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeRemoved": {
+                    "external": "crate::widgets::node_graph::OnNodeRemoved",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeRemovedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeGraphDraggedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "GraphDragAmount", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeGraphDraggedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeGraphDraggedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeGraphDraggedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeGraphDragged": {
+                    "external": "crate::widgets::node_graph::OnNodeGraphDragged",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeGraphDraggedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeDraggedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
+                            {"type": "NodeDragAmount", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeDraggedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeDraggedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeDraggedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeDragged": {
+                    "external": "crate::widgets::node_graph::OnNodeDragged",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeDraggedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeConnectedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
+                            {"type": "usize", "ref": "value"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
+                            {"type": "usize", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeConnectedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeConnectedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeConnectedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeConnected": {
+                    "external": "crate::widgets::node_graph::OnNodeConnected",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeConnectedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeInputDisconnectedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
+                            {"type": "usize", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeInputDisconnectedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeInputDisconnectedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeInputDisconnectedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeInputDisconnected": {
+                    "external": "crate::widgets::node_graph::OnNodeInputDisconnected",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeInputDisconnectedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeOutputDisconnectedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
+                            {"type": "usize", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeOutputDisconnectedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeOutputDisconnectedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeOutputDisconnectedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeOutputDisconnected": {
+                    "external": "crate::widgets::node_graph::OnNodeOutputDisconnected",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeOutputDisconnectedCallback"}}
+                    ]
+                },
+                "NodeGraphOnNodeFieldEditedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "NodeGraphNodeId", "ref": "value"},
+                            {"type": "usize", "ref": "value"},
+                            {"type": "NodeTypeId", "ref": "value"},
+                            {"type": "NodeTypeFieldValue", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "NodeGraphOnNodeFieldEditedCallback": {
+                    "external": "crate::widgets::node_graph::OnNodeFieldEditedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "NodeGraphOnNodeFieldEditedCallbackType"}}
+                    ]
+                },
+                "NodeGraphOnNodeFieldEdited": {
+                    "external": "crate::widgets::node_graph::OnNodeFieldEdited",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "NodeGraphOnNodeFieldEditedCallback"}}
+                    ]
+                },
+                "InputOutputTypeId": {
+                    "external": "crate::widgets::node_graph::InputOutputTypeId",
+                    "struct_fields": [
+                        {"inner": {"type": "u64"}}
+                    ]
+                },
+                "NodeTypeId": {
+                    "external": "crate::widgets::node_graph::NodeTypeId",
+                    "struct_fields": [
+                        {"inner": {"type": "u64"}}
+                    ]
+                },
+                "NodeGraphNodeId": {
+                    "external": "crate::widgets::node_graph::NodeGraphNodeId",
+                    "struct_fields": [
+                        {"inner": {"type": "u64"}}
+                    ]
+                },
+                "Node": {
+                    "external": "crate::widgets::node_graph::Node",
+                    "struct_fields": [
+                        {"node_type": {"type": "NodeTypeId"}},
+                        {"position": {"type": "NodePosition"}},
+                        {"fields": {"type": "NodeTypeFieldVec"}},
+                        {"connect_in": {"type": "InputConnectionVec"}},
+                        {"connect_out": {"type": "OutputConnectionVec"}}
+                    ]
+                },
+                "NodeTypeField": {
+                    "external": "crate::widgets::node_graph::NodeTypeField",
+                    "struct_fields": [
+                        {"key": {"type": "String"}},
+                        {"value": {"type": "NodeTypeFieldValue"}}
+                    ]
+                },
+                "NodeTypeFieldValue": {
+                    "external": "crate::widgets::node_graph::NodeTypeFieldValue",
+                    "enum_fields": [
+                        {"TextInput": {"type": "String"}},
+                        {"NumberInput": {"type": "f32"}},
+                        {"CheckBox": {"type": "bool"}},
+                        {"ColorInput": {"type": "ColorU"}}
+                    ]
+                },
+                "InputConnection": {
+                    "external": "crate::widgets::node_graph::InputConnection",
+                    "struct_fields": [
+                        {"input_index": {"type": "usize"}},
+                        {"connects_to": {"type": "OutputNodeAndIndexVec"}}
+                    ]
+                },
+                "OutputNodeAndIndex": {
+                    "external": "crate::widgets::node_graph::OutputNodeAndIndex",
+                    "struct_fields": [
+                        {"node_id": {"type": "NodeGraphNodeId"}},
+                        {"output_index": {"type": "usize"}}
+                    ]
+                },
+                "OutputConnection": {
+                    "external": "crate::widgets::node_graph::OutputConnection",
+                    "struct_fields": [
+                        {"output_index": {"type": "usize"}},
+                        {"connects_to": {"type": "InputNodeAndIndexVec"}}
+                    ]
+                },
+                "InputNodeAndIndex": {
+                    "external": "crate::widgets::node_graph::InputNodeAndIndex",
+                    "struct_fields": [
+                        {"node_id": {"type": "NodeGraphNodeId"}},
+                        {"input_index": {"type": "usize"}}
+                    ]
+                },
+                "NodeTypeInfo": {
+                    "external": "crate::widgets::node_graph::NodeTypeInfo",
+                    "struct_fields": [
+                        {"is_root": {"type": "bool"}},
+                        {"name": {"type": "String"}},
+                        {"inputs": {"type": "InputOutputTypeIdVec"}},
+                        {"outputs": {"type": "InputOutputTypeIdVec"}}
+                    ]
+                },
+                "InputOutputInfo": {
+                    "external": "crate::widgets::node_graph::InputOutputInfo",
+                    "struct_fields": [
+                        {"data_type": {"type": "String"}},
+                        {"color": {"type": "ColorU"}}
+                    ]
+                },
+                "NodePosition": {
+                    "external": "crate::widgets::node_graph::NodePosition",
+                    "struct_fields": [
+                        {"x": {"type": "f32"}},
+                        {"y": {"type": "f32"}}
+                    ]
+                },
+                "GraphDragAmount": {
+                    "external": "crate::widgets::node_graph::GraphDragAmount",
+                    "struct_fields": [
+                        {"x": {"type": "f32"}},
+                        {"y": {"type": "f32"}}
+                    ]
+                },
+                "NodeDragAmount": {
+                    "external": "crate::widgets::node_graph::NodeDragAmount",
+                    "struct_fields": [
+                        {"x": {"type": "f32"}},
+                        {"y": {"type": "f32"}}
+                    ]
                 }
             }
         },
         "style": {
             "doc": "DOM to CSS cascading and styling module",
             "classes": {
-                "Node": {
+                "NodeHierarchyItem": {
                     "external": "azul_impl::styled_dom::AzNode",
                     "derive": ["Copy"],
                     "struct_fields": [
@@ -6101,7 +6457,7 @@
                     "external": "azul_impl::styled_dom::StyledDom",
                     "struct_fields": [
                         {"root": {"type": "NodeId" }},
-                        {"node_hierarchy": {"type": "NodeVec" }},
+                        {"node_hierarchy": {"type": "NodeHierarchyItemVec" }},
                         {"node_data": {"type": "NodeDataVec" }},
                         {"styled_nodes": {"type": "StyledNodeVec" }},
                         {"cascade_info": {"type": "CascadeInfoVec" }},
@@ -11641,6 +11997,105 @@
         "vec": {
             "doc": "Definition of azuls internal `Vec<*>` wrappers",
             "classes": {
+                "NodeTypeIdInfoMapVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::NodeTypeIdInfoMap",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const NodeTypeIdInfoMap" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "NodeTypeIdInfoMapVecDestructor" } }
+                    ]
+                },
+                "InputOutputTypeIdInfoMapVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMap",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const InputOutputTypeIdInfoMap" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "InputOutputTypeIdInfoMapVecDestructor" } }
+                    ]
+                },
+                "NodeIdNodeMapVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::NodeIdNodeMap",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const NodeIdNodeMap" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "NodeIdNodeMapVecDestructor" } }
+                    ]
+                },
+                "InputOutputTypeIdVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::InputOutputTypeId",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const InputOutputTypeId" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "InputOutputTypeIdVecDestructor" } }
+                    ]
+                },
+                "NodeTypeFieldVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<NodeTypeField>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::NodeTypeField",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const NodeTypeField" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "NodeTypeFieldVecDestructor" } }
+                    ]
+                },
+                "InputConnectionVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<InputConnection>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::InputConnection",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const InputConnection" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "InputConnectionVecDestructor" } }
+                    ]
+                },
+                "OutputNodeAndIndexVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::OutputNodeAndIndex",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const OutputNodeAndIndex" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "OutputNodeAndIndexVecDestructor" } }
+                    ]
+                },
+                "OutputConnectionVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<OutputConnection>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::OutputConnection",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const OutputConnection" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "OutputConnectionVecDestructor" } }
+                    ]
+                },
+                "InputNodeAndIndexVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::node_graph::InputNodeAndIndex",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const InputNodeAndIndex" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "InputNodeAndIndexVecDestructor" } }
+                    ]
+                },
                 "TabVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<Tab>`",
                     "custom_destructor": true,
@@ -12200,15 +12655,15 @@
                         { "destructor": { "type": "NodeIdVecDestructor" } }
                     ]
                 },
-                "NodeVec": {
-                    "doc": "Wrapper over a Rust-allocated `NodeVec`",
+                "NodeHierarchyItemVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`",
                     "custom_destructor": true,
                     "external": "azul_impl::styled_dom::AzNodeVec",
                     "struct_fields": [
-                        { "ptr": { "type": "*const Node" } },
+                        { "ptr": { "type": "*const NodeHierarchyItem" } },
                         { "len": { "type": "usize" } },
                         { "cap": { "type": "usize" } },
-                        { "destructor": { "type": "NodeVecDestructor" } }
+                        { "destructor": { "type": "NodeHierarchyItemVecDestructor" } }
                     ]
                 },
                 "StyledNodeVec": {
@@ -12268,6 +12723,150 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "NodeTypeIdInfoMapVecDestructor": {
+                    "external": "crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "NodeTypeIdInfoMapVecDestructorType"}}
+                    ]
+                },
+                "NodeTypeIdInfoMapVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "NodeTypeIdInfoMapVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "InputOutputTypeIdInfoMapVecDestructor": {
+                    "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "InputOutputTypeIdInfoMapVecDestructorType"}}
+                    ]
+                },
+                "InputOutputTypeIdInfoMapVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "InputOutputTypeIdInfoMapVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "NodeIdNodeMapVecDestructor": {
+                    "external": "crate::widgets::node_graph::NodeIdNodeMapVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "NodeIdNodeMapVecDestructorType"}}
+                    ]
+                },
+                "NodeIdNodeMapVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "NodeIdNodeMapVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "InputOutputTypeIdVecDestructor": {
+                    "external": "crate::widgets::node_graph::InputOutputTypeIdVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "InputOutputTypeIdVecDestructorType"}}
+                    ]
+                },
+                "InputOutputTypeIdVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "InputOutputTypeIdVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "NodeTypeFieldVecDestructor": {
+                    "external": "crate::widgets::node_graph::NodeTypeFieldVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "NodeTypeFieldVecDestructorType"}}
+                    ]
+                },
+                "NodeTypeFieldVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "NodeTypeFieldVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "InputConnectionVecDestructor": {
+                    "external": "crate::widgets::node_graph::InputConnectionVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "InputConnectionVecDestructorType"}}
+                    ]
+                },
+                "InputConnectionVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "InputConnectionVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "OutputNodeAndIndexVecDestructor": {
+                    "external": "crate::widgets::node_graph::OutputNodeAndIndexVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "OutputNodeAndIndexVecDestructorType"}}
+                    ]
+                },
+                "OutputNodeAndIndexVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "OutputNodeAndIndexVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "OutputConnectionVecDestructor": {
+                    "external": "crate::widgets::node_graph::OutputConnectionVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "OutputConnectionVecDestructorType"}}
+                    ]
+                },
+                "OutputConnectionVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "OutputConnectionVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "InputNodeAndIndexVecDestructor": {
+                    "external": "crate::widgets::node_graph::InputNodeAndIndexVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "InputNodeAndIndexVecDestructorType"}}
+                    ]
+                },
+                "InputNodeAndIndexVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "InputNodeAndIndexVec", "ref": "refmut"}
                         ]
                     }
                 },
@@ -13023,19 +13622,19 @@
                         ]
                     }
                 },
-                "NodeVecDestructor": {
+                "NodeHierarchyItemVecDestructor": {
                     "external": "azul_impl::styled_dom::AzNodeVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},
                         {"NoDestructor": {}},
-                        {"External": {"type": "NodeVecDestructorType"}}
+                        {"External": {"type": "NodeHierarchyItemVecDestructorType"}}
                     ]
                 },
-                "NodeVecDestructorType": {
+                "NodeHierarchyItemVecDestructorType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "NodeVec", "ref": "refmut"}
+                            {"type": "NodeHierarchyItemVec", "ref": "refmut"}
                         ]
                     }
                 },
@@ -13108,6 +13707,62 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionNodeGraphOnNodeAdded": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeAdded",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeAdded"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeRemoved": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeRemoved",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeRemoved"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeGraphDragged": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeGraphDragged",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeGraphDragged"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeDragged": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeDragged",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeDragged"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeConnected": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeConnected",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeConnected"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeInputDisconnected": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeInputDisconnected",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeInputDisconnected"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeOutputDisconnected": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeOutputDisconnected",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeOutputDisconnected"}}
+                    ]
+                },
+                "OptionNodeGraphOnNodeFieldEdited": {
+                    "external": "crate::widgets::node_graph::OptionOnNodeFieldEdited",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "NodeGraphOnNodeFieldEdited"}}
+                    ]
+                },
                 "OptionColorInputOnValueChange": {
                     "external": "crate::widgets::color_input::OptionColorInputOnValueChange",
                     "enum_fields": [

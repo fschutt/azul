@@ -1958,13 +1958,159 @@ mod dll {
         pub display_percentage: bool,
     }
 
-    /// Re-export of rust-allocated (stack based) `Node` struct
+    /// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzNodeGraphStyle {
+        Default,
+    }
+
+    /// `AzNodeGraphOnNodeAddedCallbackType` struct
+    pub type AzNodeGraphOnNodeAddedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeTypeId, AzNodePosition) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAddedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeAddedCallback {
+        pub cb: AzNodeGraphOnNodeAddedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeRemovedCallbackType` struct
+    pub type AzNodeGraphOnNodeRemovedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemovedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeRemovedCallback {
+        pub cb: AzNodeGraphOnNodeRemovedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeGraphDraggedCallbackType` struct
+    pub type AzNodeGraphOnNodeGraphDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzGraphDragAmount) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDraggedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeGraphDraggedCallback {
+        pub cb: AzNodeGraphOnNodeGraphDraggedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeDraggedCallbackType` struct
+    pub type AzNodeGraphOnNodeDraggedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, AzNodeDragAmount) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDraggedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeDraggedCallback {
+        pub cb: AzNodeGraphOnNodeDraggedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeConnectedCallbackType` struct
+    pub type AzNodeGraphOnNodeConnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnectedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeConnectedCallback {
+        pub cb: AzNodeGraphOnNodeConnectedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeInputDisconnectedCallbackType` struct
+    pub type AzNodeGraphOnNodeInputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnectedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeInputDisconnectedCallback {
+        pub cb: AzNodeGraphOnNodeInputDisconnectedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeOutputDisconnectedCallbackType` struct
+    pub type AzNodeGraphOnNodeOutputDisconnectedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnectedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeOutputDisconnectedCallback {
+        pub cb: AzNodeGraphOnNodeOutputDisconnectedCallbackType,
+    }
+
+    /// `AzNodeGraphOnNodeFieldEditedCallbackType` struct
+    pub type AzNodeGraphOnNodeFieldEditedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, AzNodeGraphNodeId, usize, AzNodeTypeId, AzNodeTypeFieldValue) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEditedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzNodeGraphOnNodeFieldEditedCallback {
+        pub cb: AzNodeGraphOnNodeFieldEditedCallbackType,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzInputOutputTypeId {
+        pub inner: u64,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeId` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeTypeId {
+        pub inner: u64,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphNodeId {
+        pub inner: u64,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodePosition` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodePosition {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `GraphDragAmount` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzGraphDragAmount {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeDragAmount` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeDragAmount {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
     #[repr(C)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
-    pub struct AzNode {
+    pub struct AzNodeHierarchyItem {
         pub parent: usize,
         pub previous_sibling: usize,
         pub next_sibling: usize,
@@ -2765,6 +2911,123 @@ mod dll {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeTypeIdInfoMapVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeTypeIdInfoMapVecDestructorType),
+    }
+
+    /// `AzNodeTypeIdInfoMapVecDestructorType` struct
+    pub type AzNodeTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzNodeTypeIdInfoMapVec);
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMapVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInputOutputTypeIdInfoMapVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputOutputTypeIdInfoMapVecDestructorType),
+    }
+
+    /// `AzInputOutputTypeIdInfoMapVecDestructorType` struct
+    pub type AzInputOutputTypeIdInfoMapVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdInfoMapVec);
+
+    /// Re-export of rust-allocated (stack based) `NodeIdNodeMapVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeIdNodeMapVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeIdNodeMapVecDestructorType),
+    }
+
+    /// `AzNodeIdNodeMapVecDestructorType` struct
+    pub type AzNodeIdNodeMapVecDestructorType = extern "C" fn(&mut AzNodeIdNodeMapVec);
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeIdVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInputOutputTypeIdVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputOutputTypeIdVecDestructorType),
+    }
+
+    /// `AzInputOutputTypeIdVecDestructorType` struct
+    pub type AzInputOutputTypeIdVecDestructorType = extern "C" fn(&mut AzInputOutputTypeIdVec);
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeFieldVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzNodeTypeFieldVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzNodeTypeFieldVecDestructorType),
+    }
+
+    /// `AzNodeTypeFieldVecDestructorType` struct
+    pub type AzNodeTypeFieldVecDestructorType = extern "C" fn(&mut AzNodeTypeFieldVec);
+
+    /// Re-export of rust-allocated (stack based) `InputConnectionVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInputConnectionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputConnectionVecDestructorType),
+    }
+
+    /// `AzInputConnectionVecDestructorType` struct
+    pub type AzInputConnectionVecDestructorType = extern "C" fn(&mut AzInputConnectionVec);
+
+    /// Re-export of rust-allocated (stack based) `OutputNodeAndIndexVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzOutputNodeAndIndexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzOutputNodeAndIndexVecDestructorType),
+    }
+
+    /// `AzOutputNodeAndIndexVecDestructorType` struct
+    pub type AzOutputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzOutputNodeAndIndexVec);
+
+    /// Re-export of rust-allocated (stack based) `OutputConnectionVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzOutputConnectionVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzOutputConnectionVecDestructorType),
+    }
+
+    /// `AzOutputConnectionVecDestructorType` struct
+    pub type AzOutputConnectionVecDestructorType = extern "C" fn(&mut AzOutputConnectionVec);
+
+    /// Re-export of rust-allocated (stack based) `InputNodeAndIndexVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzInputNodeAndIndexVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzInputNodeAndIndexVecDestructorType),
+    }
+
+    /// `AzInputNodeAndIndexVecDestructorType` struct
+    pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
+
     /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
@@ -3376,18 +3639,18 @@ mod dll {
     /// `AzNodeIdVecDestructorType` struct
     pub type AzNodeIdVecDestructorType = extern "C" fn(&mut AzNodeIdVec);
 
-    /// Re-export of rust-allocated (stack based) `NodeVecDestructor` struct
+    /// Re-export of rust-allocated (stack based) `NodeHierarchyItemVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
     #[derive(Copy)]
-    pub enum AzNodeVecDestructor {
+    pub enum AzNodeHierarchyItemVecDestructor {
         DefaultRust,
         NoDestructor,
-        External(AzNodeVecDestructorType),
+        External(AzNodeHierarchyItemVecDestructorType),
     }
 
-    /// `AzNodeVecDestructorType` struct
-    pub type AzNodeVecDestructorType = extern "C" fn(&mut AzNodeVec);
+    /// `AzNodeHierarchyItemVecDestructorType` struct
+    pub type AzNodeHierarchyItemVecDestructorType = extern "C" fn(&mut AzNodeHierarchyItemVec);
 
     /// Re-export of rust-allocated (stack based) `StyledNodeVecDestructor` struct
     #[repr(C, u8)]
@@ -5495,6 +5758,106 @@ mod dll {
         pub callback: AzNumberInputOnFocusLostCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeAdded {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeAddedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeRemoved` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeRemoved {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeRemovedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeGraphDragged` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeGraphDragged {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeGraphDraggedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeDragged` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeDragged {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeDraggedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeConnected` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeConnected {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeConnectedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeInputDisconnected` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeInputDisconnected {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeInputDisconnectedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeOutputDisconnected` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeOutputDisconnected {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeOutputDisconnectedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeFieldEdited` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphOnNodeFieldEdited {
+        pub data: AzRefAny,
+        pub callback: AzNodeGraphOnNodeFieldEditedCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OutputNodeAndIndex` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzOutputNodeAndIndex {
+        pub node_id: AzNodeGraphNodeId,
+        pub output_index: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputNodeAndIndex` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzInputNodeAndIndex {
+        pub node_id: AzNodeGraphNodeId,
+        pub input_index: usize,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -5702,6 +6065,33 @@ mod dll {
     pub struct AzThreadWriteBackMsg {
         pub data: AzRefAny,
         pub callback: AzWriteBackCallback,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
+    #[repr(C)]
+    pub struct AzInputOutputTypeIdVec {
+        pub(crate) ptr: *const AzInputOutputTypeId,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputOutputTypeIdVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
+    #[repr(C)]
+    pub struct AzOutputNodeAndIndexVec {
+        pub(crate) ptr: *const AzOutputNodeAndIndex,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzOutputNodeAndIndexVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
+    #[repr(C)]
+    pub struct AzInputNodeAndIndexVec {
+        pub(crate) ptr: *const AzInputNodeAndIndex,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputNodeAndIndexVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
@@ -5920,13 +6310,13 @@ mod dll {
         pub destructor: AzNodeIdVecDestructor,
     }
 
-    /// Wrapper over a Rust-allocated `NodeVec`
+    /// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
     #[repr(C)]
-    pub struct AzNodeVec {
-        pub(crate) ptr: *const AzNode,
+    pub struct AzNodeHierarchyItemVec {
+        pub(crate) ptr: *const AzNodeHierarchyItem,
         pub len: usize,
         pub cap: usize,
-        pub destructor: AzNodeVecDestructor,
+        pub destructor: AzNodeHierarchyItemVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
@@ -5936,6 +6326,86 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeAdded {
+        None,
+        Some(AzNodeGraphOnNodeAdded),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeRemoved` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeRemoved {
+        None,
+        Some(AzNodeGraphOnNodeRemoved),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeGraphDragged` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeGraphDragged {
+        None,
+        Some(AzNodeGraphOnNodeGraphDragged),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeDragged` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeDragged {
+        None,
+        Some(AzNodeGraphOnNodeDragged),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeConnected` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeConnected {
+        None,
+        Some(AzNodeGraphOnNodeConnected),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeInputDisconnected` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeInputDisconnected {
+        None,
+        Some(AzNodeGraphOnNodeInputDisconnected),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeOutputDisconnected` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeOutputDisconnected {
+        None,
+        Some(AzNodeGraphOnNodeOutputDisconnected),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeFieldEdited` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionNodeGraphOnNodeFieldEdited {
+        None,
+        Some(AzNodeGraphOnNodeFieldEdited),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionColorInputOnValueChange` struct
@@ -6600,7 +7070,7 @@ mod dll {
         pub gl_context: *const AzOptionGl,
         pub image_cache: *const c_void,
         pub system_fonts: *const c_void,
-        pub node_hierarchy: *const AzNodeVec,
+        pub node_hierarchy: *const AzNodeHierarchyItemVec,
         pub words_cache: *const c_void,
         pub shaped_words_cache: *const c_void,
         pub positioned_words_cache: *const c_void,
@@ -6829,6 +7299,42 @@ mod dll {
         pub on_focus_lost: AzOptionNumberInputOnFocusLost,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeGraphCallbacks` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraphCallbacks {
+        pub on_node_added: AzOptionNodeGraphOnNodeAdded,
+        pub on_node_removed: AzOptionNodeGraphOnNodeRemoved,
+        pub on_node_dragged: AzOptionNodeGraphOnNodeDragged,
+        pub on_node_graph_dragged: AzOptionNodeGraphOnNodeGraphDragged,
+        pub on_node_connected: AzOptionNodeGraphOnNodeConnected,
+        pub on_node_input_disconnected: AzOptionNodeGraphOnNodeInputDisconnected,
+        pub on_node_output_disconnected: AzOptionNodeGraphOnNodeOutputDisconnected,
+        pub on_node_field_edited: AzOptionNodeGraphOnNodeFieldEdited,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputConnection` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzInputConnection {
+        pub input_index: usize,
+        pub connects_to: AzOutputNodeAndIndexVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OutputConnection` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzOutputConnection {
+        pub output_index: usize,
+        pub connects_to: AzInputNodeAndIndexVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -6994,6 +7500,24 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzString {
         pub vec: AzU8Vec,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputConnection>`
+    #[repr(C)]
+    pub struct AzInputConnectionVec {
+        pub(crate) ptr: *const AzInputConnection,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputConnectionVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<OutputConnection>`
+    #[repr(C)]
+    pub struct AzOutputConnectionVec {
+        pub(crate) ptr: *const AzOutputConnection,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzOutputConnectionVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
@@ -7499,6 +8023,40 @@ mod dll {
         pub max_len: usize,
         pub selection: AzOptionTextInputSelection,
         pub cursor_pos: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzNodeTypeFieldValue {
+        TextInput(AzString),
+        NumberInput(f32),
+        CheckBox(bool),
+        ColorInput(AzColorU),
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeTypeInfo {
+        pub is_root: bool,
+        pub name: AzString,
+        pub inputs: AzInputOutputTypeIdVec,
+        pub outputs: AzInputOutputTypeIdVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputOutputInfo` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzInputOutputInfo {
+        pub data_type: AzString,
+        pub color: AzColorU,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
@@ -8027,6 +8585,36 @@ mod dll {
         pub container_background: AzStyleBackgroundContentVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMap` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeTypeIdInfoMap {
+        pub node_type_id: AzNodeTypeId,
+        pub node_type_info: AzNodeTypeInfo,
+    }
+
+    /// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMap` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzInputOutputTypeIdInfoMap {
+        pub io_type_id: AzInputOutputTypeId,
+        pub io_info: AzInputOutputInfo,
+    }
+
+    /// Re-export of rust-allocated (stack based) `NodeTypeField` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeTypeField {
+        pub key: AzString,
+        pub value: AzNodeTypeFieldValue,
+    }
+
     /// Re-export of rust-allocated (stack based) `CssPropertySource` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -8090,6 +8678,33 @@ mod dll {
         pub attributes: AzStringPairVec,
         pub children: AzXmlNodeVec,
         pub text: AzOptionString,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
+    #[repr(C)]
+    pub struct AzNodeTypeIdInfoMapVec {
+        pub(crate) ptr: *const AzNodeTypeIdInfoMap,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeTypeIdInfoMapVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
+    #[repr(C)]
+    pub struct AzInputOutputTypeIdInfoMapVec {
+        pub(crate) ptr: *const AzInputOutputTypeIdInfoMap,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzInputOutputTypeIdInfoMapVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
+    #[repr(C)]
+    pub struct AzNodeTypeFieldVec {
+        pub(crate) ptr: *const AzNodeTypeField,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeTypeFieldVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
@@ -8293,6 +8908,19 @@ mod dll {
         pub default_value: AzCssProperty,
     }
 
+    /// Re-export of rust-allocated (stack based) `Node` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNode {
+        pub node_type: AzNodeTypeId,
+        pub position: AzNodePosition,
+        pub fields: AzNodeTypeFieldVec,
+        pub connect_in: AzInputConnectionVec,
+        pub connect_out: AzOutputConnectionVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `SvgNode` struct
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -8484,6 +9112,25 @@ mod dll {
         pub state: AzNumberInputStateWrapper,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeIdNodeMap` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeIdNodeMap {
+        pub node_id: AzNodeGraphNodeId,
+        pub node: AzNode,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
+    #[repr(C)]
+    pub struct AzNodeIdNodeMapVec {
+        pub(crate) ptr: *const AzNodeIdNodeMap,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzNodeIdNodeMapVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `CssDeclaration`
     #[repr(C)]
     pub struct AzCssDeclarationVec {
@@ -8569,6 +9216,22 @@ mod dll {
         pub content: AzDom,
     }
 
+    /// Re-export of rust-allocated (stack based) `NodeGraph` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzNodeGraph {
+        pub node_types: AzNodeTypeIdInfoMapVec,
+        pub input_output_types: AzInputOutputTypeIdInfoMapVec,
+        pub nodes: AzNodeIdNodeMapVec,
+        pub allow_multiple_root_nodes: bool,
+        pub offset: AzLogicalPosition,
+        pub style: AzNodeGraphStyle,
+        pub callbacks: AzNodeGraphCallbacks,
+        pub add_node_str: AzString,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8576,7 +9239,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzStyledDom {
         pub root: AzNodeId,
-        pub node_hierarchy: AzNodeVec,
+        pub node_hierarchy: AzNodeHierarchyItemVec,
         pub node_data: AzNodeDataVec,
         pub styled_nodes: AzStyledNodeVec,
         pub cascade_info: AzCascadeInfoVec,
@@ -9311,6 +9974,15 @@ mod dll {
         pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzNodeTypeIdInfoMapVec_delete(_:  &mut AzNodeTypeIdInfoMapVec);
+        pub(crate) fn AzInputOutputTypeIdInfoMapVec_delete(_:  &mut AzInputOutputTypeIdInfoMapVec);
+        pub(crate) fn AzNodeIdNodeMapVec_delete(_:  &mut AzNodeIdNodeMapVec);
+        pub(crate) fn AzInputOutputTypeIdVec_delete(_:  &mut AzInputOutputTypeIdVec);
+        pub(crate) fn AzNodeTypeFieldVec_delete(_:  &mut AzNodeTypeFieldVec);
+        pub(crate) fn AzInputConnectionVec_delete(_:  &mut AzInputConnectionVec);
+        pub(crate) fn AzOutputNodeAndIndexVec_delete(_:  &mut AzOutputNodeAndIndexVec);
+        pub(crate) fn AzOutputConnectionVec_delete(_:  &mut AzOutputConnectionVec);
+        pub(crate) fn AzInputNodeAndIndexVec_delete(_:  &mut AzInputNodeAndIndexVec);
         pub(crate) fn AzTabVec_delete(_:  &mut AzTabVec);
         pub(crate) fn AzAccessibilityStateVec_delete(_:  &mut AzAccessibilityStateVec);
         pub(crate) fn AzMenuItemVec_delete(_:  &mut AzMenuItemVec);
@@ -9362,7 +10034,7 @@ mod dll {
         pub(crate) fn AzNormalizedLinearColorStopVec_delete(_:  &mut AzNormalizedLinearColorStopVec);
         pub(crate) fn AzNormalizedRadialColorStopVec_delete(_:  &mut AzNormalizedRadialColorStopVec);
         pub(crate) fn AzNodeIdVec_delete(_:  &mut AzNodeIdVec);
-        pub(crate) fn AzNodeVec_delete(_:  &mut AzNodeVec);
+        pub(crate) fn AzNodeHierarchyItemVec_delete(_:  &mut AzNodeHierarchyItemVec);
         pub(crate) fn AzStyledNodeVec_delete(_:  &mut AzStyledNodeVec);
         pub(crate) fn AzTagIdToNodeIdMappingVec_delete(_:  &mut AzTagIdToNodeIdMappingVec);
         pub(crate) fn AzParentWithNodeDepthVec_delete(_:  &mut AzParentWithNodeDepthVec);
@@ -12078,6 +12750,141 @@ pub mod widgets {
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzFrame_dom(self) } }
     }
 
+    /// `NodeGraph` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraph as NodeGraph;
+    /// `NodeTypeIdInfoMap` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMap as NodeTypeIdInfoMap;
+    /// `InputOutputTypeIdInfoMap` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMap as InputOutputTypeIdInfoMap;
+    /// `NodeIdNodeMap` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeIdNodeMap as NodeIdNodeMap;
+    /// `NodeGraphStyle` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphStyle as NodeGraphStyle;
+    /// `NodeGraphCallbacks` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphCallbacks as NodeGraphCallbacks;
+    /// `NodeGraphOnNodeAddedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAddedCallbackType as NodeGraphOnNodeAddedCallbackType;
+    /// `NodeGraphOnNodeAddedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAddedCallback as NodeGraphOnNodeAddedCallback;
+    /// `NodeGraphOnNodeAdded` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAdded as NodeGraphOnNodeAdded;
+    /// `NodeGraphOnNodeRemovedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemovedCallbackType as NodeGraphOnNodeRemovedCallbackType;
+    /// `NodeGraphOnNodeRemovedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemovedCallback as NodeGraphOnNodeRemovedCallback;
+    /// `NodeGraphOnNodeRemoved` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemoved as NodeGraphOnNodeRemoved;
+    /// `NodeGraphOnNodeGraphDraggedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDraggedCallbackType as NodeGraphOnNodeGraphDraggedCallbackType;
+    /// `NodeGraphOnNodeGraphDraggedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDraggedCallback as NodeGraphOnNodeGraphDraggedCallback;
+    /// `NodeGraphOnNodeGraphDragged` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDragged as NodeGraphOnNodeGraphDragged;
+    /// `NodeGraphOnNodeDraggedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDraggedCallbackType as NodeGraphOnNodeDraggedCallbackType;
+    /// `NodeGraphOnNodeDraggedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDraggedCallback as NodeGraphOnNodeDraggedCallback;
+    /// `NodeGraphOnNodeDragged` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDragged as NodeGraphOnNodeDragged;
+    /// `NodeGraphOnNodeConnectedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnectedCallbackType as NodeGraphOnNodeConnectedCallbackType;
+    /// `NodeGraphOnNodeConnectedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnectedCallback as NodeGraphOnNodeConnectedCallback;
+    /// `NodeGraphOnNodeConnected` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnected as NodeGraphOnNodeConnected;
+    /// `NodeGraphOnNodeInputDisconnectedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnectedCallbackType as NodeGraphOnNodeInputDisconnectedCallbackType;
+    /// `NodeGraphOnNodeInputDisconnectedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnectedCallback as NodeGraphOnNodeInputDisconnectedCallback;
+    /// `NodeGraphOnNodeInputDisconnected` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnected as NodeGraphOnNodeInputDisconnected;
+    /// `NodeGraphOnNodeOutputDisconnectedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnectedCallbackType as NodeGraphOnNodeOutputDisconnectedCallbackType;
+    /// `NodeGraphOnNodeOutputDisconnectedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnectedCallback as NodeGraphOnNodeOutputDisconnectedCallback;
+    /// `NodeGraphOnNodeOutputDisconnected` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnected as NodeGraphOnNodeOutputDisconnected;
+    /// `NodeGraphOnNodeFieldEditedCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEditedCallbackType as NodeGraphOnNodeFieldEditedCallbackType;
+    /// `NodeGraphOnNodeFieldEditedCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEditedCallback as NodeGraphOnNodeFieldEditedCallback;
+    /// `NodeGraphOnNodeFieldEdited` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEdited as NodeGraphOnNodeFieldEdited;
+    /// `InputOutputTypeId` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeId as InputOutputTypeId;
+    /// `NodeTypeId` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeId as NodeTypeId;
+    /// `NodeGraphNodeId` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeGraphNodeId as NodeGraphNodeId;
+    /// `Node` struct
+    
+#[doc(inline)] pub use crate::dll::AzNode as Node;
+    /// `NodeTypeField` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeField as NodeTypeField;
+    /// `NodeTypeFieldValue` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeFieldValue as NodeTypeFieldValue;
+    /// `InputConnection` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputConnection as InputConnection;
+    /// `OutputNodeAndIndex` struct
+    
+#[doc(inline)] pub use crate::dll::AzOutputNodeAndIndex as OutputNodeAndIndex;
+    /// `OutputConnection` struct
+    
+#[doc(inline)] pub use crate::dll::AzOutputConnection as OutputConnection;
+    /// `InputNodeAndIndex` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputNodeAndIndex as InputNodeAndIndex;
+    /// `NodeTypeInfo` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeInfo as NodeTypeInfo;
+    /// `InputOutputInfo` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputInfo as InputOutputInfo;
+    /// `NodePosition` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodePosition as NodePosition;
+    /// `GraphDragAmount` struct
+    
+#[doc(inline)] pub use crate::dll::AzGraphDragAmount as GraphDragAmount;
+    /// `NodeDragAmount` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeDragAmount as NodeDragAmount;
 }
 
 pub mod style {
@@ -12089,9 +12896,9 @@ pub mod style {
     use crate::css::Css;
     use crate::str::String;
     use crate::menu::Menu;
-    /// `Node` struct
+    /// `NodeHierarchyItem` struct
     
-#[doc(inline)] pub use crate::dll::AzNode as Node;
+#[doc(inline)] pub use crate::dll::AzNodeHierarchyItem as NodeHierarchyItem;
     /// `CascadeInfo` struct
     
 #[doc(inline)] pub use crate::dll::AzCascadeInfo as CascadeInfo;
@@ -15398,7 +16205,34 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<Tab>`
+    }    /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVec as NodeTypeIdInfoMapVec;
+    /// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVec as InputOutputTypeIdInfoMapVec;
+    /// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
+    
+#[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVec as NodeIdNodeMapVec;
+    /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVec as InputOutputTypeIdVec;
+    /// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeFieldVec as NodeTypeFieldVec;
+    /// Wrapper over a Rust-allocated `Vec<InputConnection>`
+    
+#[doc(inline)] pub use crate::dll::AzInputConnectionVec as InputConnectionVec;
+    /// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
+    
+#[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVec as OutputNodeAndIndexVec;
+    /// Wrapper over a Rust-allocated `Vec<OutputConnection>`
+    
+#[doc(inline)] pub use crate::dll::AzOutputConnectionVec as OutputConnectionVec;
+    /// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
+    
+#[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVec as InputNodeAndIndexVec;
+    /// Wrapper over a Rust-allocated `Vec<Tab>`
     
 #[doc(inline)] pub use crate::dll::AzTabVec as TabVec;
     /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
@@ -15554,9 +16388,9 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `NodeIdVec`
     
 #[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;
-    /// Wrapper over a Rust-allocated `NodeVec`
+    /// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
     
-#[doc(inline)] pub use crate::dll::AzNodeVec as NodeVec;
+#[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVec as NodeHierarchyItemVec;
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     
 #[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
@@ -15575,6 +16409,60 @@ pub mod vec {
     /// `StyleFontFamilyVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    /// `NodeTypeIdInfoMapVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructor as NodeTypeIdInfoMapVecDestructor;
+    /// `NodeTypeIdInfoMapVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructorType as NodeTypeIdInfoMapVecDestructorType;
+    /// `InputOutputTypeIdInfoMapVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVecDestructor as InputOutputTypeIdInfoMapVecDestructor;
+    /// `InputOutputTypeIdInfoMapVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVecDestructorType as InputOutputTypeIdInfoMapVecDestructorType;
+    /// `NodeIdNodeMapVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVecDestructor as NodeIdNodeMapVecDestructor;
+    /// `NodeIdNodeMapVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVecDestructorType as NodeIdNodeMapVecDestructorType;
+    /// `InputOutputTypeIdVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVecDestructor as InputOutputTypeIdVecDestructor;
+    /// `InputOutputTypeIdVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVecDestructorType as InputOutputTypeIdVecDestructorType;
+    /// `NodeTypeFieldVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeFieldVecDestructor as NodeTypeFieldVecDestructor;
+    /// `NodeTypeFieldVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzNodeTypeFieldVecDestructorType as NodeTypeFieldVecDestructorType;
+    /// `InputConnectionVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputConnectionVecDestructor as InputConnectionVecDestructor;
+    /// `InputConnectionVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputConnectionVecDestructorType as InputConnectionVecDestructorType;
+    /// `OutputNodeAndIndexVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVecDestructor as OutputNodeAndIndexVecDestructor;
+    /// `OutputNodeAndIndexVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVecDestructorType as OutputNodeAndIndexVecDestructorType;
+    /// `OutputConnectionVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzOutputConnectionVecDestructor as OutputConnectionVecDestructor;
+    /// `OutputConnectionVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzOutputConnectionVecDestructorType as OutputConnectionVecDestructorType;
+    /// `InputNodeAndIndexVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVecDestructor as InputNodeAndIndexVecDestructor;
+    /// `InputNodeAndIndexVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVecDestructorType as InputNodeAndIndexVecDestructorType;
     /// `TabVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzTabVecDestructor as TabVecDestructor;
@@ -15857,12 +16745,12 @@ pub mod vec {
     /// `NodeIdVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructorType as NodeIdVecDestructorType;
-    /// `NodeVecDestructor` struct
+    /// `NodeHierarchyItemVecDestructor` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeVecDestructor as NodeVecDestructor;
-    /// `NodeVecDestructorType` struct
+#[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVecDestructor as NodeHierarchyItemVecDestructor;
+    /// `NodeHierarchyItemVecDestructorType` struct
     
-#[doc(inline)] pub use crate::dll::AzNodeVecDestructorType as NodeVecDestructorType;
+#[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVecDestructorType as NodeHierarchyItemVecDestructorType;
     /// `StyledNodeVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructor as StyledNodeVecDestructor;
@@ -16059,6 +16947,30 @@ pub mod option {
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);
     impl_option!(AzMouseState, AzOptionMouseState, [Debug, Clone]);
+    /// `OptionNodeGraphOnNodeAdded` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeAdded as OptionNodeGraphOnNodeAdded;
+    /// `OptionNodeGraphOnNodeRemoved` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeRemoved as OptionNodeGraphOnNodeRemoved;
+    /// `OptionNodeGraphOnNodeGraphDragged` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeGraphDragged as OptionNodeGraphOnNodeGraphDragged;
+    /// `OptionNodeGraphOnNodeDragged` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeDragged as OptionNodeGraphOnNodeDragged;
+    /// `OptionNodeGraphOnNodeConnected` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeConnected as OptionNodeGraphOnNodeConnected;
+    /// `OptionNodeGraphOnNodeInputDisconnected` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeInputDisconnected as OptionNodeGraphOnNodeInputDisconnected;
+    /// `OptionNodeGraphOnNodeOutputDisconnected` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeOutputDisconnected as OptionNodeGraphOnNodeOutputDisconnected;
+    /// `OptionNodeGraphOnNodeFieldEdited` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeFieldEdited as OptionNodeGraphOnNodeFieldEdited;
     /// `OptionColorInputOnValueChange` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionColorInputOnValueChange as OptionColorInputOnValueChange;

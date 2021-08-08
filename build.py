@@ -703,6 +703,8 @@ def has_recursive_destructor(myapi_data, c):
     if "struct_fields" in c.keys():
         for field in c["struct_fields"]:
             field_name = list(field.keys())[0]
+            if not "type" in field[field_name]:
+                print("error: struct " + str(c) + " field " + field_name + " has no \"type\"!")
             field_type = field[field_name]["type"]
             field_type_analyzed = analyze_type(field_type)
             if is_primitive_arg(field_type_analyzed[1]):
@@ -2150,6 +2152,8 @@ def generate_rust_callback_fn_type(api_data, callback_typedef):
         fn_args = callback_typedef["fn_args"]
         for fn_arg in fn_args:
             fn_arg_type = fn_arg["type"]
+            if not "ref" in fn_arg.keys():
+                print("callback type " + str(callback_typedef) + " does not have a ref attribute for fn_arg " + str(fn_arg))
             fn_arg_ref = fn_arg["ref"]
             search_result = search_for_class_by_class_name(api_data, fn_arg_type)
             fn_arg_class = fn_arg_type
