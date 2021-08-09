@@ -426,7 +426,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Stops / cancels a `Timer`. See the documentation for `Timer` for more information.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_stopTimer(callbackinfo: &mut AzCallbackInfo, timer_id: AzTimerId) -> bool { callbackinfo.stop_timer(timer_id) }
 /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_startThread(callbackinfo: &mut AzCallbackInfo, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallback) -> AzOptionThreadId { callbackinfo.start_thread(thread_initialize_data, writeback_data, callback).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_startThread(callbackinfo: &mut AzCallbackInfo, thread_initialize_data: AzRefAny, writeback_data: AzRefAny, callback: AzThreadCallbackType) -> AzOptionThreadId { callbackinfo.start_thread(thread_initialize_data, writeback_data, callback).into() }
 /// Sends a message to a background thread
 #[no_mangle] pub extern "C" fn AzCallbackInfo_sendThreadMsg(callbackinfo: &mut AzCallbackInfo, thread_id: AzThreadId, msg: AzThreadSendMsg) -> bool { callbackinfo.send_thread_msg(thread_id, msg) }
 /// Stops a thread at the nearest possible opportunity. Sends a `ThreadSendMsg::TerminateThread` message to the thread and joins the thread.

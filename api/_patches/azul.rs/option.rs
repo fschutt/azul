@@ -129,6 +129,8 @@
     impl_option!(usize, AzOptionUsize, [Debug, Copy, Clone]);
     impl_option!(u32, AzOptionChar, [Debug, Copy, Clone]);
 
+    impl_option!(AzThreadId, AzOptionThreadId, [Debug, Copy, Clone]);
+    impl_option!(AzTimerId, AzOptionTimerId, [Debug, Copy, Clone]);
     impl_option!(AzThreadSendMsg, AzOptionThreadSendMsg, [Debug, Copy, Clone]);
     impl_option!(AzLayoutRect, AzOptionLayoutRect, [Debug, Copy, Clone]);
     impl_option!(AzRefAny, AzOptionRefAny, copy = false, clone = false, [Debug, Clone]);

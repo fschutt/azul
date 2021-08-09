@@ -11641,7 +11641,7 @@ extern DLLIMPORT void AzCallbackInfo_createWindow(AzCallbackInfo* restrict callb
 extern DLLIMPORT AzOptionTimerId AzCallbackInfo_startTimer(AzCallbackInfo* restrict callbackinfo, AzTimer  timer);
 extern DLLIMPORT AzOptionTimerId AzCallbackInfo_startAnimation(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node, AzAnimation  animation);
 extern DLLIMPORT bool  AzCallbackInfo_stopTimer(AzCallbackInfo* restrict callbackinfo, AzTimerId  timer_id);
-extern DLLIMPORT AzOptionThreadId AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallback  callback);
+extern DLLIMPORT AzOptionThreadId AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallbackType  callback);
 extern DLLIMPORT bool  AzCallbackInfo_sendThreadMsg(AzCallbackInfo* restrict callbackinfo, AzThreadId  thread_id, AzThreadSendMsg  msg);
 extern DLLIMPORT bool  AzCallbackInfo_stopThread(AzCallbackInfo* restrict callbackinfo, AzThreadId  thread_id);
 extern DLLIMPORT void AzCallbackInfo_delete(AzCallbackInfo* restrict instance);

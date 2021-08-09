@@ -9472,7 +9472,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_startTimer(_:  &mut AzCallbackInfo, _:  AzTimer) -> AzOptionTimerId;
         pub(crate) fn AzCallbackInfo_startAnimation(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzAnimation) -> AzOptionTimerId;
         pub(crate) fn AzCallbackInfo_stopTimer(_:  &mut AzCallbackInfo, _:  AzTimerId) -> bool;
-        pub(crate) fn AzCallbackInfo_startThread(_:  &mut AzCallbackInfo, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallback) -> AzOptionThreadId;
+        pub(crate) fn AzCallbackInfo_startThread(_:  &mut AzCallbackInfo, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType) -> AzOptionThreadId;
         pub(crate) fn AzCallbackInfo_sendThreadMsg(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzThreadSendMsg) -> bool;
         pub(crate) fn AzCallbackInfo_stopThread(_:  &mut AzCallbackInfo, _:  AzThreadId) -> bool;
         pub(crate) fn AzHidpiAdjustedBounds_getLogicalSize(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
@@ -10665,7 +10665,7 @@ pub mod callbacks {
         /// Stops / cancels a `Timer`. See the documentation for `Timer` for more information.
         pub fn stop_timer(&mut self, timer_id: TimerId)  -> bool { unsafe { crate::dll::AzCallbackInfo_stopTimer(self, timer_id) } }
         /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-        pub fn start_thread(&mut self, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallback)  -> crate::option::OptionThreadId { unsafe { crate::dll::AzCallbackInfo_startThread(self, thread_initialize_data, writeback_data, callback) } }
+        pub fn start_thread(&mut self, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType)  -> crate::option::OptionThreadId { unsafe { crate::dll::AzCallbackInfo_startThread(self, thread_initialize_data, writeback_data, callback) } }
         /// Sends a message to a background thread
         pub fn send_thread_msg(&mut self, thread_id: ThreadId, msg: ThreadSendMsg)  -> bool { unsafe { crate::dll::AzCallbackInfo_sendThreadMsg(self, thread_id, msg) } }
         /// Stops a thread at the nearest possible opportunity. Sends a `ThreadSendMsg::TerminateThread` message to the thread and joins the thread.
@@ -16975,6 +16975,8 @@ pub mod option {
     impl_option!(usize, AzOptionUsize, [Debug, Copy, Clone]);
     impl_option!(u32, AzOptionChar, [Debug, Copy, Clone]);
 
+    impl_option!(AzThreadId, AzOptionThreadId, [Debug, Copy, Clone]);
+    impl_option!(AzTimerId, AzOptionTimerId, [Debug, Copy, Clone]);
     impl_option!(AzThreadSendMsg, AzOptionThreadSendMsg, [Debug, Copy, Clone]);
     impl_option!(AzLayoutRect, AzOptionLayoutRect, [Debug, Copy, Clone]);
     impl_option!(AzRefAny, AzOptionRefAny, copy = false, clone = false, [Debug, Clone]);
@@ -17005,7 +17007,6 @@ pub mod option {
     impl_option!(AzInstant, AzOptionInstant, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
     impl_option!(AzSystemClipboard, AzOptionSystemClipboard, copy = false,  clone = false, [Debug]);
-    impl_option!(AzFile, AzOptionFile, copy = false, clone = false, [Debug]);
     impl_option!(AzFileTypeList, AzOptionFileTypeList, copy = false, [Debug, Clone]);
     impl_option!(AzWindowState, AzOptionWindowState, copy = false, [Debug, Clone]);
     impl_option!(AzKeyboardState, AzOptionKeyboardState, copy = false, [Debug, Clone]);

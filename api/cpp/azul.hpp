@@ -9611,7 +9611,7 @@ namespace dll {
         OptionTimerId CallbackInfo_startTimer(CallbackInfo* restrict callbackinfo, AzTimer  timer);
         OptionTimerId CallbackInfo_startAnimation(CallbackInfo* restrict callbackinfo, AzDomNodeId  node, AzAnimation  animation);
         bool  CallbackInfo_stopTimer(CallbackInfo* restrict callbackinfo, AzTimerId  timer_id);
-        OptionThreadId CallbackInfo_startThread(CallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallback  callback);
+        OptionThreadId CallbackInfo_startThread(CallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallbackType  callback);
         bool  CallbackInfo_sendThreadMsg(CallbackInfo* restrict callbackinfo, AzThreadId  thread_id, AzThreadSendMsg  msg);
         bool  CallbackInfo_stopThread(CallbackInfo* restrict callbackinfo, AzThreadId  thread_id);
         void CallbackInfo_delete(CallbackInfo* restrict instance);

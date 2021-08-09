@@ -1452,7 +1452,7 @@
                                 {"self": "refmut"},
                                 {"thread_initialize_data": "RefAny"},
                                 {"writeback_data": "RefAny"},
-                                {"callback": "ThreadCallback"}
+                                {"callback": "ThreadCallbackType"}
                             ],
                             "returns": {"type": "OptionThreadId" },
                             "fn_body": "callbackinfo.start_thread(thread_initialize_data, writeback_data, callback).into()"

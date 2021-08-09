@@ -1357,8 +1357,9 @@ impl CallbackInfo {
     }
 
     /// Starts a thread, returns Some(thread_id) if the `thread_initialize_data` is the only copy
-    pub fn start_thread(&mut self, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallback) -> Option<ThreadId> {
+    pub fn start_thread(&mut self, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) -> Option<ThreadId> {
         if thread_initialize_data.has_no_copies() {
+            let callback = ThreadCallback { cb: callback };
             let thread_id = ThreadId::unique();
             let thread = (self.internal_get_extern_system_callbacks().create_thread_fn.cb)(thread_initialize_data, writeback_data, callback);
             self.internal_get_threads().insert(thread_id, thread);
