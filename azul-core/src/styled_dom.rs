@@ -201,7 +201,7 @@ impl CssPropertyCache {
         &mut self,
         css: &mut Css,
         node_data: &NodeDataContainerRef<NodeData>,
-        node_hierarchy: &AzNodeVec,
+        node_hierarchy: &NodeHierarchyItemVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<CascadeInfo>
     ) -> Vec<TagIdToNodeIdMapping> {
@@ -514,13 +514,13 @@ impl CssPropertyCache {
             } else {
                 Some(TagIdToNodeIdMapping {
                     tag_id: AzTagId::from_crate_internal(TagId::unique()),
-                    node_id: AzNodeId::from_crate_internal(Some(node_id)),
+                    node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                     tab_index: tab_index.into(),
                     parent_node_ids: {
                         let mut parents = Vec::new();
                         let mut cur_parent = node_hierarchy.as_container()[node_id].parent_id();
                         while let Some(c) = cur_parent.clone() {
-                            parents.push(AzNodeId::from_crate_internal(Some(c)));
+                            parents.push(NodeHierarchyItemId::from_crate_internal(Some(c)));
                             cur_parent = node_hierarchy.as_container()[c].parent_id();
                         }
                         parents.reverse(); // parents sorted in depth-increasing order
@@ -1080,9 +1080,9 @@ impl_option!(DomId, OptionDomId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd,
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
-pub struct AzNodeId { pub inner: usize }
+pub struct NodeHierarchyItemId { pub inner: usize }
 
-impl fmt::Debug for AzNodeId {
+impl fmt::Debug for NodeHierarchyItemId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.into_crate_internal() {
             Some(n) => write!(f, "Some(NodeId({}))", n),
@@ -1091,29 +1091,29 @@ impl fmt::Debug for AzNodeId {
     }
 }
 
-impl fmt::Display for AzNodeId {
+impl fmt::Display for NodeHierarchyItemId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
 
-impl AzNodeId {
-    pub const NONE: AzNodeId = AzNodeId { inner: 0 };
+impl NodeHierarchyItemId {
+    pub const NONE: NodeHierarchyItemId = NodeHierarchyItemId { inner: 0 };
 }
 
-impl_option!(AzNodeId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(NodeHierarchyItemId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-impl_vec!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
-impl_vec_mut!(AzNodeId, NodeIdVec);
-impl_vec_debug!(AzNodeId, NodeIdVec);
-impl_vec_ord!(AzNodeId, NodeIdVec);
-impl_vec_eq!(AzNodeId, NodeIdVec);
-impl_vec_hash!(AzNodeId, NodeIdVec);
-impl_vec_partialord!(AzNodeId, NodeIdVec);
-impl_vec_clone!(AzNodeId, NodeIdVec, NodeIdVecDestructor);
-impl_vec_partialeq!(AzNodeId, NodeIdVec);
+impl_vec!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor);
+impl_vec_mut!(NodeHierarchyItemId, NodeIdVec);
+impl_vec_debug!(NodeHierarchyItemId, NodeIdVec);
+impl_vec_ord!(NodeHierarchyItemId, NodeIdVec);
+impl_vec_eq!(NodeHierarchyItemId, NodeIdVec);
+impl_vec_hash!(NodeHierarchyItemId, NodeIdVec);
+impl_vec_partialord!(NodeHierarchyItemId, NodeIdVec);
+impl_vec_clone!(NodeHierarchyItemId, NodeIdVec, NodeIdVecDestructor);
+impl_vec_partialeq!(NodeHierarchyItemId, NodeIdVec);
 
-impl AzNodeId {
+impl NodeHierarchyItemId {
     #[inline]
     pub const fn into_crate_internal(&self) -> Option<NodeId> {
         NodeId::from_usize(self.inner)
@@ -1142,16 +1142,16 @@ impl AzTagId {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
-pub struct AzNode {
+pub struct NodeHierarchyItem {
     pub parent: usize,
     pub previous_sibling: usize,
     pub next_sibling: usize,
     pub last_child: usize,
 }
 
-impl From<Node> for AzNode {
-    fn from(node: Node) -> AzNode {
-        AzNode {
+impl From<Node> for NodeHierarchyItem {
+    fn from(node: Node) -> NodeHierarchyItem {
+        NodeHierarchyItem {
             parent: NodeId::into_usize(&node.parent),
             previous_sibling: NodeId::into_usize(&node.previous_sibling),
             next_sibling: NodeId::into_usize(&node.next_sibling),
@@ -1160,7 +1160,7 @@ impl From<Node> for AzNode {
     }
 }
 
-impl AzNode {
+impl NodeHierarchyItem {
     pub fn parent_id(&self) -> Option<NodeId> { NodeId::from_usize(self.parent) }
     pub fn previous_sibling_id(&self) -> Option<NodeId> { NodeId::from_usize(self.previous_sibling) }
     pub fn next_sibling_id(&self) -> Option<NodeId> { NodeId::from_usize(self.next_sibling) }
@@ -1168,23 +1168,23 @@ impl AzNode {
     pub fn last_child_id(&self) -> Option<NodeId> { NodeId::from_usize(self.last_child) }
 }
 
-impl_vec!(AzNode, AzNodeVec, AzNodeVecDestructor);
-impl_vec_mut!(AzNode, AzNodeVec);
-impl_vec_debug!(AzNode, AzNodeVec);
-impl_vec_partialord!(AzNode, AzNodeVec);
-impl_vec_clone!(AzNode, AzNodeVec, AzNodeVecDestructor);
-impl_vec_partialeq!(AzNode, AzNodeVec);
+impl_vec!(NodeHierarchyItem, NodeHierarchyItemVec, NodeHierarchyItemVecDestructor);
+impl_vec_mut!(NodeHierarchyItem, NodeHierarchyItemVec);
+impl_vec_debug!(AzNode, NodeHierarchyItemVec);
+impl_vec_partialord!(AzNode, NodeHierarchyItemVec);
+impl_vec_clone!(NodeHierarchyItem, NodeHierarchyItemVec, NodeHierarchyItemVecDestructor);
+impl_vec_partialeq!(AzNode, NodeHierarchyItemVec);
 
-impl AzNodeVec {
-    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, AzNode> {
+impl NodeHierarchyItemVec {
+    pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeHierarchyItem> {
         NodeDataContainerRef { internal: self.as_ref() }
     }
-    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, AzNode> {
+    pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeHierarchyItem> {
         NodeDataContainerRefMut { internal: self.as_mut() }
     }
 }
 
-impl<'a> NodeDataContainerRef<'a, AzNode> {
+impl<'a> NodeDataContainerRef<'a, NodeHierarchyItem> {
     #[inline]
     pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
@@ -1200,7 +1200,7 @@ impl<'a> NodeDataContainerRef<'a, AzNode> {
 #[repr(C)]
 pub struct ParentWithNodeDepth {
     pub depth: usize,
-    pub node_id: AzNodeId,
+    pub node_id: NodeHierarchyItemId,
 }
 
 impl core::fmt::Debug for ParentWithNodeDepth {
@@ -1224,7 +1224,7 @@ pub struct TagIdToNodeIdMapping {
     // Hit-testing tag ID (not all nodes have a tag, only nodes that are hit-testable)
     pub tag_id: AzTagId,
     /// Node ID of the node that has a tag
-    pub node_id: AzNodeId,
+    pub node_id: NodeHierarchyItemId,
     /// Whether this node has a tab-index field
     pub tab_index: OptionTabIndex,
     /// Parents of this NodeID, sorted in depth order, necessary for efficient hit-testing
@@ -1245,7 +1245,7 @@ impl_vec_partialeq!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
 pub struct ContentGroup {
     /// The parent of the current node group, i.e. either the root node (0)
     /// or the last positioned node ()
-    pub root: AzNodeId,
+    pub root: NodeHierarchyItemId,
     /// Node ids in order of drawing
     pub children: ContentGroupVec,
 }
@@ -1260,8 +1260,8 @@ impl_vec_partialeq!(ContentGroup, ContentGroupVec);
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
 pub struct StyledDom {
-    pub root: AzNodeId,
-    pub node_hierarchy: AzNodeVec,
+    pub root: NodeHierarchyItemId,
+    pub node_hierarchy: NodeHierarchyItemVec,
     pub node_data: NodeDataVec,
     pub styled_nodes: StyledNodeVec,
     pub cascade_info: CascadeInfoVec,
@@ -1275,8 +1275,8 @@ pub struct StyledDom {
 
 impl Default for StyledDom {
     fn default() -> Self {
-        let root_node: AzNode = Node::ROOT.into();
-        let root_node_id: AzNodeId = AzNodeId::from_crate_internal(Some(NodeId::ZERO));
+        let root_node: NodeHierarchyItem = Node::ROOT.into();
+        let root_node_id: NodeHierarchyItemId = NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO));
         Self {
             root: root_node_id,
             node_hierarchy: vec![root_node].into(),
@@ -1312,17 +1312,23 @@ impl StyledDom {
         use crate::dom::EventFilter;
         use core::mem;
 
+        println!("1");
         let mut swap_dom = Dom::body();
 
         mem::swap(dom, &mut swap_dom);
 
+        println!("2");
+
         let compact_dom: CompactDom = swap_dom.into();
+        println!("3");
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
-        let node_hierarchy: AzNodeVec = compact_dom.node_hierarchy
+        println!("4");
+        let node_hierarchy: NodeHierarchyItemVec = compact_dom.node_hierarchy
             .as_ref().internal
             .par_iter().map(|i| (*i).into())
-            .collect::<Vec<AzNode>>()
+            .collect::<Vec<NodeHierarchyItem>>()
             .into();
+        println!("5");
 
         let mut styled_nodes = vec![
             StyledNode {
@@ -1330,6 +1336,8 @@ impl StyledDom {
                 state: StyledNodeState::new()
             }; compact_dom.len()
         ];
+
+        println!("6");
 
         // fill out the css property cache: compute the inline properties first so that
         // we can early-return in case the css is empty
@@ -1340,7 +1348,7 @@ impl StyledDom {
 
         let non_leaf_nodes = non_leaf_nodes
         .par_iter()
-        .map(|(depth, node_id)| ParentWithNodeDepth { depth: *depth, node_id: AzNodeId::from_crate_internal(Some(*node_id)) })
+        .map(|(depth, node_id)| ParentWithNodeDepth { depth: *depth, node_id: NodeHierarchyItemId::from_crate_internal(Some(*node_id)) })
         .collect::<Vec<_>>();
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
@@ -1374,7 +1382,7 @@ impl StyledDom {
                 _ => false,
             });
             if node_has_none_callbacks {
-                Some(AzNodeId::from_crate_internal(Some(NodeId::new(node_id))))
+                Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
             } else {
                 None
             }
@@ -1387,7 +1395,7 @@ impl StyledDom {
                 _ => false,
             });
             if node_has_none_callbacks {
-                Some(AzNodeId::from_crate_internal(Some(NodeId::new(node_id))))
+                Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
             } else {
                 None
             }
@@ -1398,7 +1406,7 @@ impl StyledDom {
         let nodes_with_datasets = compact_dom.node_data.as_ref()
         .internal.par_iter().enumerate().filter_map(|(node_id, c)| {
             if !c.get_callbacks().is_empty() || c.get_dataset().is_some() {
-                Some(AzNodeId::from_crate_internal(Some(NodeId::new(node_id))))
+                Some(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))))
             } else {
                 None
             }
@@ -1406,7 +1414,7 @@ impl StyledDom {
         }).collect::<Vec<_>>();
 
         StyledDom {
-            root: AzNodeId::from_crate_internal(Some(compact_dom.root)),
+            root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
             node_data: compact_dom.node_data.internal.into(),
             cascade_info: html_tree.internal.into(),
@@ -2240,7 +2248,7 @@ impl StyledDom {
     #[cfg(feature = "multithreading")]
     fn determine_rendering_order<'a>(
         non_leaf_nodes: &[ParentWithNodeDepth],
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         styled_nodes: &NodeDataContainerRef<StyledNode>,
         node_data_container: &NodeDataContainerRef<NodeData>,
         css_property_cache: &CssPropertyCache,
@@ -2258,10 +2266,10 @@ impl StyledDom {
             ))))
             .collect::<Vec<_>>();
 
-        let children_sorted: BTreeMap<AzNodeId, Vec<AzNodeId>> = children_sorted.into_iter().collect();
+        let children_sorted: BTreeMap<NodeHierarchyItemId, Vec<NodeHierarchyItemId>> = children_sorted.into_iter().collect();
 
         let mut root_content_group = ContentGroup {
-            root: AzNodeId::from_crate_internal(Some(NodeId::ZERO)),
+            root: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
             children: Vec::new().into()
         };
 
@@ -2365,7 +2373,7 @@ extern "C" fn default_on_scroll(data: &mut RefAny, info: &mut CallbackInfo) -> U
     Update::DoNothing
 }
 
-fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<AzNodeId, Vec<AzNodeId>>) {
+fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<NodeHierarchyItemId, Vec<NodeHierarchyItemId>>) {
     use rayon::prelude::*;
 
     if let Some(c) = children_sorted.get(&group.root) { // returns None for leaf nodes
@@ -2383,11 +2391,11 @@ fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTree
 
 fn sort_children_by_position<'a>(
     parent: NodeId,
-    node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
     rectangles: &NodeDataContainerRef<StyledNode>,
     node_data_container: &NodeDataContainerRef<NodeData>,
     css_property_cache: &CssPropertyCache,
-) -> Vec<AzNodeId> {
+) -> Vec<NodeHierarchyItemId> {
 
     use azul_css::LayoutPosition::*;
     use rayon::prelude::*;
@@ -2399,7 +2407,7 @@ fn sort_children_by_position<'a>(
                 .get_position(&node_data_container[nid], &nid, &rectangles[nid].state)
                 .and_then(|p| p.clone().get_property_or_default())
                 .unwrap_or_default();
-            let id = AzNodeId::from_crate_internal(Some(nid));
+            let id = NodeHierarchyItemId::from_crate_internal(Some(nid));
             (id, position)
         })
         .collect::<Vec<_>>();
@@ -2421,7 +2429,7 @@ fn sort_children_by_position<'a>(
 
 
 // calls get_last_child() recursively until the last child of the last child of the ... has been found
-fn recursive_get_last_child(node_id: NodeId, node_hierarchy: &[AzNode], target: &mut Option<NodeId>) {
+fn recursive_get_last_child(node_id: NodeId, node_hierarchy: &[NodeHierarchyItem], target: &mut Option<NodeId>) {
     match node_hierarchy[node_id.index()].last_child_id() {
         None => return,
         Some(s) => {

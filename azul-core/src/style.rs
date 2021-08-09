@@ -7,7 +7,7 @@ use azul_css::{
 use alloc::vec::Vec;
 use crate::{
     dom::NodeData,
-    styled_dom::AzNode,
+    styled_dom::NodeHierarchyItem,
     id_tree::{NodeId, NodeHierarchyRef, NodeDataContainer, NodeDataContainerRef},
 };
 
@@ -36,7 +36,7 @@ impl CascadeInfoVec {
 pub(crate) fn matches_html_element(
     css_path: &CssPath,
     node_id: NodeId,
-    node_hierarchy: &NodeDataContainerRef<AzNode>,
+    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
     node_data: &NodeDataContainerRef<NodeData>,
     html_node_tree: &NodeDataContainerRef<CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,

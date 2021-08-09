@@ -73,7 +73,7 @@ use crate::{
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, Update},
     id_tree::NodeId,
-    styled_dom::{DomId, ChangedCssProperty, AzNodeId},
+    styled_dom::{DomId, ChangedCssProperty, NodeHierarchyItemId},
     ui_solver::{LayoutResult, RelayoutChanges, GpuEventChanges},
     task::ExternalSystemCallbacks,
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
@@ -219,7 +219,7 @@ impl NodesToCheck {
 
         // Figure out what the current focused NodeId is
         let new_focus_node = if events.event_was_mouse_release {
-            hit_test.focused_node.clone().map(|o| DomNodeId { dom: o.0, node: AzNodeId::from_crate_internal(Some(o.1)) })
+            hit_test.focused_node.clone().map(|o| DomNodeId { dom: o.0, node: NodeHierarchyItemId::from_crate_internal(Some(o.1)) })
         } else {
             events.old_focus_node.clone()
         };
@@ -800,7 +800,7 @@ impl CallbacksOfHitTest {
         previous_window_state: &Option<FullWindowState>,
         full_window_state: &FullWindowState,
         raw_window_handle: &RawWindowHandle,
-        scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+        scroll_states: &BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
         gl_context: &OptionGlContextPtr,
         layout_results: &mut Vec<LayoutResult>,
         modifiable_scroll_states: &mut ScrollStates,
@@ -943,7 +943,7 @@ impl CallbacksOfHitTest {
                             /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
                             /*current_scroll_states:*/ scroll_states,
                             /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
-                            /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
+                            /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(child_id)) },
                             /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| hi.point_relative_to_item).into(),
                             /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi|hi.point_in_viewport).into(),
                         );
@@ -1013,7 +1013,7 @@ impl CallbacksOfHitTest {
                         /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
                         /*current_scroll_states:*/ scroll_states,
                         /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
-                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*root_id)) },
+                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(*root_id)) },
                         /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi|hi.point_relative_to_item).into(),
                         /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
                     );

@@ -117,7 +117,6 @@ pub mod ui {
             NormalizedLinearColorStop { offset: PercentageValue::const_new(0), color: ColorU { r: 17, g: 17, b: 17, a: 255 } },
         NormalizedLinearColorStop { offset: PercentageValue::const_new(100), color: ColorU { r: 68, g: 68, b: 68, a: 255 } }
         ];
-
         let STYLE_FONT_FAMILY_12348921234331816595_ITEMS = StyleFontFamilyVec::from_vec(vec![
             StyleFontFamily::Ref(font.clone()),
             StyleFontFamily::System(STRING_16146701490593874959)
@@ -823,7 +822,6 @@ fn main() {
         callbacks::{RefAny, LayoutCallbackInfo},
         window::{WindowCreateOptions, WindowFrame},
     };
-
     let font = match FontRef::parse(FontSource {
         data: U8Vec::from_const_slice(FONT),
         font_index: 0,

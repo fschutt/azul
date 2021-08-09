@@ -502,8 +502,15 @@ macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructo
         /// Moves the memory out if the memory is library-allocated
         #[inline(always)]
         pub fn clone_self(&self) -> Self {
+            if stringify!($struct_name) == "NodeDataInlineCssPropertyVec" {
+                println!("calling clone_self for {}", stringify!($struct_name));
+            }
+
             match self.destructor {
                 $destructor_name::NoDestructor => {
+                    if stringify!($struct_name) == "NodeDataInlineCssPropertyVec" {
+                        println!("no destructor!");
+                    }
                     Self {
                         ptr: self.ptr,
                         len: self.len,
@@ -512,7 +519,22 @@ macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructo
                     }
                 }
                 $destructor_name::External(_) | $destructor_name::DefaultRust => {
-                    Self::from_vec(self.as_ref().to_vec())
+                    if stringify!($struct_name) == "NodeDataInlineCssPropertyVec" {
+                        println!("has destructor!");
+                    }
+                    let r = self.as_ref();
+                    if stringify!($struct_name) == "NodeDataInlineCssPropertyVec" {
+                        println!("ok: as_ref() called!");
+                    }
+                    let q = r.to_vec();
+                    if stringify!($struct_name) == "NodeDataInlineCssPropertyVec" {
+                        println!("ok: to_vec() called!");
+                    }
+                    let v = Self::from_vec(q);
+                    if stringify!($struct_name) == "NodeDataInlineCssPropertyVec" {
+                        println!("ok: Self::from_vec() called!");
+                    }
+                    v
                 }
             }
         }

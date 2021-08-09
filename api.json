@@ -1499,7 +1499,7 @@
                 },
                 "NodeId": {
                     "doc": "Index of a Node in the internal `NodeDataContainer`",
-                    "external": "azul_impl::styled_dom::AzNodeId",
+                    "external": "azul_impl::styled_dom::NodeHierarchyItemId",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"inner": {"type": "usize", "doc": "Index of the node into the vector.\r\n**Note:** the `index` is offset by 1:\r\n\r\n`0 = None`\r\n\r\n`1 = Some(0)`\r\n\r\n`2 = Some(1)`"}}
@@ -6063,7 +6063,7 @@
                     ]
                 },
                 "NodeGraphStyle": {
-                    "external": "crate::widgets::node_graph::NodeIdNodeMap",
+                    "external": "crate::widgets::node_graph::NodeGraphStyle",
                     "enum_fields": [
                         {"Default": {}}
                     ]
@@ -6397,7 +6397,7 @@
             "doc": "DOM to CSS cascading and styling module",
             "classes": {
                 "NodeHierarchyItem": {
-                    "external": "azul_impl::styled_dom::AzNode",
+                    "external": "azul_impl::styled_dom::NodeHierarchyItem",
                     "derive": ["Copy"],
                     "struct_fields": [
                         {"parent": {"type": "usize"}},
@@ -12016,7 +12016,7 @@
                 "NodeTypeIdInfoMapVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::NodeTypeIdInfoMap",
+                    "external": "crate::widgets::node_graph::NodeTypeIdInfoMapVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const NodeTypeIdInfoMap" } },
                         { "len": { "type": "usize" } },
@@ -12027,7 +12027,7 @@
                 "InputOutputTypeIdInfoMapVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMap",
+                    "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMapVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const InputOutputTypeIdInfoMap" } },
                         { "len": { "type": "usize" } },
@@ -12038,7 +12038,7 @@
                 "NodeIdNodeMapVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::NodeIdNodeMap",
+                    "external": "crate::widgets::node_graph::NodeIdNodeMapVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const NodeIdNodeMap" } },
                         { "len": { "type": "usize" } },
@@ -12049,7 +12049,7 @@
                 "InputOutputTypeIdVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::InputOutputTypeId",
+                    "external": "crate::widgets::node_graph::InputOutputTypeIdVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const InputOutputTypeId" } },
                         { "len": { "type": "usize" } },
@@ -12060,7 +12060,7 @@
                 "NodeTypeFieldVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<NodeTypeField>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::NodeTypeField",
+                    "external": "crate::widgets::node_graph::NodeTypeFieldVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const NodeTypeField" } },
                         { "len": { "type": "usize" } },
@@ -12071,7 +12071,7 @@
                 "InputConnectionVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<InputConnection>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::InputConnection",
+                    "external": "crate::widgets::node_graph::InputConnectionVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const InputConnection" } },
                         { "len": { "type": "usize" } },
@@ -12082,7 +12082,7 @@
                 "OutputNodeAndIndexVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::OutputNodeAndIndex",
+                    "external": "crate::widgets::node_graph::OutputNodeAndIndexVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const OutputNodeAndIndex" } },
                         { "len": { "type": "usize" } },
@@ -12093,7 +12093,7 @@
                 "OutputConnectionVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<OutputConnection>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::OutputConnection",
+                    "external": "crate::widgets::node_graph::OutputConnectionVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const OutputConnection" } },
                         { "len": { "type": "usize" } },
@@ -12104,7 +12104,7 @@
                 "InputNodeAndIndexVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`",
                     "custom_destructor": true,
-                    "external": "crate::widgets::node_graph::InputNodeAndIndex",
+                    "external": "crate::widgets::node_graph::InputNodeAndIndexVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const InputNodeAndIndex" } },
                         { "len": { "type": "usize" } },
@@ -12674,7 +12674,7 @@
                 "NodeHierarchyItemVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`",
                     "custom_destructor": true,
-                    "external": "azul_impl::styled_dom::AzNodeVec",
+                    "external": "azul_impl::styled_dom::NodeHierarchyItemVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const NodeHierarchyItem" } },
                         { "len": { "type": "usize" } },
@@ -13639,7 +13639,7 @@
                     }
                 },
                 "NodeHierarchyItemVecDestructor": {
-                    "external": "azul_impl::styled_dom::AzNodeVecDestructor",
+                    "external": "azul_impl::styled_dom::NodeHierarchyItemVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},

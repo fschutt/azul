@@ -1,7 +1,7 @@
 use azul_css::RectLayout;
 use azul_core::{
     id_tree::{Node, NodeId, NodeHierarchy, NodeDataContainer},
-    styled_dom::{AzNode, AzNodeId, StyledNode, ParentWithNodeDepth},
+    styled_dom::{NodeHierarchyItem, NodeHierarchyItemId, StyledNode, ParentWithNodeDepth},
     ui_solver::{WhConstraint, WidthSolvedResult},
 };
 use crate::layout_solver::{
@@ -80,7 +80,7 @@ fn get_testing_hierarchy() -> NodeHierarchy {
 
 /// Returns the same arena, but pre-fills nodes at [(NodeId, RectLayout)]
 /// with the layout rect
-fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeDataContainer<AzNode>, Vec<ParentWithNodeDepth>, NodeDataContainer<StyledNode>) {
+fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeDataContainer<NodeHierarchyItem>, Vec<ParentWithNodeDepth>, NodeDataContainer<StyledNode>) {
     let node_hierarchy = get_testing_hierarchy();
     let node_depths = node_hierarchy.as_ref().get_parents_sorted_by_depth();
     let mut node_data = vec![StyledNode::default(); node_hierarchy.as_ref().len()];
@@ -89,8 +89,8 @@ fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeData
     }
 
     (
-     NodeDataContainer { internal: node_hierarchy.internal.into_iter().map(|i| AzNode::from(i)).collect() },
-     node_depths.into_iter().map(|(depth, node_id)| ParentWithNodeDepth { depth, node_id: AzNodeId::from_crate_internal(Some(node_id)) }).collect(),
+     NodeDataContainer { internal: node_hierarchy.internal.into_iter().map(|i| NodeHierarchyItem::from(i)).collect() },
+     node_depths.into_iter().map(|(depth, node_id)| ParentWithNodeDepth { depth, node_id: NodeHierarchyItemId::from_crate_internal(Some(node_id)) }).collect(),
      NodeDataContainer { internal: node_data }
     )
 }
@@ -348,9 +348,9 @@ fn test_fill_out_preferred_width() {
 
     // ID 5 has no child, so it's not returned, same as 3 and 4
     assert_eq!(node_depths, vec![
-        ParentWithNodeDepth { depth: 0, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(0))) },
-        ParentWithNodeDepth { depth: 1, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(1))) },
-        ParentWithNodeDepth { depth: 2, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(2))) },
+        ParentWithNodeDepth { depth: 0, node_id: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))) },
+        ParentWithNodeDepth { depth: 1, node_id: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))) },
+        ParentWithNodeDepth { depth: 2, node_id: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))) },
     ]);
 
     bubble_preferred_widths_to_parents(&mut width_filled_out_data.as_ref_mut(), &node_hierarchy.as_ref(), &layout_positions.as_ref(), &node_depths);

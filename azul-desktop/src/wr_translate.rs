@@ -726,7 +726,7 @@ pub(crate) fn fullhittest_new_webrender(
     use alloc::collections::BTreeMap;
     use webrender::api::units::WorldPoint as WrWorldPoint;
     use azul_core::callbacks::{HitTestItem, ScrollHitTestItem};
-    use azul_core::styled_dom::{DomId, AzNodeId};
+    use azul_core::styled_dom::{DomId, NodeHierarchyItemId};
 
     let mut cursor_location = match cursor_position {
         CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
@@ -794,7 +794,7 @@ pub(crate) fn fullhittest_new_webrender(
                     ret.focused_node = Some((*dom_id, node_id));
                 }
 
-                let az_node_id = AzNodeId::from_crate_internal(Some(node_id));
+                let az_node_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
 
                 // NOTE: in order to filter the events correctly,
                 // a hit node has to ALWAYS be inserted into the regular_hit_test_nodes

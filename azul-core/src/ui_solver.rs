@@ -18,7 +18,7 @@ use azul_css::{
 };
 use crate::{
     display_list::{CachedDisplayList, GlTextureCache, RenderCallbacks},
-    styled_dom::{StyledDom, AzNodeId, DomId},
+    styled_dom::{StyledDom, NodeHierarchyItemId, DomId},
     app_resources::{
         Words, ShapedWords, TransformKey, OpacityKey,
         FontInstanceKey, WordPositions, Epoch,
@@ -181,10 +181,10 @@ impl ::core::fmt::Debug for ExternalScrollId {
 
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrolledNodes {
-    pub overflowing_nodes: BTreeMap<AzNodeId, OverflowingScrollNode>,
+    pub overflowing_nodes: BTreeMap<NodeHierarchyItemId, OverflowingScrollNode>,
     /// Nodes that need to clip their direct children (i.e. nodes with overflow-x and overflow-y set to "Hidden")
     pub clip_nodes: BTreeMap<NodeId, LogicalSize>,
-    pub tags_to_node_ids: BTreeMap<ScrollTagId, AzNodeId>,
+    pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeHierarchyItemId>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -724,7 +724,7 @@ impl LayoutResult {
                         // invoke the iframe with the new size and replace the dom with the DOM ID
                         let hidpi_bounds = HidpiAdjustedBounds::from_bounds(layout_size.size, window_size.hidpi_factor);
                         let scroll_node = layout_result.scrollable_nodes.overflowing_nodes
-                            .get(&AzNodeId::from_crate_internal(Some(node_id)))
+                            .get(&NodeHierarchyItemId::from_crate_internal(Some(node_id)))
                             .cloned()
                             .unwrap_or_default();
 
@@ -757,7 +757,7 @@ impl LayoutResult {
                     // Store the new scroll position
                     // (trust the iframe to return these values correctly)
                     let osn = layout_results[dom_id.inner].scrollable_nodes.overflowing_nodes
-                        .entry(AzNodeId::from_crate_internal(Some(node_id)))
+                        .entry(NodeHierarchyItemId::from_crate_internal(Some(node_id)))
                         .or_insert_with(|| OverflowingScrollNode::default());
 
                     osn.child_rect = LogicalRect {

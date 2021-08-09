@@ -13,7 +13,7 @@ use azul_core::{
     },
     dom::{NodeData, NodeType},
     styled_dom::{
-        StyledDom, DomId, StyledNode, AzNode, StyledNodeState,
+        StyledDom, DomId, StyledNode, NodeHierarchyItem, StyledNodeState,
         ParentWithNodeDepth, ChangedCssProperty, CssPropertyCache,
     },
     ui_solver::{
@@ -232,7 +232,7 @@ macro_rules! typed_arena {(
         wh_configs: &NodeDataContainerRef<'a, WhConfig>,
         offsets: &NodeDataContainerRef<'a, AllOffsets>,
         widths: &NodeDataContainerRef<'a, Option<f32>>,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         node_depths: &[ParentWithNodeDepth],
         root_size_width: f32,
     ) -> NodeDataContainer<$struct_name> {
@@ -329,7 +329,7 @@ macro_rules! typed_arena {(
     /// that doesn't violate the constraints of the parent)
     fn $bubble_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainerRefMut<'b, $struct_name>,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
         layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
         node_depths: &[ParentWithNodeDepth],
@@ -395,7 +395,7 @@ macro_rules! typed_arena {(
     /// and max_width constraints, so we have to adjust them manually
     fn $apply_flex_grow_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainer<$struct_name>,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         layout_flex_grows: &NodeDataContainerRef<'a, f32>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
         layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
@@ -410,7 +410,7 @@ macro_rules! typed_arena {(
         fn distribute_space_along_main_axis<'a>(
             node_id: &NodeId,
             children: &[NodeId],
-            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+            node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
             layout_flex_grows: &NodeDataContainerRef<'a, f32>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a NodeDataContainerRef<$struct_name>,
@@ -578,7 +578,7 @@ macro_rules! typed_arena {(
         fn distribute_space_along_cross_axis<'a>(
             parent_id: &NodeId,
             children: &[NodeId],
-            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+            node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a NodeDataContainerRef<$struct_name>,
             root_width: f32
@@ -780,7 +780,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
     layout_flex_grow: &NodeDataContainerRef<'a, f32>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
-    node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
     node_depths: &[ParentWithNodeDepth],
     window_width: f32,
     parents_to_recalc: &BTreeSet<NodeId>,
@@ -811,7 +811,7 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
     layout_flex_grow: &NodeDataContainerRef<'a, f32>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
-    node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
     node_depths: &[ParentWithNodeDepth],
     window_height: f32,
     parents_to_recalc: &BTreeSet<NodeId>,
@@ -852,7 +852,7 @@ macro_rules! get_position {(
     /// Traverses along the DOM and solve for the X or Y position
     fn $fn_name<'a>(
         arena: &mut NodeDataContainer<$height_solved_position>,
-        node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+        node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
         layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
         layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
@@ -866,7 +866,7 @@ macro_rules! get_position {(
             child_id: NodeId,
             solved_widths: &NodeDataContainerRef<'a, $width_layout>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+            node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         ) -> f32 {
 
             let child_width_with_padding = {
@@ -922,7 +922,7 @@ macro_rules! get_position {(
             parent_x_position: f32,
             parent_inner_width: f32,
             sum_x_of_children_so_far: &f32,
-            node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+            node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         ) -> (f32, f32) {
 
             use azul_css::LayoutJustifyContent::*;
@@ -983,7 +983,7 @@ macro_rules! get_position {(
             child_id: NodeId,
             parent_x_position: f32,
             parent_inner_width: f32,
-            node_hierarchy: &NodeDataContainerRef<'a, AzNode>
+            node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>
         ) -> f32 {
 
             let child_node = &solved_widths[child_id];
@@ -1119,7 +1119,7 @@ macro_rules! get_position {(
 fn get_x_positions<'a>(
     arena: &mut NodeDataContainer<HorizontalSolvedPosition>,
     solved_widths: &NodeDataContainerRef<'a, WidthCalculatedRect>,
-    node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
@@ -1159,7 +1159,7 @@ fn get_x_positions<'a>(
 fn get_y_positions<'a>(
     arena: &mut NodeDataContainer<VerticalSolvedPosition>,
     solved_heights: &NodeDataContainerRef<'a, HeightCalculatedRect>,
-    node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
@@ -1483,7 +1483,7 @@ pub fn do_the_layout(
 
     use azul_core::{
         ui_solver::OverflowingScrollNode,
-        styled_dom::AzNodeId,
+        styled_dom::NodeHierarchyItemId,
         callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn}
     };
 
@@ -1654,7 +1654,7 @@ pub fn do_the_layout(
     for nss in new_scroll_states {
         if let Some(lr) = resolved_doms.get_mut(nss.dom_id.inner) {
             let mut osn = lr.scrollable_nodes.overflowing_nodes
-            .entry(AzNodeId::from_crate_internal(Some(nss.node_id)))
+            .entry(NodeHierarchyItemId::from_crate_internal(Some(nss.node_id)))
             .or_insert_with(|| OverflowingScrollNode::default());
 
             osn.child_rect = nss.child_rect;
@@ -1948,7 +1948,7 @@ pub fn do_the_layout_internal(
 
 /// resets the preferred width / height to 0px before the layout is calculate
 fn get_display_none_nodes<'a, 'b>(
-    node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
     layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
 ) -> Vec<bool> {
 
@@ -2485,7 +2485,7 @@ fn get_nodes_that_need_scroll_clip(
     scrolled_nodes: &mut ScrolledNodes,
     display_list_rects: &NodeDataContainerRef<StyledNode>,
     dom_rects: &NodeDataContainerRef<NodeData>,
-    node_hierarchy: &NodeDataContainerRef<AzNode>,
+    node_hierarchy: &NodeDataContainerRef<NodeHierarchyItem>,
     layouted_rects: &NodeDataContainerRef<PositionedRectangle>,
     parents: &[ParentWithNodeDepth],
     dom_id: DomId,
@@ -2494,7 +2494,7 @@ fn get_nodes_that_need_scroll_clip(
 
     use azul_core::ui_solver::{OverflowingScrollNode, ExternalScrollId};
     use azul_core::dom::ScrollTagId;
-    use azul_core::styled_dom::AzNodeId;
+    use azul_core::styled_dom::NodeHierarchyItemId;
     use azul_core::dom::TagId;
 
     let mut overflowing_nodes = BTreeMap::new();
@@ -2590,8 +2590,8 @@ fn get_nodes_that_need_scroll_clip(
             scroll_tag_id,
         };
 
-        overflowing_nodes.insert(AzNodeId::from_crate_internal(Some(parent_id)), os);
-        tags_to_node_ids.insert(scroll_tag_id, AzNodeId::from_crate_internal(Some(parent_id)));
+        overflowing_nodes.insert(NodeHierarchyItemId::from_crate_internal(Some(parent_id)), os);
+        tags_to_node_ids.insert(scroll_tag_id, NodeHierarchyItemId::from_crate_internal(Some(parent_id)));
     }
 
     *scrolled_nodes = ScrolledNodes {

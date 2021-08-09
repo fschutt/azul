@@ -9753,7 +9753,7 @@ impl Clone for AzLayoutCallbackInner { fn clone(&self) -> Self { let r: &azul_im
 impl Clone for AzCallback { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Callback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzUpdateImageTypeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::UpdateImageType = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzUpdateEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::Update = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItemId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDomId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::DomId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPositionInfoInner { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::PositionInfoInner = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAnimationRepeatEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::AnimationRepeat = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9815,7 +9815,7 @@ impl Clone for AzNumberInputState { fn clone(&self) -> Self { let r: &crate::wid
 impl Clone for AzNumberInputOnValueChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnFocusLostCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLostCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzProgressBarState { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeGraphStyleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeGraphStyleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraphStyle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeAddedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeAddedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeRemovedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeRemovedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeGraphDraggedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeGraphDraggedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9830,7 +9830,7 @@ impl Clone for AzNodeGraphNodeId { fn clone(&self) -> Self { let r: &crate::widg
 impl Clone for AzNodePosition { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGraphDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::GraphDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeHierarchyItem { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeHierarchyItem { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfo { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeState { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagId { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzTagId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -9961,7 +9961,7 @@ impl Clone for AzStringPairVecDestructorEnumWrapper { fn clone(&self) -> Self { 
 impl Clone for AzNormalizedLinearColorStopVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedLinearColorStopVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNormalizedRadialColorStopVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedRadialColorStopVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeIdVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeHierarchyItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeHierarchyItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMappingVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMappingVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10160,9 +10160,9 @@ impl Clone for AzInstantPtr { fn clone(&self) -> Self { let r: &azul_impl::task:
 impl Clone for AzDurationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Duration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSendMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSendMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadWriteBackMsg { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadWriteBackMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzInputOutputTypeIdVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOutputNodeAndIndexVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzInputNodeAndIndexVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputNodeAndIndexVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputNodeAndIndexVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVec { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemVec { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVec { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10187,7 +10187,7 @@ impl Clone for AzGLintVec { fn clone(&self) -> Self { let r: &azul_impl::gl::GLi
 impl Clone for AzNormalizedLinearColorStopVec { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedLinearColorStopVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r: &azul_impl::css::NormalizedRadialColorStopVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeHierarchyItemVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeHierarchyItemVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeAddedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeAdded = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeRemovedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeRemoved = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10292,8 +10292,8 @@ impl Clone for AzXml { fn clone(&self) -> Self { let r: &azul_impl::xml::Xml = u
 impl Clone for AzInstantEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Instant = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadReceiveMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiveMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzString { fn clone(&self) -> Self { let r: &azul_impl::css::AzString = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzInputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzOutputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOutputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTransformVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10388,9 +10388,9 @@ impl Clone for AzVertexArrayObject { fn clone(&self) -> Self { let r: &azul_impl
 impl Clone for AzVertexBuffer { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexBuffer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygon { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNode { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzInputOutputTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeTypeFieldVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzInputOutputTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeTypeFieldVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeFieldVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineLineVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLineVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssPropertyVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygonVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygonVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10423,7 +10423,7 @@ impl Clone for AzColorInput { fn clone(&self) -> Self { let r: &crate::widgets::
 impl Clone for AzTextInput { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInput { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeIdNodeMap { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzNodeIdNodeMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzNodeIdNodeMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeIdNodeMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclarationVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDataVec { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeDataVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -13026,10 +13026,10 @@ impl AzNodeId {
 #[pyproto]
 impl PyObjectProtocol for AzNodeId {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItemId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNodeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItemId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -22536,10 +22536,10 @@ impl AzNodeGraphStyleEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzNodeGraphStyleEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeGraphStyle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeGraphStyle = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __richcmp__(&self, other: AzNodeGraphStyleEnumWrapper, op: pyo3::class::basic::CompareOp) -> PyResult<bool> {
         match op {
@@ -23279,10 +23279,10 @@ impl AzNodeHierarchyItem {
 #[pyproto]
 impl PyObjectProtocol for AzNodeHierarchyItem {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItem = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31289,12 +31289,12 @@ impl AzNodeTypeIdInfoMapVec {
     /// Creates a new `NodeTypeIdInfoMapVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzNodeTypeIdInfoMap>) -> Self {
-        let m: crate::widgets::node_graph::NodeTypeIdInfoMap = crate::widgets::node_graph::NodeTypeIdInfoMap::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::NodeTypeIdInfoMapVec = crate::widgets::node_graph::NodeTypeIdInfoMapVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the NodeTypeIdInfoMap as a Python array
     fn array(&self) -> Vec<AzNodeTypeIdInfoMap> {
-        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31302,10 +31302,10 @@ impl AzNodeTypeIdInfoMapVec {
 #[pyproto]
 impl PyObjectProtocol for AzNodeTypeIdInfoMapVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31314,12 +31314,12 @@ impl AzInputOutputTypeIdInfoMapVec {
     /// Creates a new `InputOutputTypeIdInfoMapVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzInputOutputTypeIdInfoMap>) -> Self {
-        let m: crate::widgets::node_graph::InputOutputTypeIdInfoMap = crate::widgets::node_graph::InputOutputTypeIdInfoMap::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::InputOutputTypeIdInfoMapVec = crate::widgets::node_graph::InputOutputTypeIdInfoMapVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the InputOutputTypeIdInfoMap as a Python array
     fn array(&self) -> Vec<AzInputOutputTypeIdInfoMap> {
-        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31327,10 +31327,10 @@ impl AzInputOutputTypeIdInfoMapVec {
 #[pyproto]
 impl PyObjectProtocol for AzInputOutputTypeIdInfoMapVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31339,12 +31339,12 @@ impl AzNodeIdNodeMapVec {
     /// Creates a new `NodeIdNodeMapVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzNodeIdNodeMap>) -> Self {
-        let m: crate::widgets::node_graph::NodeIdNodeMap = crate::widgets::node_graph::NodeIdNodeMap::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::NodeIdNodeMapVec = crate::widgets::node_graph::NodeIdNodeMapVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the NodeIdNodeMap as a Python array
     fn array(&self) -> Vec<AzNodeIdNodeMap> {
-        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::NodeIdNodeMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31352,10 +31352,10 @@ impl AzNodeIdNodeMapVec {
 #[pyproto]
 impl PyObjectProtocol for AzNodeIdNodeMapVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeIdNodeMapVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeIdNodeMap = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeIdNodeMapVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31364,12 +31364,12 @@ impl AzInputOutputTypeIdVec {
     /// Creates a new `InputOutputTypeIdVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzInputOutputTypeId>) -> Self {
-        let m: crate::widgets::node_graph::InputOutputTypeId = crate::widgets::node_graph::InputOutputTypeId::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::InputOutputTypeIdVec = crate::widgets::node_graph::InputOutputTypeIdVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the InputOutputTypeId as a Python array
     fn array(&self) -> Vec<AzInputOutputTypeId> {
-        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::InputOutputTypeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31377,10 +31377,10 @@ impl AzInputOutputTypeIdVec {
 #[pyproto]
 impl PyObjectProtocol for AzInputOutputTypeIdVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputOutputTypeIdVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputOutputTypeId = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputOutputTypeIdVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31389,12 +31389,12 @@ impl AzNodeTypeFieldVec {
     /// Creates a new `NodeTypeFieldVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzNodeTypeField>) -> Self {
-        let m: crate::widgets::node_graph::NodeTypeField = crate::widgets::node_graph::NodeTypeField::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::NodeTypeFieldVec = crate::widgets::node_graph::NodeTypeFieldVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the NodeTypeField as a Python array
     fn array(&self) -> Vec<AzNodeTypeField> {
-        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::NodeTypeFieldVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31402,10 +31402,10 @@ impl AzNodeTypeFieldVec {
 #[pyproto]
 impl PyObjectProtocol for AzNodeTypeFieldVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeTypeFieldVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::NodeTypeField = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::NodeTypeFieldVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31414,12 +31414,12 @@ impl AzInputConnectionVec {
     /// Creates a new `InputConnectionVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzInputConnection>) -> Self {
-        let m: crate::widgets::node_graph::InputConnection = crate::widgets::node_graph::InputConnection::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::InputConnectionVec = crate::widgets::node_graph::InputConnectionVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the InputConnection as a Python array
     fn array(&self) -> Vec<AzInputConnection> {
-        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::InputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31427,10 +31427,10 @@ impl AzInputConnectionVec {
 #[pyproto]
 impl PyObjectProtocol for AzInputConnectionVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputConnectionVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputConnectionVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31439,12 +31439,12 @@ impl AzOutputNodeAndIndexVec {
     /// Creates a new `OutputNodeAndIndexVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzOutputNodeAndIndex>) -> Self {
-        let m: crate::widgets::node_graph::OutputNodeAndIndex = crate::widgets::node_graph::OutputNodeAndIndex::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::OutputNodeAndIndexVec = crate::widgets::node_graph::OutputNodeAndIndexVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the OutputNodeAndIndex as a Python array
     fn array(&self) -> Vec<AzOutputNodeAndIndex> {
-        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::OutputNodeAndIndexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31452,10 +31452,10 @@ impl AzOutputNodeAndIndexVec {
 #[pyproto]
 impl PyObjectProtocol for AzOutputNodeAndIndexVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::OutputNodeAndIndexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::OutputNodeAndIndexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31464,12 +31464,12 @@ impl AzOutputConnectionVec {
     /// Creates a new `OutputConnectionVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzOutputConnection>) -> Self {
-        let m: crate::widgets::node_graph::OutputConnection = crate::widgets::node_graph::OutputConnection::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::OutputConnectionVec = crate::widgets::node_graph::OutputConnectionVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the OutputConnection as a Python array
     fn array(&self) -> Vec<AzOutputConnection> {
-        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::OutputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31477,10 +31477,10 @@ impl AzOutputConnectionVec {
 #[pyproto]
 impl PyObjectProtocol for AzOutputConnectionVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::OutputConnectionVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::OutputConnectionVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -31489,12 +31489,12 @@ impl AzInputNodeAndIndexVec {
     /// Creates a new `InputNodeAndIndexVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzInputNodeAndIndex>) -> Self {
-        let m: crate::widgets::node_graph::InputNodeAndIndex = crate::widgets::node_graph::InputNodeAndIndex::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: crate::widgets::node_graph::InputNodeAndIndexVec = crate::widgets::node_graph::InputNodeAndIndexVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the InputNodeAndIndex as a Python array
     fn array(&self) -> Vec<AzInputNodeAndIndex> {
-        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &crate::widgets::node_graph::InputNodeAndIndexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -31502,10 +31502,10 @@ impl AzInputNodeAndIndexVec {
 #[pyproto]
 impl PyObjectProtocol for AzInputNodeAndIndexVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputNodeAndIndexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::node_graph::InputNodeAndIndexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -32708,12 +32708,12 @@ impl AzNodeHierarchyItemVec {
     /// Creates a new `NodeHierarchyItemVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzNodeHierarchyItem>) -> Self {
-        let m: azul_impl::styled_dom::AzNodeVec = azul_impl::styled_dom::AzNodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_impl::styled_dom::NodeHierarchyItemVec = azul_impl::styled_dom::NodeHierarchyItemVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the NodeHierarchyItem as a Python array
     fn array(&self) -> Vec<AzNodeHierarchyItem> {
-        let m: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -32721,10 +32721,10 @@ impl AzNodeHierarchyItemVec {
 #[pyproto]
 impl PyObjectProtocol for AzNodeHierarchyItemVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -34561,10 +34561,10 @@ impl AzNodeHierarchyItemVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzNodeHierarchyItemVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::styled_dom::AzNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_impl::styled_dom::NodeHierarchyItemVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 

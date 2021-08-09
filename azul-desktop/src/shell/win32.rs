@@ -3476,7 +3476,7 @@ unsafe extern "system" fn WindowProc(
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
 
                     use azul_core::window::{RawWindowHandle, WindowsHandle};
-                    use azul_core::styled_dom::AzNodeId;
+                    use azul_core::styled_dom::NodeHierarchyItemId;
 
                     let mut ret = ProcessEventResult::DoNothing;
                     let mut new_windows = Vec::new();
@@ -3505,7 +3505,7 @@ unsafe extern "system" fn WindowProc(
                                     menu_callback,
                                     DomNodeId {
                                         dom: DomId::ROOT_ID,
-                                        node: AzNodeId::from_crate_internal(None),
+                                        node: NodeHierarchyItemId::from_crate_internal(None),
                                     },
                                     &window_handle,
                                     &gl_context_ptr,

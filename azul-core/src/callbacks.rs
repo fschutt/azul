@@ -29,7 +29,7 @@ use crate::{
         OverflowingScrollNode, PositionedRectangle,
         LayoutResult, PositionInfo,
     },
-    styled_dom::{DomId, AzNodeId, AzNodeVec, StyledNodeVec},
+    styled_dom::{DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledNodeVec},
     id_tree::{NodeId, NodeDataContainer},
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
@@ -568,7 +568,7 @@ macro_rules! impl_get_gl_context {() => {
 #[repr(C)]
 pub struct DomNodeId {
     pub dom: DomId,
-    pub node: AzNodeId,
+    pub node: NodeHierarchyItemId,
 }
 
 impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -576,7 +576,7 @@ impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, Par
 impl DomNodeId {
     pub const ROOT: DomNodeId = DomNodeId {
         dom: DomId::ROOT_ID,
-        node: AzNodeId::NONE,
+        node: NodeHierarchyItemId::NONE,
     };
 }
 // -- layout callback
@@ -986,7 +986,7 @@ pub struct CallbackInfo {
     /// Handle of the current window
     current_window_handle: *const RawWindowHandle,
     /// Currently active, layouted rectangles
-    node_hierarchy: *const AzNodeVec,
+    node_hierarchy: *const NodeHierarchyItemVec,
     /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
     system_callbacks: *const ExternalSystemCallbacks,
     /// Current fonts in the DOM
@@ -1015,9 +1015,9 @@ pub struct CallbackInfo {
     /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
     css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    current_scroll_states: *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    current_scroll_states: *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    nodes_scrolled_in_callback: *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+    nodes_scrolled_in_callback: *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
@@ -1053,7 +1053,7 @@ impl CallbackInfo {
        threads_removed: &'a mut FastBTreeSet<ThreadId>,
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
-       node_hierarchy: &'a AzNodeVec,
+       node_hierarchy: &'a NodeHierarchyItemVec,
        system_callbacks: &'a ExternalSystemCallbacks,
        words_cache: &'a BTreeMap<NodeId, Words>,
        shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
@@ -1067,8 +1067,8 @@ impl CallbackInfo {
        images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
        image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
        css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-       current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
-       nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+       current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+       nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
        hit_dom_node: DomNodeId,
        cursor_relative_to_item: OptionLogicalPosition,
        cursor_in_viewport: OptionLogicalPosition,
@@ -1093,7 +1093,7 @@ impl CallbackInfo {
             shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
             positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
             positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
-            node_hierarchy: node_hierarchy as *const AzNodeVec,
+            node_hierarchy: node_hierarchy as *const NodeHierarchyItemVec,
             font_map: font_map as *const BTreeMap<NodeId, FontRef>,
             dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
@@ -1102,8 +1102,8 @@ impl CallbackInfo {
             images_changed_in_callbacks: images_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
             image_masks_changed_in_callbacks: image_masks_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
             css_properties_changed_in_callbacks: css_properties_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-            current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
-            nodes_scrolled_in_callback: nodes_scrolled_in_callback as *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+            current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+            nodes_scrolled_in_callback: nodes_scrolled_in_callback as *mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
             hit_dom_node: hit_dom_node,
             cursor_relative_to_item: cursor_relative_to_item,
             cursor_in_viewport: cursor_in_viewport,
@@ -1127,15 +1127,15 @@ impl CallbackInfo {
     fn internal_get_threads_removed<'a>(&'a mut self) -> &'a mut FastBTreeSet<ThreadId> { unsafe { &mut *self.threads_removed } }
     fn internal_get_new_windows<'a>(&'a mut self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
-    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
+    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a NodeHierarchyItemVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_extern_system_callbacks<'a>(&'a self) -> &'a ExternalSystemCallbacks { unsafe { &*self.system_callbacks } }
     fn internal_get_font_map<'a>(&'a self) -> &'a BTreeMap<NodeId, FontRef> { unsafe { &*self.font_map } }
     fn internal_get_dataset_map<'a>(&'a mut self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
     fn internal_get_stop_propagation<'a>(&'a mut self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a mut self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
-    fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
+    fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
     fn internal_get_css_properties_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>> { unsafe { &mut *self.css_properties_changed_in_callbacks } }
-    fn internal_get_nodes_scrolled_in_callback<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>> { unsafe { &mut *self.nodes_scrolled_in_callback } }
+    fn internal_get_nodes_scrolled_in_callback<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>> { unsafe { &mut *self.nodes_scrolled_in_callback } }
     fn internal_get_hit_dom_node<'a>(&'a self) -> DomNodeId { self.hit_dom_node }
     fn internal_get_cursor_relative_to_item<'a>(&'a self) -> OptionLogicalPosition { self.cursor_relative_to_item }
     fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLogicalPosition { self.cursor_in_viewport }
@@ -1189,7 +1189,7 @@ impl CallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.parent_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1199,7 +1199,7 @@ impl CallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1209,7 +1209,7 @@ impl CallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1220,7 +1220,7 @@ impl CallbackInfo {
             let nid = node_id.node.into_crate_internal()?;
             self.internal_get_node_hierarchy()
             .as_container().get(nid)?.first_child_id(nid)
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1230,7 +1230,7 @@ impl CallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1256,7 +1256,7 @@ impl CallbackInfo {
             .min_by(|a, b| (*(*a.1)).instance_id.cmp(&(*(*b.1)).instance_id))
             .map(|(k, v)| DomNodeId {
                 dom: hit_node.dom,
-                node: AzNodeId::from_crate_internal(Some(*k))
+                node: NodeHierarchyItemId::from_crate_internal(Some(*k))
             })
         }
     }
@@ -1731,7 +1731,7 @@ pub struct RenderImageCallbackInfo {
     gl_context: *const OptionGlContextPtr,
     image_cache: *const ImageCache,
     system_fonts: *const FcFontCache,
-    node_hierarchy: *const AzNodeVec,
+    node_hierarchy: *const NodeHierarchyItemVec,
     words_cache: *const BTreeMap<NodeId, Words>,
     shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
     positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
@@ -1768,7 +1768,7 @@ impl RenderImageCallbackInfo {
        gl_context: &'a OptionGlContextPtr,
        image_cache: &'a ImageCache,
        system_fonts: &'a FcFontCache,
-       node_hierarchy: &'a AzNodeVec,
+       node_hierarchy: &'a NodeHierarchyItemVec,
        words_cache: &'a BTreeMap<NodeId, Words>,
        shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
        positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
@@ -1781,7 +1781,7 @@ impl RenderImageCallbackInfo {
             gl_context: gl_context as *const OptionGlContextPtr,
             image_cache: image_cache as *const ImageCache,
             system_fonts: system_fonts as *const FcFontCache,
-            node_hierarchy: node_hierarchy as *const AzNodeVec,
+            node_hierarchy: node_hierarchy as *const NodeHierarchyItemVec,
             words_cache: words_cache as *const BTreeMap<NodeId, Words>,
             shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
             positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
@@ -1796,7 +1796,7 @@ impl RenderImageCallbackInfo {
     fn internal_get_image_cache<'a>(&'a self) -> &'a ImageCache { unsafe { &*self.image_cache } }
     fn internal_get_system_fonts<'a>(&'a self) -> &'a FcFontCache { unsafe { &*self.system_fonts } }
     fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
-    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a AzNodeVec { unsafe { &*self.node_hierarchy } }
+    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a NodeHierarchyItemVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
     fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> { unsafe { &*self.shaped_words_cache } }
     fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
@@ -1837,7 +1837,7 @@ impl RenderImageCallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.parent_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1847,7 +1847,7 @@ impl RenderImageCallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1857,7 +1857,7 @@ impl RenderImageCallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1868,7 +1868,7 @@ impl RenderImageCallbackInfo {
             let nid = node_id.node.into_crate_internal()?;
             self.internal_get_node_hierarchy()
             .as_container().get(nid)?.first_child_id(nid)
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 
@@ -1878,7 +1878,7 @@ impl RenderImageCallbackInfo {
         } else {
             self.internal_get_node_hierarchy()
             .as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
         }
     }
 }
@@ -2214,7 +2214,7 @@ impl FocusTarget {
                 let node_id_valid = layout_result.styled_dom.node_data.as_container().get(start_node_id).is_some();
 
                 if !node_id_valid {
-                    return Err(UpdateFocusWarning::FocusInvalidNodeId(AzNodeId::from_crate_internal(Some(start_node_id.clone()))));
+                    return Err(UpdateFocusWarning::FocusInvalidNodeId(NodeHierarchyItemId::from_crate_internal(Some(start_node_id.clone()))));
                 }
 
                 if layout_result.styled_dom.node_data.is_empty() {
@@ -2234,7 +2234,7 @@ impl FocusTarget {
                     if layout_result.styled_dom.node_data.as_container()[current_node_id].is_focusable() {
                         return Ok(Some(DomNodeId {
                             dom: start_dom_id,
-                            node: AzNodeId::from_crate_internal(Some(current_node_id)),
+                            node: NodeHierarchyItemId::from_crate_internal(Some(current_node_id)),
                         }));
                     }
 
@@ -2278,7 +2278,7 @@ impl FocusTarget {
                         matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container(), None)
                     })
                     .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
-                Ok(Some(DomNodeId { dom: dom.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
+                Ok(Some(DomNodeId { dom: dom.clone(), node: NodeHierarchyItemId::from_crate_internal(Some(resolved_node_id)) }))
             },
             Id(dom_node_id) => {
                 let layout_result = layout_results.get(dom_node_id.dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_node_id.dom.clone()))?;

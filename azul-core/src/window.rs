@@ -19,7 +19,7 @@ use crate::{
     callbacks::{Callback, UpdateImageType, HitTestItem},
     window_state::RelayoutFn,
     app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask},
-    styled_dom::{DomId, AzNodeId},
+    styled_dom::{DomId, NodeHierarchyItemId},
     id_tree::NodeId,
     callbacks::{
         OptionCallback, PipelineId, RefAny, DocumentId,
@@ -914,7 +914,7 @@ impl WindowInternal {
     }
 
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> {
+    pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> {
         self.layout_results
         .iter()
         .enumerate()
@@ -1015,7 +1015,7 @@ impl WindowInternal {
                 let ndc = layout_result.styled_dom.node_data.as_container();
                 if let Some(cm) = ndc.get_extended_lifetime(*node_id).and_then(|node| node.get_context_menu()) {
                     if self.current_window_state.mouse_state.matches(&cm.context_mouse_btn) {
-                        let domnode = DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(*node_id)) };
+                        let domnode = DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)) };
                         context_menu = Some((cm, hit.clone(), domnode));
                     }
                 }
@@ -1085,7 +1085,7 @@ impl WindowInternal {
             // TODO: store the hit DOM of the timer?
             let hit_dom_node = match timer.node_id.into_option() {
                 Some(s) => s,
-                None => DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) },
+                None => DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::from_crate_internal(None) },
             };
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
@@ -1223,7 +1223,7 @@ impl WindowInternal {
 
         for (thread_id, thread) in self.threads.iter_mut() {
 
-            let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
+            let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::from_crate_internal(None) };
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
@@ -1806,7 +1806,7 @@ pub struct CallCallbacksResult {
     /// restyle the DOM and set the new focus target
     pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
     /// If the callbacks have scrolled any nodes, the new scroll position will be stored here
-    pub nodes_scrolled_in_callbacks: Option<BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>>,
+    pub nodes_scrolled_in_callbacks: Option<BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>>,
     /// Whether the focused node was changed from the callbacks
     pub update_focused_node: Option<Option<DomNodeId>>,
     /// Timers that were added in the callbacks
@@ -2321,7 +2321,7 @@ impl_option!(RendererType, OptionRendererType, [Debug, Copy, Clone, PartialEq, P
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum UpdateFocusWarning {
     FocusInvalidDomId(DomId),
-    FocusInvalidNodeId(AzNodeId),
+    FocusInvalidNodeId(NodeHierarchyItemId),
     CouldNotFindFocusNode(CssPath),
 }
 

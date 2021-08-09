@@ -3,7 +3,7 @@ use core::{
     slice::Iter,
 };
 use alloc::vec::Vec;
-use crate::styled_dom::AzNode;
+use crate::styled_dom::NodeHierarchyItem;
 
 pub use self::node_id::NodeId;
 pub type NodeDepths = Vec<(usize, NodeId)>;
@@ -624,7 +624,7 @@ impl_node_iterator!(FollowingSiblings, |node: &Node| node.next_sibling);
 
 /// Special iterator for using NodeDataContainerRef<AzNode> instead of NodeHierarchy
 pub struct AzChildren<'a> {
-    node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     node: Option<NodeId>,
 }
 
@@ -644,7 +644,7 @@ impl<'a> Iterator for AzChildren<'a> {
 
 /// Special iterator for using NodeDataContainerRef<AzNode> instead of NodeHierarchy
 pub struct AzReverseChildren<'a> {
-    node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>,
+    node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
     node: Option<NodeId>,
 }
 
@@ -671,7 +671,7 @@ impl NodeId {
     // element of an absolute ndoe
     pub fn get_nearest_matching_parent<'a, F>(
         self,
-        node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>,
+        node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
         predicate: F
     ) -> Option<NodeId> where F: Fn(NodeId) -> bool {
         let mut current_node = node_hierarchy[self].parent_id()?;
@@ -685,13 +685,13 @@ impl NodeId {
 
     /// Return the children of this node (necessary for parallel iteration over children)
     #[inline]
-    pub fn az_children_collect<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>) -> Vec<NodeId> {
+    pub fn az_children_collect<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>) -> Vec<NodeId> {
         self.az_children(node_hierarchy).collect()
     }
 
     /// Return an iterator of references to this node’s children.
     #[inline]
-    pub fn az_children<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>) -> AzChildren<'a> {
+    pub fn az_children<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>) -> AzChildren<'a> {
         AzChildren {
             node_hierarchy,
             node: node_hierarchy[self].first_child_id(self),
@@ -700,7 +700,7 @@ impl NodeId {
 
     /// Return an iterator of references to this node’s children.
     #[inline]
-    pub fn az_reverse_children<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, AzNode>) -> AzReverseChildren<'a> {
+    pub fn az_reverse_children<'a>(self, node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>) -> AzReverseChildren<'a> {
         AzReverseChildren {
             node_hierarchy,
             node: node_hierarchy[self].last_child_id(),

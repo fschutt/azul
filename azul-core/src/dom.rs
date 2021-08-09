@@ -27,7 +27,7 @@ use crate::{
         NodeDataContainerRefMut
     },
     window::{Menu, OptionVirtualKeyCodeCombo},
-    styled_dom::{StyledDom, AzNodeId},
+    styled_dom::{StyledDom, NodeHierarchyItemId},
 };
 use azul_css::{
     FontRef, Css, OptionAzString,
@@ -1257,17 +1257,31 @@ impl NodeData {
 
     #[inline]
     pub fn copy_special(&self) -> Self {
+        println!("cloning node type");
+        let node_type = self.node_type.into_library_owned_nodetype();
+        println!("cloning dataset");
+        let dataset = match &self.dataset {
+            OptionRefAny::None => OptionRefAny::None,
+            OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
+        };
+        println!("cloning ids and classes");
+        let ids_and_classes = self.ids_and_classes.clone(); // do not clone the IDs and classes if they are &'static
+        println!("cloning inline css props");
+        let inline_css_props = self.inline_css_props.clone(); // do not clone the inline CSS props if they are &'static
+        println!("cloning callbacks");
+        let callbacks = self.callbacks.clone();
+        println!("cloning tab index");
+        let tab_index = self.tab_index;
+        println!("cloning extra");
+        let extra = self.extra.clone();
         Self {
-            node_type: self.node_type.into_library_owned_nodetype(),
-            dataset: match &self.dataset {
-                OptionRefAny::None => OptionRefAny::None,
-                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
-            },
-            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
-            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
-            callbacks: self.callbacks.clone(),
-            tab_index: self.tab_index,
-            extra: self.extra.clone(),
+            node_type,
+            dataset,
+            ids_and_classes,
+            callbacks,
+            inline_css_props,
+            tab_index,
+            extra,
         }
     }
 
@@ -1418,11 +1432,13 @@ impl Dom {
         self
     }
 
-    fn fixup_children_estimated(&mut self) {
-        for child in self.children.iter_mut() {
-            child.fixup_children_estimated();
+    fn fixup_children_estimated(&mut self) -> usize {
+        if self.children.is_empty() {
+            self.estimated_total_children = 0;
+        } else {
+            self.estimated_total_children = self.children.iter_mut().map(|s| s.fixup_children_estimated() + 1).sum();
         }
-        self.estimated_total_children = self.children.iter().map(|s| s.estimated_total_children + 1).sum();
+        return self.estimated_total_children;
     }
 }
 
@@ -1505,10 +1521,24 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         //    - child [6]
         //        - child of child 4 [7]
 
+        println!("convert_dom_into_compact_dom_internal: {:?}`- {:#?}", parent_node_id, node);
+
         // Write node into the arena here!
         node_hierarchy[parent_node_id.index()] = node.clone();
-        node_data[parent_node_id.index()] = dom.root.copy_special();
+
+        println!("write 1");
+
+        let copy = dom.root.copy_special();
+
+        println!("made copy! writing into index {} (array len = {})", parent_node_id.index(), node_data.len());
+
+        node_data[parent_node_id.index()] = copy;
+
+        println!("write 2");
+
         *cur_node_id += 1;
+
+        println!("cur_node_id = {}", cur_node_id);
 
         let mut previous_sibling_id = None;
         let children_len = dom.children.len();
@@ -1519,8 +1549,16 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
             let child_node = Node {
                 parent: Some(parent_node_id),
                 previous_sibling: previous_sibling_id,
-                next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
-                last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
+                next_sibling: if is_last_child {
+                    None
+                } else {
+                    Some(child_node_id + child_dom.estimated_total_children + 1)
+                },
+                last_child: if child_dom_is_empty {
+                    None
+                } else {
+                    Some(child_node_id + child_dom.estimated_total_children)
+                },
             };
             previous_sibling_id = Some(child_node_id);
             // recurse BEFORE adding the next child
@@ -1531,18 +1569,24 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // Pre-allocate all nodes (+ 1 root node)
     const DEFAULT_NODE_DATA: NodeData = NodeData::div();
 
-    dom.fixup_children_estimated();
+    let sum_nodes = dom.fixup_children_estimated();
+    println!("fixup_children_estimated: {}", sum_nodes);
 
-    let mut node_hierarchy = vec![Node::ROOT; dom.estimated_total_children + 1];
-    let mut node_data = (0..dom.estimated_total_children + 1).map(|_| DEFAULT_NODE_DATA).collect::<Vec<_>>();
+    let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
+    let mut node_data = vec![NodeData::div(); sum_nodes + 1];
     let mut cur_node_id = 0;
 
+    println!("node hierarchy 0");
     let root_node_id = NodeId::ZERO;
     let root_node = Node {
         parent: None,
         previous_sibling: None,
         next_sibling: None,
-        last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
+        last_child: if dom.children.is_empty() {
+            None
+        } else {
+            Some(root_node_id + dom.estimated_total_children)
+        },
     };
 
     convert_dom_into_compact_dom_internal(&mut dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);

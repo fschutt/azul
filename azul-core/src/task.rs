@@ -33,7 +33,7 @@ use crate::{
         OptionLogicalPosition, RawWindowHandle, WindowState,
         WindowCreateOptions
     },
-    styled_dom::{DomId, AzNodeId},
+    styled_dom::{DomId, NodeHierarchyItemId},
     id_tree::NodeId,
     ui_solver::LayoutResult,
 };

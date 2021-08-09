@@ -24,7 +24,7 @@ use crate::{
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, ParseFontFn,
         ResourceUpdate, IdNamespace, TransformKey, OpacityKey,
     },
-    styled_dom::{DomId, AzNodeId, StyledDom, ContentGroup},
+    styled_dom::{DomId, NodeHierarchyItemId, StyledDom, ContentGroup},
     id_tree::NodeId,
     dom::{TagId, ScrollTagId},
 };
@@ -628,7 +628,7 @@ impl GlTextureCache {
 
                     let callback_domnode_id = DomNodeId {
                         dom: DomId { inner: dom_id },
-                        node: AzNodeId::from_crate_internal(Some(callback_node_id)),
+                        node: NodeHierarchyItemId::from_crate_internal(Some(callback_node_id)),
                     };
 
                     let size = LayoutSize::new(
@@ -843,7 +843,7 @@ pub fn displaylist_handle_rect<'a>(
 
     let tag_id = styled_node.tag_id.into_option().or({
         layout_result.scrollable_nodes.overflowing_nodes
-        .get(&AzNodeId::from_crate_internal(Some(rect_idx)))
+        .get(&NodeHierarchyItemId::from_crate_internal(Some(rect_idx)))
         .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
     });
 
@@ -1125,7 +1125,7 @@ pub fn displaylist_handle_rect<'a>(
         });
     }
 
-    match layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(Some(rect_idx))) {
+    match layout_result.scrollable_nodes.overflowing_nodes.get(&NodeHierarchyItemId::from_crate_internal(Some(rect_idx))) {
         Some(scroll_node) => {
             Some(DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
                 parent_rect: scroll_node.parent_rect,
