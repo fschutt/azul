@@ -52,8 +52,9 @@ const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec = StyleBackgroundContentV
 static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_background_content(BACKGROUND_COLOR_LIGHT)),
 
-    Normal(CssProperty::const_width(LayoutWidth::const_px(18))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(18))),
+    Normal(CssProperty::const_display(LayoutDisplay::Block)),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(14))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(14))),
 
     // padding: 2px
 
@@ -83,8 +84,8 @@ static DEFAULT_CHECKBOX_CONTAINER_STYLE: &[NodeDataInlineCssProperty] = &[
 ];
 
 static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_width(LayoutWidth::const_px(12))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(12))),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(8))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(8))),
     Normal(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(100))),
 
@@ -92,8 +93,8 @@ static DEFAULT_CHECKBOX_CONTENT_STYLE_CHECKED: &[NodeDataInlineCssProperty] = &[
 ];
 
 static DEFAULT_CHECKBOX_CONTENT_STYLE_UNCHECKED: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_width(LayoutWidth::const_px(12))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(12))),
+    Normal(CssProperty::const_width(LayoutWidth::const_px(8))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(8))),
     Normal(CssProperty::const_background_content(FILL_COLOR_BACKGROUND)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
 

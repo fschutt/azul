@@ -2011,7 +2011,7 @@ impl Window {
         use winapi::um::winuser::{SetTimer, KillTimer};
 
         for (id, timer) in added {
-            let res = unsafe { SetTimer(self.hwnd, id.id, timer.tick_millis().max(u32::MAX as u64) as u32, None) };
+            let res = unsafe { SetTimer(self.hwnd, id.id, timer.tick_millis().min(u32::MAX as u64) as u32, None) };
             self.internal.timers.insert(id, timer);
             self.timers.insert(id, res);
         }

@@ -1093,7 +1093,7 @@ impl fmt::Debug for NodeHierarchyItemId {
 
 impl fmt::Display for NodeHierarchyItemId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{:?}", self)
     }
 }
 

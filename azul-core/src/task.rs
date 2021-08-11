@@ -108,13 +108,13 @@ impl Instant {
             mem::swap(&mut start, &mut end);
         }
 
-        if self < &start { return 0.0; }
-        if self > &end { return 1.0; }
+        if *self < start { return 0.0; }
+        if *self > end { return 1.0; }
 
         let duration_total = end.duration_since(&start);
         let duration_current = self.duration_since(&start);
 
-        duration_current.div(&duration_total).min(0.0).max(1.0)
+        duration_current.div(&duration_total).max(0.0).min(1.0)
     }
 
     /// Adds a duration to the instant, does nothing in undefined cases

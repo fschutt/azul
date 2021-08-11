@@ -22,6 +22,12 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         ].into()))
     ].into()));
 
+    let text = if enable_padding {
+        "Disable padding"
+    } else {
+        "Enable padding"
+    };
+
     dom.add_child(
         TabContainer::new(vec![
             Tab {
@@ -29,14 +35,12 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                 content: Frame::new("Frame".into(),
                     Dom::div()
                     .with_children(vec![
-                        Button::new(if enable_padding {
-                            "Disable padding"
-                        } else {
-                            "Enable padding"
-                        }.into())
+                        Button::new(text.into())
                         .with_on_click(data.clone(), enable_disable_padding)
                         .dom(),
-                        CheckBox::new(false).dom(),
+                        CheckBox::new(enable_padding)
+                            .with_on_toggle(data.clone(), enable_disable_padding_check)
+                            .dom(),
                         ProgressBar::new(20.0).dom(),
                         ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
                         TextInput::new("Input text...".into()).dom(),
@@ -58,6 +62,13 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
     );
 
     dom.style(Css::empty())
+}
+
+extern "C" fn enable_disable_padding_check(data: &mut RefAny, _: &mut CallbackInfo, c: &CheckBoxState) -> Update {
+    match data.downcast_mut::<WidgetShowcase>() {
+        Some(mut s) => { s.enable_padding = c.checked; Update::RefreshDom },
+        None => Update::DoNothing,
+    }
 }
 
 extern "C" fn enable_disable_padding(data: &mut RefAny, _: &mut CallbackInfo) -> Update {

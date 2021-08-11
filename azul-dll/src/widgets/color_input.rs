@@ -58,8 +58,8 @@ impl Default for ColorInputState {
 
 static DEFAULT_COLOR_INPUT_STYLE: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(15))),
-    Normal(CssProperty::const_min_height(LayoutMinHeight::const_px(15))),
+    Normal(CssProperty::const_min_width(LayoutMinWidth::const_px(14))),
+    Normal(CssProperty::const_min_height(LayoutMinHeight::const_px(14))),
     Normal(CssProperty::const_cursor(StyleCursor::Pointer)),
 ];
 

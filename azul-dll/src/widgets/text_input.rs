@@ -11,7 +11,7 @@ use azul_desktop::{
     },
     callbacks::{RefAny, Callback, CallbackInfo, Update},
 };
-use azul_core::window::{KeyboardState, VirtualKeyCode};
+use azul_core::{callbacks::{Animation, AnimationRepeatCount}, task::SystemTimeDiff, window::{KeyboardState, VirtualKeyCode}};
 use alloc::vec::Vec;
 use alloc::string::String;
 
@@ -754,6 +754,10 @@ extern "C" fn default_on_label_click(text_input: &mut RefAny, info: &mut Callbac
 }
 
 extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+
+    use azul_core::task::Duration;
+    use azul_core::callbacks::AnimationRepeat;
+
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -764,7 +768,15 @@ extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: &mut Call
         None => return Update::DoNothing,
     };
 
-    info.set_css_property(cursor_node_id, CssProperty::const_opacity(StyleOpacity::const_new(100))); // show cursor
+    let timer_id = info.start_animation(cursor_node_id, Animation {
+        from: CssProperty::const_opacity(StyleOpacity::const_new(100)),
+        to: CssProperty::const_opacity(StyleOpacity::const_new(0)),
+        duration: Duration::System(SystemTimeDiff::from_millis(500)),
+        repeat: AnimationRepeat::PingPong,
+        repeat_times: AnimationRepeatCount::Infinite,
+        easing: AnimationInterpolationFunction::EaseInOut,
+        relayout_on_finish: false,
+    });
 
     // TODO: start text cursor blinking
     Update::DoNothing

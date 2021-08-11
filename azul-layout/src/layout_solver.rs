@@ -616,7 +616,6 @@ macro_rules! typed_arena {(
 
             children
             .par_iter()
-            .filter(|child_id| layout_displays[**child_id].get_property().copied().unwrap_or_default() == LayoutDisplay::Flex)
             .map(|child_id| {
 
                 let parent_node_inner_width = if layout_positions[*child_id] == LayoutPosition::Absolute {
@@ -632,7 +631,7 @@ macro_rules! typed_arena {(
                 let space_available = parent_node_inner_width - min_child_width;
 
                 // If the min width of the cross axis is larger than the parent width, overflow
-                if space_available <= 0.0 {
+                if space_available <= 0.0 || layout_displays[*child_id].get_property().copied().unwrap_or_default() != LayoutDisplay::Flex {
                     // do not grow the item - no space to distribute
                     0.0
                 } else {
