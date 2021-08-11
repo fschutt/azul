@@ -8674,6 +8674,7 @@ namespace dll {
         OptionTextInputOnFocusLost on_focus_lost;
         bool  update_text_input_before_calling_focus_lost_fn;
         bool  update_text_input_before_calling_vk_down_fn;
+        OptionTimerId cursor_animation;
         TextInputStateWrapper& operator=(const TextInputStateWrapper&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         TextInputStateWrapper(const TextInputStateWrapper&) = delete; /* disable copy constructor, use explicit .clone() */
         TextInputStateWrapper() = delete; /* disable default constructor, use C++20 designated initializer instead */

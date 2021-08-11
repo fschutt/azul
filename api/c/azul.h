@@ -9487,6 +9487,7 @@ struct AzTextInputStateWrapper {
     AzOptionTextInputOnFocusLost on_focus_lost;
     bool  update_text_input_before_calling_focus_lost_fn;
     bool  update_text_input_before_calling_vk_down_fn;
+    AzOptionTimerId cursor_animation;
 };
 typedef struct AzTextInputStateWrapper AzTextInputStateWrapper;
 

@@ -6971,6 +6971,7 @@ pub struct AzTextInputStateWrapper {
     pub on_focus_lost: AzOptionTextInputOnFocusLostEnumWrapper,
     pub update_text_input_before_calling_focus_lost_fn: bool,
     pub update_text_input_before_calling_vk_down_fn: bool,
+    pub cursor_animation: AzOptionTimerIdEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `ProgressBar` struct
@@ -21787,7 +21788,7 @@ impl PyObjectProtocol for AzTextInput {
 #[pymethods]
 impl AzTextInputStateWrapper {
     #[new]
-    fn __new__(inner: AzTextInputState, on_text_input: AzOptionTextInputOnTextInputEnumWrapper, on_virtual_key_down: AzOptionTextInputOnVirtualKeyDownEnumWrapper, on_focus_lost: AzOptionTextInputOnFocusLostEnumWrapper, update_text_input_before_calling_focus_lost_fn: bool, update_text_input_before_calling_vk_down_fn: bool) -> Self {
+    fn __new__(inner: AzTextInputState, on_text_input: AzOptionTextInputOnTextInputEnumWrapper, on_virtual_key_down: AzOptionTextInputOnVirtualKeyDownEnumWrapper, on_focus_lost: AzOptionTextInputOnFocusLostEnumWrapper, update_text_input_before_calling_focus_lost_fn: bool, update_text_input_before_calling_vk_down_fn: bool, cursor_animation: AzOptionTimerIdEnumWrapper) -> Self {
         Self {
             inner,
             on_text_input,
@@ -21795,6 +21796,7 @@ impl AzTextInputStateWrapper {
             on_focus_lost,
             update_text_input_before_calling_focus_lost_fn,
             update_text_input_before_calling_vk_down_fn,
+            cursor_animation,
         }
     }
 

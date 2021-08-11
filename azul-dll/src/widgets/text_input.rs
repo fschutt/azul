@@ -9,6 +9,7 @@ use azul_desktop::{
         Dom, NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec,
         NodeDataInlineCssProperty::{Normal, Hover, Focus}
     },
+    task::OptionTimerId,
     callbacks::{RefAny, Callback, CallbackInfo, Update},
 };
 use azul_core::{callbacks::{Animation, AnimationRepeatCount}, task::SystemTimeDiff, window::{KeyboardState, VirtualKeyCode}};
@@ -43,6 +44,7 @@ pub struct TextInputStateWrapper {
     pub on_focus_lost: OptionTextInputOnFocusLost,
     pub update_text_input_before_calling_focus_lost_fn: bool,
     pub update_text_input_before_calling_vk_down_fn: bool,
+    pub cursor_animation: OptionTimerId,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -285,6 +287,8 @@ static TEXT_INPUT_CONTAINER_PROPS: &[NodeDataInlineCssProperty] = &[
 
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
+    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
@@ -293,7 +297,9 @@ static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
 
 #[cfg(target_os = "linux")]
 static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
-Normal(CssProperty::const_position(LayoutPosition::Relative)),
+    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -301,7 +307,9 @@ Normal(CssProperty::const_position(LayoutPosition::Relative)),
 
 #[cfg(target_os = "macos")]
 static TEXT_INPUT_LABEL_PROPS: &[NodeDataInlineCssProperty] = &[
-Normal(CssProperty::const_position(LayoutPosition::Relative)),
+    Normal(CssProperty::const_display(LayoutDisplay::InlineBlock)),
+    Normal(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    Normal(CssProperty::const_position(LayoutPosition::Relative)),
     Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: COLOR_4C4C4C })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
@@ -339,6 +347,7 @@ impl Default for TextInputStateWrapper {
             on_focus_lost: None.into(),
             update_text_input_before_calling_focus_lost_fn: true,
             update_text_input_before_calling_vk_down_fn: true,
+            cursor_animation: None.into(),
         }
     }
 }
@@ -452,6 +461,13 @@ impl TextInput {
         ].into())
         .with_children(vec![
             Dom::text(label_text)
+            .with_callbacks(vec![
+                CallbackData {
+                    event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+                    data: state_ref.clone(),
+                    callback: Callback { cb: default_on_label_click }
+                },
+            ].into())
             .with_ids_and_classes(vec![Class("__azul-native-text-input-label".into())].into())
             .with_inline_css_props(self.label_style)
             .with_children(vec![
@@ -740,6 +756,9 @@ extern "C" fn default_on_container_click(text_input: &mut RefAny, info: &mut Cal
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    println!("container clicked at position {:?}", info.get_cursor_relative_to_node());
+
     // TODO: clear selection, set cursor to text hit
     Update::DoNothing
 }
@@ -749,6 +768,11 @@ extern "C" fn default_on_label_click(text_input: &mut RefAny, info: &mut Callbac
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    println!("label clicked at position {:?}", info.get_cursor_relative_to_node());
+
+    info.stop_propagation();
+
     // TODO: set cursor to end or start
     Update::DoNothing
 }
@@ -768,15 +792,20 @@ extern "C" fn default_on_focus_received(text_input: &mut RefAny, info: &mut Call
         None => return Update::DoNothing,
     };
 
-    let timer_id = info.start_animation(cursor_node_id, Animation {
-        from: CssProperty::const_opacity(StyleOpacity::const_new(100)),
-        to: CssProperty::const_opacity(StyleOpacity::const_new(0)),
-        duration: Duration::System(SystemTimeDiff::from_millis(500)),
-        repeat: AnimationRepeat::PingPong,
-        repeat_times: AnimationRepeatCount::Infinite,
-        easing: AnimationInterpolationFunction::EaseInOut,
-        relayout_on_finish: false,
-    });
+    if text_input.cursor_animation.is_none() {
+        let timer_id = info.start_animation(cursor_node_id, Animation {
+            from: CssProperty::const_opacity(StyleOpacity::const_new(100)),
+            to: CssProperty::const_opacity(StyleOpacity::const_new(0)),
+            duration: Duration::System(SystemTimeDiff::from_millis(500)),
+            repeat: AnimationRepeat::PingPong,
+            repeat_times: AnimationRepeatCount::Infinite,
+            easing: AnimationInterpolationFunction::EaseInOut,
+            relayout_on_finish: false,
+        });
+        if let Some(timer_id) = timer_id {
+            text_input.cursor_animation = Some(timer_id).into();
+        }
+    }
 
     // TODO: start text cursor blinking
     Update::DoNothing
@@ -794,6 +823,11 @@ extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut Callback
         let text_input = &mut *text_input;
         let onfocuslost = &mut text_input.on_focus_lost;
         let inner = &text_input.inner;
+
+        if let Some(timer_id) = text_input.cursor_animation.clone().into_option() {
+            info.stop_timer(timer_id);
+            text_input.cursor_animation = None.into();
+        }
 
         match onfocuslost.as_mut() {
             Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data, info, &inner),

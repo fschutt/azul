@@ -5519,7 +5519,8 @@
                         {"on_virtual_key_down": {"type": "OptionTextInputOnVirtualKeyDown"}},
                         {"on_focus_lost": {"type": "OptionTextInputOnFocusLost"}},
                         {"update_text_input_before_calling_focus_lost_fn": {"type": "bool"}},
-                        {"update_text_input_before_calling_vk_down_fn": {"type": "bool"}}
+                        {"update_text_input_before_calling_vk_down_fn": {"type": "bool"}},
+                        {"cursor_animation": {"type": "OptionTimerId"}}
                     ]
                 },
                 "TextInputState": {

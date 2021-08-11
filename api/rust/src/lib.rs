@@ -8609,6 +8609,7 @@ mod dll {
         pub on_focus_lost: AzOptionTextInputOnFocusLost,
         pub update_text_input_before_calling_focus_lost_fn: bool,
         pub update_text_input_before_calling_vk_down_fn: bool,
+        pub cursor_animation: AzOptionTimerId,
     }
 
     /// Re-export of rust-allocated (stack based) `ProgressBar` struct
