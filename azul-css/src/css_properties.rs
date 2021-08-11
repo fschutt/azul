@@ -3631,7 +3631,7 @@ pub enum LayoutDisplay {
 
 impl Default for LayoutDisplay {
     fn default() -> Self {
-        LayoutDisplay::Block
+        LayoutDisplay::Flex
     }
 }
 

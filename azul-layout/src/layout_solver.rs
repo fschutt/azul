@@ -582,6 +582,7 @@ macro_rules! typed_arena {(
             parent_id: &NodeId,
             children: &[NodeId],
             node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
+            layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a NodeDataContainerRef<$struct_name>,
             root_width: f32
@@ -615,6 +616,7 @@ macro_rules! typed_arena {(
 
             children
             .par_iter()
+            .filter(|child_id| layout_displays[**child_id].get_property().copied().unwrap_or_default() == LayoutDisplay::Flex)
             .map(|child_id| {
 
                 let parent_node_inner_width = if layout_positions[*child_id] == LayoutPosition::Absolute {
@@ -712,6 +714,7 @@ macro_rules! typed_arena {(
                         &parent_id,
                         &children,
                         node_hierarchy,
+                        layout_displays,
                         layout_positions,
                         &node_data.as_ref(),
                         root_width
