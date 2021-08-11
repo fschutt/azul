@@ -396,6 +396,7 @@ macro_rules! typed_arena {(
     fn $apply_flex_grow_fn_name<'a, 'b>(
         node_data: &mut NodeDataContainer<$struct_name>,
         node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
+        layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
         layout_flex_grows: &NodeDataContainerRef<'a, f32>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
         layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
@@ -411,6 +412,7 @@ macro_rules! typed_arena {(
             node_id: &NodeId,
             children: &[NodeId],
             node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
+            layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
             layout_flex_grows: &NodeDataContainerRef<'a, f32>,
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a NodeDataContainerRef<$struct_name>,
@@ -507,6 +509,7 @@ macro_rules! typed_arena {(
                 .enumerate()
                 .filter(|(_, id)| !width_calculated_arena[**id].$preferred_field.is_fixed_constraint())
                 .filter(|(_, id)| layout_positions[**id] != LayoutPosition::Absolute)
+                .filter(|(_, id)| !(layout_displays[**id] == CssPropertyValue::Exact(LayoutDisplay::None) || layout_displays[**id] == CssPropertyValue::None))
                 .filter(|(_, id)| layout_flex_grows[**id] > 0.0)
                 .map(|(index_in_parent, id)| (*id, index_in_parent))
                 .collect::<BTreeMap<NodeId, usize>>();
@@ -698,6 +701,7 @@ macro_rules! typed_arena {(
                         &parent_id,
                         &children,
                         node_hierarchy,
+                        layout_displays,
                         layout_flex_grows,
                         layout_positions,
                         &node_data.as_ref(),
@@ -778,6 +782,7 @@ typed_arena!(
 pub(crate) fn solve_flex_layout_width<'a, 'b>(
     width_calculated_arena: &'a mut NodeDataContainer<WidthCalculatedRect>,
     layout_flex_grow: &NodeDataContainerRef<'a, f32>,
+    layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
@@ -796,6 +801,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
     width_calculated_rect_arena_apply_flex_grow(
         width_calculated_arena,
         node_hierarchy,
+        layout_displays,
         layout_flex_grow,
         layout_positions,
         layout_directions,
@@ -809,6 +815,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
 pub(crate) fn solve_flex_layout_height<'a, 'b>(
     height_calculated_arena: &'a mut NodeDataContainer<HeightCalculatedRect>,
     layout_flex_grow: &NodeDataContainerRef<'a, f32>,
+    layout_displays: &NodeDataContainerRef<'a, CssPropertyValue<LayoutDisplay>>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
@@ -827,6 +834,7 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
     height_calculated_rect_arena_apply_flex_grow(
         height_calculated_arena,
         node_hierarchy,
+        layout_displays,
         layout_flex_grow,
         layout_positions,
         layout_directions,
@@ -1766,6 +1774,7 @@ pub fn do_the_layout_internal(
     solve_flex_layout_width(
         &mut width_calculated_arena,
         &layout_flex_grow_info.as_ref(),
+        &layout_display_info.as_ref(),
         &layout_position_info.as_ref(),
         &layout_directions_info.as_ref(),
         &styled_dom.node_hierarchy.as_container(),
@@ -1841,6 +1850,7 @@ pub fn do_the_layout_internal(
     solve_flex_layout_height(
         &mut height_calculated_arena,
         &layout_flex_grow_info.as_ref(),
+        &layout_display_info.as_ref(),
         &layout_position_info.as_ref(),
         &layout_directions_info.as_ref(),
         &styled_dom.node_hierarchy.as_container(),
@@ -3111,6 +3121,7 @@ pub fn do_the_relayout(
     width_calculated_rect_arena_apply_flex_grow(
         &mut layout_result.width_calculated_rects,
         &layout_result.styled_dom.node_hierarchy.as_container(),
+        &layout_result.layout_displays.as_ref(),
         &layout_result.layout_flex_grows.as_ref(),
         &layout_result.layout_positions.as_ref(),
         &layout_result.layout_flex_directions.as_ref(),
@@ -3123,6 +3134,7 @@ pub fn do_the_relayout(
     height_calculated_rect_arena_apply_flex_grow(
         &mut layout_result.height_calculated_rects,
         &layout_result.styled_dom.node_hierarchy.as_container(),
+        &layout_result.layout_displays.as_ref(),
         &layout_result.layout_flex_grows.as_ref(),
         &layout_result.layout_positions.as_ref(),
         &layout_result.layout_flex_directions.as_ref(),

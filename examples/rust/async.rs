@@ -15,6 +15,7 @@ struct MyDataModel {
     connection_status: ConnectionStatus,
 }
 
+#[derive(Debug)]
 enum ConnectionStatus {
     NotConnected {
         // which database to connect to, ex. "user@localhost:5432"
@@ -50,7 +51,7 @@ impl Default for ConnectionStatus {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum ConnectionStage {
     EstablishingConnection,
     ConnectionEstablished,
@@ -172,6 +173,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
 
 // Callback that runs when the "connect to database" button is clicked
 extern "C" fn edit_database_input(data: &mut RefAny, event: &mut CallbackInfo, textinputstate: &TextInputState) -> OnTextInputReturn {
+
     let ret = OnTextInputReturn {
         update: Update::DoNothing,
         valid: TextInputValid::Yes,
@@ -267,11 +269,13 @@ extern "C" fn reset(data: &mut RefAny, event: &mut CallbackInfo) -> Update {
 }
 
 // Data model of data that is sent from the main to the background thread
+#[derive(Debug)]
 struct BackgroundThreadInit {
     database: String,
 }
 
 // Data model of data that is returned from the background thread
+#[derive(Debug)]
 enum BackgroundThreadReturn {
     StatusUpdated { new: ConnectionStage },
     ErrorOccurred { error: String },
@@ -294,6 +298,8 @@ extern "C" fn writeback_callback(app_data: &mut RefAny, incoming_data: &mut RefA
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    println!("got writeback data: {:#?}, {:?}", &*incoming_data, data_mut.connection_status);
 
     match &mut *incoming_data {
         StatusUpdated { new } => {

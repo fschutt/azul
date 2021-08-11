@@ -3311,6 +3311,8 @@ unsafe extern "system" fn WindowProc(
                         return DefWindowProcW(hwnd, msg, wparam, lparam);
                     },
                     AZ_THREAD_TICK => {
+                        println!("got AZ_THREAD_TICK!");
+
                         // tick every 16ms to process new thread messages
                         match windows.get_mut(&hwnd_key) {
                             Some(current_window) => {
@@ -3333,6 +3335,8 @@ unsafe extern "system" fn WindowProc(
                                     gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
                                 }
 
+                                println!("calling process_threads...");
+
                                 ret = process_threads(
                                     hinstance,
                                     data,
@@ -3343,6 +3347,8 @@ unsafe extern "system" fn WindowProc(
                                     &mut new_windows,
                                     &mut destroyed_windows,
                                 );
+
+                                println!("ok: process_threads called: {:?}", ret);
 
                                 let mut gl = &mut current_window.gl_functions.functions;
                                 gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
@@ -3783,14 +3789,17 @@ fn process_threads(
         });
 
         let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
-        window.internal.run_all_threads(
+        println!("calling run_all_threads...");
+        let r = window.internal.run_all_threads(
             data,
             &window_handle,
             &window.gl_context_ptr,
             image_cache,
             fc_cache,
             &config.system_callbacks,
-        )
+        );
+        println!("run_all_threads called! result = {:#?}", r);
+        r
     });
 
     return process_callback_results(
