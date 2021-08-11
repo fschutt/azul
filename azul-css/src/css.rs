@@ -457,7 +457,7 @@ impl fmt::Display for CssPathSelector {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum CssPathPseudoSelector {
     /// `:first`
     First,

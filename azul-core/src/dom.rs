@@ -1257,31 +1257,17 @@ impl NodeData {
 
     #[inline]
     pub fn copy_special(&self) -> Self {
-        println!("cloning node type");
-        let node_type = self.node_type.into_library_owned_nodetype();
-        println!("cloning dataset");
-        let dataset = match &self.dataset {
-            OptionRefAny::None => OptionRefAny::None,
-            OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
-        };
-        println!("cloning ids and classes");
-        let ids_and_classes = self.ids_and_classes.clone(); // do not clone the IDs and classes if they are &'static
-        println!("cloning inline css props");
-        let inline_css_props = self.inline_css_props.clone(); // do not clone the inline CSS props if they are &'static
-        println!("cloning callbacks");
-        let callbacks = self.callbacks.clone();
-        println!("cloning tab index");
-        let tab_index = self.tab_index;
-        println!("cloning extra");
-        let extra = self.extra.clone();
         Self {
-            node_type,
-            dataset,
-            ids_and_classes,
-            callbacks,
-            inline_css_props,
-            tab_index,
-            extra,
+            node_type: self.node_type.into_library_owned_nodetype(),
+            dataset: match &self.dataset {
+                OptionRefAny::None => OptionRefAny::None,
+                OptionRefAny::Some(s) => OptionRefAny::Some(s.clone()),
+            },
+            ids_and_classes: self.ids_and_classes.clone(), // do not clone the IDs and classes if they are &'static
+            inline_css_props: self.inline_css_props.clone(), // do not clone the inline CSS props if they are &'static
+            callbacks: self.callbacks.clone(),
+            tab_index: self.tab_index,
+            extra: self.extra.clone(),
         }
     }
 
@@ -1521,24 +1507,14 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
         //    - child [6]
         //        - child of child 4 [7]
 
-        println!("convert_dom_into_compact_dom_internal: {:?}`- {:#?}", parent_node_id, node);
-
         // Write node into the arena here!
         node_hierarchy[parent_node_id.index()] = node.clone();
 
-        println!("write 1");
-
         let copy = dom.root.copy_special();
-
-        println!("made copy! writing into index {} (array len = {})", parent_node_id.index(), node_data.len());
 
         node_data[parent_node_id.index()] = copy;
 
-        println!("write 2");
-
         *cur_node_id += 1;
-
-        println!("cur_node_id = {}", cur_node_id);
 
         let mut previous_sibling_id = None;
         let children_len = dom.children.len();
@@ -1570,13 +1546,11 @@ fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     const DEFAULT_NODE_DATA: NodeData = NodeData::div();
 
     let sum_nodes = dom.fixup_children_estimated();
-    println!("fixup_children_estimated: {}", sum_nodes);
 
     let mut node_hierarchy = vec![Node::ROOT; sum_nodes + 1];
     let mut node_data = vec![NodeData::div(); sum_nodes + 1];
     let mut cur_node_id = 0;
 
-    println!("node hierarchy 0");
     let root_node_id = NodeId::ZERO;
     let root_node = Node {
         parent: None,

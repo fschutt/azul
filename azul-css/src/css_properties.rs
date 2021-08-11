@@ -4390,13 +4390,21 @@ impl FontMetrics {
     pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> { self.s_cap_height.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct FontRef {
     /// shared pointer to an opaque implementation of the parsed font
     pub data: *const FontData,
     /// How many copies does this font have (if 0, the font data will be deleted on drop)
     pub copies: *const AtomicUsize,
+}
+
+impl fmt::Debug for FontRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "printing FontRef 0x{:0x}", self.data as usize)?;
+        if let Some(d) = unsafe { self.data.as_ref() } { d.fmt(f)?; }
+        if let Some(c) = unsafe { self.copies.as_ref() } { c.fmt(f)?; }
+        Ok(())
+    }
 }
 
 impl FontRef {
@@ -4494,7 +4502,7 @@ impl Drop for FontData {
 
 /// Represents a `font-family` attribute
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum StyleFontFamily {
     /// Native font, such as "Webly Sleeky UI", "monospace", etc.
     System(AzString),

@@ -1312,23 +1312,17 @@ impl StyledDom {
         use crate::dom::EventFilter;
         use core::mem;
 
-        println!("1");
         let mut swap_dom = Dom::body();
 
         mem::swap(dom, &mut swap_dom);
 
-        println!("2");
-
         let compact_dom: CompactDom = swap_dom.into();
-        println!("3");
         let non_leaf_nodes = compact_dom.node_hierarchy.as_ref().get_parents_sorted_by_depth();
-        println!("4");
         let node_hierarchy: NodeHierarchyItemVec = compact_dom.node_hierarchy
             .as_ref().internal
             .par_iter().map(|i| (*i).into())
             .collect::<Vec<NodeHierarchyItem>>()
             .into();
-        println!("5");
 
         let mut styled_nodes = vec![
             StyledNode {
@@ -1336,8 +1330,6 @@ impl StyledDom {
                 state: StyledNodeState::new()
             }; compact_dom.len()
         ];
-
-        println!("6");
 
         // fill out the css property cache: compute the inline properties first so that
         // we can early-return in case the css is empty
