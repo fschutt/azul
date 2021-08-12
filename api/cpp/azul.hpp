@@ -8012,6 +8012,13 @@ namespace dll {
         ListView() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct TreeView {
+        String root;
+        TreeView& operator=(const TreeView&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TreeView(const TreeView&) = delete; /* disable copy constructor, use explicit .clone() */
+        TreeView() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct VertexAttribute {
         String name;
         OptionUsize layout_location;
@@ -9963,6 +9970,9 @@ namespace dll {
         ListView ListView_new(AzStringVec  columns);
         Dom ListView_dom(ListView* restrict listview);
         void ListView_delete(ListView* restrict instance);
+        TreeView TreeView_new(AzString  root);
+        Dom TreeView_dom(TreeView* restrict treeview);
+        void TreeView_delete(TreeView* restrict instance);
         void CssPropertySource_delete(CssPropertySource* restrict instance);
         void TagIdToNodeIdMapping_delete(TagIdToNodeIdMapping* restrict instance);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);

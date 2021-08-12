@@ -102,6 +102,8 @@ pub mod frame;
 pub mod node_graph;
 /// List view widget
 pub mod list_view;
+/// Tree view widget
+pub mod tree_view;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

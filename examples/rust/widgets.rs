@@ -46,7 +46,14 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                         ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
                         TextInput::new("Input text...".into()).dom(),
                         NumberInput::new(5.0).dom(),
-                        ListView::new(Vec::<AzString>::new().into()).dom(),
+                        Dom::div()
+                        .with_inline_css_props(vec![
+                            NodeDataInlineCssProperty::Normal(CssProperty::flex_direction(LayoutFlexDirection::Row))
+                        ].into())
+                        .with_children(vec![
+                            TreeView::new("".into()).dom(),
+                            ListView::new(Vec::<AzString>::new().into()).dom(),
+                        ].into())
                     ].into())
                 ).dom()
             },

@@ -2315,6 +2315,17 @@ pub use AzListViewTT as AzListView;
 /// Destructor: Takes ownership of the `ListView` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzListView_delete(object: &mut AzListView) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `TreeView` struct
+pub type AzTreeViewTT = crate::widgets::tree_view::TreeView;
+pub use AzTreeViewTT as AzTreeView;
+/// Creates a new `TreeView` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TreeView::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTreeView_new(root: AzString) -> AzTreeView { AzTreeView::new(root) }
+/// Equivalent to the Rust `TreeView::dom()` function.
+#[no_mangle] pub extern "C" fn AzTreeView_dom(treeview: &mut AzTreeView) -> AzDom { treeview.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `TreeView` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTreeView_delete(object: &mut AzTreeView) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
 pub type AzNodeHierarchyItemTT = azul_impl::styled_dom::NodeHierarchyItem;
 pub use AzNodeHierarchyItemTT as AzNodeHierarchyItem;
@@ -10774,6 +10785,12 @@ mod test_sizes {
         pub columns: AzStringVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `TreeView` struct
+    #[repr(C)]
+    pub struct AzTreeView {
+        pub root: AzString,
+    }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
     #[repr(C)]
     pub struct AzVertexAttribute {
@@ -12482,6 +12499,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeInfo>(), "AzNodeTypeInfo"), (Layout::new::<AzNodeTypeInfo>(), "AzNodeTypeInfo"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputInfo>(), "AzInputOutputInfo"), (Layout::new::<AzInputOutputInfo>(), "AzInputOutputInfo"));
         assert_eq!((Layout::new::<crate::widgets::list_view::ListView>(), "AzListView"), (Layout::new::<AzListView>(), "AzListView"));
+        assert_eq!((Layout::new::<crate::widgets::tree_view::TreeView>(), "AzTreeView"), (Layout::new::<AzTreeView>(), "AzTreeView"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));

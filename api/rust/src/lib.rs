@@ -8154,6 +8154,15 @@ mod dll {
         pub columns: AzStringVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `TreeView` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTreeView {
+        pub root: AzString,
+    }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -9725,6 +9734,8 @@ mod dll {
         pub(crate) fn AzNodeGraph_dom(_:  &mut AzNodeGraph) -> AzDom;
         pub(crate) fn AzListView_new(_:  AzStringVec) -> AzListView;
         pub(crate) fn AzListView_dom(_:  &mut AzListView) -> AzDom;
+        pub(crate) fn AzTreeView_new(_:  AzString) -> AzTreeView;
+        pub(crate) fn AzTreeView_dom(_:  &mut AzTreeView) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -13005,6 +13016,16 @@ pub mod widgets {
         pub fn new(columns: StringVec) -> Self { unsafe { crate::dll::AzListView_new(columns) } }
         /// Calls the `ListView::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzListView_dom(self) } }
+    }
+
+    /// `TreeView` struct
+    
+#[doc(inline)] pub use crate::dll::AzTreeView as TreeView;
+    impl TreeView {
+        /// Creates a new `TreeView` instance.
+        pub fn new(root: String) -> Self { unsafe { crate::dll::AzTreeView_new(root) } }
+        /// Calls the `TreeView::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTreeView_dom(self) } }
     }
 
 }

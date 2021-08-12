@@ -8744,6 +8744,11 @@ struct AzListView {
 };
 typedef struct AzListView AzListView;
 
+struct AzTreeView {
+    AzString root;
+};
+typedef struct AzTreeView AzTreeView;
+
 struct AzVertexAttribute {
     AzString name;
     AzOptionUsize layout_location;
@@ -12004,6 +12009,9 @@ extern DLLIMPORT void AzInputOutputInfo_delete(AzInputOutputInfo* restrict insta
 extern DLLIMPORT AzListView AzListView_new(AzStringVec  columns);
 extern DLLIMPORT AzDom AzListView_dom(AzListView* restrict listview);
 extern DLLIMPORT void AzListView_delete(AzListView* restrict instance);
+extern DLLIMPORT AzTreeView AzTreeView_new(AzString  root);
+extern DLLIMPORT AzDom AzTreeView_dom(AzTreeView* restrict treeview);
+extern DLLIMPORT void AzTreeView_delete(AzTreeView* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
