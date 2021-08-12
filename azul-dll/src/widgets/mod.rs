@@ -98,8 +98,10 @@ pub mod progressbar;
 pub mod tabs;
 /// Frame container widget
 pub mod frame;
-// Node graph widgets
+/// Node graph widget
 pub mod node_graph;
+/// List view widget
+pub mod list_view;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

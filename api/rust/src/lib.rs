@@ -8145,6 +8145,15 @@ mod dll {
         pub color: AzColorU,
     }
 
+    /// Re-export of rust-allocated (stack based) `ListView` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzListView {
+        pub columns: AzStringVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -9714,6 +9723,8 @@ mod dll {
         pub(crate) fn AzFrame_withFlexGrow(_:  &mut AzFrame, _:  f32) -> AzFrame;
         pub(crate) fn AzFrame_dom(_:  &mut AzFrame) -> AzDom;
         pub(crate) fn AzNodeGraph_dom(_:  &mut AzNodeGraph) -> AzDom;
+        pub(crate) fn AzListView_new(_:  AzStringVec) -> AzListView;
+        pub(crate) fn AzListView_dom(_:  &mut AzListView) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -12553,7 +12564,7 @@ pub mod widgets {
     use crate::str::String;
     use crate::callbacks::{CallbackType, RefAny};
     use crate::css::{ColorU, PixelValue};
-    use crate::vec::{NodeDataInlineCssPropertyVec, StyleBackgroundContentVec, TabVec};
+    use crate::vec::{NodeDataInlineCssPropertyVec, StringVec, StyleBackgroundContentVec, TabVec};
     use crate::dom::Dom;
     /// `Button` struct
     
@@ -12986,6 +12997,16 @@ pub mod widgets {
     /// `NodeDragAmount` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeDragAmount as NodeDragAmount;
+    /// `ListView` struct
+    
+#[doc(inline)] pub use crate::dll::AzListView as ListView;
+    impl ListView {
+        /// Creates a new `ListView` instance.
+        pub fn new(columns: StringVec) -> Self { unsafe { crate::dll::AzListView_new(columns) } }
+        /// Calls the `ListView::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzListView_dom(self) } }
+    }
+
 }
 
 pub mod style {

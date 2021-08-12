@@ -8005,6 +8005,13 @@ namespace dll {
         InputOutputInfo() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ListView {
+        StringVec columns;
+        ListView& operator=(const ListView&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListView(const ListView&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListView() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct VertexAttribute {
         String name;
         OptionUsize layout_location;
@@ -9953,6 +9960,9 @@ namespace dll {
         void OutputConnection_delete(OutputConnection* restrict instance);
         void NodeTypeInfo_delete(NodeTypeInfo* restrict instance);
         void InputOutputInfo_delete(InputOutputInfo* restrict instance);
+        ListView ListView_new(AzStringVec  columns);
+        Dom ListView_dom(ListView* restrict listview);
+        void ListView_delete(ListView* restrict instance);
         void CssPropertySource_delete(CssPropertySource* restrict instance);
         void TagIdToNodeIdMapping_delete(TagIdToNodeIdMapping* restrict instance);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);

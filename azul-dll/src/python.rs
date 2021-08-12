@@ -6580,6 +6580,12 @@ pub struct AzInputOutputInfo {
     pub color: AzColorU,
 }
 
+/// Re-export of rust-allocated (stack based) `ListView` struct
+#[repr(C)]
+pub struct AzListView {
+    pub columns: AzStringVec,
+}
+
 /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
 #[repr(C)]
 pub struct AzVertexAttribute {
@@ -10397,6 +10403,7 @@ impl Clone for AzTextInputState { fn clone(&self) -> Self { let r: &crate::widge
 impl Clone for AzNodeTypeFieldValueEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeFieldValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputOutputInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListView { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListView = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexAttribute { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexAttribute = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDebugMessage { fn clone(&self) -> Self { let r: &azul_impl::gl::AzDebugMessage = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGetActiveAttribReturn { fn clone(&self) -> Self { let r: &azul_impl::gl::GetActiveAttribReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -23358,6 +23365,31 @@ impl PyObjectProtocol for AzNodeDragAmount {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListView {
+    #[new]
+    fn new(columns: AzStringVec) -> AzListView {
+        unsafe { mem::transmute(crate::AzListView_new(
+            mem::transmute(columns),
+        )) }
+    }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzListView_dom(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListView {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListView = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListView = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -38235,6 +38267,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNodePosition>()?;
     m.add_class::<AzGraphDragAmount>()?;
     m.add_class::<AzNodeDragAmount>()?;
+    m.add_class::<AzListView>()?;
 
     m.add_class::<AzNodeHierarchyItem>()?;
     m.add_class::<AzCascadeInfo>()?;

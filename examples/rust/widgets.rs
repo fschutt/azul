@@ -2,6 +2,7 @@
 
 use azul::prelude::*;
 use azul::widgets::*;
+use azul::str::String as AzString;
 
 #[derive(Default)]
 struct WidgetShowcase {
@@ -45,12 +46,13 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                         ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
                         TextInput::new("Input text...".into()).dom(),
                         NumberInput::new(5.0).dom(),
+                        ListView::new(Vec::<AzString>::new().into()).dom(),
                     ].into())
                 ).dom()
             },
             Tab {
                 title: "Inactive".into(),
-                content: Dom::div()
+                content: Dom::div(),
             },
             Tab {
                 title: "Inactive 2".into(),

@@ -6412,6 +6412,29 @@
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
                     ]
+                },
+                "ListView": {
+                    "external": "crate::widgets::list_view::ListView",
+                    "struct_fields": [
+                        {"columns": {"type": "StringVec"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"columns": "StringVec"}
+                            ],
+                            "fn_body": "AzListView::new(columns)"
+                        }
+                    },
+                    "functions": {
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "listview.swap_with_default().dom()"
+                        }
+                    }
                 }
             }
         },

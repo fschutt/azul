@@ -8739,6 +8739,11 @@ struct AzInputOutputInfo {
 };
 typedef struct AzInputOutputInfo AzInputOutputInfo;
 
+struct AzListView {
+    AzStringVec columns;
+};
+typedef struct AzListView AzListView;
+
 struct AzVertexAttribute {
     AzString name;
     AzOptionUsize layout_location;
@@ -11996,6 +12001,9 @@ extern DLLIMPORT void AzInputConnection_delete(AzInputConnection* restrict insta
 extern DLLIMPORT void AzOutputConnection_delete(AzOutputConnection* restrict instance);
 extern DLLIMPORT void AzNodeTypeInfo_delete(AzNodeTypeInfo* restrict instance);
 extern DLLIMPORT void AzInputOutputInfo_delete(AzInputOutputInfo* restrict instance);
+extern DLLIMPORT AzListView AzListView_new(AzStringVec  columns);
+extern DLLIMPORT AzDom AzListView_dom(AzListView* restrict listview);
+extern DLLIMPORT void AzListView_delete(AzListView* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
