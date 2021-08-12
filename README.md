@@ -60,7 +60,7 @@ The application currently takes ~40MB to run and of course almost no CPU at all.
 
 With the [correct CSS styles](https://gist.github.com/fschutt/9731ceec50d5fe211ab0f08082e8082f), the window is indistinguishable from a native application:
 
-![image](https://user-images.githubusercontent.com/12084016/129204266-853944d6-baf5-4572-85ea-0c3000d3c4a8.png)
+![image](https://user-images.githubusercontent.com/12084016/129249990-953912a8-3178-4dcb-a970-d529555790ed.png)
 
 Azul currently features:
 
