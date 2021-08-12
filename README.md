@@ -60,9 +60,7 @@ The application currently takes ~40MB to run and of course almost no CPU at all.
 
 With the [correct CSS styles](https://gist.github.com/fschutt/9731ceec50d5fe211ab0f08082e8082f), the window is indistinguishable from a native application:
 
-![image](https://user-images.githubusercontent.com/12084016/128640029-056deef3-06f2-44b1-86f9-782929c69698.png)
-
-![image](https://user-images.githubusercontent.com/12084016/128640276-0f7e6a15-a086-4840-acda-2a3f554f6768.png)
+![image](https://user-images.githubusercontent.com/12084016/129185035-c4ab5e5f-d398-4b9f-845a-e7624b213d72.png)
 
 Azul currently features:
 
@@ -83,8 +81,8 @@ Currently available widgets:
 - `Button`
 - `TextInput` (bug: has no cursor / text selection yet)
 - `CheckBox`
-- `ColorInput` (opens a native color picker dialog)
-- `NumberInput` (same as `TextInput`, but only accepts numeric input)
+- `ColorInput`
+- `NumberInput`
 - `ProgressBar`
 - `NodeGraph`
 - `Frame`
