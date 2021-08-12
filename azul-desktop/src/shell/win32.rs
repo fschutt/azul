@@ -2448,7 +2448,7 @@ unsafe extern "system" fn WindowProc(
         WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
         WM_QUIT, WM_HSCROLL, WM_VSCROLL,
         WM_KEYUP, WM_KEYDOWN, WM_SYSKEYUP, WM_SYSKEYDOWN,
-        WM_CHAR, WM_SYSCHAR, WHEEL_DELTA,
+        WM_CHAR, WM_SYSCHAR, WHEEL_DELTA, WM_SETFOCUS, WM_KILLFOCUS,
 
         VK_F4,
         CREATESTRUCTW, GWLP_USERDATA,
@@ -2757,6 +2757,28 @@ unsafe extern "system" fn WindowProc(
             WM_ERASEBKGND => {
                 mem::drop(app_borrow);
                 return 1;
+            },
+            WM_SETFOCUS => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                    current_window.internal.current_window_state.flags.has_focus = true;
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    mem::drop(app_borrow);
+                    return 0;
+                }
+                mem::drop(app_borrow);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
+            },
+            WM_KILLFOCUS => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+                    current_window.internal.current_window_state.flags.has_focus = false;
+                    PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                    mem::drop(app_borrow);
+                    return 0;
+                }
+                mem::drop(app_borrow);
+                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_MOUSEMOVE => {
 

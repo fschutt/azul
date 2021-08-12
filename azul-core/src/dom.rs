@@ -483,6 +483,8 @@ pub enum WindowEventFilter {
     FocusLost,
     CloseRequested,
     ThemeChanged,
+    WindowFocusReceived,
+    WindowFocusLost,
 }
 
 impl WindowEventFilter {
@@ -520,6 +522,8 @@ impl WindowEventFilter {
             WindowEventFilter::FocusLost => None,
             WindowEventFilter::CloseRequested => None,
             WindowEventFilter::ThemeChanged => None,
+            WindowEventFilter::WindowFocusReceived => None, // specific to window!
+            WindowEventFilter::WindowFocusLost => None, // specific to window!
         }
     }
 }

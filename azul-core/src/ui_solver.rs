@@ -1413,13 +1413,34 @@ impl PositionInfo {
             PositionInfo::Relative(_) => true,
         }
     }
+
     #[inline]
-    pub fn get_relative_offset(&self) -> (f32, f32) {
+    pub fn get_relative_offset(&self) -> LogicalPosition {
         match self {
             PositionInfo::Static(p) |
             PositionInfo::Fixed(p) |
             PositionInfo::Absolute(p) |
-            PositionInfo::Relative(p) => (p.x_offset, p.y_offset)
+            PositionInfo::Relative(p) => {
+                LogicalPosition {
+                    x: p.x_offset,
+                    y: p.y_offset,
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn get_static_offset(&self) -> LogicalPosition {
+        match self {
+            PositionInfo::Static(p) |
+            PositionInfo::Fixed(p) |
+            PositionInfo::Absolute(p) |
+            PositionInfo::Relative(p) => {
+                LogicalPosition {
+                    x: p.static_x_offset,
+                    y: p.static_y_offset,
+                }
+            }
         }
     }
 }

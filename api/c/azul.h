@@ -11726,6 +11726,9 @@ extern DLLIMPORT AzOptionThreadId AzCallbackInfo_startThread(AzCallbackInfo* res
 extern DLLIMPORT bool  AzCallbackInfo_sendThreadMsg(AzCallbackInfo* restrict callbackinfo, AzThreadId  thread_id, AzThreadSendMsg  msg);
 extern DLLIMPORT bool  AzCallbackInfo_stopThread(AzCallbackInfo* restrict callbackinfo, AzThreadId  thread_id);
 extern DLLIMPORT void AzCallbackInfo_delete(AzCallbackInfo* restrict instance);
+extern DLLIMPORT bool  AzPositionInfo_isPositioned(const AzPositionInfo* positioninfo);
+extern DLLIMPORT AzLogicalPosition AzPositionInfo_getStaticOffset(const AzPositionInfo* positioninfo);
+extern DLLIMPORT AzLogicalPosition AzPositionInfo_getRelativeOffset(const AzPositionInfo* positioninfo);
 extern DLLIMPORT AzLogicalSize AzHidpiAdjustedBounds_getLogicalSize(const AzHidpiAdjustedBounds* hidpiadjustedbounds);
 extern DLLIMPORT AzPhysicalSizeU32 AzHidpiAdjustedBounds_getPhysicalSize(const AzHidpiAdjustedBounds* hidpiadjustedbounds);
 extern DLLIMPORT float AzHidpiAdjustedBounds_getHidpiFactor(const AzHidpiAdjustedBounds* hidpiadjustedbounds);

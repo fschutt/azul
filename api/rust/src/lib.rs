@@ -9543,6 +9543,9 @@ mod dll {
         pub(crate) fn AzCallbackInfo_startThread(_:  &mut AzCallbackInfo, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType) -> AzOptionThreadId;
         pub(crate) fn AzCallbackInfo_sendThreadMsg(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzThreadSendMsg) -> bool;
         pub(crate) fn AzCallbackInfo_stopThread(_:  &mut AzCallbackInfo, _:  AzThreadId) -> bool;
+        pub(crate) fn AzPositionInfo_isPositioned(_:  &AzPositionInfo) -> bool;
+        pub(crate) fn AzPositionInfo_getStaticOffset(_:  &AzPositionInfo) -> AzLogicalPosition;
+        pub(crate) fn AzPositionInfo_getRelativeOffset(_:  &AzPositionInfo) -> AzLogicalPosition;
         pub(crate) fn AzHidpiAdjustedBounds_getLogicalSize(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize;
         pub(crate) fn AzHidpiAdjustedBounds_getPhysicalSize(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
         pub(crate) fn AzHidpiAdjustedBounds_getHidpiFactor(_:  &AzHidpiAdjustedBounds) -> f32;
@@ -10766,6 +10769,15 @@ pub mod callbacks {
     /// `PositionInfo` struct
     
 #[doc(inline)] pub use crate::dll::AzPositionInfo as PositionInfo;
+    impl PositionInfo {
+        /// Calls the `PositionInfo::is_positioned` function.
+        pub fn is_positioned(&self)  -> bool { unsafe { crate::dll::AzPositionInfo_isPositioned(self) } }
+        /// Calls the `PositionInfo::get_static_offset` function.
+        pub fn get_static_offset(&self)  -> crate::window::LogicalPosition { unsafe { crate::dll::AzPositionInfo_getStaticOffset(self) } }
+        /// Calls the `PositionInfo::get_relative_offset` function.
+        pub fn get_relative_offset(&self)  -> crate::window::LogicalPosition { unsafe { crate::dll::AzPositionInfo_getRelativeOffset(self) } }
+    }
+
     /// `PositionInfoInner` struct
     
 #[doc(inline)] pub use crate::dll::AzPositionInfoInner as PositionInfoInner;

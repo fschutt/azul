@@ -17,19 +17,34 @@ use azul_css::{
     CssPropertyType, FontRef,
 };
 use rust_fontconfig::FcFontCache;
-use crate::{FastBTreeSet, FastHashMap, app_resources::{
+use crate::{
+    FastBTreeSet,
+    FastHashMap,
+    app_resources::{
         ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
-    }, id_tree::{NodeId, NodeDataContainer}, styled_dom::{StyledDom, CssPropertyCache, StyledNode}, styled_dom::{DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledNodeVec}, task::{
+    },
+    id_tree::{NodeId, NodeDataContainer},
+    styled_dom::{StyledDom, CssPropertyCache, StyledNode},
+    styled_dom::{DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledNodeVec},
+    task::{
         ThreadSendMsg, Duration as AzDuration, Instant as AzInstant,
         Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
         TerminateTimer, ThreadSender, ThreadReceiver, GetSystemTimeCallback,
         CreateThreadCallback,
-    }, ui_solver::{LayoutResult, OverflowingScrollNode, PositionInfo, PositionedRectangle, ResolvedTextLayoutOptions, TextLayoutOptions}, window::{AzStringPair, OptionLogicalPosition}, window::{
+    },
+    ui_solver::{
+        LayoutResult, OverflowingScrollNode, PositionInfo, PositionedRectangle,
+        ResolvedTextLayoutOptions, TextLayoutOptions
+    },
+    window::{AzStringPair, OptionLogicalPosition},
+    window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
         LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
         RawWindowHandle, KeyboardState, MouseState, LogicalRect, WindowTheme,
-    }};
+        WindowFlags,
+    }
+};
 use crate::gl::OptionGlContextPtr;
 
 /// Specifies if the screen should be updated after the callback function has returned
@@ -1141,6 +1156,7 @@ impl CallbackInfo {
     pub fn get_cursor_relative_to_node(&self) -> OptionLogicalPosition { self.internal_get_cursor_relative_to_item() }
     pub fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition { self.internal_get_cursor_in_viewport() }
     pub fn get_current_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
+    pub fn get_current_window_flags(&self) -> WindowFlags { self.internal_get_current_window_state().flags.clone() }
     pub fn get_current_keyboard_state(&self) -> KeyboardState { self.internal_get_current_window_state().keyboard_state.clone() }
     pub fn get_current_mouse_state(&self) -> MouseState { self.internal_get_current_window_state().mouse_state.clone() }
     pub fn get_previous_window_state(&self) -> Option<WindowState> { Some(self.internal_get_previous_window_state().as_ref()?.clone().into()) }
@@ -1250,6 +1266,10 @@ impl CallbackInfo {
 
     pub fn set_window_state(&mut self, new_state: WindowState) {
         *self.internal_get_modifiable_window_state() = new_state;
+    }
+
+    pub fn set_window_flags(&mut self, new_flags: WindowFlags) {
+        self.internal_get_modifiable_window_state().flags = new_flags;
     }
 
     pub fn set_css_property(&mut self, node_id: DomNodeId, prop: CssProperty) {

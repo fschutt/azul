@@ -9687,6 +9687,9 @@ namespace dll {
         bool  CallbackInfo_sendThreadMsg(CallbackInfo* restrict callbackinfo, AzThreadId  thread_id, AzThreadSendMsg  msg);
         bool  CallbackInfo_stopThread(CallbackInfo* restrict callbackinfo, AzThreadId  thread_id);
         void CallbackInfo_delete(CallbackInfo* restrict instance);
+        bool  PositionInfo_isPositioned(const PositionInfo* positioninfo);
+        LogicalPosition PositionInfo_getStaticOffset(const PositionInfo* positioninfo);
+        LogicalPosition PositionInfo_getRelativeOffset(const PositionInfo* positioninfo);
         LogicalSize HidpiAdjustedBounds_getLogicalSize(const HidpiAdjustedBounds* hidpiadjustedbounds);
         PhysicalSizeU32 HidpiAdjustedBounds_getPhysicalSize(const HidpiAdjustedBounds* hidpiadjustedbounds);
         float HidpiAdjustedBounds_getHidpiFactor(const HidpiAdjustedBounds* hidpiadjustedbounds);

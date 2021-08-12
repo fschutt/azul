@@ -1156,8 +1156,10 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
     if current_window_state.flags.has_focus != previous_window_state.flags.has_focus {
         if current_window_state.flags.has_focus {
             events.push(WindowEventFilter::FocusReceived);
+            events.push(WindowEventFilter::WindowFocusReceived);
         } else {
             events.push(WindowEventFilter::FocusLost);
+            events.push(WindowEventFilter::WindowFocusLost);
         }
     }
 

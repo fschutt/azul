@@ -459,6 +459,12 @@ pub use AzDomNodeIdTT as AzDomNodeId;
 /// Re-export of rust-allocated (stack based) `PositionInfo` struct
 pub type AzPositionInfoTT = azul_impl::ui_solver::PositionInfo;
 pub use AzPositionInfoTT as AzPositionInfo;
+/// Equivalent to the Rust `PositionInfo::is_positioned()` function.
+#[no_mangle] pub extern "C" fn AzPositionInfo_isPositioned(positioninfo: &AzPositionInfo) -> bool { positioninfo.is_positioned() }
+/// Equivalent to the Rust `PositionInfo::get_static_offset()` function.
+#[no_mangle] pub extern "C" fn AzPositionInfo_getStaticOffset(positioninfo: &AzPositionInfo) -> AzLogicalPosition { positioninfo.get_static_offset() }
+/// Equivalent to the Rust `PositionInfo::get_relative_offset()` function.
+#[no_mangle] pub extern "C" fn AzPositionInfo_getRelativeOffset(positioninfo: &AzPositionInfo) -> AzLogicalPosition { positioninfo.get_relative_offset() }
 
 /// Re-export of rust-allocated (stack based) `PositionInfoInner` struct
 pub type AzPositionInfoInnerTT = azul_impl::ui_solver::PositionInfoInner;

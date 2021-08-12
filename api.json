@@ -1537,7 +1537,30 @@
                         {"Fixed": {"type": "PositionInfoInner"}},
                         {"Absolute": {"type": "PositionInfoInner"}},
                         {"Relative": {"type": "PositionInfoInner"}}
-                    ]
+                    ],
+                    "functions": {
+                        "is_positioned": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "positioninfo.is_positioned()"
+                        },
+                        "get_static_offset": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "LogicalPosition"},
+                            "fn_body": "positioninfo.get_static_offset()"
+                        },
+                        "get_relative_offset": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "LogicalPosition"},
+                            "fn_body": "positioninfo.get_relative_offset()"
+                        }
+                    }
                 },
                 "PositionInfoInner": {
                     "external": "azul_impl::ui_solver::PositionInfoInner",
