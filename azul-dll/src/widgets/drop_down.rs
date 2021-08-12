@@ -362,21 +362,28 @@ fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         WindowsHandle,
     };
 
+    println!("dropdown clicked!");
+
     let mut data = match data.downcast_ref::<DropDown>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
+    println!("1!");
 
     let size = match info.get_node_size(info.get_hit_node()) {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
+    println!("2!");
+
     let position = match info.get_node_position(info.get_hit_node()) {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    println!("3!");
 
     let mut child_window_state = info.get_current_window_state();
 
@@ -393,6 +400,8 @@ fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
             WindowPosition::Initialized(child_window_pos)
         },
     };
+
+    println!("4!");
 
     child_window_state.position = window_pos;
 
@@ -418,6 +427,8 @@ fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         cb: MarshaledLayoutCallbackInner { cb: dropdownWindowLayoutFn }
     });
 
+    println!("4!");
+
     info.create_window(WindowCreateOptions {
         state: child_window_state,
         size_to_content: true,
@@ -426,6 +437,8 @@ fn on_dropdown_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         create_callback: None.into(),
         hot_reload: false,
     });
+
+    println!("5!");
 
     Update::DoNothing
 }
@@ -438,6 +451,8 @@ struct ChoiceChangeLocalDataset {
 #[allow(non_snake_case)]
 extern "C"
 fn dropdownWindowLayoutFn(data: &mut RefAny, _: &mut RefAny, info: &mut LayoutCallbackInfo) -> StyledDom {
+
+    println!("rendering window!");
 
     let data_clone = data.clone();
     let dropdown_local_dataset = match data.downcast_ref::<DropDownLocalDataset>() {

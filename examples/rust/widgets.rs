@@ -42,6 +42,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                         CheckBox::new(enable_padding)
                             .with_on_toggle(data.clone(), enable_disable_padding_check)
                             .dom(),
+                        DropDown::new(Vec::<AzString>::new().into()).dom(),
                         ProgressBar::new(20.0).dom(),
                         ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
                         TextInput::new("Input text...".into()).dom(),

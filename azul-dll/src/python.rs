@@ -2114,6 +2114,15 @@ pub struct AzNodeDragAmount {
     pub y: f32,
 }
 
+/// `AzDropDownOnChoiceChangeCallbackType` struct
+pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `DropDownOnChoiceChangeCallback` struct
+#[repr(C)]
+pub struct AzDropDownOnChoiceChangeCallback {
+    pub cb: AzDropDownOnChoiceChangeCallbackType,
+}
+
 /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
 #[repr(C)]
 pub struct AzNodeHierarchyItem {
@@ -4853,6 +4862,13 @@ pub struct AzInputNodeAndIndex {
     pub input_index: usize,
 }
 
+/// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
+#[repr(C)]
+pub struct AzDropDownOnChoiceChange {
+    pub data: AzRefAny,
+    pub callback: AzDropDownOnChoiceChangeCallback,
+}
+
 /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
 #[repr(C)]
 pub struct AzParentWithNodeDepth {
@@ -5284,6 +5300,13 @@ pub struct AzParentWithNodeDepthVec {
     pub len: usize,
     pub cap: usize,
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
+#[repr(C, u8)]
+pub enum AzOptionDropDownOnChoiceChange {
+    None,
+    Some(AzDropDownOnChoiceChange),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
@@ -6590,6 +6613,14 @@ pub struct AzListView {
 #[repr(C)]
 pub struct AzTreeView {
     pub root: AzString,
+}
+
+/// Re-export of rust-allocated (stack based) `DropDown` struct
+#[repr(C)]
+pub struct AzDropDown {
+    pub choices: AzStringVec,
+    pub selected: usize,
+    pub on_choice_change: AzOptionDropDownOnChoiceChangeEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
@@ -8986,6 +9017,12 @@ pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
+/// `AzOptionDropDownOnChoiceChangeEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionDropDownOnChoiceChangeEnumWrapper {
+    pub inner: AzOptionDropDownOnChoiceChange,
+}
+
 /// `AzOptionNodeGraphOnNodeAddedEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionNodeGraphOnNodeAddedEnumWrapper {
@@ -9896,6 +9933,7 @@ impl Clone for AzNodeGraphNodeId { fn clone(&self) -> Self { let r: &crate::widg
 impl Clone for AzNodePosition { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGraphDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::GraphDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzDropDownOnChoiceChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::DropDownOnChoiceChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeHierarchyItem { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfo { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeState { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10213,6 +10251,7 @@ impl Clone for AzNodeGraphOnNodeOutputDisconnected { fn clone(&self) -> Self { l
 impl Clone for AzNodeGraphOnNodeFieldEdited { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeFieldEdited = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOutputNodeAndIndex { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputNodeAndIndex { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzDropDownOnChoiceChange { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::DropDownOnChoiceChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepth { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepth = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGl { fn clone(&self) -> Self { let r: &azul_impl::gl::GlContextPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzRefstrVecRef { fn clone(&self) -> Self { let r: &azul_impl::gl::RefstrVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10257,6 +10296,7 @@ impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r:
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeHierarchyItemVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionDropDownOnChoiceChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::OptionDropDownOnChoiceChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeAddedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeAdded = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeRemovedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeRemoved = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeGraphDraggedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeGraphDragged = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10411,6 +10451,7 @@ impl Clone for AzNodeTypeInfo { fn clone(&self) -> Self { let r: &crate::widgets
 impl Clone for AzInputOutputInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzListView { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListView = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTreeView { fn clone(&self) -> Self { let r: &crate::widgets::tree_view::TreeView = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzDropDown { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::DropDown = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexAttribute { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexAttribute = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDebugMessage { fn clone(&self) -> Self { let r: &azul_impl::gl::AzDebugMessage = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGetActiveAttribReturn { fn clone(&self) -> Self { let r: &azul_impl::gl::GetActiveAttribReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -23427,6 +23468,73 @@ impl PyObjectProtocol for AzTreeView {
 }
 
 #[pymethods]
+impl AzDropDown {
+    #[new]
+    fn new(choices: AzStringVec) -> AzDropDown {
+        unsafe { mem::transmute(crate::AzDropDown_new(
+            mem::transmute(choices),
+        )) }
+    }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzDropDown_dom(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzDropDown {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::DropDown = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::DropDown = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzDropDownOnChoiceChangeCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzDropDownOnChoiceChangeCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::DropDownOnChoiceChangeCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::DropDownOnChoiceChangeCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzDropDownOnChoiceChange {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzDropDownOnChoiceChangeCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzDropDownOnChoiceChange {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::DropDownOnChoiceChange = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::DropDownOnChoiceChange = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzNodeHierarchyItem {
     #[new]
     fn __new__(parent: usize, previous_sibling: usize, next_sibling: usize, last_child: usize) -> Self {
@@ -34916,6 +35024,35 @@ impl PyObjectProtocol for AzNodeDataVecDestructorEnumWrapper {
 }
 
 #[pymethods]
+impl AzOptionDropDownOnChoiceChangeEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionDropDownOnChoiceChangeEnumWrapper { AzOptionDropDownOnChoiceChangeEnumWrapper { inner: AzOptionDropDownOnChoiceChange::None } }
+    #[staticmethod]
+    fn Some(v: AzDropDownOnChoiceChange) -> AzOptionDropDownOnChoiceChangeEnumWrapper { AzOptionDropDownOnChoiceChangeEnumWrapper { inner: AzOptionDropDownOnChoiceChange::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionDropDownOnChoiceChange;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionDropDownOnChoiceChange::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionDropDownOnChoiceChange::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionDropDownOnChoiceChangeEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::OptionDropDownOnChoiceChange = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::drop_down::OptionDropDownOnChoiceChange = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzOptionResolvedTextLayoutOptionsEnumWrapper {
     #[classattr]
     fn None() -> AzOptionResolvedTextLayoutOptionsEnumWrapper { AzOptionResolvedTextLayoutOptionsEnumWrapper { inner: AzOptionResolvedTextLayoutOptions::None } }
@@ -38302,6 +38439,9 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNodeDragAmount>()?;
     m.add_class::<AzListView>()?;
     m.add_class::<AzTreeView>()?;
+    m.add_class::<AzDropDown>()?;
+    m.add_class::<AzDropDownOnChoiceChangeCallback>()?;
+    m.add_class::<AzDropDownOnChoiceChange>()?;
 
     m.add_class::<AzNodeHierarchyItem>()?;
     m.add_class::<AzCascadeInfo>()?;
@@ -38567,6 +38707,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
+    m.add_class::<AzOptionDropDownOnChoiceChangeEnumWrapper>()?;
     m.add_class::<AzOptionResolvedTextLayoutOptionsEnumWrapper>()?;
     m.add_class::<AzOptionNodeGraphOnNodeAddedEnumWrapper>()?;
     m.add_class::<AzOptionNodeGraphOnNodeRemovedEnumWrapper>()?;

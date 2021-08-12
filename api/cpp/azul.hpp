@@ -78,6 +78,8 @@ namespace dll {
     union NodeTypeFieldValue;
     using NodeGraphOnNodeFieldEditedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, size_t, NodeTypeId, NodeTypeFieldValue);
     
+    using DropDownOnChoiceChangeCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, size_t);
+    
     using ParsedFontDestructorFnType = void(*)(void* restrict);
     
     struct InstantPtr;
@@ -1561,6 +1563,13 @@ namespace dll {
         float y;
         NodeDragAmount& operator=(const NodeDragAmount&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         NodeDragAmount() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct DropDownOnChoiceChangeCallback {
+        DropDownOnChoiceChangeCallbackType cb;
+        DropDownOnChoiceChangeCallback& operator=(const DropDownOnChoiceChangeCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        DropDownOnChoiceChangeCallback(const DropDownOnChoiceChangeCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        DropDownOnChoiceChangeCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct NodeHierarchyItem {
@@ -5511,6 +5520,14 @@ namespace dll {
         InputNodeAndIndex() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct DropDownOnChoiceChange {
+        RefAny data;
+        DropDownOnChoiceChangeCallback callback;
+        DropDownOnChoiceChange& operator=(const DropDownOnChoiceChange&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        DropDownOnChoiceChange(const DropDownOnChoiceChange&) = delete; /* disable copy constructor, use explicit .clone() */
+        DropDownOnChoiceChange() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct ParentWithNodeDepth {
         size_t depth;
         NodeId node_id;
@@ -5997,6 +6014,19 @@ namespace dll {
         ParentWithNodeDepthVec(const ParentWithNodeDepthVec&) = delete; /* disable copy constructor, use explicit .clone() */
         ParentWithNodeDepthVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
+    
+    enum class OptionDropDownOnChoiceChangeTag {
+       None,
+       Some,
+    };
+    
+    struct OptionDropDownOnChoiceChangeVariant_None { OptionDropDownOnChoiceChangeTag tag; };
+    struct OptionDropDownOnChoiceChangeVariant_Some { OptionDropDownOnChoiceChangeTag tag; DropDownOnChoiceChange payload; };
+    union OptionDropDownOnChoiceChange {
+        OptionDropDownOnChoiceChangeVariant_None None;
+        OptionDropDownOnChoiceChangeVariant_Some Some;
+    };
+    
     
     enum class OptionNodeGraphOnNodeAddedTag {
        None,
@@ -8019,6 +8049,15 @@ namespace dll {
         TreeView() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct DropDown {
+        StringVec choices;
+        size_t selected;
+        OptionDropDownOnChoiceChange on_choice_change;
+        DropDown& operator=(const DropDown&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        DropDown(const DropDown&) = delete; /* disable copy constructor, use explicit .clone() */
+        DropDown() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct VertexAttribute {
         String name;
         OptionUsize layout_location;
@@ -9976,6 +10015,10 @@ namespace dll {
         TreeView TreeView_new(AzString  root);
         Dom TreeView_dom(TreeView* restrict treeview);
         void TreeView_delete(TreeView* restrict instance);
+        DropDown DropDown_new(AzStringVec  choices);
+        Dom DropDown_dom(DropDown* restrict dropdown);
+        void DropDown_delete(DropDown* restrict instance);
+        void DropDownOnChoiceChange_delete(DropDownOnChoiceChange* restrict instance);
         void CssPropertySource_delete(CssPropertySource* restrict instance);
         void TagIdToNodeIdMapping_delete(TagIdToNodeIdMapping* restrict instance);
         void CssPropertyCache_delete(CssPropertyCache* restrict instance);
@@ -10425,6 +10468,7 @@ namespace dll {
         void TagIdToNodeIdMappingVec_delete(TagIdToNodeIdMappingVec* restrict instance);
         void ParentWithNodeDepthVec_delete(ParentWithNodeDepthVec* restrict instance);
         void NodeDataVec_delete(NodeDataVec* restrict instance);
+        void OptionDropDownOnChoiceChange_delete(OptionDropDownOnChoiceChange* restrict instance);
         void OptionResolvedTextLayoutOptions_delete(OptionResolvedTextLayoutOptions* restrict instance);
         void OptionNodeGraphOnNodeAdded_delete(OptionNodeGraphOnNodeAdded* restrict instance);
         void OptionNodeGraphOnNodeRemoved_delete(OptionNodeGraphOnNodeRemoved* restrict instance);

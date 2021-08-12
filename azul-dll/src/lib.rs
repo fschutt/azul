@@ -2332,6 +2332,28 @@ pub use AzTreeViewTT as AzTreeView;
 /// Destructor: Takes ownership of the `TreeView` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTreeView_delete(object: &mut AzTreeView) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `DropDown` struct
+pub type AzDropDownTT = crate::widgets::drop_down::DropDown;
+pub use AzDropDownTT as AzDropDown;
+/// Creates a new `DropDown` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `DropDown::new()` constructor.
+#[no_mangle] pub extern "C" fn AzDropDown_new(choices: AzStringVec) -> AzDropDown { AzDropDown::new(choices) }
+/// Equivalent to the Rust `DropDown::dom()` function.
+#[no_mangle] pub extern "C" fn AzDropDown_dom(dropdown: &mut AzDropDown) -> AzDom { dropdown.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `DropDown` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDropDown_delete(object: &mut AzDropDown) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `DropDownOnChoiceChangeCallback` struct
+pub type AzDropDownOnChoiceChangeCallbackTT = crate::widgets::drop_down::DropDownOnChoiceChangeCallback;
+pub use AzDropDownOnChoiceChangeCallbackTT as AzDropDownOnChoiceChangeCallback;
+
+/// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
+pub type AzDropDownOnChoiceChangeTT = crate::widgets::drop_down::DropDownOnChoiceChange;
+pub use AzDropDownOnChoiceChangeTT as AzDropDownOnChoiceChange;
+/// Destructor: Takes ownership of the `DropDownOnChoiceChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzDropDownOnChoiceChange_delete(object: &mut AzDropDownOnChoiceChange) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
 pub type AzNodeHierarchyItemTT = azul_impl::styled_dom::NodeHierarchyItem;
 pub use AzNodeHierarchyItemTT as AzNodeHierarchyItem;
@@ -4316,6 +4338,12 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
+pub type AzOptionDropDownOnChoiceChangeTT = crate::widgets::drop_down::OptionDropDownOnChoiceChange;
+pub use AzOptionDropDownOnChoiceChangeTT as AzOptionDropDownOnChoiceChange;
+/// Destructor: Takes ownership of the `OptionDropDownOnChoiceChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionDropDownOnChoiceChange_delete(object: &mut AzOptionDropDownOnChoiceChange) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
 pub type AzOptionResolvedTextLayoutOptionsTT = azul_impl::ui_solver::OptionResolvedTextLayoutOptions;
 pub use AzOptionResolvedTextLayoutOptionsTT as AzOptionResolvedTextLayoutOptions;
@@ -6317,6 +6345,15 @@ mod test_sizes {
     pub struct AzNodeDragAmount {
         pub x: f32,
         pub y: f32,
+    }
+
+    /// `AzDropDownOnChoiceChangeCallbackType` struct
+    pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChangeCallback` struct
+    #[repr(C)]
+    pub struct AzDropDownOnChoiceChangeCallback {
+        pub cb: AzDropDownOnChoiceChangeCallbackType,
     }
 
     /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
@@ -9058,6 +9095,13 @@ mod test_sizes {
         pub input_index: usize,
     }
 
+    /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
+    #[repr(C)]
+    pub struct AzDropDownOnChoiceChange {
+        pub data: AzRefAny,
+        pub callback: AzDropDownOnChoiceChangeCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     pub struct AzParentWithNodeDepth {
@@ -9489,6 +9533,13 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
+    #[repr(C, u8)]
+    pub enum AzOptionDropDownOnChoiceChange {
+        None,
+        Some(AzDropDownOnChoiceChange),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
@@ -10797,6 +10848,14 @@ mod test_sizes {
         pub root: AzString,
     }
 
+    /// Re-export of rust-allocated (stack based) `DropDown` struct
+    #[repr(C)]
+    pub struct AzDropDown {
+        pub choices: AzStringVec,
+        pub selected: usize,
+        pub on_choice_change: AzOptionDropDownOnChoiceChange,
+    }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
     #[repr(C)]
     pub struct AzVertexAttribute {
@@ -11991,6 +12050,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodePosition>(), "AzNodePosition"), (Layout::new::<AzNodePosition>(), "AzNodePosition"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::GraphDragAmount>(), "AzGraphDragAmount"), (Layout::new::<AzGraphDragAmount>(), "AzGraphDragAmount"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeDragAmount>(), "AzNodeDragAmount"), (Layout::new::<AzNodeDragAmount>(), "AzNodeDragAmount"));
+        assert_eq!((Layout::new::<crate::widgets::drop_down::DropDownOnChoiceChangeCallback>(), "AzDropDownOnChoiceChangeCallback"), (Layout::new::<AzDropDownOnChoiceChangeCallback>(), "AzDropDownOnChoiceChangeCallback"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeHierarchyItem>(), "AzNodeHierarchyItem"), (Layout::new::<AzNodeHierarchyItem>(), "AzNodeHierarchyItem"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeState>(), "AzStyledNodeState"), (Layout::new::<AzStyledNodeState>(), "AzStyledNodeState"));
@@ -12308,6 +12368,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeFieldEdited>(), "AzNodeGraphOnNodeFieldEdited"), (Layout::new::<AzNodeGraphOnNodeFieldEdited>(), "AzNodeGraphOnNodeFieldEdited"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndex>(), "AzOutputNodeAndIndex"), (Layout::new::<AzOutputNodeAndIndex>(), "AzOutputNodeAndIndex"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndex>(), "AzInputNodeAndIndex"), (Layout::new::<AzInputNodeAndIndex>(), "AzInputNodeAndIndex"));
+        assert_eq!((Layout::new::<crate::widgets::drop_down::DropDownOnChoiceChange>(), "AzDropDownOnChoiceChange"), (Layout::new::<AzDropDownOnChoiceChange>(), "AzDropDownOnChoiceChange"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
         assert_eq!((Layout::new::<azul_impl::gl::RefstrVecRef>(), "AzRefstrVecRef"), (Layout::new::<AzRefstrVecRef>(), "AzRefstrVecRef"));
@@ -12352,6 +12413,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"), (Layout::new::<AzNodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<crate::widgets::drop_down::OptionDropDownOnChoiceChange>(), "AzOptionDropDownOnChoiceChange"), (Layout::new::<AzOptionDropDownOnChoiceChange>(), "AzOptionDropDownOnChoiceChange"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeAdded>(), "AzOptionNodeGraphOnNodeAdded"), (Layout::new::<AzOptionNodeGraphOnNodeAdded>(), "AzOptionNodeGraphOnNodeAdded"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeRemoved>(), "AzOptionNodeGraphOnNodeRemoved"), (Layout::new::<AzOptionNodeGraphOnNodeRemoved>(), "AzOptionNodeGraphOnNodeRemoved"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeGraphDragged>(), "AzOptionNodeGraphOnNodeGraphDragged"), (Layout::new::<AzOptionNodeGraphOnNodeGraphDragged>(), "AzOptionNodeGraphOnNodeGraphDragged"));
@@ -12506,6 +12568,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputInfo>(), "AzInputOutputInfo"), (Layout::new::<AzInputOutputInfo>(), "AzInputOutputInfo"));
         assert_eq!((Layout::new::<crate::widgets::list_view::ListView>(), "AzListView"), (Layout::new::<AzListView>(), "AzListView"));
         assert_eq!((Layout::new::<crate::widgets::tree_view::TreeView>(), "AzTreeView"), (Layout::new::<AzTreeView>(), "AzTreeView"));
+        assert_eq!((Layout::new::<crate::widgets::drop_down::DropDown>(), "AzDropDown"), (Layout::new::<AzDropDown>(), "AzDropDown"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));
         assert_eq!((Layout::new::<azul_impl::gl::AzDebugMessage>(), "AzDebugMessage"), (Layout::new::<AzDebugMessage>(), "AzDebugMessage"));
         assert_eq!((Layout::new::<azul_impl::gl::GetActiveAttribReturn>(), "AzGetActiveAttribReturn"), (Layout::new::<AzGetActiveAttribReturn>(), "AzGetActiveAttribReturn"));

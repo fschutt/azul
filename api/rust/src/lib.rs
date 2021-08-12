@@ -285,6 +285,7 @@ mod dll {
     impl ::core::fmt::Debug for AzNodeGraphOnNodeInputDisconnectedCallback  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzNodeGraphOnNodeOutputDisconnectedCallback { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzNodeGraphOnNodeFieldEditedCallback        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::core::fmt::Debug for AzDropDownOnChoiceChangeCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
     impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzLayoutCallbackInner { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
@@ -321,6 +322,7 @@ mod dll {
     impl PartialEq for AzNodeGraphOnNodeInputDisconnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzNodeGraphOnNodeOutputDisconnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzNodeGraphOnNodeFieldEditedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    impl PartialEq for AzDropDownOnChoiceChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzLayoutCallbackInner { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
@@ -356,7 +358,8 @@ mod dll {
     impl PartialOrd for AzNodeGraphOnNodeConnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzNodeGraphOnNodeInputDisconnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzNodeGraphOnNodeOutputDisconnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    impl PartialOrd for AzNodeGraphOnNodeFieldEditedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }    #[cfg(not(feature = "link_static"))]
+    impl PartialOrd for AzNodeGraphOnNodeFieldEditedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    impl PartialOrd for AzDropDownOnChoiceChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }    #[cfg(not(feature = "link_static"))]
     mod dynamic_link {
     use core::ffi::c_void;
 
@@ -2140,6 +2143,16 @@ mod dll {
     pub struct AzNodeDragAmount {
         pub x: f32,
         pub y: f32,
+    }
+
+    /// `AzDropDownOnChoiceChangeCallbackType` struct
+    pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChangeCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzDropDownOnChoiceChangeCallback {
+        pub cb: AzDropDownOnChoiceChangeCallbackType,
     }
 
     /// Re-export of rust-allocated (stack based) `NodeHierarchyItem` struct
@@ -5909,6 +5922,16 @@ mod dll {
         pub input_index: usize,
     }
 
+    /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzDropDownOnChoiceChange {
+        pub data: AzRefAny,
+        pub callback: AzDropDownOnChoiceChangeCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -6386,6 +6409,16 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionDropDownOnChoiceChange {
+        None,
+        Some(AzDropDownOnChoiceChange),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
@@ -8163,6 +8196,17 @@ mod dll {
         pub root: AzString,
     }
 
+    /// Re-export of rust-allocated (stack based) `DropDown` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzDropDown {
+        pub choices: AzStringVec,
+        pub selected: usize,
+        pub on_choice_change: AzOptionDropDownOnChoiceChange,
+    }
+
     /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -9739,6 +9783,8 @@ mod dll {
         pub(crate) fn AzListView_dom(_:  &mut AzListView) -> AzDom;
         pub(crate) fn AzTreeView_new(_:  AzString) -> AzTreeView;
         pub(crate) fn AzTreeView_dom(_:  &mut AzTreeView) -> AzDom;
+        pub(crate) fn AzDropDown_new(_:  AzStringVec) -> AzDropDown;
+        pub(crate) fn AzDropDown_dom(_:  &mut AzDropDown) -> AzDom;
         pub(crate) fn AzCssPropertyCache_delete(_:  &mut AzCssPropertyCache);
         pub(crate) fn AzCssPropertyCache_deepCopy(_:  &AzCssPropertyCache) -> AzCssPropertyCache;
         pub(crate) fn AzStyledDom_new(_:  AzDom, _:  AzCss) -> AzStyledDom;
@@ -13040,6 +13086,25 @@ pub mod widgets {
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTreeView_dom(self) } }
     }
 
+    /// `DropDown` struct
+    
+#[doc(inline)] pub use crate::dll::AzDropDown as DropDown;
+    impl DropDown {
+        /// Creates a new `DropDown` instance.
+        pub fn new(choices: StringVec) -> Self { unsafe { crate::dll::AzDropDown_new(choices) } }
+        /// Calls the `DropDown::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzDropDown_dom(self) } }
+    }
+
+    /// `DropDownOnChoiceChangeCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChangeCallbackType as DropDownOnChoiceChangeCallbackType;
+    /// `DropDownOnChoiceChangeCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChangeCallback as DropDownOnChoiceChangeCallback;
+    /// `DropDownOnChoiceChange` struct
+    
+#[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChange as DropDownOnChoiceChange;
 }
 
 pub mod style {
@@ -17145,7 +17210,10 @@ pub mod option {
     impl_option!(AzNodeGraphOnNodeConnected, AzOptionNodeGraphOnNodeConnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeInputDisconnected, AzOptionNodeGraphOnNodeInputDisconnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeOutputDisconnected, AzOptionNodeGraphOnNodeOutputDisconnected, [Debug, Copy, Clone]);
-    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);    /// `OptionResolvedTextLayoutOptions` struct
+    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);    /// `OptionDropDownOnChoiceChange` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
+    /// `OptionResolvedTextLayoutOptions` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionResolvedTextLayoutOptions as OptionResolvedTextLayoutOptions;
     /// `OptionNodeGraphOnNodeAdded` struct

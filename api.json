@@ -6481,6 +6481,54 @@
                             "fn_body": "treeview.swap_with_default().dom()"
                         }
                     }
+                },
+                "DropDown": {
+                    "external": "crate::widgets::drop_down::DropDown",
+                    "struct_fields": [
+                        {"choices": {"type": "StringVec"}},
+                        {"selected": {"type": "usize"}},
+                        {"on_choice_change": {"type": "OptionDropDownOnChoiceChange"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"choices": "StringVec"}
+                            ],
+                            "fn_body": "AzDropDown::new(choices)"
+                        }
+                    },
+                    "functions": {
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "dropdown.swap_with_default().dom()"
+                        }
+                    }
+                },
+                "DropDownOnChoiceChangeCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "usize", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "DropDownOnChoiceChangeCallback": {
+                    "external": "crate::widgets::drop_down::DropDownOnChoiceChangeCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "DropDownOnChoiceChangeCallbackType"}}
+                    ]
+                },
+                "DropDownOnChoiceChange": {
+                    "external": "crate::widgets::drop_down::DropDownOnChoiceChange",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "DropDownOnChoiceChangeCallback"}}
+                    ]
                 }
             }
         },
@@ -13851,6 +13899,13 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionDropDownOnChoiceChange": {
+                    "external": "crate::widgets::drop_down::OptionDropDownOnChoiceChange",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "DropDownOnChoiceChange"}}
+                    ]
+                },
                 "OptionResolvedTextLayoutOptions": {
                     "external": "azul_impl::ui_solver::OptionResolvedTextLayoutOptions",
                     "enum_fields": [

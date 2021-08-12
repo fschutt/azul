@@ -132,6 +132,8 @@ union AzNodeTypeFieldValue;
 typedef union AzNodeTypeFieldValue AzNodeTypeFieldValue;
 typedef AzUpdate (*AzNodeGraphOnNodeFieldEditedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, size_t D, AzNodeTypeId E, AzNodeTypeFieldValue F);
 
+typedef AzUpdate (*AzDropDownOnChoiceChangeCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, size_t C);
+
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
 
 struct AzInstantPtr;
@@ -1661,6 +1663,11 @@ struct AzNodeDragAmount {
     float y;
 };
 typedef struct AzNodeDragAmount AzNodeDragAmount;
+
+struct AzDropDownOnChoiceChangeCallback {
+    AzDropDownOnChoiceChangeCallbackType cb;
+};
+typedef struct AzDropDownOnChoiceChangeCallback AzDropDownOnChoiceChangeCallback;
 
 struct AzNodeHierarchyItem {
     size_t parent;
@@ -6112,6 +6119,12 @@ struct AzInputNodeAndIndex {
 };
 typedef struct AzInputNodeAndIndex AzInputNodeAndIndex;
 
+struct AzDropDownOnChoiceChange {
+    AzRefAny data;
+    AzDropDownOnChoiceChangeCallback callback;
+};
+typedef struct AzDropDownOnChoiceChange AzDropDownOnChoiceChange;
+
 struct AzParentWithNodeDepth {
     size_t depth;
     AzNodeId node_id;
@@ -6529,6 +6542,22 @@ struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepthVecDestructor destructor;
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
+
+enum AzOptionDropDownOnChoiceChangeTag {
+   AzOptionDropDownOnChoiceChangeTag_None,
+   AzOptionDropDownOnChoiceChangeTag_Some,
+};
+typedef enum AzOptionDropDownOnChoiceChangeTag AzOptionDropDownOnChoiceChangeTag;
+
+struct AzOptionDropDownOnChoiceChangeVariant_None { AzOptionDropDownOnChoiceChangeTag tag; };
+typedef struct AzOptionDropDownOnChoiceChangeVariant_None AzOptionDropDownOnChoiceChangeVariant_None;
+struct AzOptionDropDownOnChoiceChangeVariant_Some { AzOptionDropDownOnChoiceChangeTag tag; AzDropDownOnChoiceChange payload; };
+typedef struct AzOptionDropDownOnChoiceChangeVariant_Some AzOptionDropDownOnChoiceChangeVariant_Some;
+union AzOptionDropDownOnChoiceChange {
+    AzOptionDropDownOnChoiceChangeVariant_None None;
+    AzOptionDropDownOnChoiceChangeVariant_Some Some;
+};
+typedef union AzOptionDropDownOnChoiceChange AzOptionDropDownOnChoiceChange;
 
 enum AzOptionNodeGraphOnNodeAddedTag {
    AzOptionNodeGraphOnNodeAddedTag_None,
@@ -8749,6 +8778,13 @@ struct AzTreeView {
 };
 typedef struct AzTreeView AzTreeView;
 
+struct AzDropDown {
+    AzStringVec choices;
+    size_t selected;
+    AzOptionDropDownOnChoiceChange on_choice_change;
+};
+typedef struct AzDropDown AzDropDown;
+
 struct AzVertexAttribute {
     AzString name;
     AzOptionUsize layout_location;
@@ -10964,6 +11000,8 @@ typedef struct AzCss AzCss;
 #define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
 #define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
 #define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
+#define AzOptionDropDownOnChoiceChange_None { .None = { .tag = AzOptionDropDownOnChoiceChangeTag_None } }
+#define AzOptionDropDownOnChoiceChange_Some(v) { .Some = { .tag = AzOptionDropDownOnChoiceChangeTag_Some, .payload = v } }
 #define AzOptionNodeGraphOnNodeAdded_None { .None = { .tag = AzOptionNodeGraphOnNodeAddedTag_None } }
 #define AzOptionNodeGraphOnNodeAdded_Some(v) { .Some = { .tag = AzOptionNodeGraphOnNodeAddedTag_Some, .payload = v } }
 #define AzOptionNodeGraphOnNodeRemoved_None { .None = { .tag = AzOptionNodeGraphOnNodeRemovedTag_None } }
@@ -12015,6 +12053,10 @@ extern DLLIMPORT void AzListView_delete(AzListView* restrict instance);
 extern DLLIMPORT AzTreeView AzTreeView_new(AzString  root);
 extern DLLIMPORT AzDom AzTreeView_dom(AzTreeView* restrict treeview);
 extern DLLIMPORT void AzTreeView_delete(AzTreeView* restrict instance);
+extern DLLIMPORT AzDropDown AzDropDown_new(AzStringVec  choices);
+extern DLLIMPORT AzDom AzDropDown_dom(AzDropDown* restrict dropdown);
+extern DLLIMPORT void AzDropDown_delete(AzDropDown* restrict instance);
+extern DLLIMPORT void AzDropDownOnChoiceChange_delete(AzDropDownOnChoiceChange* restrict instance);
 extern DLLIMPORT void AzCssPropertySource_delete(AzCssPropertySource* restrict instance);
 extern DLLIMPORT void AzTagIdToNodeIdMapping_delete(AzTagIdToNodeIdMapping* restrict instance);
 extern DLLIMPORT void AzCssPropertyCache_delete(AzCssPropertyCache* restrict instance);
@@ -12464,6 +12506,7 @@ extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance)
 extern DLLIMPORT void AzTagIdToNodeIdMappingVec_delete(AzTagIdToNodeIdMappingVec* restrict instance);
 extern DLLIMPORT void AzParentWithNodeDepthVec_delete(AzParentWithNodeDepthVec* restrict instance);
 extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
+extern DLLIMPORT void AzOptionDropDownOnChoiceChange_delete(AzOptionDropDownOnChoiceChange* restrict instance);
 extern DLLIMPORT void AzOptionResolvedTextLayoutOptions_delete(AzOptionResolvedTextLayoutOptions* restrict instance);
 extern DLLIMPORT void AzOptionNodeGraphOnNodeAdded_delete(AzOptionNodeGraphOnNodeAdded* restrict instance);
 extern DLLIMPORT void AzOptionNodeGraphOnNodeRemoved_delete(AzOptionNodeGraphOnNodeRemoved* restrict instance);
@@ -18637,6 +18680,20 @@ bool AzNodeDataVecDestructor_matchRefExternal(const AzNodeDataVecDestructor* val
 bool AzNodeDataVecDestructor_matchMutExternal(AzNodeDataVecDestructor* restrict value, AzNodeDataVecDestructorType* restrict * restrict out) {
     AzNodeDataVecDestructorVariant_External* restrict casted = (AzNodeDataVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDropDownOnChoiceChange_matchRefSome(const AzOptionDropDownOnChoiceChange* value, const AzDropDownOnChoiceChange** restrict out) {
+    const AzOptionDropDownOnChoiceChangeVariant_Some* casted = (const AzOptionDropDownOnChoiceChangeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionDropDownOnChoiceChangeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionDropDownOnChoiceChange_matchMutSome(AzOptionDropDownOnChoiceChange* restrict value, AzDropDownOnChoiceChange* restrict * restrict out) {
+    AzOptionDropDownOnChoiceChangeVariant_Some* restrict casted = (AzOptionDropDownOnChoiceChangeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionDropDownOnChoiceChangeTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

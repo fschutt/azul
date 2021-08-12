@@ -143,8 +143,8 @@ static BUTTON_CONTAINER_WINDOWS: &[NodeDataInlineCssProperty] = &[
 
     Normal(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(5))),
     Normal(CssProperty::const_padding_right(LayoutPaddingRight::const_px(5))),
-    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(2))),
-    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(2))),
+    Normal(CssProperty::const_padding_top(LayoutPaddingTop::const_px(3))),
+    Normal(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(3))),
 
     Hover(CssProperty::const_background_content(StyleBackgroundContentVec::from_const_slice(BUTTON_HOVER_BACKGROUND_WINDOWS))),
     Hover(CssProperty::const_border_top_color(StyleBorderTopColor { inner: WINDOWS_HOVER_BORDER })),
