@@ -32,7 +32,11 @@ use crate::{
         IFrameCallbackReturn, HidpiAdjustedBounds,
         IFrameCallbackInfo,
     },
-    window::{ScrollStates, WindowSize, WindowTheme, FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
+    window::{
+        ScrollStates, WindowSize, WindowTheme,
+        FullWindowState, LogicalPosition, LogicalRect,
+        LogicalSize, LogicalRectVec,
+    },
     window_state::RelayoutFn,
 };
 use rust_fontconfig::FcFontCache;
@@ -1074,6 +1078,7 @@ pub struct TextLayoutOptions {
 /// Same as `TextLayoutOptions`, but with the widths / heights of the `PixelValue`s
 /// resolved to regular f32s (because `letter_spacing`, `word_spacing`, etc. may be %-based value)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+#[repr(C)]
 pub struct ResolvedTextLayoutOptions {
     /// Font size (in pixels) that this text has been laid out with
     pub font_size_px: f32,
@@ -1095,8 +1100,10 @@ pub struct ResolvedTextLayoutOptions {
     /// into the text flow, for example an image that floats to the right.
     ///
     /// TODO: Currently unused!
-    pub holes: LayoutRectVec,
+    pub holes: LogicalRectVec,
 }
+
+impl_option!(ResolvedTextLayoutOptions, OptionResolvedTextLayoutOptions, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]

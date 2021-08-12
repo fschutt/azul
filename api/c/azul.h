@@ -178,6 +178,10 @@ struct AzStyleFontFamilyVec;
 typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
 
+struct AzLogicalRectVec;
+typedef struct AzLogicalRectVec AzLogicalRectVec;
+typedef void (*AzLogicalRectVecDestructorType)(AzLogicalRectVec* restrict A);
+
 struct AzNodeTypeIdInfoMapVec;
 typedef struct AzNodeTypeIdInfoMapVec AzNodeTypeIdInfoMapVec;
 typedef void (*AzNodeTypeIdInfoMapVecDestructorType)(AzNodeTypeIdInfoMapVec* restrict A);
@@ -2169,6 +2173,26 @@ union AzStyleFontFamilyVecDestructor {
     AzStyleFontFamilyVecDestructorVariant_External External;
 };
 typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
+
+enum AzLogicalRectVecDestructorTag {
+   AzLogicalRectVecDestructorTag_DefaultRust,
+   AzLogicalRectVecDestructorTag_NoDestructor,
+   AzLogicalRectVecDestructorTag_External,
+};
+typedef enum AzLogicalRectVecDestructorTag AzLogicalRectVecDestructorTag;
+
+struct AzLogicalRectVecDestructorVariant_DefaultRust { AzLogicalRectVecDestructorTag tag; };
+typedef struct AzLogicalRectVecDestructorVariant_DefaultRust AzLogicalRectVecDestructorVariant_DefaultRust;
+struct AzLogicalRectVecDestructorVariant_NoDestructor { AzLogicalRectVecDestructorTag tag; };
+typedef struct AzLogicalRectVecDestructorVariant_NoDestructor AzLogicalRectVecDestructorVariant_NoDestructor;
+struct AzLogicalRectVecDestructorVariant_External { AzLogicalRectVecDestructorTag tag; AzLogicalRectVecDestructorType payload; };
+typedef struct AzLogicalRectVecDestructorVariant_External AzLogicalRectVecDestructorVariant_External;
+union AzLogicalRectVecDestructor {
+    AzLogicalRectVecDestructorVariant_DefaultRust DefaultRust;
+    AzLogicalRectVecDestructorVariant_NoDestructor NoDestructor;
+    AzLogicalRectVecDestructorVariant_External External;
+};
+typedef union AzLogicalRectVecDestructor AzLogicalRectVecDestructor;
 
 enum AzNodeTypeIdInfoMapVecDestructorTag {
    AzNodeTypeIdInfoMapVecDestructorTag_DefaultRust,
@@ -6260,6 +6284,14 @@ struct AzThreadWriteBackMsg {
 };
 typedef struct AzThreadWriteBackMsg AzThreadWriteBackMsg;
 
+struct AzLogicalRectVec {
+    AzLogicalRect* ptr;
+    size_t len;
+    size_t cap;
+    AzLogicalRectVecDestructor destructor;
+};
+typedef struct AzLogicalRectVec AzLogicalRectVec;
+
 struct AzInputOutputTypeIdVec {
     AzInputOutputTypeId* ptr;
     size_t len;
@@ -7452,6 +7484,18 @@ struct AzInlineTextContents {
 };
 typedef struct AzInlineTextContents AzInlineTextContents;
 
+struct AzResolvedTextLayoutOptions {
+    float font_size_px;
+    AzOptionF32 line_height;
+    AzOptionF32 letter_spacing;
+    AzOptionF32 word_spacing;
+    AzOptionF32 tab_width;
+    AzOptionF32 max_horizontal_width;
+    AzOptionF32 leading;
+    AzLogicalRectVec holes;
+};
+typedef struct AzResolvedTextLayoutOptions AzResolvedTextLayoutOptions;
+
 enum AzAnimationEasingTag {
    AzAnimationEasingTag_Ease,
    AzAnimationEasingTag_Linear,
@@ -8080,6 +8124,22 @@ struct AzTagIdToNodeIdMappingVec {
     AzTagIdToNodeIdMappingVecDestructor destructor;
 };
 typedef struct AzTagIdToNodeIdMappingVec AzTagIdToNodeIdMappingVec;
+
+enum AzOptionResolvedTextLayoutOptionsTag {
+   AzOptionResolvedTextLayoutOptionsTag_None,
+   AzOptionResolvedTextLayoutOptionsTag_Some,
+};
+typedef enum AzOptionResolvedTextLayoutOptionsTag AzOptionResolvedTextLayoutOptionsTag;
+
+struct AzOptionResolvedTextLayoutOptionsVariant_None { AzOptionResolvedTextLayoutOptionsTag tag; };
+typedef struct AzOptionResolvedTextLayoutOptionsVariant_None AzOptionResolvedTextLayoutOptionsVariant_None;
+struct AzOptionResolvedTextLayoutOptionsVariant_Some { AzOptionResolvedTextLayoutOptionsTag tag; AzResolvedTextLayoutOptions payload; };
+typedef struct AzOptionResolvedTextLayoutOptionsVariant_Some AzOptionResolvedTextLayoutOptionsVariant_Some;
+union AzOptionResolvedTextLayoutOptions {
+    AzOptionResolvedTextLayoutOptionsVariant_None None;
+    AzOptionResolvedTextLayoutOptionsVariant_Some Some;
+};
+typedef union AzOptionResolvedTextLayoutOptions AzOptionResolvedTextLayoutOptions;
 
 enum AzOptionVirtualKeyCodeComboTag {
    AzOptionVirtualKeyCodeComboTag_None,
@@ -10343,6 +10403,9 @@ typedef struct AzCss AzCss;
 #define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
 #define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
 #define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+#define AzLogicalRectVecDestructor_DefaultRust { .DefaultRust = { .tag = AzLogicalRectVecDestructorTag_DefaultRust } }
+#define AzLogicalRectVecDestructor_NoDestructor { .NoDestructor = { .tag = AzLogicalRectVecDestructorTag_NoDestructor } }
+#define AzLogicalRectVecDestructor_External(v) { .External = { .tag = AzLogicalRectVecDestructorTag_External, .payload = v } }
 #define AzNodeTypeIdInfoMapVecDestructor_DefaultRust { .DefaultRust = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_DefaultRust } }
 #define AzNodeTypeIdInfoMapVecDestructor_NoDestructor { .NoDestructor = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor } }
 #define AzNodeTypeIdInfoMapVecDestructor_External(v) { .External = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_External, .payload = v } }
@@ -11067,6 +11130,8 @@ typedef struct AzCss AzCss;
 #define AzInstant_Tick(v) { .Tick = { .tag = AzInstantTag_Tick, .payload = v } }
 #define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
 #define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
+#define AzOptionResolvedTextLayoutOptions_None { .None = { .tag = AzOptionResolvedTextLayoutOptionsTag_None } }
+#define AzOptionResolvedTextLayoutOptions_Some(v) { .Some = { .tag = AzOptionResolvedTextLayoutOptionsTag_Some, .payload = v } }
 #define AzOptionVirtualKeyCodeCombo_None { .None = { .tag = AzOptionVirtualKeyCodeComboTag_None } }
 #define AzOptionVirtualKeyCodeCombo_Some(v) { .Some = { .tag = AzOptionVirtualKeyCodeComboTag_Some, .payload = v } }
 #define AzOptionMouseState_None { .None = { .tag = AzOptionMouseStateTag_None } }
@@ -11321,6 +11386,10 @@ typedef struct AzCss AzCss;
 #define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
 #define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
 #define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
+AzLogicalRect AzLogicalRectVecArray[] = {};
+#define AzLogicalRectVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzLogicalRect), .cap = sizeof(v) / sizeof(AzLogicalRect), .destructor = { .NoDestructor = { .tag = AzLogicalRectVecDestructorTag_NoDestructor, }, }, }
+#define AzLogicalRectVec_empty { .ptr = &AzLogicalRectVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzLogicalRectVecDestructorTag_NoDestructor, }, }, }
+
 AzNodeTypeIdInfoMap AzNodeTypeIdInfoMapVecArray[] = {};
 #define AzNodeTypeIdInfoMapVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzNodeTypeIdInfoMap), .cap = sizeof(v) / sizeof(AzNodeTypeIdInfoMap), .destructor = { .NoDestructor = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor, }, }, }
 #define AzNodeTypeIdInfoMapVec_empty { .ptr = &AzNodeTypeIdInfoMapVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzNodeTypeIdInfoMapVecDestructorTag_NoDestructor, }, }, }
@@ -11616,6 +11685,7 @@ extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getNodeIdOfRootDataset(AzCallb
 extern DLLIMPORT AzOptionString AzCallbackInfo_getStringContents(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionInlineText AzCallbackInfo_getInlineText(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionFontRef AzCallbackInfo_getFontRef(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
+extern DLLIMPORT AzOptionResolvedTextLayoutOptions AzCallbackInfo_getTextLayoutOptions(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionInlineText AzCallbackInfo_shapeText(const AzCallbackInfo* callbackinfo, AzDomNodeId  node_id, AzString  text);
 extern DLLIMPORT size_t AzCallbackInfo_getIndexInParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
 extern DLLIMPORT AzOptionDomNodeId AzCallbackInfo_getParent(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
@@ -11656,6 +11726,7 @@ extern DLLIMPORT void AzInlineWord_delete(AzInlineWord* restrict instance);
 extern DLLIMPORT void AzInlineTextContents_delete(AzInlineTextContents* restrict instance);
 extern DLLIMPORT void AzFocusTarget_delete(AzFocusTarget* restrict instance);
 extern DLLIMPORT void AzFocusTargetPath_delete(AzFocusTargetPath* restrict instance);
+extern DLLIMPORT void AzResolvedTextLayoutOptions_delete(AzResolvedTextLayoutOptions* restrict instance);
 extern DLLIMPORT void AzAnimation_delete(AzAnimation* restrict instance);
 extern DLLIMPORT void AzIFrameCallbackReturn_delete(AzIFrameCallbackReturn* restrict instance);
 extern DLLIMPORT AzOptionGl AzRenderImageCallbackInfo_getGlContext(const AzRenderImageCallbackInfo* renderimagecallbackinfo);
@@ -12212,6 +12283,7 @@ extern DLLIMPORT void AzRawImageData_delete(AzRawImageData* restrict instance);
 extern DLLIMPORT void AzFontSource_delete(AzFontSource* restrict instance);
 extern DLLIMPORT AzFontRef AzFontRef_parse(AzFontSource  source);
 extern DLLIMPORT AzFontMetrics AzFontRef_getFontMetrics(const AzFontRef* fontref);
+extern DLLIMPORT AzInlineText AzFontRef_shapeText(const AzFontRef* fontref, AzRefstr  text, AzResolvedTextLayoutOptions  options);
 extern DLLIMPORT void AzFontRef_delete(AzFontRef* restrict instance);
 extern DLLIMPORT AzFontRef AzFontRef_deepCopy(AzFontRef* const instance);
 extern DLLIMPORT AzSvg AzSvg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
@@ -12307,6 +12379,7 @@ extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t ptr, size_t start, size
 extern DLLIMPORT AzString AzString_trim(const AzString* string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(const AzString* string);
 extern DLLIMPORT void AzString_delete(AzString* restrict instance);
+extern DLLIMPORT void AzLogicalRectVec_delete(AzLogicalRectVec* restrict instance);
 extern DLLIMPORT void AzNodeTypeIdInfoMapVec_delete(AzNodeTypeIdInfoMapVec* restrict instance);
 extern DLLIMPORT void AzInputOutputTypeIdInfoMapVec_delete(AzInputOutputTypeIdInfoMapVec* restrict instance);
 extern DLLIMPORT void AzNodeIdNodeMapVec_delete(AzNodeIdNodeMapVec* restrict instance);
@@ -12372,6 +12445,7 @@ extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance)
 extern DLLIMPORT void AzTagIdToNodeIdMappingVec_delete(AzTagIdToNodeIdMappingVec* restrict instance);
 extern DLLIMPORT void AzParentWithNodeDepthVec_delete(AzParentWithNodeDepthVec* restrict instance);
 extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
+extern DLLIMPORT void AzOptionResolvedTextLayoutOptions_delete(AzOptionResolvedTextLayoutOptions* restrict instance);
 extern DLLIMPORT void AzOptionNodeGraphOnNodeAdded_delete(AzOptionNodeGraphOnNodeAdded* restrict instance);
 extern DLLIMPORT void AzOptionNodeGraphOnNodeRemoved_delete(AzOptionNodeGraphOnNodeRemoved* restrict instance);
 extern DLLIMPORT void AzOptionNodeGraphOnNodeGraphDragged_delete(AzOptionNodeGraphOnNodeGraphDragged* restrict instance);
@@ -17680,6 +17754,20 @@ bool AzStyleFontFamilyVecDestructor_matchMutExternal(AzStyleFontFamilyVecDestruc
     return valid;
 }
 
+bool AzLogicalRectVecDestructor_matchRefExternal(const AzLogicalRectVecDestructor* value, const AzLogicalRectVecDestructorType** restrict out) {
+    const AzLogicalRectVecDestructorVariant_External* casted = (const AzLogicalRectVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzLogicalRectVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzLogicalRectVecDestructor_matchMutExternal(AzLogicalRectVecDestructor* restrict value, AzLogicalRectVecDestructorType* restrict * restrict out) {
+    AzLogicalRectVecDestructorVariant_External* restrict casted = (AzLogicalRectVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzLogicalRectVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
 bool AzNodeTypeIdInfoMapVecDestructor_matchRefExternal(const AzNodeTypeIdInfoMapVecDestructor* value, const AzNodeTypeIdInfoMapVecDestructorType** restrict out) {
     const AzNodeTypeIdInfoMapVecDestructorVariant_External* casted = (const AzNodeTypeIdInfoMapVecDestructorVariant_External*)value;
     bool valid = casted->tag == AzNodeTypeIdInfoMapVecDestructorTag_External;
@@ -18530,6 +18618,20 @@ bool AzNodeDataVecDestructor_matchRefExternal(const AzNodeDataVecDestructor* val
 bool AzNodeDataVecDestructor_matchMutExternal(AzNodeDataVecDestructor* restrict value, AzNodeDataVecDestructorType* restrict * restrict out) {
     AzNodeDataVecDestructorVariant_External* restrict casted = (AzNodeDataVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionResolvedTextLayoutOptions_matchRefSome(const AzOptionResolvedTextLayoutOptions* value, const AzResolvedTextLayoutOptions** restrict out) {
+    const AzOptionResolvedTextLayoutOptionsVariant_Some* casted = (const AzOptionResolvedTextLayoutOptionsVariant_Some*)value;
+    bool valid = casted->tag == AzOptionResolvedTextLayoutOptionsTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionResolvedTextLayoutOptions_matchMutSome(AzOptionResolvedTextLayoutOptions* restrict value, AzResolvedTextLayoutOptions* restrict * restrict out) {
+    AzOptionResolvedTextLayoutOptionsVariant_Some* restrict casted = (AzOptionResolvedTextLayoutOptionsVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionResolvedTextLayoutOptionsTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

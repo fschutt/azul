@@ -1214,6 +1214,14 @@
                             "returns": {"type": "OptionFontRef"},
                             "fn_body": "callbackinfo.get_font_ref(node_id).into()"
                         },
+                        "get_text_layout_options": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"node_id": "DomNodeId"}
+                            ],
+                            "returns": {"type": "OptionResolvedTextLayoutOptions"},
+                            "fn_body": "callbackinfo.get_text_layout_options(node_id).into()"
+                        },
                         "shape_text": {
                             "doc": "Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.",
                             "fn_args": [
@@ -1666,6 +1674,19 @@
                     "struct_fields": [
                         {"dom": {"type": "DomId"}},
                         {"css_path": {"type": "CssPath"}}
+                    ]
+                },
+                "ResolvedTextLayoutOptions": {
+                    "external": "azul_impl::ui_solver::ResolvedTextLayoutOptions",
+                    "struct_fields": [
+                        {"font_size_px": {"type": "f32"}},
+                        {"line_height": {"type": "OptionF32"}},
+                        {"letter_spacing": {"type": "OptionF32"}},
+                        {"word_spacing": {"type": "OptionF32"}},
+                        {"tab_width": {"type": "OptionF32"}},
+                        {"max_horizontal_width": {"type": "OptionF32"}},
+                        {"leading": {"type": "OptionF32"}},
+                        {"holes": {"type": "LogicalRectVec"}}
                     ]
                 },
                 "Animation": {
@@ -10705,6 +10726,16 @@
                             ],
                             "returns": {"type": "FontMetrics"},
                             "fn_body": "azul_impl::text_layout::get_font_metrics_fontref(fontref)"
+                        },
+                        "shape_text": {
+                            "doc": "Returns the text layout of the shaped text",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"text": "Refstr"},
+                                {"options": "ResolvedTextLayoutOptions"}
+                            ],
+                            "returns": {"type": "InlineText"},
+                            "fn_body": "azul_impl::text_layout::shape_text(fontref, text.as_str(), &options)"
                         }
                     }
                 }
@@ -12014,6 +12045,17 @@
         "vec": {
             "doc": "Definition of azuls internal `Vec<*>` wrappers",
             "classes": {
+                "LogicalRectVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<LogicalRect>`",
+                    "custom_destructor": true,
+                    "external": "azul_core::window::LogicalRectVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const LogicalRect" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "LogicalRectVecDestructor" } }
+                    ]
+                },
                 "NodeTypeIdInfoMapVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`",
                     "custom_destructor": true,
@@ -12740,6 +12782,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "LogicalRectVecDestructor": {
+                    "external": "azul_core::window::LogicalRectVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "LogicalRectVecDestructorType"}}
+                    ]
+                },
+                "LogicalRectVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "LogicalRectVec", "ref": "refmut"}
                         ]
                     }
                 },
@@ -13724,6 +13782,13 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionResolvedTextLayoutOptions": {
+                    "external": "azul_impl::ui_solver::OptionResolvedTextLayoutOptions",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "ResolvedTextLayoutOptions"}}
+                    ]
+                },
                 "OptionNodeGraphOnNodeAdded": {
                     "external": "crate::widgets::node_graph::OptionOnNodeAdded",
                     "enum_fields": [

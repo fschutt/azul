@@ -2949,6 +2949,19 @@ mod dll {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzLogicalRectVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzLogicalRectVecDestructorType),
+    }
+
+    /// `AzLogicalRectVecDestructorType` struct
+    pub type AzLogicalRectVecDestructorType = extern "C" fn(&mut AzLogicalRectVec);
+
     /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
@@ -6105,6 +6118,15 @@ mod dll {
         pub callback: AzWriteBackCallback,
     }
 
+    /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
+    #[repr(C)]
+    pub struct AzLogicalRectVec {
+        pub(crate) ptr: *const AzLogicalRect,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzLogicalRectVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
     #[repr(C)]
     pub struct AzInputOutputTypeIdVec {
@@ -7083,6 +7105,22 @@ mod dll {
         pub bounds: AzLogicalRect,
     }
 
+    /// Re-export of rust-allocated (stack based) `ResolvedTextLayoutOptions` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzResolvedTextLayoutOptions {
+        pub font_size_px: f32,
+        pub line_height: AzOptionF32,
+        pub letter_spacing: AzOptionF32,
+        pub word_spacing: AzOptionF32,
+        pub tab_width: AzOptionF32,
+        pub max_horizontal_width: AzOptionF32,
+        pub leading: AzOptionF32,
+        pub holes: AzLogicalRectVec,
+    }
+
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
     #[repr(C, u8)]
     #[derive(Debug)]
@@ -7610,6 +7648,16 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdToNodeIdMappingVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionResolvedTextLayoutOptions {
+        None,
+        Some(AzResolvedTextLayoutOptions),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
@@ -9447,6 +9495,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_getStringContents(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionString;
         pub(crate) fn AzCallbackInfo_getInlineText(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionInlineText;
         pub(crate) fn AzCallbackInfo_getFontRef(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionFontRef;
+        pub(crate) fn AzCallbackInfo_getTextLayoutOptions(_:  &AzCallbackInfo, _:  AzDomNodeId) -> AzOptionResolvedTextLayoutOptions;
         pub(crate) fn AzCallbackInfo_shapeText(_:  &AzCallbackInfo, _:  AzDomNodeId, _:  AzString) -> AzOptionInlineText;
         pub(crate) fn AzCallbackInfo_getIndexInParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> usize;
         pub(crate) fn AzCallbackInfo_getParent(_:  &mut AzCallbackInfo, _:  AzDomNodeId) -> AzOptionDomNodeId;
@@ -9937,6 +9986,7 @@ mod dll {
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzFontRef_parse(_:  AzFontSource) -> AzOptionFontRef;
         pub(crate) fn AzFontRef_getFontMetrics(_:  &AzFontRef) -> AzFontMetrics;
+        pub(crate) fn AzFontRef_shapeText(_:  &AzFontRef, _:  AzRefstr, _:  AzResolvedTextLayoutOptions) -> AzInlineText;
         pub(crate) fn AzFontRef_delete(_:  &mut AzFontRef);
         pub(crate) fn AzFontRef_deepCopy(_:  &AzFontRef) -> AzFontRef;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
@@ -10014,6 +10064,7 @@ mod dll {
         pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzLogicalRectVec_delete(_:  &mut AzLogicalRectVec);
         pub(crate) fn AzNodeTypeIdInfoMapVec_delete(_:  &mut AzNodeTypeIdInfoMapVec);
         pub(crate) fn AzInputOutputTypeIdInfoMapVec_delete(_:  &mut AzInputOutputTypeIdInfoMapVec);
         pub(crate) fn AzNodeIdNodeMapVec_delete(_:  &mut AzNodeIdNodeMapVec);
@@ -10613,6 +10664,8 @@ pub mod callbacks {
         pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_getInlineText(self, node_id) } }
         /// If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string
         pub fn get_font_ref(&self, node_id: DomNodeId)  -> crate::option::OptionFontRef { unsafe { crate::dll::AzCallbackInfo_getFontRef(self, node_id) } }
+        /// Calls the `CallbackInfo::get_text_layout_options` function.
+        pub fn get_text_layout_options(&self, node_id: DomNodeId)  -> crate::option::OptionResolvedTextLayoutOptions { unsafe { crate::dll::AzCallbackInfo_getTextLayoutOptions(self, node_id) } }
         /// Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.
         pub fn shape_text(&self, node_id: DomNodeId, text: String)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_shapeText(self, node_id, text) } }
         /// Returns the index of the node relative to the parent node.
@@ -10735,6 +10788,9 @@ pub mod callbacks {
     /// CSS path to set the keyboard input focus
     
 #[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
+    /// `ResolvedTextLayoutOptions` struct
+    
+#[doc(inline)] pub use crate::dll::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
     /// Animation struct to start a new animation
     
 #[doc(inline)] pub use crate::dll::AzAnimation as Animation;
@@ -15332,6 +15388,8 @@ pub mod font {
     //! Font decoding / parsing module
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::gl::Refstr;
+    use crate::callbacks::ResolvedTextLayoutOptions;
     /// `ParsedFontDestructorFnType` struct
     
 #[doc(inline)] pub use crate::dll::AzParsedFontDestructorFnType as ParsedFontDestructorFnType;
@@ -15349,6 +15407,8 @@ pub mod font {
         pub fn parse(source: FontSource) ->  crate::option::OptionFontRef { unsafe { crate::dll::AzFontRef_parse(source) } }
         /// Returns the font metrics of the parsed font
         pub fn get_font_metrics(&self)  -> crate::font::FontMetrics { unsafe { crate::dll::AzFontRef_getFontMetrics(self) } }
+        /// Returns the text layout of the shaped text
+        pub fn shape_text(&self, text: Refstr, options: ResolvedTextLayoutOptions)  -> crate::callbacks::InlineText { unsafe { crate::dll::AzFontRef_shapeText(self, text, options) } }
     }
 
     impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }
@@ -16255,6 +16315,9 @@ pub mod vec {
     impl_vec_clone!(AzOutputConnection, AzOutputConnectionVec, AzOutputConnectionVecDestructor);
     impl_vec!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor, az_input_node_and_index_vec_destructor, AzInputNodeAndIndexVec_delete);
     impl_vec_clone!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor);
+    impl_vec!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor, az_logical_rect_vec_destructor, AzLogicalRectVec_delete);
+    impl_vec_clone!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor);
+
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
@@ -16268,7 +16331,10 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
+    }    /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
+    
+#[doc(inline)] pub use crate::dll::AzLogicalRectVec as LogicalRectVec;
+    /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
     
 #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVec as NodeTypeIdInfoMapVec;
     /// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
@@ -16472,6 +16538,12 @@ pub mod vec {
     /// `StyleFontFamilyVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    /// `LogicalRectVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructor as LogicalRectVecDestructor;
+    /// `LogicalRectVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructorType as LogicalRectVecDestructorType;
     /// `NodeTypeIdInfoMapVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructor as NodeTypeIdInfoMapVecDestructor;
@@ -17019,7 +17091,10 @@ pub mod option {
     impl_option!(AzNodeGraphOnNodeConnected, AzOptionNodeGraphOnNodeConnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeInputDisconnected, AzOptionNodeGraphOnNodeInputDisconnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeOutputDisconnected, AzOptionNodeGraphOnNodeOutputDisconnected, [Debug, Copy, Clone]);
-    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);    /// `OptionNodeGraphOnNodeAdded` struct
+    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);    /// `OptionResolvedTextLayoutOptions` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionResolvedTextLayoutOptions as OptionResolvedTextLayoutOptions;
+    /// `OptionNodeGraphOnNodeAdded` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeAdded as OptionNodeGraphOnNodeAdded;
     /// `OptionNodeGraphOnNodeRemoved` struct

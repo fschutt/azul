@@ -115,6 +115,9 @@ namespace dll {
     struct StyleFontFamilyVec;
     using StyleFontFamilyVecDestructorType = void(*)(StyleFontFamilyVec* restrict);
     
+    struct LogicalRectVec;
+    using LogicalRectVecDestructorType = void(*)(LogicalRectVec* restrict);
+    
     struct NodeTypeIdInfoMapVec;
     using NodeTypeIdInfoMapVecDestructorType = void(*)(NodeTypeIdInfoMapVec* restrict);
     
@@ -2130,6 +2133,22 @@ namespace dll {
         StyleFontFamilyVecDestructorVariant_DefaultRust DefaultRust;
         StyleFontFamilyVecDestructorVariant_NoDestructor NoDestructor;
         StyleFontFamilyVecDestructorVariant_External External;
+    };
+    
+    
+    enum class LogicalRectVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct LogicalRectVecDestructorVariant_DefaultRust { LogicalRectVecDestructorTag tag; };
+    struct LogicalRectVecDestructorVariant_NoDestructor { LogicalRectVecDestructorTag tag; };
+    struct LogicalRectVecDestructorVariant_External { LogicalRectVecDestructorTag tag; LogicalRectVecDestructorType payload; };
+    union LogicalRectVecDestructor {
+        LogicalRectVecDestructorVariant_DefaultRust DefaultRust;
+        LogicalRectVecDestructorVariant_NoDestructor NoDestructor;
+        LogicalRectVecDestructorVariant_External External;
     };
     
     
@@ -5676,6 +5695,16 @@ namespace dll {
         ThreadWriteBackMsg() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct LogicalRectVec {
+        LogicalRect* ptr;
+        size_t len;
+        size_t cap;
+        LogicalRectVecDestructor destructor;
+        LogicalRectVec& operator=(const LogicalRectVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        LogicalRectVec(const LogicalRectVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        LogicalRectVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct InputOutputTypeIdVec {
         InputOutputTypeId* ptr;
         size_t len;
@@ -6787,6 +6816,20 @@ namespace dll {
         InlineTextContents() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ResolvedTextLayoutOptions {
+        float font_size_px;
+        OptionF32 line_height;
+        OptionF32 letter_spacing;
+        OptionF32 word_spacing;
+        OptionF32 tab_width;
+        OptionF32 max_horizontal_width;
+        OptionF32 leading;
+        LogicalRectVec holes;
+        ResolvedTextLayoutOptions& operator=(const ResolvedTextLayoutOptions&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ResolvedTextLayoutOptions(const ResolvedTextLayoutOptions&) = delete; /* disable copy constructor, use explicit .clone() */
+        ResolvedTextLayoutOptions() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     enum class AnimationEasingTag {
        Ease,
        Linear,
@@ -7395,6 +7438,19 @@ namespace dll {
         TagIdToNodeIdMappingVec(const TagIdToNodeIdMappingVec&) = delete; /* disable copy constructor, use explicit .clone() */
         TagIdToNodeIdMappingVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
+    
+    enum class OptionResolvedTextLayoutOptionsTag {
+       None,
+       Some,
+    };
+    
+    struct OptionResolvedTextLayoutOptionsVariant_None { OptionResolvedTextLayoutOptionsTag tag; };
+    struct OptionResolvedTextLayoutOptionsVariant_Some { OptionResolvedTextLayoutOptionsTag tag; ResolvedTextLayoutOptions payload; };
+    union OptionResolvedTextLayoutOptions {
+        OptionResolvedTextLayoutOptionsVariant_None None;
+        OptionResolvedTextLayoutOptionsVariant_Some Some;
+    };
+    
     
     enum class OptionVirtualKeyCodeComboTag {
        None,
@@ -9586,6 +9642,7 @@ namespace dll {
         OptionString CallbackInfo_getStringContents(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionInlineText CallbackInfo_getInlineText(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionFontRef CallbackInfo_getFontRef(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
+        OptionResolvedTextLayoutOptions CallbackInfo_getTextLayoutOptions(const CallbackInfo* callbackinfo, AzDomNodeId  node_id);
         OptionInlineText CallbackInfo_shapeText(const CallbackInfo* callbackinfo, AzDomNodeId  node_id, AzString  text);
         size_t CallbackInfo_getIndexInParent(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
         OptionDomNodeId CallbackInfo_getParent(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id);
@@ -9626,6 +9683,7 @@ namespace dll {
         void InlineTextContents_delete(InlineTextContents* restrict instance);
         void FocusTarget_delete(FocusTarget* restrict instance);
         void FocusTargetPath_delete(FocusTargetPath* restrict instance);
+        void ResolvedTextLayoutOptions_delete(ResolvedTextLayoutOptions* restrict instance);
         void Animation_delete(Animation* restrict instance);
         void IFrameCallbackReturn_delete(IFrameCallbackReturn* restrict instance);
         OptionGl RenderImageCallbackInfo_getGlContext(const RenderImageCallbackInfo* renderimagecallbackinfo);
@@ -10182,6 +10240,7 @@ namespace dll {
         void FontSource_delete(FontSource* restrict instance);
         FontRef FontRef_parse(AzFontSource  source);
         FontMetrics FontRef_getFontMetrics(const FontRef* fontref);
+        InlineText FontRef_shapeText(const FontRef* fontref, AzRefstr  text, AzResolvedTextLayoutOptions  options);
         void FontRef_delete(FontRef* restrict instance);
         FontRef FontRef_deepCopy(FontRef* const instance);
         Svg Svg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
@@ -10277,6 +10336,7 @@ namespace dll {
         String String_trim(const String* string);
         Refstr String_asRefstr(const String* string);
         void String_delete(String* restrict instance);
+        void LogicalRectVec_delete(LogicalRectVec* restrict instance);
         void NodeTypeIdInfoMapVec_delete(NodeTypeIdInfoMapVec* restrict instance);
         void InputOutputTypeIdInfoMapVec_delete(InputOutputTypeIdInfoMapVec* restrict instance);
         void NodeIdNodeMapVec_delete(NodeIdNodeMapVec* restrict instance);
@@ -10342,6 +10402,7 @@ namespace dll {
         void TagIdToNodeIdMappingVec_delete(TagIdToNodeIdMappingVec* restrict instance);
         void ParentWithNodeDepthVec_delete(ParentWithNodeDepthVec* restrict instance);
         void NodeDataVec_delete(NodeDataVec* restrict instance);
+        void OptionResolvedTextLayoutOptions_delete(OptionResolvedTextLayoutOptions* restrict instance);
         void OptionNodeGraphOnNodeAdded_delete(OptionNodeGraphOnNodeAdded* restrict instance);
         void OptionNodeGraphOnNodeRemoved_delete(OptionNodeGraphOnNodeRemoved* restrict instance);
         void OptionNodeGraphOnNodeGraphDragged_delete(OptionNodeGraphOnNodeGraphDragged* restrict instance);

@@ -12,9 +12,14 @@ use azul_desktop::{
     task::OptionTimerId,
     callbacks::{RefAny, Callback, CallbackInfo, Update},
 };
-use azul_core::{callbacks::{Animation, AnimationRepeatCount}, task::SystemTimeDiff, window::{KeyboardState, VirtualKeyCode}};
+use azul_core::{
+    callbacks::{Animation, AnimationRepeatCount, InlineText, DomNodeId},
+    task::SystemTimeDiff,
+    window::{KeyboardState, LogicalPosition, VirtualKeyCode},
+};
 use alloc::vec::Vec;
 use alloc::string::String;
+use azul_impl::text_layout::text_layout;
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
@@ -119,7 +124,7 @@ const TEXT_CURSOR_TRANSFORM: &[StyleTransform] = &[
 static TEXT_CURSOR_PROPS: &[NodeDataInlineCssProperty] = &[
     Normal(CssProperty::const_position(LayoutPosition::Absolute)),
     Normal(CssProperty::const_width(LayoutWidth::const_px(1))),
-    Normal(CssProperty::const_height(LayoutHeight::const_px(13))),
+    Normal(CssProperty::const_height(LayoutHeight::const_px(11))),
     Normal(CssProperty::const_background_content(CURSOR_COLOR)),
     Normal(CssProperty::const_opacity(StyleOpacity::const_new(0))),
     Normal(CssProperty::const_transform(StyleTransformVec::from_const_slice(TEXT_CURSOR_TRANSFORM))),
@@ -489,7 +494,8 @@ impl TextInputState {
         .collect()
     }
 
-    fn handle_on_text_input(&mut self, c: char) {
+    #[must_use]
+    fn handle_on_text_input(&mut self, c: char) -> usize {
         match self.selection.clone().into_option() {
             None => {
                 if self.cursor_pos >= self.text.len() {
@@ -498,15 +504,17 @@ impl TextInputState {
                     // TODO: insert character at the cursor location!
                     self.text.insert(self.cursor_pos, c as u32);
                 }
-                self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
+                let cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
+                cursor_pos
             },
             Some(TextInputSelection::All) => {
                 self.text = vec![c as u32].into();
-                self.cursor_pos = 1;
                 self.selection = None.into();
+                let cursor_pos = 1;
+                return cursor_pos;
             },
             Some(TextInputSelection::FromTo(range)) => {
-                self.delete_selection(range.from..range.to, Some(c));
+                return self.delete_selection(range.from..range.to, Some(c));
             },
         }
     }
@@ -518,8 +526,10 @@ impl TextInputState {
         virtual_key: VirtualKeyCode,
         keyboard_state: &KeyboardState,
         info: &mut CallbackInfo,
-    ) -> bool {
-        match virtual_key {
+    ) -> (bool, usize) {
+        let mut cursor_pos = self.cursor_pos;
+
+        let update = match virtual_key {
             VirtualKeyCode::Back => {
                 // TODO: shift + back = delete last word
                 let selection = self.selection.clone();
@@ -530,11 +540,11 @@ impl TextInputState {
                         } else {
                             self.text.remove(self.cursor_pos);
                         }
-                        self.cursor_pos = self.cursor_pos.saturating_sub(1);
+                        cursor_pos = self.cursor_pos.saturating_sub(1);
                     },
                     Some(TextInputSelection::All) => {
                         self.text = Vec::new().into();
-                        self.cursor_pos = 0;
+                        cursor_pos = 0;
                         self.selection = None.into();
                     },
                     Some(TextInputSelection::FromTo(range)) => {
@@ -544,12 +554,12 @@ impl TextInputState {
                 true
             },
             VirtualKeyCode::Home => {
-                self.cursor_pos = 0;
+                cursor_pos = 0;
                 self.selection = None.into();
                 true
             },
             VirtualKeyCode::End => {
-                self.cursor_pos = self.text.len();
+                cursor_pos = self.text.len();
                 self.selection = None.into();
                 true
             },
@@ -567,11 +577,11 @@ impl TextInputState {
                 true
             },
             VirtualKeyCode::Right => {
-                self.cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
+                cursor_pos = self.cursor_pos.saturating_add(1).min(self.text.len());
                 true
             },
             VirtualKeyCode::Left => {
-                self.cursor_pos = self.cursor_pos.saturating_sub(1).min(self.text.len());
+                cursor_pos = self.cursor_pos.saturating_sub(1).min(self.text.len());
                 true
             },
             // ctrl + a
@@ -610,10 +620,15 @@ impl TextInputState {
             }
             */
             _ => false,
-        }
+        };
+
+        (update, cursor_pos)
     }
 
-    fn delete_selection(&mut self, selection: Range<usize>, new_text: Option<char>) {
+    #[must_use]
+    fn delete_selection(&mut self, selection: Range<usize>, new_text: Option<char>) -> usize {
+        let mut cursor_pos = self.cursor_pos;
+
         let Range { start, end } = selection;
         let max = end.min(self.text.len() - 1);
 
@@ -621,22 +636,24 @@ impl TextInputState {
             self.text.truncate(start);
             if let Some(new) = new_text {
                 self.text.push(new as u32);
-                self.cursor_pos = start + 1;
+                cursor_pos = start + 1;
             } else {
-                self.cursor_pos = start;
+                cursor_pos = start;
             }
         } else {
             let end = self.text.as_ref()[max..].to_vec();
             self.text.truncate(start);
             if let Some(new) = new_text {
                 self.text.push(new as u32);
-                self.cursor_pos = start + 1;
+                cursor_pos = start + 1;
             } else {
-                self.cursor_pos = start;
+                cursor_pos = start;
             }
             let mut end: U32Vec = end.into();
             self.text.append(&mut end);
         }
+
+        return cursor_pos;
     }
 }
 
@@ -681,7 +698,7 @@ extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut Callback
 
         // inner_clone has the new text
         let mut inner_clone = text_input.inner.clone();
-        inner_clone.handle_on_text_input(c);
+        let new_cursor_pos = inner_clone.handle_on_text_input(c);
 
         match ontextinput.as_mut() {
             Some(TextInputOnTextInput { callback, data }) => (callback.cb)(data, info, &inner_clone),
@@ -692,15 +709,18 @@ extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut Callback
         }
     };
 
+    let new_text = text_input.inner.get_text();
+
     if result.valid == TextInputValid::Yes {
-        text_input.inner.handle_on_text_input(c);
+        // Update the string, cursor position on the screen and selection background
+        let new_cursor = text_input.inner.handle_on_text_input(c);
+        text_input.inner.set_cursor_pos(new_cursor, new_text.as_ref(), label_node_id, info);
+
+        // TODO: restart the timer for cursor blinking
+        // info.update_image(selection_node_id, render_selection(self.selection));
     }
 
-    // Update the string, cursor position on the screen and selection background
-    // TODO: restart the timer for cursor blinking
-    info.set_string_contents(label_node_id, text_input.inner.get_text().into());
-    // info.set_css_property(cursor_node_id, CssProperty::const_transform(get_cursor_transform(info.get_text_contents()[self.cursor_pos])))
-    // info.update_image(selection_node_id, render_selection(self.selection));
+    info.set_string_contents(label_node_id, new_text.into());
 
     result.update
 }
@@ -738,24 +758,49 @@ extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, info: &mut Ca
         }
     };
 
+    let new_text = text_input.inner.get_text();
     if result.valid == TextInputValid::Yes {
-        if text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info) {
+        let (should_update, new_cursor) = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info);
+        if should_update {
             if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
-                info.set_string_contents(label_node_id, text_input.inner.get_text().into());
-                // set_cursor_position(text_input.cursor)
+                text_input.inner.set_cursor_pos(
+                    new_cursor,
+                    &new_text,
+                    label_node_id,
+                    info,
+                );
                 // set_selection(text_input.cursor)
             };
         }
+    }
+
+    if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
+        info.set_string_contents(label_node_id, new_text.into());
     }
 
     result.update
 }
 
 extern "C" fn default_on_container_click(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    let label_node_id = match info.get_first_child(info.get_hit_node()) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let new_cursor_pos = text_input.inner.text.len();
+    let new_text = text_input.inner.get_text();
+    text_input.inner.set_cursor_pos(
+        new_cursor_pos,
+        &new_text,
+        label_node_id,
+        info,
+    );
 
     println!("container clicked at position {:?}", info.get_cursor_relative_to_node());
 
@@ -764,12 +809,42 @@ extern "C" fn default_on_container_click(text_input: &mut RefAny, info: &mut Cal
 }
 
 extern "C" fn default_on_label_click(text_input: &mut RefAny, info: &mut CallbackInfo) -> Update {
+
     let mut text_input = match text_input.downcast_mut::<TextInputStateWrapper>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
+    let text_layout = match info.get_inline_text(info.get_hit_node()) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let cursor_pos = match info.get_cursor_relative_to_node().into_option() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let hits = text_layout.hit_test(cursor_pos);
+
+    let hit = if hits.is_empty() {
+        return Update::DoNothing;
+    } else {
+        hits[0].clone()
+    };
+
     println!("label clicked at position {:?}", info.get_cursor_relative_to_node());
+    println!("hit: {:#?}", hit);
+
+    let label_node_id = info.get_hit_node();
+    let new_cursor_pos = hit.char_index_relative_to_text;
+    let new_text = text_input.inner.get_text();
+    text_input.inner.set_cursor_pos(
+        new_cursor_pos,
+        &new_text,
+        label_node_id,
+        info
+    );
 
     info.stop_propagation();
 
@@ -851,6 +926,90 @@ extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut Callback
     */
 
     result
+}
+
+// determine the cursor position from the x position that was clicked
+impl TextInputState {
+
+    // Updates the cursor position and scrolls
+    // the text to the correct position
+    pub fn set_cursor_pos(
+        &mut self,
+        new_cursor: usize,
+        new_text: &str,
+        label_node_id: DomNodeId,
+        info: &mut CallbackInfo,
+    ) {
+
+        use azul_core::callbacks::InlineWord;
+
+        let cursor_node_id = match info.get_first_child(label_node_id) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let text_font_ref = match info.get_font_ref(label_node_id) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let text_layout_options = match info.get_text_layout_options(label_node_id) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let text_layout = azul_desktop::text_layout::shape_text(
+            &text_font_ref,
+            new_text,
+            &text_layout_options
+        );
+
+        let first_line = match text_layout.lines.get(0) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let mut cursor_x = 0.0;
+        let mut cur_pos = 0;
+
+        for word in first_line.words.iter() {
+            match word {
+                InlineWord::Tab => {
+                    cur_pos += 1;
+                },
+                InlineWord::Return => {
+                    return; // impossible in single-line text
+                },
+                InlineWord::Space => {
+                    cur_pos += 1;
+                },
+                InlineWord::Word(tc) => {
+                    for g in tc.glyphs.iter() {
+                        cursor_x += g.bounds.size.width;
+                        cur_pos += 1;
+                        if cur_pos >= new_cursor {
+                            break;
+                        }
+                    }
+                },
+            }
+
+            if cur_pos >= new_cursor {
+                break;
+            }
+        }
+
+        info.set_css_property(cursor_node_id, CssProperty::const_transform(vec![
+            StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::px(cursor_x),
+                y: PixelValue::px(2.0),
+            })
+        ].into()));
+
+        // if cursor_x > bounds.width() { }
+
+        self.cursor_pos = new_cursor;
+    }
 }
 
 impl From<TextInput> for Dom {

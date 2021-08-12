@@ -2439,6 +2439,15 @@ impl LogicalRect {
     }
 }
 
+impl_vec!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor);
+impl_vec_clone!(LogicalRect, LogicalRectVec, LogicalRectVecDestructor);
+impl_vec_debug!(LogicalRect, LogicalRectVec);
+impl_vec_partialeq!(LogicalRect, LogicalRectVec);
+impl_vec_partialord!(LogicalRect, LogicalRectVec);
+impl_vec_ord!(LogicalRect, LogicalRectVec);
+impl_vec_hash!(LogicalRect, LogicalRectVec);
+impl_vec_eq!(LogicalRect, LogicalRectVec);
+
 use core::ops::SubAssign;
 use core::ops::AddAssign;
 

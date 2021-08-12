@@ -17,32 +17,19 @@ use azul_css::{
     CssPropertyType, FontRef,
 };
 use rust_fontconfig::FcFontCache;
-use crate::{
-    FastHashMap, FastBTreeSet,
-    app_resources::{
+use crate::{FastBTreeSet, FastHashMap, app_resources::{
         ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
-    },
-    window::{AzStringPair, OptionLogicalPosition},
-    styled_dom::{StyledDom, CssPropertyCache, StyledNode},
-    ui_solver::{
-        OverflowingScrollNode, PositionedRectangle,
-        LayoutResult, PositionInfo,
-    },
-    styled_dom::{DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledNodeVec},
-    id_tree::{NodeId, NodeDataContainer},
-    window::{
-        WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
-        LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
-        RawWindowHandle, KeyboardState, MouseState, LogicalRect, WindowTheme,
-    },
-    task::{
+    }, id_tree::{NodeId, NodeDataContainer}, styled_dom::{StyledDom, CssPropertyCache, StyledNode}, styled_dom::{DomId, NodeHierarchyItemId, NodeHierarchyItemVec, StyledNodeVec}, task::{
         ThreadSendMsg, Duration as AzDuration, Instant as AzInstant,
         Timer, Thread, TimerId, ThreadId, Instant, ExternalSystemCallbacks,
         TerminateTimer, ThreadSender, ThreadReceiver, GetSystemTimeCallback,
         CreateThreadCallback,
-    },
-};
+    }, ui_solver::{LayoutResult, OverflowingScrollNode, PositionInfo, PositionedRectangle, ResolvedTextLayoutOptions, TextLayoutOptions}, window::{AzStringPair, OptionLogicalPosition}, window::{
+        WindowSize, WindowState, FullWindowState, LogicalPosition, OptionChar,
+        LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
+        RawWindowHandle, KeyboardState, MouseState, LogicalRect, WindowTheme,
+    }};
 use crate::gl::OptionGlContextPtr;
 
 /// Specifies if the screen should be updated after the callback function has returned
@@ -1326,6 +1313,22 @@ impl CallbackInfo {
             return None;
         }
         self.internal_get_font_map().get(&node_id.node.into_crate_internal()?).cloned()
+    }
+
+    pub fn get_text_layout_options(&self, node_id: DomNodeId) -> Option<ResolvedTextLayoutOptions> {
+
+        if node_id.dom != self.get_hit_node().dom {
+            return None;
+        }
+
+        let nid = node_id.node.into_crate_internal()?;
+
+        let positioned_rectangle = self.internal_get_positioned_rectangles();
+        let positioned_rectangle = positioned_rectangle.as_ref();
+        let positioned_rectangle = positioned_rectangle.get(nid)?;
+        let (text_layout_options, _) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
+
+        Some(text_layout_options.clone())
     }
 
     pub fn get_computed_css_property(&self, node_id: DomNodeId, property_type: CssPropertyType) -> Option<CssProperty> {

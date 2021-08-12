@@ -373,6 +373,8 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getInlineText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionInlineText { callbackinfo.get_inline_text(node_id).into() }
 /// If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string
 #[no_mangle] pub extern "C" fn AzCallbackInfo_getFontRef(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionFontRef { callbackinfo.get_font_ref(node_id).into() }
+/// Equivalent to the Rust `CallbackInfo::get_text_layout_options()` function.
+#[no_mangle] pub extern "C" fn AzCallbackInfo_getTextLayoutOptions(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId) -> AzOptionResolvedTextLayoutOptions { callbackinfo.get_text_layout_options(node_id).into() }
 /// Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_shapeText(callbackinfo: &AzCallbackInfo, node_id: AzDomNodeId, text: AzString) -> AzOptionInlineText { azul_impl::text_layout::callback_info_shape_text(callbackinfo, node_id, text).into() }
 /// Returns the index of the node relative to the parent node.
@@ -517,6 +519,12 @@ pub type AzFocusTargetPathTT = azul_impl::callbacks::FocusTargetPath;
 pub use AzFocusTargetPathTT as AzFocusTargetPath;
 /// Destructor: Takes ownership of the `FocusTargetPath` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFocusTargetPath_delete(object: &mut AzFocusTargetPath) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `ResolvedTextLayoutOptions` struct
+pub type AzResolvedTextLayoutOptionsTT = azul_impl::ui_solver::ResolvedTextLayoutOptions;
+pub use AzResolvedTextLayoutOptionsTT as AzResolvedTextLayoutOptions;
+/// Destructor: Takes ownership of the `ResolvedTextLayoutOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzResolvedTextLayoutOptions_delete(object: &mut AzResolvedTextLayoutOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Animation struct to start a new animation
 pub type AzAnimationTT = azul_impl::callbacks::Animation;
@@ -3070,6 +3078,8 @@ pub use AzFontRefTT as AzFontRef;
 #[no_mangle] pub extern "C" fn AzFontRef_parse(source: AzFontSource) -> AzOptionFontRef { azul_impl::text_layout::parse_font_fn(source).into() }
 /// Returns the font metrics of the parsed font
 #[no_mangle] pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics { azul_impl::text_layout::get_font_metrics_fontref(fontref) }
+/// Returns the text layout of the shaped text
+#[no_mangle] pub extern "C" fn AzFontRef_shapeText(fontref: &AzFontRef, text: AzRefstr, options: AzResolvedTextLayoutOptions) -> AzInlineText { azul_impl::text_layout::shape_text(fontref, text.as_str(), &options) }
 /// Destructor: Takes ownership of the `FontRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFontRef_delete(object: &mut AzFontRef) {  unsafe { core::ptr::drop_in_place(object); } }
 /// Clones the object
@@ -3579,6 +3589,12 @@ pub use AzStringTT as AzString;
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzString_delete(object: &mut AzString) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<LogicalRect>`
+pub type AzLogicalRectVecTT = azul_core::window::LogicalRectVec;
+pub use AzLogicalRectVecTT as AzLogicalRectVec;
+/// Destructor: Takes ownership of the `LogicalRectVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzLogicalRectVec_delete(object: &mut AzLogicalRectVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
 pub type AzNodeTypeIdInfoMapVecTT = crate::widgets::node_graph::NodeTypeIdInfoMapVec;
 pub use AzNodeTypeIdInfoMapVecTT as AzNodeTypeIdInfoMapVec;
@@ -3962,6 +3978,11 @@ pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDe
 pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
 
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+/// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
+pub type AzLogicalRectVecDestructorTT = azul_core::window::LogicalRectVecDestructor;
+pub use AzLogicalRectVecDestructorTT as AzLogicalRectVecDestructor;
+
+pub type AzLogicalRectVecDestructorType = extern "C" fn(&mut AzLogicalRectVec);
 /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
 pub type AzNodeTypeIdInfoMapVecDestructorTT = crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor;
 pub use AzNodeTypeIdInfoMapVecDestructorTT as AzNodeTypeIdInfoMapVecDestructor;
@@ -4267,6 +4288,12 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
+pub type AzOptionResolvedTextLayoutOptionsTT = azul_impl::ui_solver::OptionResolvedTextLayoutOptions;
+pub use AzOptionResolvedTextLayoutOptionsTT as AzOptionResolvedTextLayoutOptions;
+/// Destructor: Takes ownership of the `OptionResolvedTextLayoutOptions` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionResolvedTextLayoutOptions_delete(object: &mut AzOptionResolvedTextLayoutOptions) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `OptionNodeGraphOnNodeAdded` struct
 pub type AzOptionNodeGraphOnNodeAddedTT = crate::widgets::node_graph::OptionOnNodeAdded;
 pub use AzOptionNodeGraphOnNodeAddedTT as AzOptionNodeGraphOnNodeAdded;
@@ -6851,6 +6878,17 @@ mod test_sizes {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzLogicalRectVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzLogicalRectVecDestructorType),
+    }
+
+    /// `AzLogicalRectVecDestructorType` struct
+    pub type AzLogicalRectVecDestructorType = extern "C" fn(&mut AzLogicalRectVec);
+
     /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMapVecDestructor` struct
     #[repr(C, u8)]
     pub enum AzNodeTypeIdInfoMapVecDestructor {
@@ -9155,6 +9193,15 @@ mod test_sizes {
         pub callback: AzWriteBackCallback,
     }
 
+    /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
+    #[repr(C)]
+    pub struct AzLogicalRectVec {
+        pub(crate) ptr: *const AzLogicalRect,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzLogicalRectVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
     #[repr(C)]
     pub struct AzInputOutputTypeIdVec {
@@ -9907,6 +9954,19 @@ mod test_sizes {
         pub bounds: AzLogicalRect,
     }
 
+    /// Re-export of rust-allocated (stack based) `ResolvedTextLayoutOptions` struct
+    #[repr(C)]
+    pub struct AzResolvedTextLayoutOptions {
+        pub font_size_px: f32,
+        pub line_height: AzOptionF32,
+        pub letter_spacing: AzOptionF32,
+        pub word_spacing: AzOptionF32,
+        pub tab_width: AzOptionF32,
+        pub max_horizontal_width: AzOptionF32,
+        pub leading: AzOptionF32,
+        pub holes: AzLogicalRectVec,
+    }
+
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
     #[repr(C, u8)]
     pub enum AzAnimationEasing {
@@ -10320,6 +10380,13 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdToNodeIdMappingVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
+    #[repr(C, u8)]
+    pub enum AzOptionResolvedTextLayoutOptions {
+        None,
+        Some(AzResolvedTextLayoutOptions),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCodeCombo` struct
@@ -11959,6 +12026,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::window::LogicalRectVecDestructor>(), "AzLogicalRectVecDestructor"), (Layout::new::<AzLogicalRectVecDestructor>(), "AzLogicalRectVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"), (Layout::new::<AzNodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor>(), "AzInputOutputTypeIdInfoMapVecDestructor"), (Layout::new::<AzInputOutputTypeIdInfoMapVecDestructor>(), "AzInputOutputTypeIdInfoMapVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeIdNodeMapVecDestructor>(), "AzNodeIdNodeMapVecDestructor"), (Layout::new::<AzNodeIdNodeMapVecDestructor>(), "AzNodeIdNodeMapVecDestructor"));
@@ -12214,6 +12282,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Duration>(), "AzDuration"), (Layout::new::<AzDuration>(), "AzDuration"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSendMsg>(), "AzThreadSendMsg"), (Layout::new::<AzThreadSendMsg>(), "AzThreadSendMsg"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadWriteBackMsg>(), "AzThreadWriteBackMsg"), (Layout::new::<AzThreadWriteBackMsg>(), "AzThreadWriteBackMsg"));
+        assert_eq!((Layout::new::<azul_core::window::LogicalRectVec>(), "AzLogicalRectVec"), (Layout::new::<AzLogicalRectVec>(), "AzLogicalRectVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdVec>(), "AzInputOutputTypeIdVec"), (Layout::new::<AzInputOutputTypeIdVec>(), "AzInputOutputTypeIdVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndexVec>(), "AzOutputNodeAndIndexVec"), (Layout::new::<AzOutputNodeAndIndexVec>(), "AzOutputNodeAndIndexVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndexVec>(), "AzInputNodeAndIndexVec"), (Layout::new::<AzInputNodeAndIndexVec>(), "AzInputNodeAndIndexVec"));
@@ -12310,6 +12379,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_core::window::MouseState>(), "AzMouseState"), (Layout::new::<AzMouseState>(), "AzMouseState"));
         assert_eq!((Layout::new::<azul_impl::callbacks::MarshaledLayoutCallback>(), "AzMarshaledLayoutCallback"), (Layout::new::<AzMarshaledLayoutCallback>(), "AzMarshaledLayoutCallback"));
         assert_eq!((Layout::new::<azul_core::callbacks::InlineTextContents>(), "AzInlineTextContents"), (Layout::new::<AzInlineTextContents>(), "AzInlineTextContents"));
+        assert_eq!((Layout::new::<azul_impl::ui_solver::ResolvedTextLayoutOptions>(), "AzResolvedTextLayoutOptions"), (Layout::new::<AzResolvedTextLayoutOptions>(), "AzResolvedTextLayoutOptions"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationEasing"), (Layout::new::<AzAnimationEasing>(), "AzAnimationEasing"));
         assert_eq!((Layout::new::<azul_impl::callbacks::RenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"), (Layout::new::<AzRenderImageCallbackInfo>(), "AzRenderImageCallbackInfo"));
         assert_eq!((Layout::new::<azul_impl::callbacks::LayoutCallbackInfo>(), "AzLayoutCallbackInfo"), (Layout::new::<AzLayoutCallbackInfo>(), "AzLayoutCallbackInfo"));
@@ -12354,6 +12424,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"), (Layout::new::<AzTagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"));
+        assert_eq!((Layout::new::<azul_impl::ui_solver::OptionResolvedTextLayoutOptions>(), "AzOptionResolvedTextLayoutOptions"), (Layout::new::<AzOptionResolvedTextLayoutOptions>(), "AzOptionResolvedTextLayoutOptions"));
         assert_eq!((Layout::new::<azul_core::window::OptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"), (Layout::new::<AzOptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"));
         assert_eq!((Layout::new::<azul_core::window::OptionMouseState>(), "AzOptionMouseState"), (Layout::new::<AzOptionMouseState>(), "AzOptionMouseState"));
         assert_eq!((Layout::new::<azul_core::window::OptionKeyboardState>(), "AzOptionKeyboardState"), (Layout::new::<AzOptionKeyboardState>(), "AzOptionKeyboardState"));

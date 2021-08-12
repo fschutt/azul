@@ -84,7 +84,10 @@ pub mod resources {
 
 pub mod ui_solver {
     pub use azul_core::ui_solver::{
-        PositionInfo, OptionPositionInfo, PositionInfoInner
+        PositionInfo, OptionPositionInfo,
+        PositionInfoInner,
+        ResolvedTextLayoutOptions,
+        OptionResolvedTextLayoutOptions,
     };
 }
 

@@ -2273,38 +2273,9 @@ pub fn callback_info_shape_text(
     node_id: DomNodeId,
     text: AzString,
 ) -> Option<InlineText> {
-
-    use azul_text_layout::text_shaping::ParsedFont;
-    use azul_text_layout::text_layout::{
-        split_text_into_words,
-        word_positions_to_inline_text_layout,
-        shape_words,
-        position_words,
-    };
-
-    if node_id.dom != callbackinfo.get_hit_node().dom {
-        return None;
-    }
-
-    let nid = node_id.node.into_crate_internal()?;
-
-    // get the font used for this node
     let font_ref = callbackinfo.get_font_ref(node_id)?;
-    let font_data = font_ref.get_data();
-    let parsed_font_downcasted = unsafe { &*(font_data.parsed as *const ParsedFont) };
-
-    // get text layout options for this node
-    let positioned_rectangle = callbackinfo.internal_get_positioned_rectangles();
-    let positioned_rectangle = positioned_rectangle.as_ref();
-    let positioned_rectangle = positioned_rectangle.get(nid)?;
-    let (text_layout_options, _) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
-
-    let words = split_text_into_words(text.as_str());
-    let shaped_words = shape_words(&words, parsed_font_downcasted);
-    let word_positions = position_words(&words, &shaped_words, &text_layout_options);
-    let inline_text_layout = word_positions_to_inline_text_layout(&word_positions);
-
-    Some(azul_core::app_resources::get_inline_text(&words, &shaped_words, &word_positions, &inline_text_layout))
+    let text_layout_options = callbackinfo.get_text_layout_options(node_id)?;
+    Some(azul_text_layout::text_layout::shape_text(&font_ref, text.as_str(), &text_layout_options))
 }
 
 #[cfg(feature = "text_layout")]
