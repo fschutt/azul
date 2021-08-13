@@ -2474,6 +2474,9 @@ pub use AzStyledDomTT as AzStyledDom;
 /// Re-export of rust-allocated (stack based) `Texture` struct
 pub type AzTextureTT = azul_impl::gl::Texture;
 pub use AzTextureTT as AzTexture;
+/// Creates a new `Texture` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Texture::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTexture_new(texture_id: u32, flags: AzTextureFlags, size: AzPhysicalSizeU32, background_color: AzColorU, gl_context: AzGl, format: AzRawImageFormat) -> AzTexture { AzTexture::new(texture_id, flags, size, background_color, gl_context, format) }
 /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
 #[no_mangle] pub extern "C" fn AzTexture_allocateRgba8(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture { AzTexture::allocate_rgba8(gl, size, background) }
 /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
@@ -2974,8 +2977,13 @@ pub use AzVertexLayoutTT as AzVertexLayout;
 /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
 pub type AzVertexArrayObjectTT = azul_impl::gl::VertexArrayObject;
 pub use AzVertexArrayObjectTT as AzVertexArrayObject;
+/// Creates a new `VertexArrayObject` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `VertexArrayObject::new()` constructor.
+#[no_mangle] pub extern "C" fn AzVertexArrayObject_new(vertex_layout: AzVertexLayout, vao_id: u32, gl_context: AzGl) -> AzVertexArrayObject { AzVertexArrayObject::new(vertex_layout, vao_id, gl_context) }
 /// Destructor: Takes ownership of the `VertexArrayObject` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzVertexArrayObject_delete(object: &mut AzVertexArrayObject) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzVertexArrayObject_deepCopy(object: &AzVertexArrayObject) -> AzVertexArrayObject { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
 pub type AzIndexBufferFormatTT = azul_impl::gl::IndexBufferFormat;
@@ -2984,8 +2992,13 @@ pub use AzIndexBufferFormatTT as AzIndexBufferFormat;
 /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
 pub type AzVertexBufferTT = azul_impl::gl::VertexBuffer;
 pub use AzVertexBufferTT as AzVertexBuffer;
+/// Creates a new `VertexBuffer` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `VertexBuffer::new()` constructor.
+#[no_mangle] pub extern "C" fn AzVertexBuffer_new(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: AzVertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: AzIndexBufferFormat) -> AzVertexBuffer { AzVertexBuffer::new_raw(vertex_buffer_id, vertex_buffer_len, vao, index_buffer_id, index_buffer_len, index_buffer_format) }
 /// Destructor: Takes ownership of the `VertexBuffer` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzVertexBuffer_delete(object: &mut AzVertexBuffer) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Clones the object
+#[no_mangle] pub extern "C" fn AzVertexBuffer_deepCopy(object: &AzVertexBuffer) -> AzVertexBuffer { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `GlType` struct
 pub type AzGlTypeTT = azul_impl::gl::AzGlType;
@@ -10355,6 +10368,7 @@ mod test_sizes {
         pub background_color: AzColorU,
         pub gl_context: AzGl,
         pub format: AzRawImageFormat,
+        pub refcount: *const c_void,
     }
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -11402,6 +11416,7 @@ mod test_sizes {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
         pub gl_context: AzGl,
+        pub refcount: *const c_void,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
@@ -11413,6 +11428,7 @@ mod test_sizes {
         pub index_buffer_id: u32,
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
+        pub refcount: *const c_void,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct

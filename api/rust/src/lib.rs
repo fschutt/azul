@@ -7480,6 +7480,7 @@ mod dll {
         pub background_color: AzColorU,
         pub gl_context: AzGl,
         pub format: AzRawImageFormat,
+        pub refcount: *const c_void,
     }
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -8790,18 +8791,17 @@ mod dll {
     /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
     #[repr(C)]
     #[derive(Debug)]
-    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzVertexArrayObject {
         pub vertex_layout: AzVertexLayout,
         pub vao_id: u32,
         pub gl_context: AzGl,
+        pub refcount: *const c_void,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
     #[repr(C)]
     #[derive(Debug)]
-    #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzVertexBuffer {
         pub vertex_buffer_id: u32,
@@ -8810,6 +8810,7 @@ mod dll {
         pub index_buffer_id: u32,
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
+        pub refcount: *const c_void,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
@@ -9832,6 +9833,7 @@ mod dll {
         pub(crate) fn AzStyledDom_withMenuBar(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
         pub(crate) fn AzStyledDom_setContextMenu(_:  &mut AzStyledDom, _:  AzMenu);
         pub(crate) fn AzStyledDom_withContextMenu(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
+        pub(crate) fn AzTexture_new(_:  u32, _:  AzTextureFlags, _:  AzPhysicalSizeU32, _:  AzColorU, _:  AzGl, _:  AzRawImageFormat) -> AzTexture;
         pub(crate) fn AzTexture_allocateRgba8(_:  AzGl, _:  AzPhysicalSizeU32, _:  AzColorU) -> AzTexture;
         pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzPhysicalSizeU32, _:  AzColorU) -> AzTexture;
         pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
@@ -10064,6 +10066,12 @@ mod dll {
         pub(crate) fn AzGl_flushMappedBufferRange(_:  &AzGl, _:  u32, _:  isize, _:  isize);
         pub(crate) fn AzGl_delete(_:  &mut AzGl);
         pub(crate) fn AzGl_deepCopy(_:  &AzGl) -> AzGl;
+        pub(crate) fn AzVertexArrayObject_new(_:  AzVertexLayout, _:  u32, _:  AzGl) -> AzVertexArrayObject;
+        pub(crate) fn AzVertexArrayObject_delete(_:  &mut AzVertexArrayObject);
+        pub(crate) fn AzVertexArrayObject_deepCopy(_:  &AzVertexArrayObject) -> AzVertexArrayObject;
+        pub(crate) fn AzVertexBuffer_new(_:  u32, _:  usize, _:  AzVertexArrayObject, _:  u32, _:  usize, _:  AzIndexBufferFormat) -> AzVertexBuffer;
+        pub(crate) fn AzVertexBuffer_delete(_:  &mut AzVertexBuffer);
+        pub(crate) fn AzVertexBuffer_deepCopy(_:  &AzVertexBuffer) -> AzVertexBuffer;
         pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
         pub(crate) fn AzGLsyncPtr_deepCopy(_:  &AzGLsyncPtr) -> AzGLsyncPtr;
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
@@ -13499,6 +13507,7 @@ pub mod gl {
 
     use crate::window::PhysicalSizeU32;
     use crate::css::ColorU;
+    use crate::image::RawImageFormat;
     use crate::svg::{TessellatedGPUSvgNode, TessellatedSvgNode};
     use crate::vec::{GLuintVec, StringVec, StyleTransformVec};
     use crate::option::OptionU8VecRef;
@@ -13506,6 +13515,8 @@ pub mod gl {
     
 #[doc(inline)] pub use crate::dll::AzTexture as Texture;
     impl Texture {
+        /// Creates a new `Texture` instance.
+        pub fn new(texture_id: u32, flags: TextureFlags, size: PhysicalSizeU32, background_color: ColorU, gl_context: Gl, format: RawImageFormat) -> Self { unsafe { crate::dll::AzTexture_new(texture_id, flags, size, background_color, gl_context, format) } }
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
         pub fn allocate_rgba8(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateRgba8(gl, size, background) } }
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
@@ -15430,12 +15441,26 @@ pub mod gl {
     /// `VertexArrayObject` struct
     
 #[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
+    impl VertexArrayObject {
+        /// Creates a new `VertexArrayObject` instance.
+        pub fn new(vertex_layout: VertexLayout, vao_id: u32, gl_context: Gl) -> Self { unsafe { crate::dll::AzVertexArrayObject_new(vertex_layout, vao_id, gl_context) } }
+    }
+
+    impl Clone for VertexArrayObject { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexArrayObject_deepCopy(self) } } }
+    impl Drop for VertexArrayObject { fn drop(&mut self) { unsafe { crate::dll::AzVertexArrayObject_delete(self) } } }
     /// `IndexBufferFormat` struct
     
 #[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
     /// `VertexBuffer` struct
     
 #[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
+    impl VertexBuffer {
+        /// Creates a new `VertexBuffer` instance.
+        pub fn new(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: VertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: IndexBufferFormat) -> Self { unsafe { crate::dll::AzVertexBuffer_new(vertex_buffer_id, vertex_buffer_len, vao, index_buffer_id, index_buffer_len, index_buffer_format) } }
+    }
+
+    impl Clone for VertexBuffer { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexBuffer_deepCopy(self) } } }
+    impl Drop for VertexBuffer { fn drop(&mut self) { unsafe { crate::dll::AzVertexBuffer_delete(self) } } }
     /// `GlType` struct
     
 #[doc(inline)] pub use crate::dll::AzGlType as GlType;

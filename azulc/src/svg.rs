@@ -544,17 +544,17 @@ pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: PhysicalSizeU32
     let textures = gl_context.gen_textures(1);
     let texture_id = textures.get(0).unwrap();
 
-    Texture {
-        texture_id: *texture_id,
-        format: RawImageFormat::R8,
-        flags: TextureFlags {
+    Texture::new(
+        *texture_id,
+        TextureFlags {
             is_opaque: true,
             is_video_texture: false,
         },
-        background_color: ColorU::TRANSPARENT,
         size,
+        ColorU::TRANSPARENT,
         gl_context,
-    }
+        RawImageFormat::R8,
+    )
 }
 
 /// Applies an FXAA filter to the texture

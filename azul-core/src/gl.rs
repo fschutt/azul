@@ -2,6 +2,10 @@
 use core::{
     fmt,
     hash::{Hasher, Hash},
+    sync::atomic::{
+        Ordering as AtomicOrdering,
+        AtomicUsize
+    },
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -1155,7 +1159,6 @@ impl Ord for GlContextPtr {
 }
 
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-#[derive(Clone)]
 #[repr(C)]
 pub struct Texture {
     /// Raw OpenGL texture ID
@@ -1170,11 +1173,40 @@ pub struct Texture {
     pub gl_context: GlContextPtr,
     /// Format of the texture (rgba8, brga8, etc.)
     pub format: RawImageFormat,
+    /// Reference count, shared across
+    pub refcount: *const AtomicUsize,
+}
+
+impl Clone for Texture {
+    fn clone(&self) -> Self {
+        unsafe { (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst); }
+        Self {
+            texture_id: self.texture_id.clone(),
+            flags: self.flags.clone(),
+            size: self.size.clone(),
+            background_color: self.background_color.clone(),
+            gl_context: self.gl_context.clone(),
+            format: self.format.clone(),
+            refcount: self.refcount,
+        }
+    }
 }
 
 impl_option!(Texture, OptionTexture, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Texture {
+
+    pub fn new(texture_id: GLuint, flags: TextureFlags, size: PhysicalSizeU32, background_color: ColorU, gl_context: GlContextPtr, format: RawImageFormat) -> Self {
+        Self {
+            texture_id,
+            flags,
+            size,
+            background_color,
+            gl_context,
+            format,
+            refcount: Box::into_raw(Box::new(AtomicUsize::new(1))),
+        }
+    }
 
     pub fn allocate_rgba8(
         gl_context: GlContextPtr,
@@ -1198,29 +1230,17 @@ impl Texture {
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
         gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
 
-        Self {
+        Self::new(
             texture_id,
-            flags: TextureFlags {
+            TextureFlags {
                 is_opaque: false,
                 is_video_texture: false,
             },
             size,
-            background_color: background,
+            background,
             gl_context,
-            format: RawImageFormat::BGRA8,
-        }
-    }
-
-    // Special "clone()" function that is only available inside of this library
-    pub(crate) fn library_internal_clone(&self) -> Self {
-        Self {
-           texture_id: self.texture_id,
-           format: self.format,
-           flags: self.flags,
-           size: self.size,
-           background_color: self.background_color,
-           gl_context: self.gl_context.clone(),
-        }
+            RawImageFormat::BGRA8,
+        )
     }
 
     pub fn get_descriptor(&self) -> ImageDescriptor {
@@ -1361,8 +1381,12 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        println!("deleted texture ID {} size {:?}", self.texture_id, self.size);
-        self.gl_context.delete_textures((&[self.texture_id])[..].into());
+        let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
+        if copies == 1 {
+            println!("deleted texture ID {} size {:?}", self.texture_id, self.size);
+            let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
+            self.gl_context.delete_textures((&[self.texture_id])[..].into());
+        }
     }
 }
 
@@ -1493,21 +1517,48 @@ pub trait VertexLayoutDescription {
     fn get_description() -> VertexLayout;
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
     pub vao_id: GLuint,
     pub gl_context: GlContextPtr,
+    pub refcount: *const AtomicUsize
+}
+
+impl VertexArrayObject {
+    pub fn new(vertex_layout: VertexLayout, vao_id: GLuint, gl_context: GlContextPtr) -> Self {
+        Self {
+            vertex_layout,
+            vao_id,
+            gl_context,
+            refcount: Box::into_raw(Box::new(AtomicUsize::new(1))),
+        }
+    }
+}
+
+impl Clone for VertexArrayObject {
+    fn clone(&self) -> Self {
+        unsafe { (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst) };
+        Self {
+            vertex_layout: self.vertex_layout.clone(),
+            vao_id: self.vao_id,
+            gl_context: self.gl_context.clone(),
+            refcount: self.refcount,
+        }
+    }
 }
 
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
-        self.gl_context.delete_vertex_arrays((&[self.vao_id])[..].into());
+        let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
+        if copies == 1 {
+            let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
+            self.gl_context.delete_vertex_arrays((&[self.vao_id])[..].into());
+        }
     }
 }
 
-#[derive(Clone)]
 #[repr(C)]
 pub struct VertexBuffer {
     pub vertex_buffer_id: GLuint,
@@ -1516,6 +1567,7 @@ pub struct VertexBuffer {
     pub index_buffer_id: GLuint,
     pub index_buffer_len: usize,
     pub index_buffer_format: IndexBufferFormat,
+    pub refcount: *const AtomicUsize,
 }
 
 impl core::fmt::Display for VertexBuffer {
@@ -1529,9 +1581,28 @@ impl core::fmt::Display for VertexBuffer {
 
 impl_traits_for_gl_object!(VertexBuffer, vertex_buffer_id);
 
+impl Clone for VertexBuffer {
+    fn clone(&self) -> Self {
+        unsafe { (*self.refcount).fetch_add(1, AtomicOrdering::SeqCst) };
+        Self {
+            vertex_buffer_id: self.vertex_buffer_id.clone(),
+            vertex_buffer_len: self.vertex_buffer_len.clone(),
+            vao: self.vao.clone(),
+            index_buffer_id: self.index_buffer_id.clone(),
+            index_buffer_len: self.index_buffer_len.clone(),
+            index_buffer_format: self.index_buffer_format.clone(),
+            refcount: self.refcount,
+        }
+    }
+}
+
 impl Drop for VertexBuffer {
     fn drop(&mut self) {
-        self.vao.gl_context.delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
+        let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
+        if copies == 1 {
+            let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
+            self.vao.gl_context.delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
+        }
     }
 }
 
@@ -1593,17 +1664,36 @@ impl VertexBuffer {
         gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
         gl_context.bind_vertex_array(current_vertex_array[0] as u32);
 
-        Self {
-            vertex_buffer_id: *vertex_buffer_id,
-            vertex_buffer_len: vertices.len(),
-            vao: VertexArrayObject {
-                vertex_layout: vertex_description,
-                vao_id: *vertex_array_object,
+        Self::new_raw(
+            *vertex_buffer_id,
+            vertices.len(),
+            VertexArrayObject::new(
+                vertex_description,
+                *vertex_array_object,
                 gl_context,
-            },
-            index_buffer_id: *index_buffer_id,
-            index_buffer_len: indices.len(),
+            ),
+            *index_buffer_id,
+            indices.len(),
             index_buffer_format,
+        )
+    }
+
+    pub fn new_raw(
+        vertex_buffer_id: GLuint,
+        vertex_buffer_len: usize,
+        vao: VertexArrayObject,
+        index_buffer_id: GLuint,
+        index_buffer_len: usize,
+        index_buffer_format: IndexBufferFormat,
+    ) -> Self {
+        Self {
+            vertex_buffer_id,
+            vertex_buffer_len,
+            vao,
+            index_buffer_id,
+            index_buffer_len,
+            index_buffer_format,
+            refcount: Box::into_raw(Box::new(AtomicUsize::new(1))),
         }
     }
 }

@@ -7257,6 +7257,7 @@ namespace dll {
         ColorU background_color;
         Gl gl_context;
         RawImageFormat format;
+        void* refcount;
         Texture& operator=(const Texture&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Texture(const Texture&) = delete; /* disable copy constructor, use explicit .clone() */
         Texture() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -8850,6 +8851,7 @@ namespace dll {
         VertexLayout vertex_layout;
         uint32_t vao_id;
         Gl gl_context;
+        void* refcount;
         VertexArrayObject& operator=(const VertexArrayObject&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         VertexArrayObject(const VertexArrayObject&) = delete; /* disable copy constructor, use explicit .clone() */
         VertexArrayObject() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -8862,6 +8864,7 @@ namespace dll {
         uint32_t index_buffer_id;
         size_t index_buffer_len;
         IndexBufferFormat index_buffer_format;
+        void* refcount;
         VertexBuffer& operator=(const VertexBuffer&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         VertexBuffer(const VertexBuffer&) = delete; /* disable copy constructor, use explicit .clone() */
         VertexBuffer() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -10066,6 +10069,7 @@ namespace dll {
         void StyledDom_setContextMenu(StyledDom* restrict styleddom, AzMenu  menu);
         StyledDom StyledDom_withContextMenu(StyledDom* restrict styleddom, AzMenu  menu);
         void StyledDom_delete(StyledDom* restrict instance);
+        Texture Texture_new(uint32_t texture_id, AzTextureFlags  flags, AzPhysicalSizeU32  size, AzColorU  background_color, AzGl  gl_context, AzRawImageFormat  format);
         Texture Texture_allocateRgba8(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
         Texture Texture_allocateClipMask(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
         bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);
@@ -10300,8 +10304,12 @@ namespace dll {
         Gl Gl_deepCopy(Gl* const instance);
         void VertexAttribute_delete(VertexAttribute* restrict instance);
         void VertexLayout_delete(VertexLayout* restrict instance);
+        VertexArrayObject VertexArrayObject_new(AzVertexLayout  vertex_layout, uint32_t vao_id, AzGl  gl_context);
         void VertexArrayObject_delete(VertexArrayObject* restrict instance);
+        VertexArrayObject VertexArrayObject_deepCopy(VertexArrayObject* const instance);
+        VertexBuffer VertexBuffer_new(uint32_t vertex_buffer_id, size_t vertex_buffer_len, AzVertexArrayObject  vao, uint32_t index_buffer_id, size_t index_buffer_len, AzIndexBufferFormat  index_buffer_format);
         void VertexBuffer_delete(VertexBuffer* restrict instance);
+        VertexBuffer VertexBuffer_deepCopy(VertexBuffer* const instance);
         void DebugMessage_delete(DebugMessage* restrict instance);
         void GetProgramBinaryReturn_delete(GetProgramBinaryReturn* restrict instance);
         void GetActiveAttribReturn_delete(GetActiveAttribReturn* restrict instance);

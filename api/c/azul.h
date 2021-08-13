@@ -7961,6 +7961,7 @@ struct AzTexture {
     AzColorU background_color;
     AzGl gl_context;
     AzRawImageFormat format;
+    void* refcount;
 };
 typedef struct AzTexture AzTexture;
 
@@ -9651,6 +9652,7 @@ struct AzVertexArrayObject {
     AzVertexLayout vertex_layout;
     uint32_t vao_id;
     AzGl gl_context;
+    void* refcount;
 };
 typedef struct AzVertexArrayObject AzVertexArrayObject;
 
@@ -9661,6 +9663,7 @@ struct AzVertexBuffer {
     uint32_t index_buffer_id;
     size_t index_buffer_len;
     AzIndexBufferFormat index_buffer_format;
+    void* refcount;
 };
 typedef struct AzVertexBuffer AzVertexBuffer;
 
@@ -12102,6 +12105,7 @@ extern DLLIMPORT AzStyledDom AzStyledDom_withMenuBar(AzStyledDom* restrict style
 extern DLLIMPORT void AzStyledDom_setContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT AzStyledDom AzStyledDom_withContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT void AzStyledDom_delete(AzStyledDom* restrict instance);
+extern DLLIMPORT AzTexture AzTexture_new(uint32_t texture_id, AzTextureFlags  flags, AzPhysicalSizeU32  size, AzColorU  background_color, AzGl  gl_context, AzRawImageFormat  format);
 extern DLLIMPORT AzTexture AzTexture_allocateRgba8(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
 extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTessellatedSvgNode  node);
@@ -12336,8 +12340,12 @@ extern DLLIMPORT void AzGl_delete(AzGl* restrict instance);
 extern DLLIMPORT AzGl AzGl_deepCopy(AzGl* const instance);
 extern DLLIMPORT void AzVertexAttribute_delete(AzVertexAttribute* restrict instance);
 extern DLLIMPORT void AzVertexLayout_delete(AzVertexLayout* restrict instance);
+extern DLLIMPORT AzVertexArrayObject AzVertexArrayObject_new(AzVertexLayout  vertex_layout, uint32_t vao_id, AzGl  gl_context);
 extern DLLIMPORT void AzVertexArrayObject_delete(AzVertexArrayObject* restrict instance);
+extern DLLIMPORT AzVertexArrayObject AzVertexArrayObject_deepCopy(AzVertexArrayObject* const instance);
+extern DLLIMPORT AzVertexBuffer AzVertexBuffer_new(uint32_t vertex_buffer_id, size_t vertex_buffer_len, AzVertexArrayObject  vao, uint32_t index_buffer_id, size_t index_buffer_len, AzIndexBufferFormat  index_buffer_format);
 extern DLLIMPORT void AzVertexBuffer_delete(AzVertexBuffer* restrict instance);
+extern DLLIMPORT AzVertexBuffer AzVertexBuffer_deepCopy(AzVertexBuffer* const instance);
 extern DLLIMPORT void AzDebugMessage_delete(AzDebugMessage* restrict instance);
 extern DLLIMPORT void AzGetProgramBinaryReturn_delete(AzGetProgramBinaryReturn* restrict instance);
 extern DLLIMPORT void AzGetActiveAttribReturn_delete(AzGetActiveAttribReturn* restrict instance);

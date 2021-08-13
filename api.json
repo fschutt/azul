@@ -6875,9 +6875,21 @@
                         {"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
                         {"background_color": {"type": "ColorU", "doc": "Background color of this texture"}},
                         {"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}},
-                        {"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}}
+                        {"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
+                        {"refcount": {"type": "*const c_void", "doc": "Reference count for this texture. Texture will be automatically deleted when the refcount reaches 0."}}
                     ],
                     "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"texture_id": "u32"},
+                                {"flags": "TextureFlags"},
+                                {"size": "PhysicalSizeU32"},
+                                {"background_color": "ColorU"},
+                                {"gl_context": "Gl"},
+                                {"format": "RawImageFormat"}
+                            ],
+                            "fn_body": "AzTexture::new(texture_id, flags, size, background_color, gl_context, format)"
+                        },
                         "allocate_rgba8": {
                             "doc": "Allocates an OpenGL texture of a given size with a single red channel (used for image masks)",
                             "fn_args": [
@@ -10447,11 +10459,23 @@
                 },
                 "VertexArrayObject": {
                     "external": "azul_impl::gl::VertexArrayObject",
+                    "is_boxed_object": true,
                     "struct_fields": [
                         {"vertex_layout": {"type": "VertexLayout"}},
                         {"vao_id": {"type": "u32"}},
-                        {"gl_context": {"type": "Gl"}}
-                    ]
+                        {"gl_context": {"type": "Gl"}},
+                        {"refcount": {"type": "*const c_void"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"vertex_layout": "VertexLayout"},
+                                {"vao_id": "u32"},
+                                {"gl_context": "Gl"}
+                            ],
+                            "fn_body": "AzVertexArrayObject::new(vertex_layout, vao_id, gl_context)"
+                        }
+                    }
                 },
                 "IndexBufferFormat": {
                     "external": "azul_impl::gl::IndexBufferFormat",
@@ -10467,14 +10491,29 @@
                 },
                 "VertexBuffer": {
                     "external": "azul_impl::gl::VertexBuffer",
+                    "is_boxed_object": true,
                     "struct_fields": [
                         {"vertex_buffer_id": {"type": "u32"}},
                         {"vertex_buffer_len": {"type": "usize"}},
                         {"vao": {"type": "VertexArrayObject"}},
                         {"index_buffer_id": {"type": "u32"}},
                         {"index_buffer_len": {"type": "usize"}},
-                        {"index_buffer_format": {"type": "IndexBufferFormat"}}
-                    ]
+                        {"index_buffer_format": {"type": "IndexBufferFormat"}},
+                        {"refcount": {"type": "*const c_void"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"vertex_buffer_id": "u32"},
+                                {"vertex_buffer_len": "usize"},
+                                {"vao": "VertexArrayObject"},
+                                {"index_buffer_id": "u32"},
+                                {"index_buffer_len": "usize"},
+                                {"index_buffer_format": "IndexBufferFormat"}
+                            ],
+                            "fn_body": "AzVertexBuffer::new_raw(vertex_buffer_id, vertex_buffer_len, vao, index_buffer_id, index_buffer_len, index_buffer_format)"
+                        }
+                    }
                 },
                 "GlType": {
                     "external": "azul_impl::gl::AzGlType",

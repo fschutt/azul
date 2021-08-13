@@ -6062,6 +6062,7 @@ pub struct AzTexture {
     pub background_color: AzColorU,
     pub gl_context: AzGl,
     pub format: AzRawImageFormatEnumWrapper,
+    pub refcount: *const c_void,
 }
 
 /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -7109,6 +7110,7 @@ pub struct AzVertexArrayObject {
     pub vertex_layout: AzVertexLayout,
     pub vao_id: u32,
     pub gl_context: AzGl,
+    pub refcount: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
@@ -7120,6 +7122,7 @@ pub struct AzVertexBuffer {
     pub index_buffer_id: u32,
     pub index_buffer_len: usize,
     pub index_buffer_format: AzIndexBufferFormatEnumWrapper,
+    pub refcount: *const c_void,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
@@ -9786,6 +9789,7 @@ unsafe impl Send for AzNodeHierarchyItemVec { }
 unsafe impl Send for AzParentWithNodeDepthVec { }
 unsafe impl Send for AzRenderImageCallbackInfo { }
 unsafe impl Send for AzLayoutCallbackInfo { }
+unsafe impl Send for AzTexture { }
 unsafe impl Send for AzTessellatedSvgNodeVecRef { }
 unsafe impl Send for AzInputConnectionVec { }
 unsafe impl Send for AzOutputConnectionVec { }
@@ -9809,6 +9813,8 @@ unsafe impl Send for AzCssPathSelectorVec { }
 unsafe impl Send for AzCallbackDataVec { }
 unsafe impl Send for AzDebugMessageVec { }
 unsafe impl Send for AzStringPairVec { }
+unsafe impl Send for AzVertexArrayObject { }
+unsafe impl Send for AzVertexBuffer { }
 unsafe impl Send for AzNodeTypeIdInfoMapVec { }
 unsafe impl Send for AzInputOutputTypeIdInfoMapVec { }
 unsafe impl Send for AzNodeTypeFieldVec { }
@@ -10638,6 +10644,8 @@ impl Drop for AzCssPathSelectorVec { fn drop(&mut self) { crate::AzCssPathSelect
 impl Drop for AzCallbackDataVec { fn drop(&mut self) { crate::AzCallbackDataVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzDebugMessageVec { fn drop(&mut self) { crate::AzDebugMessageVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStringPairVec { fn drop(&mut self) { crate::AzStringPairVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzVertexArrayObject { fn drop(&mut self) { crate::AzVertexArrayObject_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzVertexBuffer { fn drop(&mut self) { crate::AzVertexBuffer_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeTypeIdInfoMapVec { fn drop(&mut self) { crate::AzNodeTypeIdInfoMapVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInputOutputTypeIdInfoMapVec { fn drop(&mut self) { crate::AzInputOutputTypeIdInfoMapVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeTypeFieldVec { fn drop(&mut self) { crate::AzNodeTypeFieldVec_delete(unsafe { mem::transmute(self) }); } }
@@ -23962,6 +23970,17 @@ impl PyObjectProtocol for AzStyledDom {
 
 #[pymethods]
 impl AzTexture {
+    #[new]
+    fn new(texture_id: u32, flags: AzTextureFlags, size: AzPhysicalSizeU32, background_color: AzColorU, gl_context: AzGl, format: AzRawImageFormatEnumWrapper) -> AzTexture {
+        unsafe { mem::transmute(crate::AzTexture_new(
+            mem::transmute(texture_id),
+            mem::transmute(flags),
+            mem::transmute(size),
+            mem::transmute(background_color),
+            mem::transmute(gl_context),
+            mem::transmute(format),
+        )) }
+    }
     #[staticmethod]
     fn allocate_rgba8(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture {
         unsafe { mem::transmute(crate::AzTexture_allocateRgba8(
@@ -28814,14 +28833,13 @@ impl PyObjectProtocol for AzVertexLayout {
 #[pymethods]
 impl AzVertexArrayObject {
     #[new]
-    fn __new__(vertex_layout: AzVertexLayout, vao_id: u32, gl_context: AzGl) -> Self {
-        Self {
-            vertex_layout,
-            vao_id,
-            gl_context,
-        }
+    fn new(vertex_layout: AzVertexLayout, vao_id: u32, gl_context: AzGl) -> AzVertexArrayObject {
+        unsafe { mem::transmute(crate::AzVertexArrayObject_new(
+            mem::transmute(vertex_layout),
+            mem::transmute(vao_id),
+            mem::transmute(gl_context),
+        )) }
     }
-
 }
 
 #[pyproto]
@@ -28873,17 +28891,16 @@ impl PyObjectProtocol for AzIndexBufferFormatEnumWrapper {
 #[pymethods]
 impl AzVertexBuffer {
     #[new]
-    fn __new__(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: AzVertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: AzIndexBufferFormatEnumWrapper) -> Self {
-        Self {
-            vertex_buffer_id,
-            vertex_buffer_len,
-            vao,
-            index_buffer_id,
-            index_buffer_len,
-            index_buffer_format,
-        }
+    fn new(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: AzVertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: AzIndexBufferFormatEnumWrapper) -> AzVertexBuffer {
+        unsafe { mem::transmute(crate::AzVertexBuffer_new(
+            mem::transmute(vertex_buffer_id),
+            mem::transmute(vertex_buffer_len),
+            mem::transmute(vao),
+            mem::transmute(index_buffer_id),
+            mem::transmute(index_buffer_len),
+            mem::transmute(index_buffer_format),
+        )) }
     }
-
 }
 
 #[pyproto]

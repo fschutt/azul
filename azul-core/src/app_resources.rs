@@ -2182,7 +2182,7 @@ pub fn build_add_image_resource_updates(
                 let descriptor = texture.get_descriptor();
                 let key = ImageKey::unique(id_namespace);
                 // NOTE: The texture is not really cloned here,
-                let external_image_id = (insert_into_active_gl_textures)(*document_id, epoch, texture.library_internal_clone());
+                let external_image_id = (insert_into_active_gl_textures)(*document_id, epoch, texture.clone());
                 Some((image_ref_hash, AddImageMsg(
                     AddImage {
                         key,
