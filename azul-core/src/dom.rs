@@ -624,6 +624,64 @@ pub enum NodeDataInlineCssProperty {
     Hover(CssProperty),
 }
 
+macro_rules! parse_from_str {
+    ($s:expr, $prop_type:ident) => {{
+        use azul_css::{CssKeyMap, CssDeclaration};
+        use azul_css_parser::ErrorLocation;
+
+        let s = $s.trim();
+        let css_key_map = CssKeyMap::get();
+
+        s.split(";")
+        .filter_map(|kv| {
+
+            let mut kv_iter = kv.split(":");
+            let key = kv_iter.next()?;
+            let value = kv_iter.next()?;
+            let mut declarations = Vec::new();
+            let mut warnings = Vec::new();
+
+            azul_css_parser::parse_css_declaration(
+                key,
+                value,
+                (ErrorLocation::default(), ErrorLocation::default()),
+                &css_key_map,
+                &mut warnings,
+                &mut declarations
+            ).ok()?;
+
+            if let Some(CssDeclaration::Static(c)) = declarations.get(0) {
+                Some(c.clone())
+            } else {
+                None
+            }
+        })
+        .map(|prop| NodeDataInlineCssProperty::$prop_type(prop))
+        .collect::<Vec<_>>()
+        .into()
+    }};
+}
+
+impl NodeDataInlineCssPropertyVec {
+    pub fn parse_normal(s: &str) -> Self {
+        return parse_from_str!(s, Normal);
+    }
+    pub fn parse_hover(s: &str) -> Self {
+        return parse_from_str!(s, Hover);
+    }
+    pub fn parse_active(s: &str) -> Self {
+        return parse_from_str!(s, Active);
+    }
+    pub fn parse_focus(s: &str) -> Self {
+        return parse_from_str!(s, Focus);
+    }
+    pub fn with_append(&self, mut other: Self) -> Self {
+        let mut m = self.clone().into_library_owned_vec();
+        m.append(&mut other.into_library_owned_vec());
+        m.into()
+    }
+}
+
 impl_vec!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec, NodeDataInlineCssPropertyVecDestructor);
 impl_vec_debug!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);
 impl_vec_partialord!(NodeDataInlineCssProperty, NodeDataInlineCssPropertyVec);

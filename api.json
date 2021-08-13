@@ -2402,6 +2402,66 @@
                             "returns": {"type": "Dom"},
                             "fn_body": "let mut dom = dom.swap_with_default(); dom.root.add_focus_css_property(prop); dom"
                         },
+                        "set_inline_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "AzNodeData_setInlineStyle(&mut dom.root, style);"
+                        },
+                        "with_inline_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineStyle(&mut dom.root, style); dom"
+                        },
+                        "set_inline_hover_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "AzNodeData_setInlineHoverStyle(&mut dom.root, style);"
+                        },
+                        "with_inline_hover_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineHoverStyle(&mut dom.root, style); dom"
+                        },
+                        "set_inline_active_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "AzNodeData_setInlineActiveStyle(&mut dom.root, style);"
+                        },
+                        "with_inline_active_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineActiveStyle(&mut dom.root, style); dom"
+                        },
+                        "set_inline_focus_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "AzNodeData_setInlineFocusStyle(&mut dom.root, style);"
+                        },
+                        "with_inline_focus_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "let mut dom = dom.swap_with_default(); AzNodeData_setInlineFocusStyle(&mut dom.root, style); dom"
+                        },
                         "set_clip_mask": {
                             "doc": "Sets the clip mask for the DOM root node.",
                             "fn_args": [
@@ -2693,6 +2753,66 @@
                             ],
                             "returns": {"type": "NodeData"},
                             "fn_body": "let mut nodedata = nodedata.swap_with_default(); nodedata.set_inline_css_props(css_properties); nodedata"
+                        },
+                        "set_inline_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_normal(style.as_str())))"
+                        },
+                        "with_inline_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineStyle(&mut nodedata, style); nodedata"
+                        },
+                        "set_inline_hover_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_hover(style.as_str())))"
+                        },
+                        "with_inline_hover_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineHoverStyle(&mut nodedata, style); nodedata"
+                        },
+                        "set_inline_active_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_active(style.as_str())))"
+                        },
+                        "with_inline_active_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineActiveStyle(&mut nodedata, style); nodedata"
+                        },
+                        "set_inline_focus_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "fn_body": "nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_focus(style.as_str())))"
+                        },
+                        "with_inline_focus_style": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"style": "String"}
+                            ],
+                            "returns": {"type": "NodeData"},
+                            "fn_body": "let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineFocusStyle(&mut nodedata, style); nodedata"
                         },
                         "set_clip_mask": {
                             "doc": "Sets the `extra.clip_mask` field for this node",
@@ -3486,6 +3606,18 @@
                                 {"string": "String"}
                             ],
                             "fn_body": "azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK)"
+                        },
+                        "transparent": {
+                            "fn_args": [],
+                            "fn_body": "AzColorU::TRANSPARENT"
+                        },
+                        "white": {
+                            "fn_args": [],
+                            "fn_body": "AzColorU::WHITE"
+                        },
+                        "black": {
+                            "fn_args": [],
+                            "fn_body": "AzColorU::BLACK"
                         }
                     },
                     "functions": {
@@ -6742,14 +6874,25 @@
                         {"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
                         {"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
                         {"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
+                        {"background_color": {"type": "ColorU", "doc": "Background color of this texture"}},
                         {"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
                     ],
                     "constructors": {
+                        "allocate_rgba8": {
+                            "doc": "Allocates an OpenGL texture of a given size with a single red channel (used for image masks)",
+                            "fn_args": [
+                                {"gl": "Gl"},
+                                {"size": "PhysicalSizeU32"},
+                                {"background": "ColorU"}
+                            ],
+                            "fn_body": "AzTexture::allocate_rgba8(gl, size, background)"
+                        },
                         "allocate_clip_mask": {
                             "doc": "Allocates an OpenGL texture of a given size with a single red channel (used for image masks)",
                             "fn_args": [
                                 {"gl": "Gl"},
-                                {"size": "LayoutSize"}
+                                {"size": "PhysicalSizeU32"},
+                                {"background": "ColorU"}
                             ],
                             "fn_body": "azul_impl::svg::allocate_clipmask_texture(gl, size)"
                         }
@@ -6763,6 +6906,18 @@
                             ],
                             "returns": {"type": "bool"},
                             "fn_body": "azul_impl::svg::render_tessellated_node_gpu(texture, &node).is_some()"
+                        },
+                        "draw_tesselated_svg_gpu_node": {
+                            "doc": "Draws a `&TessellatedGPUSvgNode` with the given color to the texture",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node": "*const TessellatedGPUSvgNode"},
+                                {"size": "PhysicalSizeU32"},
+                                {"color": "ColorU"},
+                                {"transforms": "StyleTransformVec"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, color, transforms)"
                         },
                         "apply_fxaa": {
                             "doc": "Applies an FXAA filter to the texture",
@@ -10524,10 +10679,10 @@
                         "callback":{
                             "doc": "Creates an image reference from a callback that is going to be rendered with the given nodes computed size",
                             "fn_args": [
-                                {"callback": "RenderImageCallback"},
-                                {"data": "RefAny"}
+                                {"data": "RefAny"},
+                                {"callback": "RenderImageCallbackType"}
                             ],
-                            "fn_body": "AzImageRef::callback(callback, data)"
+                            "fn_body": "AzImageRef::callback(AzRenderImageCallback { cb: callback }, data)"
                         }
                     },
                     "functions": {
@@ -11177,6 +11332,21 @@
                         {"ptr": {"type": "*const TessellatedSvgNode"}},
                         {"len": {"type": "usize"}}
                     ]
+                },
+                "TessellatedGPUSvgNode": {
+                    "external": "azul_impl::svg::TessellatedGPUSvgNode",
+                    "struct_fields": [
+                        {"vertex_index_buffer": {"type": "VertexBuffer"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"tessellated_node": "*const TessellatedSvgNode"},
+                                {"gl": "Gl"}
+                            ],
+                            "fn_body": "AzTessellatedGPUSvgNode::new(unsafe { &*tessellated_node }, gl)"
+                        }
+                    }
                 },
                 "SvgParseOptions": {
                     "external": "azul_impl::svg::SvgParseOptions",

@@ -22,7 +22,7 @@ use crate::{
     window::{PhysicalSizeU32, RendererType},
     app_resources::{ImageDescriptor, ImageDescriptorFlags, Epoch, RawImageFormat, ExternalImageId},
     callbacks::DocumentId,
-    svg::TessellatedGPUSvgNode,
+    svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
 
@@ -656,11 +656,13 @@ impl GlContextPtr {
             precision mediump float;
 
             uniform vec2 vBboxSize;
+            uniform mat4 vTransformMatrix;
+
             in vec2 vAttrXY;
             out vec4 vPosition;
 
             void main() {
-                vPosition = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0);
+                vPosition = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0) * vTransformMatrix;
             }
         ";
 
@@ -669,14 +671,17 @@ impl GlContextPtr {
 
             precision mediump float;
 
+            uniform vec4 fDrawColor;
+
             in vec4 vPosition;
             out vec4 fOutColor;
 
             void main() {
-                fOutColor = vec4(1.0, 1.0, 1.0, 1.0);
+                fOutColor = fDrawColor;
             }
         ";
 
+        /*
         static FXAA_VERTEX_SHADER: &[u8] = b"
             #version 130
 
@@ -847,6 +852,7 @@ impl GlContextPtr {
               gl_FragColor = color;
             }
         ";
+        */
 
         // compile SVG shader
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
@@ -867,6 +873,7 @@ impl GlContextPtr {
 
         // compile FXAA shader
 
+        /*
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
@@ -882,11 +889,12 @@ impl GlContextPtr {
 
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
+        */
 
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
-                fxaa_shader: fxaa_program_id,
+                fxaa_shader: 0, // TODO
                 ptr: gl_context,
             })),
             renderer_type,
@@ -1158,6 +1166,8 @@ pub struct Texture {
     pub flags: TextureFlags,
     /// Size of this texture (in pixels)
     pub size: PhysicalSizeU32,
+    /// Background color of this texture
+    pub background_color: ColorU,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
     pub gl_context: GlContextPtr,
 }
@@ -1165,6 +1175,39 @@ pub struct Texture {
 impl_option!(Texture, OptionTexture, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Texture {
+
+    pub fn allocate_rgba8(
+        gl_context: GlContextPtr,
+        size: PhysicalSizeU32,
+        background: ColorU,
+    ) -> Self {
+        let textures = gl_context.gen_textures(1);
+        let texture_id = textures.as_ref()[0];
+
+        let mut current_texture_2d = [0_i32];
+        gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+
+        gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA8 as i32, size.width as i32, size.height as i32, 0, gl::RGBA8, gl::UNSIGNED_BYTE, None.into());
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
+
+        Self {
+            texture_id,
+            format: RawImageFormat::BGRA8,
+            flags: TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            size,
+            background_color: background,
+            gl_context,
+        }
+    }
+
     // Special "clone()" function that is only available inside of this library
     pub(crate) fn library_internal_clone(&self) -> Self {
         Self {
@@ -1172,9 +1215,11 @@ impl Texture {
            format: self.format,
            flags: self.flags,
            size: self.size,
+           background_color: self.background_color,
            gl_context: self.gl_context.clone(),
         }
     }
+
     pub fn get_descriptor(&self) -> ImageDescriptor {
         ImageDescriptor {
             format: self.format,
@@ -1190,6 +1235,7 @@ impl Texture {
         }
     }
 }
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct TextureFlags {
@@ -1335,11 +1381,9 @@ impl_vec_hash!(VertexAttribute, VertexAttributeVec);
 impl VertexLayout {
 
     /// Submits the vertex buffer description to OpenGL
-    pub fn bind(&self, shader: &GlShader) {
+    pub fn bind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
 
         const VERTICES_ARE_NORMALIZED: bool = false;
-
-        let gl_context = &shader.gl_context;
 
         let mut offset = 0;
 
@@ -1350,7 +1394,7 @@ impl VertexLayout {
             let attribute_location = vertex_attribute.layout_location
                 .as_option()
                 .map(|ll| *ll as i32)
-                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, vertex_attribute.name.as_str().into()));
+                .unwrap_or_else(|| gl_context.get_attrib_location(program_id, vertex_attribute.name.as_str().into()));
 
             gl_context.vertex_attrib_pointer(
                 attribute_location as u32,
@@ -1366,13 +1410,12 @@ impl VertexLayout {
     }
 
     /// Unsets the vertex buffer description
-    pub fn unbind(&self, shader: &GlShader) {
-        let gl_context = &shader.gl_context;
+    pub fn unbind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
         for vertex_attribute in self.fields.iter() {
             let attribute_location = vertex_attribute.layout_location
                 .as_option()
                 .map(|ll| *ll as i32)
-                .unwrap_or_else(|| gl_context.get_attrib_location(shader.program_id, vertex_attribute.name.as_str().into()));
+                .unwrap_or_else(|| gl_context.get_attrib_location(program_id, vertex_attribute.name.as_str().into()));
             gl_context.disable_vertex_attrib_array(attribute_location as u32);
         }
     }
@@ -1489,11 +1532,16 @@ impl Drop for VertexBuffer {
 }
 
 impl VertexBuffer {
-    pub fn new<T: VertexLayoutDescription>(shader: &GlShader, vertices: &[T], indices: &[u32], index_buffer_format: IndexBufferFormat) -> Self {
+
+    pub fn new<T: VertexLayoutDescription>(
+        gl_context: GlContextPtr,
+        shader_program_id: GLuint,
+        vertices: &[T],
+        indices: &[u32],
+        index_buffer_format: IndexBufferFormat
+    ) -> Self {
 
         use core::mem;
-
-        let gl_context = shader.gl_context.clone();
 
         // Save the OpenGL state
         let mut current_vertex_array = [0_i32];
@@ -1534,7 +1582,7 @@ impl VertexBuffer {
         );
 
         let vertex_description = T::get_description();
-        vertex_description.bind(shader);
+        vertex_description.bind(&gl_context.ptr.ptr, shader_program_id);
 
         // Reset the OpenGL state
         gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
@@ -1829,21 +1877,24 @@ impl GlShader {
         Ok(GlShader { program_id, gl_context: gl_context.clone() })
     }
 
-    /// Draws vertex buffers, index buffers + uniforms to the currently bound framebuffer
-    ///
-    /// **NOTE: `FrameBuffer::bind()` and `VertexBuffer::bind()` have to be called first!**
+    /// Draws vertex buffers, index buffers + uniforms to the texture
     pub fn draw(
-        &self,
-        buffers: &[(&TessellatedGPUSvgNode, &[Uniform])],
-        clear_color: Option<ColorU>,
-        texture_size: PhysicalSizeU32,
-    ) -> Texture {
+        // shader to use for drawing
+        shader_program_id: GLuint,
+        // note: texture is &mut so the texture is reusable -
+        texture: &mut Texture,
+        // buffers + uniforms to draw
+        buffers: &[(&VertexBuffer, &[Uniform])],
+    ) {
 
         use alloc::collections::btree_map::BTreeMap;
 
         const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
-        let gl_context = &self.gl_context;
+        let texture_size = texture.size;
+        let clear_color = texture.background_color;
+
+        let gl_context = &texture.gl_context;
 
         // save the OpenGL state
         let mut current_multisample = [0_u8];
@@ -1864,10 +1915,7 @@ impl GlShader {
         gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
         gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
 
-        // 1. Create the texture + framebuffer
-
-        let textures = gl_context.gen_textures(1);
-        let texture_id = textures.get(0).unwrap();
+        // 1. Create the framebuffer
         let framebuffers = gl_context.gen_framebuffers(1);
         let framebuffer_id = framebuffers.get(0).unwrap();
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, *framebuffer_id);
@@ -1875,7 +1923,7 @@ impl GlShader {
         let depthbuffers = gl_context.gen_renderbuffers(1);
         let depthbuffer_id = depthbuffers.get(0).unwrap();
 
-        gl_context.bind_texture(gl::TEXTURE_2D, *texture_id);
+        gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
         gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA8 as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA8, gl::UNSIGNED_BYTE, None.into());
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -1886,13 +1934,13 @@ impl GlShader {
         gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, texture_size.width as i32, texture_size.height as i32);
         gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, *depthbuffer_id);
 
-        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, *texture_id, 0);
+        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture.texture_id, 0);
         gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
 
-        debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
+        // debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
 
-        gl_context.use_program(self.program_id);
+        gl_context.use_program(shader_program_id);
         gl_context.disable(gl::MULTISAMPLE);
 
         // Avoid multiple calls to get_uniform_location by caching the uniform locations
@@ -1901,7 +1949,7 @@ impl GlShader {
         for (_, uniforms) in buffers {
             for uniform in uniforms.iter() {
                 if !uniform_locations.contains_key(&uniform.name) {
-                    uniform_locations.insert(uniform.name.clone(), gl_context.get_uniform_location(self.program_id, uniform.name.as_str().into()));
+                    uniform_locations.insert(uniform.name.clone(), gl_context.get_uniform_location(shader_program_id, uniform.name.as_str().into()));
                 }
             }
             max_uniform_len = max_uniform_len.max(uniforms.len());
@@ -1909,20 +1957,17 @@ impl GlShader {
         let mut current_uniforms = vec![None;max_uniform_len];
 
         // Since the description of the vertex buffers is always the same, only the first layer needs to bind its VAO
-        if let Some(clear_color) = clear_color {
-            let clear_color: ColorF = clear_color.into();
-            gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
-        }
-
+        let clear_color: ColorF = clear_color.into();
+        gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
         gl_context.clear_depth(0.0);
         gl_context.clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
         // Draw the actual layers
-        for (gpu_svg_node, uniforms) in buffers {
+        for (vertex_index_buffer, uniforms) in buffers {
 
-            gl_context.bind_vertex_array(gpu_svg_node.vertex_index_buffer.vertex_buffer_id);
+            gl_context.bind_vertex_array(vertex_index_buffer.vertex_buffer_id);
             // NOTE: Technically not required, but some drivers...
-            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, gpu_svg_node.vertex_index_buffer.index_buffer_id);
+            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, vertex_index_buffer.index_buffer_id);
 
             // Only set the uniform if the value has changed
             for (uniform_index, uniform) in uniforms.iter().enumerate() {
@@ -1934,8 +1979,8 @@ impl GlShader {
             }
 
             gl_context.draw_elements(
-                gpu_svg_node.vertex_index_buffer.index_buffer_format.get_gl_id(),
-                gpu_svg_node.vertex_index_buffer.index_buffer_len as i32,
+                vertex_index_buffer.index_buffer_format.get_gl_id(),
+                vertex_index_buffer.index_buffer_len as i32,
                 INDEX_TYPE,
             0);
         }
@@ -1953,16 +1998,11 @@ impl GlShader {
         gl_context.delete_framebuffers((&[*framebuffer_id])[..].into());
         gl_context.delete_renderbuffers((&[*depthbuffer_id])[..].into());
 
-        Texture {
-            texture_id: *texture_id,
-            format: RawImageFormat::RGBA8,
-            size: texture_size,
-            flags: TextureFlags {
-                is_opaque: true,
-                is_video_texture: false,
-            },
-            gl_context: self.gl_context.clone(),
-        }
+        texture.format = RawImageFormat::RGBA8;
+        texture.flags = TextureFlags {
+            is_opaque: true,
+            is_video_texture: false,
+        };
     }
 }
 

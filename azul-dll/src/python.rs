@@ -6058,6 +6058,7 @@ pub struct AzTexture {
     pub format: AzRawImageFormatEnumWrapper,
     pub flags: AzTextureFlags,
     pub size: AzPhysicalSizeU32,
+    pub background_color: AzColorU,
     pub gl_context: AzGl,
 }
 
@@ -7123,6 +7124,12 @@ pub struct AzVertexBuffer {
 #[repr(C)]
 pub struct AzSvgMultiPolygon {
     pub rings: AzSvgPathVec,
+}
+
+/// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
+#[repr(C)]
+pub struct AzTessellatedGPUSvgNode {
+    pub vertex_index_buffer: AzVertexBuffer,
 }
 
 /// Re-export of rust-allocated (stack based) `XmlNode` struct
@@ -10500,6 +10507,7 @@ impl Clone for AzVertexLayout { fn clone(&self) -> Self { let r: &azul_impl::gl:
 impl Clone for AzVertexArrayObject { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexArrayObject = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexBuffer { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexBuffer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygon { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedGPUSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedGPUSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNode { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputOutputTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -14228,6 +14236,62 @@ impl AzDom {
             mem::transmute(prop),
         )) }
     }
+    fn set_inline_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_setInlineStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_style(&mut self, style: String) -> AzDom {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_withInlineStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_inline_hover_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_setInlineHoverStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_hover_style(&mut self, style: String) -> AzDom {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_withInlineHoverStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_inline_active_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_setInlineActiveStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_active_style(&mut self, style: String) -> AzDom {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_withInlineActiveStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_inline_focus_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_setInlineFocusStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_focus_style(&mut self, style: String) -> AzDom {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzDom_withInlineFocusStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
     fn set_clip_mask(&mut self, clip_mask: AzImageMask) -> () {
         unsafe { mem::transmute(crate::AzDom_setClipMask(
             mem::transmute(self),
@@ -14532,6 +14596,62 @@ impl AzNodeData {
         unsafe { mem::transmute(crate::AzNodeData_withInlineCssProps(
             mem::transmute(self),
             mem::transmute(css_properties),
+        )) }
+    }
+    fn set_inline_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_setInlineStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_style(&mut self, style: String) -> AzNodeData {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_withInlineStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_inline_hover_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_setInlineHoverStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_hover_style(&mut self, style: String) -> AzNodeData {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_withInlineHoverStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_inline_active_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_setInlineActiveStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_active_style(&mut self, style: String) -> AzNodeData {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_withInlineActiveStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn set_inline_focus_style(&mut self, style: String) -> () {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_setInlineFocusStyle(
+            mem::transmute(self),
+            mem::transmute(style),
+        )) }
+    }
+    fn with_inline_focus_style(&mut self, style: String) -> AzNodeData {
+        let style = pystring_to_azstring(&style);
+        unsafe { mem::transmute(crate::AzNodeData_withInlineFocusStyle(
+            mem::transmute(self),
+            mem::transmute(style),
         )) }
     }
     fn set_clip_mask(&mut self, image_mask: AzImageMask) -> () {
@@ -16280,6 +16400,18 @@ impl AzColorU {
         unsafe { mem::transmute(crate::AzColorU_fromStr(
             mem::transmute(string),
         )) }
+    }
+    #[staticmethod]
+    fn transparent() -> AzColorU {
+        unsafe { mem::transmute(crate::AzColorU_transparent()) }
+    }
+    #[staticmethod]
+    fn white() -> AzColorU {
+        unsafe { mem::transmute(crate::AzColorU_white()) }
+    }
+    #[staticmethod]
+    fn black() -> AzColorU {
+        unsafe { mem::transmute(crate::AzColorU_black()) }
     }
     fn to_hash(&self) -> String {
         az_string_to_py_string(unsafe { mem::transmute(crate::AzColorU_toHash(
@@ -23829,10 +23961,19 @@ impl PyObjectProtocol for AzStyledDom {
 #[pymethods]
 impl AzTexture {
     #[staticmethod]
-    fn allocate_clip_mask(gl: AzGl, size: AzLayoutSize) -> AzTexture {
+    fn allocate_rgba8(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture {
+        unsafe { mem::transmute(crate::AzTexture_allocateRgba8(
+            mem::transmute(gl),
+            mem::transmute(size),
+            mem::transmute(background),
+        )) }
+    }
+    #[staticmethod]
+    fn allocate_clip_mask(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture {
         unsafe { mem::transmute(crate::AzTexture_allocateClipMask(
             mem::transmute(gl),
             mem::transmute(size),
+            mem::transmute(background),
         )) }
     }
     fn draw_clip_mask(&mut self, node: AzTessellatedSvgNode) -> bool {
@@ -29979,6 +30120,20 @@ impl PyObjectProtocol for AzTessellatedSvgNodeVecRef {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::TessellatedSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzTessellatedGPUSvgNode {
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzTessellatedGPUSvgNode {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::TessellatedGPUSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::TessellatedGPUSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -38491,6 +38646,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzSvgVertex>()?;
     m.add_class::<AzTessellatedSvgNode>()?;
     m.add_class::<AzTessellatedSvgNodeVecRef>()?;
+    m.add_class::<AzTessellatedGPUSvgNode>()?;
     m.add_class::<AzSvgParseOptions>()?;
     m.add_class::<AzShapeRenderingEnumWrapper>()?;
     m.add_class::<AzTextRenderingEnumWrapper>()?;

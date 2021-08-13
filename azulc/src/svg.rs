@@ -2,6 +2,7 @@ use core::fmt;
 use azul_core::{
     app_resources::{RawImage, RawImageFormat},
     gl::{Texture, GlContextPtr},
+    window::PhysicalSizeU32,
 };
 use azul_css::{
     OptionI16, OptionU16, U8Vec, OptionAzString,
@@ -536,10 +537,9 @@ pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> Tessellated
 
 // NOTE: This is a separate step both in order to reuse GPU textures
 // and also because texture allocation is heavy and can be offloaded to a different thread
-pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: LayoutSize) -> Texture {
+pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: PhysicalSizeU32) -> Texture {
 
     use azul_core::gl::TextureFlags;
-    use azul_core::window::PhysicalSizeU32;
 
     let textures = gl_context.gen_textures(1);
     let texture_id = textures.get(0).unwrap();
@@ -551,10 +551,8 @@ pub fn allocate_clipmask_texture(gl_context: GlContextPtr, size: LayoutSize) -> 
             is_opaque: true,
             is_video_texture: false,
         },
-        size: PhysicalSizeU32 {
-            width: size.width.max(0) as u32,
-            height: size.height.max(0) as u32,
-        },
+        background_color: ColorU::TRANSPARENT,
+        size,
         gl_context,
     }
 }

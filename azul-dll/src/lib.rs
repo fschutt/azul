@@ -749,6 +749,22 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn AzDom_addFocusCssProperty(dom: &mut AzDom, prop: AzCssProperty) { dom.root.add_focus_css_property(prop) }
 /// Same as add_class, but as a builder method
 #[no_mangle] pub extern "C" fn AzDom_withFocusCssProperty(dom: &mut AzDom, prop: AzCssProperty) -> AzDom { let mut dom = dom.swap_with_default(); dom.root.add_focus_css_property(prop); dom }
+/// Equivalent to the Rust `Dom::set_inline_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_setInlineStyle(dom: &mut AzDom, style: AzString) { AzNodeData_setInlineStyle(&mut dom.root, style); }
+/// Equivalent to the Rust `Dom::with_inline_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_withInlineStyle(dom: &mut AzDom, style: AzString) -> AzDom { let mut dom = dom.swap_with_default(); AzNodeData_setInlineStyle(&mut dom.root, style); dom }
+/// Equivalent to the Rust `Dom::set_inline_hover_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_setInlineHoverStyle(dom: &mut AzDom, style: AzString) { AzNodeData_setInlineHoverStyle(&mut dom.root, style); }
+/// Equivalent to the Rust `Dom::with_inline_hover_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_withInlineHoverStyle(dom: &mut AzDom, style: AzString) -> AzDom { let mut dom = dom.swap_with_default(); AzNodeData_setInlineHoverStyle(&mut dom.root, style); dom }
+/// Equivalent to the Rust `Dom::set_inline_active_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_setInlineActiveStyle(dom: &mut AzDom, style: AzString) { AzNodeData_setInlineActiveStyle(&mut dom.root, style); }
+/// Equivalent to the Rust `Dom::with_inline_active_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_withInlineActiveStyle(dom: &mut AzDom, style: AzString) -> AzDom { let mut dom = dom.swap_with_default(); AzNodeData_setInlineActiveStyle(&mut dom.root, style); dom }
+/// Equivalent to the Rust `Dom::set_inline_focus_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_setInlineFocusStyle(dom: &mut AzDom, style: AzString) { AzNodeData_setInlineFocusStyle(&mut dom.root, style); }
+/// Equivalent to the Rust `Dom::with_inline_focus_style()` function.
+#[no_mangle] pub extern "C" fn AzDom_withInlineFocusStyle(dom: &mut AzDom, style: AzString) -> AzDom { let mut dom = dom.swap_with_default(); AzNodeData_setInlineFocusStyle(&mut dom.root, style); dom }
 /// Sets the clip mask for the DOM root node.
 #[no_mangle] pub extern "C" fn AzDom_setClipMask(dom: &mut AzDom, clip_mask: AzImageMask) { dom.root.set_clip_mask(clip_mask) }
 /// Same as set_clip_mask, but as a builder method
@@ -841,6 +857,22 @@ pub use AzNodeDataTT as AzNodeData;
 #[no_mangle] pub extern "C" fn AzNodeData_setInlineCssProps(nodedata: &mut AzNodeData, css_properties: AzNodeDataInlineCssPropertyVec) { nodedata.set_inline_css_props(css_properties) }
 /// Equivalent to the Rust `NodeData::with_inline_css_props()` function.
 #[no_mangle] pub extern "C" fn AzNodeData_withInlineCssProps(nodedata: &mut AzNodeData, css_properties: AzNodeDataInlineCssPropertyVec) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); nodedata.set_inline_css_props(css_properties); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setInlineStyle(nodedata: &mut AzNodeData, style: AzString) { nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_normal(style.as_str()))) }
+/// Equivalent to the Rust `NodeData::with_inline_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withInlineStyle(nodedata: &mut AzNodeData, style: AzString) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineStyle(&mut nodedata, style); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_hover_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setInlineHoverStyle(nodedata: &mut AzNodeData, style: AzString) { nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_hover(style.as_str()))) }
+/// Equivalent to the Rust `NodeData::with_inline_hover_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withInlineHoverStyle(nodedata: &mut AzNodeData, style: AzString) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineHoverStyle(&mut nodedata, style); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_active_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setInlineActiveStyle(nodedata: &mut AzNodeData, style: AzString) { nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_active(style.as_str()))) }
+/// Equivalent to the Rust `NodeData::with_inline_active_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withInlineActiveStyle(nodedata: &mut AzNodeData, style: AzString) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineActiveStyle(&mut nodedata, style); nodedata }
+/// Equivalent to the Rust `NodeData::set_inline_focus_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_setInlineFocusStyle(nodedata: &mut AzNodeData, style: AzString) { nodedata.set_inline_css_props(nodedata.get_inline_css_props().with_append(AzNodeDataInlineCssPropertyVec::parse_focus(style.as_str()))) }
+/// Equivalent to the Rust `NodeData::with_inline_focus_style()` function.
+#[no_mangle] pub extern "C" fn AzNodeData_withInlineFocusStyle(nodedata: &mut AzNodeData, style: AzString) -> AzNodeData { let mut nodedata = nodedata.swap_with_default(); AzNodeData_setInlineFocusStyle(&mut nodedata, style); nodedata }
 /// Sets the `extra.clip_mask` field for this node
 #[no_mangle] pub extern "C" fn AzNodeData_setClipMask(nodedata: &mut AzNodeData, image_mask: AzImageMask) { nodedata.set_clip_mask(image_mask) }
 /// Sets the tab index for this node
@@ -1077,6 +1109,15 @@ pub use AzColorUTT as AzColorU;
 /// Creates a new `ColorU` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `ColorU::from_str()` constructor.
 #[no_mangle] pub extern "C" fn AzColorU_fromStr(string: AzString) -> AzColorU { azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(AzColorU::BLACK) }
+/// Creates a new `ColorU` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `ColorU::transparent()` constructor.
+#[no_mangle] pub extern "C" fn AzColorU_transparent() -> AzColorU { AzColorU::TRANSPARENT }
+/// Creates a new `ColorU` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `ColorU::white()` constructor.
+#[no_mangle] pub extern "C" fn AzColorU_white() -> AzColorU { AzColorU::WHITE }
+/// Creates a new `ColorU` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `ColorU::black()` constructor.
+#[no_mangle] pub extern "C" fn AzColorU_black() -> AzColorU { AzColorU::BLACK }
 /// Equivalent to the Rust `ColorU::to_hash()` function.
 #[no_mangle] pub extern "C" fn AzColorU_toHash(coloru: &AzColorU) -> AzString { coloru.to_hash().into() }
 
@@ -2434,9 +2475,13 @@ pub use AzStyledDomTT as AzStyledDom;
 pub type AzTextureTT = azul_impl::gl::Texture;
 pub use AzTextureTT as AzTexture;
 /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
-#[no_mangle] pub extern "C" fn AzTexture_allocateClipMask(gl: AzGl, size: AzLayoutSize) -> AzTexture { azul_impl::svg::allocate_clipmask_texture(gl, size) }
+#[no_mangle] pub extern "C" fn AzTexture_allocateRgba8(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture { AzTexture::allocate_rgba8(gl, size, background) }
+/// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
+#[no_mangle] pub extern "C" fn AzTexture_allocateClipMask(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture { azul_impl::svg::allocate_clipmask_texture(gl, size) }
 /// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
 #[no_mangle] pub extern "C" fn AzTexture_drawClipMask(texture: &mut AzTexture, node: AzTessellatedSvgNode) -> bool { azul_impl::svg::render_tessellated_node_gpu(texture, &node).is_some() }
+/// Draws a `&TessellatedGPUSvgNode` with the given color to the texture
+#[no_mangle] pub extern "C" fn AzTexture_drawTesselatedSvgGpuNode(texture: &mut AzTexture, node: *const AzTessellatedGPUSvgNode, size: AzPhysicalSizeU32, color: AzColorU, transforms: AzStyleTransformVec) -> bool { let node = unsafe { &*node }; node.draw(texture, size, color, transforms) }
 /// Applies an FXAA filter to the texture
 #[no_mangle] pub extern "C" fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { azul_impl::svg::apply_fxaa(texture).is_some() }
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
@@ -3042,7 +3087,7 @@ pub use AzImageRefTT as AzImageRef;
 /// Creates an image reference from an OpenGL texture
 #[no_mangle] pub extern "C" fn AzImageRef_glTexture(texture: AzTexture) -> AzImageRef { AzImageRef::new_gltexture(texture) }
 /// Creates an image reference from a callback that is going to be rendered with the given nodes computed size
-#[no_mangle] pub extern "C" fn AzImageRef_callback(callback: AzRenderImageCallback, data: AzRefAny) -> AzImageRef { AzImageRef::callback(callback, data) }
+#[no_mangle] pub extern "C" fn AzImageRef_callback(data: AzRefAny, callback: AzRenderImageCallbackType) -> AzImageRef { AzImageRef::callback(AzRenderImageCallback { cb: callback }, data) }
 /// Creates a new copy of the image bytes instead of shallow-copying the reference
 #[no_mangle] pub extern "C" fn AzImageRef_cloneBytes(imageref: &AzImageRef) -> AzImageRef { imageref.deep_copy() }
 /// Returns whether the image is a null (invalid) image
@@ -3263,6 +3308,15 @@ pub type AzTessellatedSvgNodeVecRefTT = azul_impl::svg::TessellatedSvgNodeVecRef
 pub use AzTessellatedSvgNodeVecRefTT as AzTessellatedSvgNodeVecRef;
 /// Destructor: Takes ownership of the `TessellatedSvgNodeVecRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTessellatedSvgNodeVecRef_delete(object: &mut AzTessellatedSvgNodeVecRef) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
+pub type AzTessellatedGPUSvgNodeTT = azul_impl::svg::TessellatedGPUSvgNode;
+pub use AzTessellatedGPUSvgNodeTT as AzTessellatedGPUSvgNode;
+/// Creates a new `TessellatedGPUSvgNode` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TessellatedGPUSvgNode::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTessellatedGPUSvgNode_new(tessellated_node: *const AzTessellatedSvgNode, gl: AzGl) -> AzTessellatedGPUSvgNode { AzTessellatedGPUSvgNode::new(unsafe { &*tessellated_node }, gl) }
+/// Destructor: Takes ownership of the `TessellatedGPUSvgNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTessellatedGPUSvgNode_delete(object: &mut AzTessellatedGPUSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
 pub type AzSvgParseOptionsTT = azul_impl::svg::SvgParseOptions;
@@ -10297,6 +10351,7 @@ mod test_sizes {
         pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
+        pub background_color: AzColorU,
         pub gl_context: AzGl,
     }
 
@@ -11362,6 +11417,12 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzSvgMultiPolygon {
         pub rings: AzSvgPathVec,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
+    #[repr(C)]
+    pub struct AzTessellatedGPUSvgNode {
+        pub vertex_index_buffer: AzVertexBuffer,
     }
 
     /// Re-export of rust-allocated (stack based) `XmlNode` struct
@@ -12623,6 +12684,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedGPUSvgNode>(), "AzTessellatedGPUSvgNode"), (Layout::new::<AzTessellatedGPUSvgNode>(), "AzTessellatedGPUSvgNode"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNode>(), "AzXmlNode"), (Layout::new::<AzXmlNode>(), "AzXmlNode"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"), (Layout::new::<AzNodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdInfoMapVec>(), "AzInputOutputTypeIdInfoMapVec"), (Layout::new::<AzInputOutputTypeIdInfoMapVec>(), "AzInputOutputTypeIdInfoMapVec"));

@@ -7475,6 +7475,7 @@ mod dll {
         pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
+        pub background_color: AzColorU,
         pub gl_context: AzGl,
     }
 
@@ -8817,6 +8818,15 @@ mod dll {
         pub rings: AzSvgPathVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzTessellatedGPUSvgNode {
+        pub vertex_index_buffer: AzVertexBuffer,
+    }
+
     /// Re-export of rust-allocated (stack based) `XmlNode` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -9655,6 +9665,14 @@ mod dll {
         pub(crate) fn AzDom_withActiveCssProperty(_:  &mut AzDom, _:  AzCssProperty) -> AzDom;
         pub(crate) fn AzDom_addFocusCssProperty(_:  &mut AzDom, _:  AzCssProperty);
         pub(crate) fn AzDom_withFocusCssProperty(_:  &mut AzDom, _:  AzCssProperty) -> AzDom;
+        pub(crate) fn AzDom_setInlineStyle(_:  &mut AzDom, _:  AzString);
+        pub(crate) fn AzDom_withInlineStyle(_:  &mut AzDom, _:  AzString) -> AzDom;
+        pub(crate) fn AzDom_setInlineHoverStyle(_:  &mut AzDom, _:  AzString);
+        pub(crate) fn AzDom_withInlineHoverStyle(_:  &mut AzDom, _:  AzString) -> AzDom;
+        pub(crate) fn AzDom_setInlineActiveStyle(_:  &mut AzDom, _:  AzString);
+        pub(crate) fn AzDom_withInlineActiveStyle(_:  &mut AzDom, _:  AzString) -> AzDom;
+        pub(crate) fn AzDom_setInlineFocusStyle(_:  &mut AzDom, _:  AzString);
+        pub(crate) fn AzDom_withInlineFocusStyle(_:  &mut AzDom, _:  AzString) -> AzDom;
         pub(crate) fn AzDom_setClipMask(_:  &mut AzDom, _:  AzImageMask);
         pub(crate) fn AzDom_withClipMask(_:  &mut AzDom, _:  AzImageMask) -> AzDom;
         pub(crate) fn AzDom_setTabIndex(_:  &mut AzDom, _:  AzTabIndex);
@@ -9689,6 +9707,14 @@ mod dll {
         pub(crate) fn AzNodeData_withCallbacks(_:  &mut AzNodeData, _:  AzCallbackDataVec) -> AzNodeData;
         pub(crate) fn AzNodeData_setInlineCssProps(_:  &mut AzNodeData, _:  AzNodeDataInlineCssPropertyVec);
         pub(crate) fn AzNodeData_withInlineCssProps(_:  &mut AzNodeData, _:  AzNodeDataInlineCssPropertyVec) -> AzNodeData;
+        pub(crate) fn AzNodeData_setInlineStyle(_:  &mut AzNodeData, _:  AzString);
+        pub(crate) fn AzNodeData_withInlineStyle(_:  &mut AzNodeData, _:  AzString) -> AzNodeData;
+        pub(crate) fn AzNodeData_setInlineHoverStyle(_:  &mut AzNodeData, _:  AzString);
+        pub(crate) fn AzNodeData_withInlineHoverStyle(_:  &mut AzNodeData, _:  AzString) -> AzNodeData;
+        pub(crate) fn AzNodeData_setInlineActiveStyle(_:  &mut AzNodeData, _:  AzString);
+        pub(crate) fn AzNodeData_withInlineActiveStyle(_:  &mut AzNodeData, _:  AzString) -> AzNodeData;
+        pub(crate) fn AzNodeData_setInlineFocusStyle(_:  &mut AzNodeData, _:  AzString);
+        pub(crate) fn AzNodeData_withInlineFocusStyle(_:  &mut AzNodeData, _:  AzString) -> AzNodeData;
         pub(crate) fn AzNodeData_setClipMask(_:  &mut AzNodeData, _:  AzImageMask);
         pub(crate) fn AzNodeData_setTabIndex(_:  &mut AzNodeData, _:  AzTabIndex);
         pub(crate) fn AzNodeData_setAccessibilityInfo(_:  &mut AzNodeData, _:  AzAccessibilityInfo);
@@ -9710,6 +9736,9 @@ mod dll {
         pub(crate) fn AzCss_empty() -> AzCss;
         pub(crate) fn AzCss_fromString(_:  AzString) -> AzCss;
         pub(crate) fn AzColorU_fromStr(_:  AzString) -> AzColorU;
+        pub(crate) fn AzColorU_transparent() -> AzColorU;
+        pub(crate) fn AzColorU_white() -> AzColorU;
+        pub(crate) fn AzColorU_black() -> AzColorU;
         pub(crate) fn AzColorU_toHash(_:  &AzColorU) -> AzString;
         pub(crate) fn AzCssProperty_getKeyString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getValueString(_:  &AzCssProperty) -> AzString;
@@ -9800,8 +9829,10 @@ mod dll {
         pub(crate) fn AzStyledDom_withMenuBar(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
         pub(crate) fn AzStyledDom_setContextMenu(_:  &mut AzStyledDom, _:  AzMenu);
         pub(crate) fn AzStyledDom_withContextMenu(_:  &mut AzStyledDom, _:  AzMenu) -> AzStyledDom;
-        pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzLayoutSize) -> AzTexture;
+        pub(crate) fn AzTexture_allocateRgba8(_:  AzGl, _:  AzPhysicalSizeU32, _:  AzColorU) -> AzTexture;
+        pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzPhysicalSizeU32, _:  AzColorU) -> AzTexture;
         pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
+        pub(crate) fn AzTexture_drawTesselatedSvgGpuNode(_:  &mut AzTexture, _:  *const AzTessellatedGPUSvgNode, _:  AzPhysicalSizeU32, _:  AzColorU, _:  AzStyleTransformVec) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
         pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
         pub(crate) fn AzTexture_deepCopy(_:  &AzTexture) -> AzTexture;
@@ -10036,7 +10067,7 @@ mod dll {
         pub(crate) fn AzImageRef_invalid(_:  usize, _:  usize, _:  AzRawImageFormat) -> AzImageRef;
         pub(crate) fn AzImageRef_rawImage(_:  AzRawImage) -> AzOptionImageRef;
         pub(crate) fn AzImageRef_glTexture(_:  AzTexture) -> AzImageRef;
-        pub(crate) fn AzImageRef_callback(_:  AzRenderImageCallback, _:  AzRefAny) -> AzImageRef;
+        pub(crate) fn AzImageRef_callback(_:  AzRefAny, _:  AzRenderImageCallbackType) -> AzImageRef;
         pub(crate) fn AzImageRef_cloneBytes(_:  &AzImageRef) -> AzImageRef;
         pub(crate) fn AzImageRef_isInvalid(_:  &AzImageRef) -> bool;
         pub(crate) fn AzImageRef_isGlTexture(_:  &AzImageRef) -> bool;
@@ -10085,6 +10116,7 @@ mod dll {
         pub(crate) fn AzSvgRect_tessellateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode;
         pub(crate) fn AzTessellatedSvgNode_fromNodes(_:  AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode;
+        pub(crate) fn AzTessellatedGPUSvgNode_new(_:  *const AzTessellatedSvgNode, _:  AzGl) -> AzTessellatedGPUSvgNode;
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
         pub(crate) fn AzSvgFillStyle_default() -> AzSvgFillStyle;
@@ -11206,6 +11238,22 @@ pub mod dom {
         pub fn add_focus_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addFocusCssProperty(self, prop) } }
         /// Same as add_class, but as a builder method
         pub fn with_focus_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withFocusCssProperty(self, prop) } }
+        /// Calls the `Dom::set_inline_style` function.
+        pub fn set_inline_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineStyle(self, style) } }
+        /// Calls the `Dom::with_inline_style` function.
+        pub fn with_inline_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineStyle(self, style) } }
+        /// Calls the `Dom::set_inline_hover_style` function.
+        pub fn set_inline_hover_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineHoverStyle(self, style) } }
+        /// Calls the `Dom::with_inline_hover_style` function.
+        pub fn with_inline_hover_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineHoverStyle(self, style) } }
+        /// Calls the `Dom::set_inline_active_style` function.
+        pub fn set_inline_active_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineActiveStyle(self, style) } }
+        /// Calls the `Dom::with_inline_active_style` function.
+        pub fn with_inline_active_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineActiveStyle(self, style) } }
+        /// Calls the `Dom::set_inline_focus_style` function.
+        pub fn set_inline_focus_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineFocusStyle(self, style) } }
+        /// Calls the `Dom::with_inline_focus_style` function.
+        pub fn with_inline_focus_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineFocusStyle(self, style) } }
         /// Sets the clip mask for the DOM root node.
         pub fn set_clip_mask(&mut self, clip_mask: ImageMask)  { unsafe { crate::dll::AzDom_setClipMask(self, clip_mask) } }
         /// Same as set_clip_mask, but as a builder method
@@ -11286,6 +11334,22 @@ pub mod dom {
         pub fn set_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNodeData_setInlineCssProps(self, css_properties) } }
         /// Calls the `NodeData::with_inline_css_props` function.
         pub fn with_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineCssProps(self, css_properties) } }
+        /// Calls the `NodeData::set_inline_style` function.
+        pub fn set_inline_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineStyle(self, style) } }
+        /// Calls the `NodeData::with_inline_style` function.
+        pub fn with_inline_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineStyle(self, style) } }
+        /// Calls the `NodeData::set_inline_hover_style` function.
+        pub fn set_inline_hover_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineHoverStyle(self, style) } }
+        /// Calls the `NodeData::with_inline_hover_style` function.
+        pub fn with_inline_hover_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineHoverStyle(self, style) } }
+        /// Calls the `NodeData::set_inline_active_style` function.
+        pub fn set_inline_active_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineActiveStyle(self, style) } }
+        /// Calls the `NodeData::with_inline_active_style` function.
+        pub fn with_inline_active_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineActiveStyle(self, style) } }
+        /// Calls the `NodeData::set_inline_focus_style` function.
+        pub fn set_inline_focus_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineFocusStyle(self, style) } }
+        /// Calls the `NodeData::with_inline_focus_style` function.
+        pub fn with_inline_focus_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineFocusStyle(self, style) } }
         /// Sets the `extra.clip_mask` field for this node
         pub fn set_clip_mask(&mut self, image_mask: ImageMask)  { unsafe { crate::dll::AzNodeData_setClipMask(self, image_mask) } }
         /// Sets the tab index for this node
@@ -12118,6 +12182,12 @@ pub mod css {
     impl ColorU {
         /// Creates a new `ColorU` instance.
         pub fn from_str(string: String) -> Self { unsafe { crate::dll::AzColorU_fromStr(string) } }
+        /// Creates a new `ColorU` instance.
+        pub fn transparent() -> Self { unsafe { crate::dll::AzColorU_transparent() } }
+        /// Creates a new `ColorU` instance.
+        pub fn white() -> Self { unsafe { crate::dll::AzColorU_white() } }
+        /// Creates a new `ColorU` instance.
+        pub fn black() -> Self { unsafe { crate::dll::AzColorU_black() } }
         /// Calls the `ColorU::to_hash` function.
         pub fn to_hash(&self)  -> crate::str::String { unsafe { crate::dll::AzColorU_toHash(self) } }
     }
@@ -13424,18 +13494,23 @@ pub mod gl {
 
 
 
-    use crate::window::LayoutSize;
-    use crate::svg::TessellatedSvgNode;
-    use crate::vec::{GLuintVec, StringVec};
+    use crate::window::PhysicalSizeU32;
+    use crate::css::ColorU;
+    use crate::svg::{TessellatedGPUSvgNode, TessellatedSvgNode};
+    use crate::vec::{GLuintVec, StringVec, StyleTransformVec};
     use crate::option::OptionU8VecRef;
     /// `Texture` struct
     
 #[doc(inline)] pub use crate::dll::AzTexture as Texture;
     impl Texture {
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
-        pub fn allocate_clip_mask(gl: Gl, size: LayoutSize) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size) } }
+        pub fn allocate_rgba8(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateRgba8(gl, size, background) } }
+        /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
+        pub fn allocate_clip_mask(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size, background) } }
         /// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
         pub fn draw_clip_mask(&mut self, node: TessellatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
+        /// Draws a `&TessellatedGPUSvgNode` with the given color to the texture
+        pub fn draw_tesselated_svg_gpu_node(&mut self, node: *const AzTessellatedGPUSvgNode, size: PhysicalSizeU32, color: ColorU, transforms: StyleTransformVec)  -> bool { unsafe { crate::dll::AzTexture_drawTesselatedSvgGpuNode(self, node, size, color, transforms) } }
         /// Applies an FXAA filter to the texture
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
@@ -15430,7 +15505,7 @@ pub mod image {
     use crate::dll::*;
     use core::ffi::c_void;
     use crate::gl::{Texture, U8VecRef};
-    use crate::callbacks::{RefAny, RenderImageCallback};
+    use crate::callbacks::{RefAny, RenderImageCallbackType};
     use crate::window::LayoutSize;
     use crate::svg::{SvgNode, SvgStyle};
     /// `ImageRef` struct
@@ -15444,7 +15519,7 @@ pub mod image {
         /// Creates an image reference from an OpenGL texture
         pub fn gl_texture(texture: Texture) -> Self { unsafe { crate::dll::AzImageRef_glTexture(texture) } }
         /// Creates an image reference from a callback that is going to be rendered with the given nodes computed size
-        pub fn callback(callback: RenderImageCallback, data: RefAny) -> Self { unsafe { crate::dll::AzImageRef_callback(callback, data) } }
+        pub fn callback(data: RefAny, callback: RenderImageCallbackType) -> Self { unsafe { crate::dll::AzImageRef_callback(data, callback) } }
         /// Creates a new copy of the image bytes instead of shallow-copying the reference
         pub fn clone_bytes(&self)  -> crate::image::ImageRef { unsafe { crate::dll::AzImageRef_cloneBytes(self) } }
         /// Returns whether the image is a null (invalid) image
@@ -15542,7 +15617,7 @@ pub mod svg {
     use crate::dll::*;
     use core::ffi::c_void;
     use crate::str::String;
-    use crate::gl::U8VecRef;
+    use crate::gl::{Gl, U8VecRef};
     /// `Svg` struct
     
 #[doc(inline)] pub use crate::dll::AzSvg as Svg;
@@ -15664,6 +15739,14 @@ pub mod svg {
     /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
     
 #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecRef as TessellatedSvgNodeVecRef;
+    /// `TessellatedGPUSvgNode` struct
+    
+#[doc(inline)] pub use crate::dll::AzTessellatedGPUSvgNode as TessellatedGPUSvgNode;
+    impl TessellatedGPUSvgNode {
+        /// Creates a new `TessellatedGPUSvgNode` instance.
+        pub fn new(tessellated_node: *const AzTessellatedSvgNode, gl: Gl) -> Self { unsafe { crate::dll::AzTessellatedGPUSvgNode_new(tessellated_node, gl) } }
+    }
+
     /// `SvgParseOptions` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;

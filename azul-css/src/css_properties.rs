@@ -792,6 +792,12 @@ pub struct CssKeyMap {
     pub shorthands: BTreeMap<&'static str, CombinedCssPropertyType>,
 }
 
+impl CssKeyMap {
+    pub fn get() -> Self {
+        get_css_key_map()
+    }
+}
+
 /// Returns a map useful for parsing the keys of CSS stylesheets
 pub fn get_css_key_map() -> CssKeyMap {
     CssKeyMap {

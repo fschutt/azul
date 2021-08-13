@@ -7253,6 +7253,7 @@ namespace dll {
         RawImageFormat format;
         TextureFlags flags;
         PhysicalSizeU32 size;
+        ColorU background_color;
         Gl gl_context;
         Texture& operator=(const Texture&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Texture(const Texture&) = delete; /* disable copy constructor, use explicit .clone() */
@@ -8871,6 +8872,13 @@ namespace dll {
         SvgMultiPolygon() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct TessellatedGPUSvgNode {
+        VertexBuffer vertex_index_buffer;
+        TessellatedGPUSvgNode& operator=(const TessellatedGPUSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedGPUSvgNode(const TessellatedGPUSvgNode&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedGPUSvgNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct XmlNode {
         String tag;
         StringPairVec attributes;
@@ -9806,6 +9814,14 @@ namespace dll {
         Dom Dom_withActiveCssProperty(Dom* restrict dom, AzCssProperty  prop);
         void Dom_addFocusCssProperty(Dom* restrict dom, AzCssProperty  prop);
         Dom Dom_withFocusCssProperty(Dom* restrict dom, AzCssProperty  prop);
+        void Dom_setInlineStyle(Dom* restrict dom, AzString  style);
+        Dom Dom_withInlineStyle(Dom* restrict dom, AzString  style);
+        void Dom_setInlineHoverStyle(Dom* restrict dom, AzString  style);
+        Dom Dom_withInlineHoverStyle(Dom* restrict dom, AzString  style);
+        void Dom_setInlineActiveStyle(Dom* restrict dom, AzString  style);
+        Dom Dom_withInlineActiveStyle(Dom* restrict dom, AzString  style);
+        void Dom_setInlineFocusStyle(Dom* restrict dom, AzString  style);
+        Dom Dom_withInlineFocusStyle(Dom* restrict dom, AzString  style);
         void Dom_setClipMask(Dom* restrict dom, AzImageMask  clip_mask);
         Dom Dom_withClipMask(Dom* restrict dom, AzImageMask  clip_mask);
         void Dom_setTabIndex(Dom* restrict dom, AzTabIndex  tab_index);
@@ -9843,6 +9859,14 @@ namespace dll {
         NodeData NodeData_withCallbacks(NodeData* restrict nodedata, AzCallbackDataVec  callbacks);
         void NodeData_setInlineCssProps(NodeData* restrict nodedata, AzNodeDataInlineCssPropertyVec  css_properties);
         NodeData NodeData_withInlineCssProps(NodeData* restrict nodedata, AzNodeDataInlineCssPropertyVec  css_properties);
+        void NodeData_setInlineStyle(NodeData* restrict nodedata, AzString  style);
+        NodeData NodeData_withInlineStyle(NodeData* restrict nodedata, AzString  style);
+        void NodeData_setInlineHoverStyle(NodeData* restrict nodedata, AzString  style);
+        NodeData NodeData_withInlineHoverStyle(NodeData* restrict nodedata, AzString  style);
+        void NodeData_setInlineActiveStyle(NodeData* restrict nodedata, AzString  style);
+        NodeData NodeData_withInlineActiveStyle(NodeData* restrict nodedata, AzString  style);
+        void NodeData_setInlineFocusStyle(NodeData* restrict nodedata, AzString  style);
+        NodeData NodeData_withInlineFocusStyle(NodeData* restrict nodedata, AzString  style);
         void NodeData_setClipMask(NodeData* restrict nodedata, AzImageMask  image_mask);
         void NodeData_setTabIndex(NodeData* restrict nodedata, AzTabIndex  tab_index);
         void NodeData_setAccessibilityInfo(NodeData* restrict nodedata, AzAccessibilityInfo  accessibility_info);
@@ -9882,6 +9906,9 @@ namespace dll {
         Css Css_fromString(AzString  s);
         void Css_delete(Css* restrict instance);
         ColorU ColorU_fromStr(AzString  string);
+        ColorU ColorU_transparent();
+        ColorU ColorU_white();
+        ColorU ColorU_black();
         String ColorU_toHash(const ColorU* coloru);
         void LinearGradient_delete(LinearGradient* restrict instance);
         void RadialGradient_delete(RadialGradient* restrict instance);
@@ -10037,8 +10064,10 @@ namespace dll {
         void StyledDom_setContextMenu(StyledDom* restrict styleddom, AzMenu  menu);
         StyledDom StyledDom_withContextMenu(StyledDom* restrict styleddom, AzMenu  menu);
         void StyledDom_delete(StyledDom* restrict instance);
-        Texture Texture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
+        Texture Texture_allocateRgba8(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
+        Texture Texture_allocateClipMask(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
         bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);
+        bool  Texture_drawTesselatedSvgGpuNode(Texture* restrict texture, AzTessellatedGPUSvgNode * node, AzPhysicalSizeU32  size, AzColorU  color, AzStyleTransformVec  transforms);
         bool  Texture_applyFxaa(Texture* restrict texture);
         void Texture_delete(Texture* restrict instance);
         Texture Texture_deepCopy(Texture* const instance);
@@ -10281,7 +10310,7 @@ namespace dll {
         ImageRef ImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
         ImageRef ImageRef_rawImage(AzRawImage  data);
         ImageRef ImageRef_glTexture(AzTexture  texture);
-        ImageRef ImageRef_callback(AzRenderImageCallback  callback, AzRefAny  data);
+        ImageRef ImageRef_callback(AzRefAny  data, AzRenderImageCallbackType  callback);
         ImageRef ImageRef_cloneBytes(const ImageRef* imageref);
         bool  ImageRef_isInvalid(const ImageRef* imageref);
         bool  ImageRef_isGlTexture(const ImageRef* imageref);
@@ -10340,6 +10369,8 @@ namespace dll {
         TessellatedSvgNode TessellatedSvgNode_fromNodes(AzTessellatedSvgNodeVecRef  nodes);
         void TessellatedSvgNode_delete(TessellatedSvgNode* restrict instance);
         void TessellatedSvgNodeVecRef_delete(TessellatedSvgNodeVecRef* restrict instance);
+        TessellatedGPUSvgNode TessellatedGPUSvgNode_new(AzTessellatedSvgNode * tessellated_node, AzGl  gl);
+        void TessellatedGPUSvgNode_delete(TessellatedGPUSvgNode* restrict instance);
         SvgParseOptions SvgParseOptions_default();
         void SvgParseOptions_delete(SvgParseOptions* restrict instance);
         SvgRenderOptions SvgRenderOptions_default();

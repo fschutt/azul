@@ -1,12 +1,19 @@
 //! SVG rendering module
 
-use crate::gl::{
-    VertexLayout,
-    VertexLayoutDescription, VertexAttribute,
-    VertexAttributeType, VertexBuffer,
+use crate::{
+    gl::{
+        VertexLayout, Texture, GlContextPtr, IndexBufferFormat,
+        VertexLayoutDescription, VertexAttribute,
+        VertexAttributeType, VertexBuffer,
+    },
+    ui_solver::{ComputedTransform3D, RotationMode},
+    window::PhysicalSizeU32,
 };
 use alloc::string::String;
-use azul_css::U32Vec;
+use azul_css::{
+    StyleTransformOrigin, U32Vec,
+    StyleTransformVec, ColorU, ColorF,
+};
 use core::fmt;
 use crate::xml::XmlError;
 use azul_css::{AzString, OptionAzString, StringVec, OptionLayoutSize, OptionColorU};
@@ -262,6 +269,79 @@ impl_vec_partialeq!(SvgVertex, SvgVertexVec);
 #[repr(C)]
 pub struct TessellatedGPUSvgNode {
     pub vertex_index_buffer: VertexBuffer,
+}
+
+impl TessellatedGPUSvgNode {
+
+    /// Uploads the tesselated SVG node to GPU memory
+    pub fn new(node: &TessellatedSvgNode, gl: GlContextPtr) -> Self {
+        let svg_shader_id = gl.ptr.svg_shader;
+        Self {
+            vertex_index_buffer: VertexBuffer::new(
+                gl,
+                svg_shader_id,
+                node.vertices.as_ref(),
+                node.indices.as_ref(),
+                IndexBufferFormat::Triangles
+            )
+        }
+    }
+
+    /// Draw the vertex buffer to the texture with the given color and transform
+    ///
+    /// Will resize the texture if necessary.
+    pub fn draw(
+        &self,
+        texture: &mut Texture,
+        target_size: PhysicalSizeU32,
+        color: ColorU,
+        transforms: StyleTransformVec
+    ) -> bool {
+        use crate::gl::{GlShader, Uniform, UniformType};
+        use azul_css::PixelValue;
+
+        let transform_origin = StyleTransformOrigin {
+            x: PixelValue::px(target_size.width as f32 / 2.0),
+            y: PixelValue::px(target_size.height as f32 / 2.0),
+        };
+
+        let computed_transform = ComputedTransform3D::from_style_transform_vec(
+            transforms.as_ref(),
+            &transform_origin,
+            target_size.width as f32,
+            target_size.height as f32,
+            RotationMode::ForWebRender
+        );
+
+        let color: ColorF = color.into();
+
+        // uniforms for the SVG shader
+        let uniforms = [
+            Uniform {
+                name: "vBboxSize".into(),
+                uniform_type: UniformType::FloatVec2([target_size.width as f32, target_size.height as f32])
+            },
+            Uniform {
+                name: "vTransformMatrix".into(),
+                uniform_type: UniformType::Matrix4 {
+                    transpose: false,
+                    matrix: unsafe { core::mem::transmute(computed_transform.m) }
+                }
+            },
+            Uniform {
+                name: "fDrawColor".into(),
+                uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a])
+            },
+        ];
+
+        GlShader::draw(
+            texture.gl_context.ptr.svg_shader,
+            texture,
+            &[(&self.vertex_index_buffer, &uniforms[..])]
+        );
+
+        true
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

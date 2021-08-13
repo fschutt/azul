@@ -254,7 +254,7 @@ fn test_css_pseudo_selector_parse() {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ErrorLocation {
     pub original_pos: usize,
 }
@@ -615,7 +615,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a
     Ok((parsed_css_blocks.into(), warnings))
 }
 
-fn parse_css_declaration<'a>(
+pub fn parse_css_declaration<'a>(
     unparsed_css_key: &'a str,
     unparsed_css_value: &'a str,
     location: (ErrorLocation, ErrorLocation),

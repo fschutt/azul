@@ -1215,6 +1215,8 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("menu", "StringMenuItem", "with_callback"),
         ("menu", "StringMenuItem", "set_callback"),
         ("menu", "MenuCallback", "new"),
+        ("gl", "Texture", "draw_tesselated_svg_gpu_node"),
+        ("svg", "TessellatedGPUSvgNode", "new"),
 
         ("task", "Timer", "new"),
         ("callbacks", "CallbackInfo", "start_thread"),

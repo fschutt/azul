@@ -7957,6 +7957,7 @@ struct AzTexture {
     AzRawImageFormat format;
     AzTextureFlags flags;
     AzPhysicalSizeU32 size;
+    AzColorU background_color;
     AzGl gl_context;
 };
 typedef struct AzTexture AzTexture;
@@ -9665,6 +9666,11 @@ struct AzSvgMultiPolygon {
     AzSvgPathVec rings;
 };
 typedef struct AzSvgMultiPolygon AzSvgMultiPolygon;
+
+struct AzTessellatedGPUSvgNode {
+    AzVertexBuffer vertex_index_buffer;
+};
+typedef struct AzTessellatedGPUSvgNode AzTessellatedGPUSvgNode;
 
 struct AzXmlNode {
     AzString tag;
@@ -11844,6 +11850,14 @@ extern DLLIMPORT void AzDom_addActiveCssProperty(AzDom* restrict dom, AzCssPrope
 extern DLLIMPORT AzDom AzDom_withActiveCssProperty(AzDom* restrict dom, AzCssProperty  prop);
 extern DLLIMPORT void AzDom_addFocusCssProperty(AzDom* restrict dom, AzCssProperty  prop);
 extern DLLIMPORT AzDom AzDom_withFocusCssProperty(AzDom* restrict dom, AzCssProperty  prop);
+extern DLLIMPORT void AzDom_setInlineStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT AzDom AzDom_withInlineStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT void AzDom_setInlineHoverStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT AzDom AzDom_withInlineHoverStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT void AzDom_setInlineActiveStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT AzDom AzDom_withInlineActiveStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT void AzDom_setInlineFocusStyle(AzDom* restrict dom, AzString  style);
+extern DLLIMPORT AzDom AzDom_withInlineFocusStyle(AzDom* restrict dom, AzString  style);
 extern DLLIMPORT void AzDom_setClipMask(AzDom* restrict dom, AzImageMask  clip_mask);
 extern DLLIMPORT AzDom AzDom_withClipMask(AzDom* restrict dom, AzImageMask  clip_mask);
 extern DLLIMPORT void AzDom_setTabIndex(AzDom* restrict dom, AzTabIndex  tab_index);
@@ -11881,6 +11895,14 @@ extern DLLIMPORT void AzNodeData_setCallbacks(AzNodeData* restrict nodedata, AzC
 extern DLLIMPORT AzNodeData AzNodeData_withCallbacks(AzNodeData* restrict nodedata, AzCallbackDataVec  callbacks);
 extern DLLIMPORT void AzNodeData_setInlineCssProps(AzNodeData* restrict nodedata, AzNodeDataInlineCssPropertyVec  css_properties);
 extern DLLIMPORT AzNodeData AzNodeData_withInlineCssProps(AzNodeData* restrict nodedata, AzNodeDataInlineCssPropertyVec  css_properties);
+extern DLLIMPORT void AzNodeData_setInlineStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT AzNodeData AzNodeData_withInlineStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT void AzNodeData_setInlineHoverStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT AzNodeData AzNodeData_withInlineHoverStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT void AzNodeData_setInlineActiveStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT AzNodeData AzNodeData_withInlineActiveStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT void AzNodeData_setInlineFocusStyle(AzNodeData* restrict nodedata, AzString  style);
+extern DLLIMPORT AzNodeData AzNodeData_withInlineFocusStyle(AzNodeData* restrict nodedata, AzString  style);
 extern DLLIMPORT void AzNodeData_setClipMask(AzNodeData* restrict nodedata, AzImageMask  image_mask);
 extern DLLIMPORT void AzNodeData_setTabIndex(AzNodeData* restrict nodedata, AzTabIndex  tab_index);
 extern DLLIMPORT void AzNodeData_setAccessibilityInfo(AzNodeData* restrict nodedata, AzAccessibilityInfo  accessibility_info);
@@ -11920,6 +11942,9 @@ extern DLLIMPORT AzCss AzCss_empty();
 extern DLLIMPORT AzCss AzCss_fromString(AzString  s);
 extern DLLIMPORT void AzCss_delete(AzCss* restrict instance);
 extern DLLIMPORT AzColorU AzColorU_fromStr(AzString  string);
+extern DLLIMPORT AzColorU AzColorU_transparent();
+extern DLLIMPORT AzColorU AzColorU_white();
+extern DLLIMPORT AzColorU AzColorU_black();
 extern DLLIMPORT AzString AzColorU_toHash(const AzColorU* coloru);
 extern DLLIMPORT void AzLinearGradient_delete(AzLinearGradient* restrict instance);
 extern DLLIMPORT void AzRadialGradient_delete(AzRadialGradient* restrict instance);
@@ -12075,8 +12100,10 @@ extern DLLIMPORT AzStyledDom AzStyledDom_withMenuBar(AzStyledDom* restrict style
 extern DLLIMPORT void AzStyledDom_setContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT AzStyledDom AzStyledDom_withContextMenu(AzStyledDom* restrict styleddom, AzMenu  menu);
 extern DLLIMPORT void AzStyledDom_delete(AzStyledDom* restrict instance);
-extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzLayoutSize  size);
+extern DLLIMPORT AzTexture AzTexture_allocateRgba8(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
+extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTessellatedSvgNode  node);
+extern DLLIMPORT bool  AzTexture_drawTesselatedSvgGpuNode(AzTexture* restrict texture, AzTessellatedGPUSvgNode * node, AzPhysicalSizeU32  size, AzColorU  color, AzStyleTransformVec  transforms);
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_deepCopy(AzTexture* const instance);
@@ -12319,7 +12346,7 @@ extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
 extern DLLIMPORT AzImageRef AzImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
 extern DLLIMPORT AzImageRef AzImageRef_rawImage(AzRawImage  data);
 extern DLLIMPORT AzImageRef AzImageRef_glTexture(AzTexture  texture);
-extern DLLIMPORT AzImageRef AzImageRef_callback(AzRenderImageCallback  callback, AzRefAny  data);
+extern DLLIMPORT AzImageRef AzImageRef_callback(AzRefAny  data, AzRenderImageCallbackType  callback);
 extern DLLIMPORT AzImageRef AzImageRef_cloneBytes(const AzImageRef* imageref);
 extern DLLIMPORT bool  AzImageRef_isInvalid(const AzImageRef* imageref);
 extern DLLIMPORT bool  AzImageRef_isGlTexture(const AzImageRef* imageref);
@@ -12378,6 +12405,8 @@ extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_empty();
 extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_fromNodes(AzTessellatedSvgNodeVecRef  nodes);
 extern DLLIMPORT void AzTessellatedSvgNode_delete(AzTessellatedSvgNode* restrict instance);
 extern DLLIMPORT void AzTessellatedSvgNodeVecRef_delete(AzTessellatedSvgNodeVecRef* restrict instance);
+extern DLLIMPORT AzTessellatedGPUSvgNode AzTessellatedGPUSvgNode_new(AzTessellatedSvgNode * tessellated_node, AzGl  gl);
+extern DLLIMPORT void AzTessellatedGPUSvgNode_delete(AzTessellatedGPUSvgNode* restrict instance);
 extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
 extern DLLIMPORT void AzSvgParseOptions_delete(AzSvgParseOptions* restrict instance);
 extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
