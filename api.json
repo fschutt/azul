@@ -11312,7 +11312,13 @@
                         {"transform": {"type": "SvgTransform", "doc": "Scaling / rotation / etc. transform to apply to the polygon before painting. NOTE: currently only implemented on CPU renderer"}},
                         {"anti_alias": {"type": "bool", "doc": "Whether the polygon is intended to be rendered anti-aliased"}},
                         {"high_quality_aa": {"type": "bool", "doc": "Whether anti-aliasing should use the fast approximate solution (true) or the high-quality slow one (false). Default: false"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "default": {
+                            "fn_args": [],
+                            "fn_body": "AzSvgFillStyle::default()"
+                        }
+                    }
                 },
                 "SvgStrokeStyle": {
                     "external": "azul_impl::svg::SvgStrokeStyle",
@@ -11329,7 +11335,13 @@
                         {"transform": {"type": "SvgTransform", "doc": "Scaling / rotation / etc. transform to apply to the polygon before painting. NOTE: currently only implemented on CPU renderer"}},
                         {"anti_alias": {"type": "bool", "doc": "Whether the polygon is intended to be rendered anti-aliased"}},
                         {"high_quality_aa": {"type": "bool", "doc": "Whether anti-aliasing should use the fast approximate solution (true) or the high-quality slow one (false). Default: false"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "default": {
+                            "fn_args": [],
+                            "fn_body": "AzSvgStrokeStyle::default()"
+                        }
+                    }
                 },
                 "SvgLineJoin": {
                     "external": "azul_impl::svg::SvgLineJoin",

@@ -10087,6 +10087,8 @@ mod dll {
         pub(crate) fn AzTessellatedSvgNode_fromNodes(_:  AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgParseOptions_default() -> AzSvgParseOptions;
         pub(crate) fn AzSvgRenderOptions_default() -> AzSvgRenderOptions;
+        pub(crate) fn AzSvgFillStyle_default() -> AzSvgFillStyle;
+        pub(crate) fn AzSvgStrokeStyle_default() -> AzSvgStrokeStyle;
         pub(crate) fn AzXml_fromStr(_:  AzRefstr) -> AzResultXmlXmlError;
         pub(crate) fn AzFile_open(_:  AzString) -> AzOptionFile;
         pub(crate) fn AzFile_create(_:  AzString) -> AzOptionFile;
@@ -15711,9 +15713,19 @@ pub mod svg {
     /// `SvgFillStyle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;
+    impl SvgFillStyle {
+        /// Creates a new `SvgFillStyle` instance.
+        pub fn default() -> Self { unsafe { crate::dll::AzSvgFillStyle_default() } }
+    }
+
     /// `SvgStrokeStyle` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
+    impl SvgStrokeStyle {
+        /// Creates a new `SvgStrokeStyle` instance.
+        pub fn default() -> Self { unsafe { crate::dll::AzSvgStrokeStyle_default() } }
+    }
+
     /// `SvgLineJoin` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
@@ -17210,7 +17222,8 @@ pub mod option {
     impl_option!(AzNodeGraphOnNodeConnected, AzOptionNodeGraphOnNodeConnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeInputDisconnected, AzOptionNodeGraphOnNodeInputDisconnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeOutputDisconnected, AzOptionNodeGraphOnNodeOutputDisconnected, [Debug, Copy, Clone]);
-    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);    /// `OptionDropDownOnChoiceChange` struct
+    impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);
+    impl_option!(AzGl, AzOptionGl, copy = false, [Debug, Clone]);    /// `OptionDropDownOnChoiceChange` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
     /// `OptionResolvedTextLayoutOptions` struct

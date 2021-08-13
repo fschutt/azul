@@ -340,6 +340,20 @@ pub struct SvgFillStyle {
     pub high_quality_aa: bool,
 }
 
+impl Default for SvgFillStyle {
+    fn default() -> Self {
+        Self {
+            line_join: SvgLineJoin::Miter,
+            miter_limit: DEFAULT_MITER_LIMIT,
+            tolerance: DEFAULT_TOLERANCE,
+            fill_rule: SvgFillRule::default(),
+            transform: SvgTransform::default(),
+            anti_alias: true,
+            high_quality_aa: false,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgStrokeStyle {

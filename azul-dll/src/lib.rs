@@ -3323,10 +3323,16 @@ pub use AzSvgTransformTT as AzSvgTransform;
 /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
 pub type AzSvgFillStyleTT = azul_impl::svg::SvgFillStyle;
 pub use AzSvgFillStyleTT as AzSvgFillStyle;
+/// Creates a new `SvgFillStyle` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `SvgFillStyle::default()` constructor.
+#[no_mangle] pub extern "C" fn AzSvgFillStyle_default() -> AzSvgFillStyle { AzSvgFillStyle::default() }
 
 /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
 pub type AzSvgStrokeStyleTT = azul_impl::svg::SvgStrokeStyle;
 pub use AzSvgStrokeStyleTT as AzSvgStrokeStyle;
+/// Creates a new `SvgStrokeStyle` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `SvgStrokeStyle::default()` constructor.
+#[no_mangle] pub extern "C" fn AzSvgStrokeStyle_default() -> AzSvgStrokeStyle { AzSvgStrokeStyle::default() }
 
 /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
 pub type AzSvgLineJoinTT = azul_impl::svg::SvgLineJoin;

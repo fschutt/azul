@@ -10343,6 +10343,8 @@ namespace dll {
         SvgParseOptions SvgParseOptions_default();
         void SvgParseOptions_delete(SvgParseOptions* restrict instance);
         SvgRenderOptions SvgRenderOptions_default();
+        SvgFillStyle SvgFillStyle_default();
+        SvgStrokeStyle SvgStrokeStyle_default();
         Xml Xml_fromStr(AzRefstr  xml_string);
         void Xml_delete(Xml* restrict instance);
         void XmlNode_delete(XmlNode* restrict instance);

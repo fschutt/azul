@@ -12381,6 +12381,8 @@ extern DLLIMPORT void AzTessellatedSvgNodeVecRef_delete(AzTessellatedSvgNodeVecR
 extern DLLIMPORT AzSvgParseOptions AzSvgParseOptions_default();
 extern DLLIMPORT void AzSvgParseOptions_delete(AzSvgParseOptions* restrict instance);
 extern DLLIMPORT AzSvgRenderOptions AzSvgRenderOptions_default();
+extern DLLIMPORT AzSvgFillStyle AzSvgFillStyle_default();
+extern DLLIMPORT AzSvgStrokeStyle AzSvgStrokeStyle_default();
 extern DLLIMPORT AzXml AzXml_fromStr(AzRefstr  xml_string);
 extern DLLIMPORT void AzXml_delete(AzXml* restrict instance);
 extern DLLIMPORT void AzXmlNode_delete(AzXmlNode* restrict instance);

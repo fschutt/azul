@@ -30309,19 +30309,10 @@ impl PyObjectProtocol for AzSvgTransform {
 
 #[pymethods]
 impl AzSvgFillStyle {
-    #[new]
-    fn __new__(line_join: AzSvgLineJoinEnumWrapper, miter_limit: f32, tolerance: f32, fill_rule: AzSvgFillRuleEnumWrapper, transform: AzSvgTransform, anti_alias: bool, high_quality_aa: bool) -> Self {
-        Self {
-            line_join,
-            miter_limit,
-            tolerance,
-            fill_rule,
-            transform,
-            anti_alias,
-            high_quality_aa,
-        }
+    #[staticmethod]
+    fn default() -> AzSvgFillStyle {
+        unsafe { mem::transmute(crate::AzSvgFillStyle_default()) }
     }
-
 }
 
 #[pyproto]
@@ -30336,23 +30327,10 @@ impl PyObjectProtocol for AzSvgFillStyle {
 
 #[pymethods]
 impl AzSvgStrokeStyle {
-    #[new]
-    fn __new__(start_cap: AzSvgLineCapEnumWrapper, end_cap: AzSvgLineCapEnumWrapper, line_join: AzSvgLineJoinEnumWrapper, dash_pattern: AzOptionSvgDashPatternEnumWrapper, line_width: f32, miter_limit: f32, tolerance: f32, apply_line_width: bool, transform: AzSvgTransform, anti_alias: bool, high_quality_aa: bool) -> Self {
-        Self {
-            start_cap,
-            end_cap,
-            line_join,
-            dash_pattern,
-            line_width,
-            miter_limit,
-            tolerance,
-            apply_line_width,
-            transform,
-            anti_alias,
-            high_quality_aa,
-        }
+    #[staticmethod]
+    fn default() -> AzSvgStrokeStyle {
+        unsafe { mem::transmute(crate::AzSvgStrokeStyle_default()) }
     }
-
 }
 
 #[pyproto]
