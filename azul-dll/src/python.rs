@@ -2309,13 +2309,15 @@ pub struct AzImageRef {
 #[repr(C)]
 pub enum AzRawImageFormat {
     R8,
+    RG8,
+    RGB8,
+    RGBA8,
     R16,
     RG16,
+    RGB16,
+    RGBA16,
+    BGR8,
     BGRA8,
-    RGBAF32,
-    RG8,
-    RGBAI32,
-    RGBA8,
 }
 
 /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
@@ -6055,11 +6057,11 @@ pub struct AzTagIdToNodeIdMapping {
 #[repr(C)]
 pub struct AzTexture {
     pub texture_id: u32,
-    pub format: AzRawImageFormatEnumWrapper,
     pub flags: AzTextureFlags,
     pub size: AzPhysicalSizeU32,
     pub background_color: AzColorU,
     pub gl_context: AzGl,
+    pub format: AzRawImageFormatEnumWrapper,
 }
 
 /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -29420,19 +29422,23 @@ impl AzRawImageFormatEnumWrapper {
     #[classattr]
     fn R8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::R8 } }
     #[classattr]
+    fn RG8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RG8 } }
+    #[classattr]
+    fn RGB8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGB8 } }
+    #[classattr]
+    fn RGBA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBA8 } }
+    #[classattr]
     fn R16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::R16 } }
     #[classattr]
     fn RG16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RG16 } }
     #[classattr]
+    fn RGB16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGB16 } }
+    #[classattr]
+    fn RGBA16() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBA16 } }
+    #[classattr]
+    fn BGR8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::BGR8 } }
+    #[classattr]
     fn BGRA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::BGRA8 } }
-    #[classattr]
-    fn RGBAF32() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBAF32 } }
-    #[classattr]
-    fn RG8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RG8 } }
-    #[classattr]
-    fn RGBAI32() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBAI32 } }
-    #[classattr]
-    fn RGBA8() -> AzRawImageFormatEnumWrapper { AzRawImageFormatEnumWrapper { inner: AzRawImageFormat::RGBA8 } }
 }
 
 #[pyproto]

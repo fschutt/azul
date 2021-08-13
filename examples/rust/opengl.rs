@@ -9,6 +9,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
+#[derive(Debug)]
 struct OpenGlAppState {
     // vertices, uploaded on startup
     fill_vertices_to_upload: Option<TessellatedSvgNode>,
@@ -83,11 +84,18 @@ fn render_my_texture_inner(
 
     let mut data = data.downcast_mut::<OpenGlAppState>()?;
     let mut data = &mut *data;
-    let gl_context = info.get_gl_context().into_option()?;
-    let fill_vertex_buffer = data.fill_vertex_buffer_id.as_ref()?;
-    let stroke_vertex_buffer = data.stroke_vertex_buffer_id.as_ref()?;
-    let mut texture = data.texture.as_mut()?;
 
+    println!("---- rendering ");
+    let gl_context = info.get_gl_context().into_option()?;
+    println!("gl context: available");
+    let fill_vertex_buffer = data.fill_vertex_buffer_id.as_ref()?;
+    println!("fill vertex buffer: {:#?}", fill_vertex_buffer);
+    let stroke_vertex_buffer = data.stroke_vertex_buffer_id.as_ref()?;
+    println!("stroke vertex buffer: {:#?}", stroke_vertex_buffer);
+    let mut texture = data.texture.as_mut()?;
+    println!("texture: {:#?}", texture);
+
+    println!("drawing fill vertices...");
     if !texture.draw_tesselated_svg_gpu_node(
         fill_vertex_buffer,
         texture_size,
@@ -95,6 +103,7 @@ fn render_my_texture_inner(
         StyleTransformVec::from_const_slice(&[]),
     ) { return None; }
 
+    println!("drawing stroke vertices...");
     if !texture.draw_tesselated_svg_gpu_node(
         stroke_vertex_buffer,
         texture_size,
@@ -102,6 +111,7 @@ fn render_my_texture_inner(
         StyleTransformVec::from_const_slice(&[]),
     ) { return None; }
 
+    println!("drawing done!");
     Some(ImageRef::gl_texture(texture.clone()))
 }
 
@@ -114,8 +124,6 @@ extern "C" fn startup_window(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
 // Function called when the OpenGL context has been initialized:
 // allocate all textures and upload vertex buffer to GPU
 fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
-
-    MsgBox::info("startup_window_inner called!".into());
 
     let mut data = data.downcast_mut::<OpenGlAppState>()?;
     let fill_vertex_buffer = data.fill_vertices_to_upload.take()?;
@@ -156,9 +164,16 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
                 let mut last: Option<SvgPoint> = None;
                 SvgPath {
                     items: r.iter().filter_map(|i| {
-                        let last_point = last.clone()?;
-                        let current = SvgPoint { x: i[0], y: i[1] };
+                        let last_point = last.clone();
+
+                        let mut current = SvgPoint { x: i[0], y: i[1] };
+                        current.x -= 13.804493;
+                        current.x *= 10000.0;
+                        current.y -= 51.05264;
+                        current.y *= 10000.0;
+
                         last = Some(current);
+                        let last_point = last_point?;
                         Some(SvgPathElement::Line(SvgLine { start: last_point, end: current }))
                     }).collect::<Vec<_>>().into(),
                 }
@@ -171,7 +186,7 @@ fn main() {
 
     let multipolygons = parse_multipolygons(DATA);
 
-    MsgBox::info(format!("parsed {} multipolygons!", multipolygons.len()).into());
+    println!("parsed {} multipolygons!", multipolygons.len());
 
     // tesselate fill
     let tessellated_fill: TessellatedSvgNodeVec = multipolygons.iter().map(|mp| {

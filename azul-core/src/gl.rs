@@ -1155,13 +1155,11 @@ impl Ord for GlContextPtr {
 }
 
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-#[repr(C)]
 #[derive(Clone)]
+#[repr(C)]
 pub struct Texture {
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
-    /// Format of the texture (rgba8, brga8, etc.)
-    pub format: RawImageFormat,
     /// Hints and flags for optimization purposes
     pub flags: TextureFlags,
     /// Size of this texture (in pixels)
@@ -1170,6 +1168,8 @@ pub struct Texture {
     pub background_color: ColorU,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
     pub gl_context: GlContextPtr,
+    /// Format of the texture (rgba8, brga8, etc.)
+    pub format: RawImageFormat,
 }
 
 impl_option!(Texture, OptionTexture, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -1181,8 +1181,11 @@ impl Texture {
         size: PhysicalSizeU32,
         background: ColorU,
     ) -> Self {
+
         let textures = gl_context.gen_textures(1);
         let texture_id = textures.as_ref()[0];
+
+        println!("allocated texture ID {} size {:?}", texture_id, size);
 
         let mut current_texture_2d = [0_i32];
         gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
@@ -1197,7 +1200,6 @@ impl Texture {
 
         Self {
             texture_id,
-            format: RawImageFormat::BGRA8,
             flags: TextureFlags {
                 is_opaque: false,
                 is_video_texture: false,
@@ -1205,6 +1207,7 @@ impl Texture {
             size,
             background_color: background,
             gl_context,
+            format: RawImageFormat::BGRA8,
         }
     }
 
@@ -1358,6 +1361,7 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
+        println!("deleted texture ID {} size {:?}", self.texture_id, self.size);
         self.gl_context.delete_textures((&[self.texture_id])[..].into());
     }
 }

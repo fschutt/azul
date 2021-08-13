@@ -6871,11 +6871,11 @@
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
-                        {"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
                         {"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
                         {"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
                         {"background_color": {"type": "ColorU", "doc": "Background color of this texture"}},
-                        {"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
+                        {"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}},
+                        {"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}}
                     ],
                     "constructors": {
                         "allocate_rgba8": {
@@ -10876,19 +10876,6 @@
                         {"U8": {"type": "U8Vec", "doc": "8-bit image data"}},
                         {"U16": {"type": "U16Vec", "doc": "16-bit image data"}},
                         {"F32": {"type": "F32Vec", "doc": "Floating-point image data"}}
-                    ]
-                },
-                "RawImageFormat": {
-                    "external": "azul_impl::resources::RawImageFormat",
-                    "enum_fields": [
-                        { "R8": {"doc": "Bytes are in the R-unsinged-8bit format" } },
-                        { "R16": {"doc": "Bytes are in the R-unsinged-16bit format" } },
-                        { "RG16": {"doc": "Bytes are in the RG-unsinged-16bit format" } },
-                        { "BGRA8": {"doc": "Bytes are in the BRGA-unsigned-8bit format" } },
-                        { "RGBAF32": {"doc": "Bytes are in the RGBA-floating-point-32bit format" } },
-                        { "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format" } },
-                        { "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format" } },
-                        { "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format" } }
                     ]
                 }
             }

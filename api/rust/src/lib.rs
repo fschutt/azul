@@ -2419,15 +2419,18 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
     pub enum AzRawImageFormat {
         R8,
+        RG8,
+        RGB8,
+        RGBA8,
         R16,
         RG16,
+        RGB16,
+        RGBA16,
+        BGR8,
         BGRA8,
-        RGBAF32,
-        RG8,
-        RGBAI32,
-        RGBA8,
     }
 
     /// Re-export of rust-allocated (stack based) `EncodeImageError` struct
@@ -7472,11 +7475,11 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzTexture {
         pub texture_id: u32,
-        pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
         pub background_color: AzColorU,
         pub gl_context: AzGl,
+        pub format: AzRawImageFormat,
     }
 
     /// C-ABI stable reexport of `(U8Vec, u32)`

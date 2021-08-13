@@ -1828,13 +1828,15 @@ typedef struct AzImageRef AzImageRef;
 
 enum AzRawImageFormat {
    AzRawImageFormat_R8,
+   AzRawImageFormat_RG8,
+   AzRawImageFormat_RGB8,
+   AzRawImageFormat_RGBA8,
    AzRawImageFormat_R16,
    AzRawImageFormat_RG16,
+   AzRawImageFormat_RGB16,
+   AzRawImageFormat_RGBA16,
+   AzRawImageFormat_BGR8,
    AzRawImageFormat_BGRA8,
-   AzRawImageFormat_RGBAF32,
-   AzRawImageFormat_RG8,
-   AzRawImageFormat_RGBAI32,
-   AzRawImageFormat_RGBA8,
 };
 typedef enum AzRawImageFormat AzRawImageFormat;
 
@@ -7954,11 +7956,11 @@ typedef struct AzTagIdToNodeIdMapping AzTagIdToNodeIdMapping;
 
 struct AzTexture {
     uint32_t texture_id;
-    AzRawImageFormat format;
     AzTextureFlags flags;
     AzPhysicalSizeU32 size;
     AzColorU background_color;
     AzGl gl_context;
+    AzRawImageFormat format;
 };
 typedef struct AzTexture AzTexture;
 

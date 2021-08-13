@@ -1766,13 +1766,15 @@ namespace dll {
     
     enum class RawImageFormat {
        R8,
+       RG8,
+       RGB8,
+       RGBA8,
        R16,
        RG16,
+       RGB16,
+       RGBA16,
+       BGR8,
        BGRA8,
-       RGBAF32,
-       RG8,
-       RGBAI32,
-       RGBA8,
     };
     
     enum class EncodeImageError {
@@ -7250,11 +7252,11 @@ namespace dll {
     
     struct Texture {
         uint32_t texture_id;
-        RawImageFormat format;
         TextureFlags flags;
         PhysicalSizeU32 size;
         ColorU background_color;
         Gl gl_context;
+        RawImageFormat format;
         Texture& operator=(const Texture&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Texture(const Texture&) = delete; /* disable copy constructor, use explicit .clone() */
         Texture() = delete; /* disable default constructor, use C++20 designated initializer instead */
