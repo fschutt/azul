@@ -1954,9 +1954,7 @@ impl Window {
 
         // Get / store mouse cursor position, now that the window position is final
         let mut cursor_pos: POINT = POINT { x: 0, y: 0 };
-        unsafe {
-            GetCursorPos(&mut cursor_pos);
-        }
+        unsafe { GetCursorPos(&mut cursor_pos); }
         unsafe { ScreenToClient(hwnd, &mut cursor_pos) };
         let cursor_pos_logical = LogicalPosition {
             x: cursor_pos.x as f32 / dpi_factor,
@@ -1982,6 +1980,45 @@ impl Window {
 
         use winapi::um::winuser::PostMessageW;
         unsafe { PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0 ); }
+
+        // invoke the create callback, if there is any
+        if let Some(create_callback) = options.create_callback.as_mut() {
+
+            let hdc = unsafe { GetDC(hwnd) };
+            if let Some(hrc) = opengl_context.as_mut() {
+                unsafe { wglMakeCurrent(hdc, *hrc) };
+            }
+
+            let appdata_lock = &mut *appdata_lock;
+            let fc_cache = &mut appdata_lock.fc_cache;
+            let image_cache = &mut appdata_lock.image_cache;
+            let data = &mut appdata_lock.data;
+            let config = &appdata_lock.config;
+
+            fc_cache.apply_closure(|fc_cache| {
+                use azul_core::window::{RawWindowHandle, WindowsHandle};
+
+                internal.invoke_single_callback(
+                    create_callback,
+                    data,
+                    &RawWindowHandle::Windows(WindowsHandle {
+                        hwnd: hwnd as *mut core::ffi::c_void,
+                        hinstance: hinstance as *mut core::ffi::c_void,
+                    }),
+                    &gl_context_ptr,
+                    image_cache,
+                    fc_cache,
+                    &config.system_callbacks,
+                );
+            });
+
+            if let Some(hrc) = opengl_context.as_mut() {
+                unsafe { wglMakeCurrent(hdc, *hrc) };
+            }
+
+            unsafe { ReleaseDC(hwnd, hdc); }
+        }
+
         unsafe { ShowWindow(hwnd, sw_options); }
 
         // NOTE: The window is NOT stored yet
