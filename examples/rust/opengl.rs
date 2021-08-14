@@ -34,7 +34,7 @@ struct Dataset {
 extern "C"
 fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
-    .with_inline_style("background: white;".into())
+    .with_inline_style("background: #ffffff00;".into())
     .with_child(
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))
         .with_inline_style("

@@ -38,24 +38,30 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                     .with_children(vec![
                         Button::new(text.into())
                         .with_on_click(data.clone(), enable_disable_padding)
-                        .dom(),
+                        .dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
                         CheckBox::new(enable_padding)
-                            .with_on_toggle(data.clone(), enable_disable_padding_check)
-                            .dom(),
-                        DropDown::new(Vec::<AzString>::new().into()).dom(),
-                        ProgressBar::new(20.0).dom(),
-                        ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom(),
-                        TextInput::new("Input text...".into()).dom(),
-                        NumberInput::new(5.0).dom(),
+                        .with_on_toggle(data.clone(), enable_disable_padding_check)
+                        .dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
+                        DropDown::new(Vec::<AzString>::new().into()).dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
+                        ProgressBar::new(20.0).dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
+                        ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
+                        TextInput::new("Input text...".into()).dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
+                        NumberInput::new(5.0).dom()
+                        .with_inline_style("margin-bottom: 5px;".into()),
                         Dom::div()
-                        .with_inline_css_props(vec![
-                            NodeDataInlineCssProperty::Normal(CssProperty::flex_direction(LayoutFlexDirection::Row))
-                        ].into())
+                        .with_inline_style("flex-direction: row;".into())
                         .with_children(vec![
                             TreeView::new("".into()).dom(),
                             ListView::new(Vec::<AzString>::new().into()).dom(),
                         ].into())
                     ].into())
+                    .with_inline_style("flex-grow: 1;".into())
                 ).dom()
             },
             Tab {

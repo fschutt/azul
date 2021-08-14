@@ -574,8 +574,14 @@ pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
 /// Destroys all textures from the pipeline `pipeline_id` where the texture is
 /// **older** than the given `epoch`.
 pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
+
+    println!("flushing epoch: {:?}", epoch);
+
+
     // TODO: Handle overflow of Epochs correctly (low priority)
     unsafe {
+        println!("active gl textures: {:#?}", ACTIVE_GL_TEXTURES.as_ref());
+
         let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
             Some(s) => s,
             None => return,

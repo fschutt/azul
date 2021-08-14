@@ -119,7 +119,7 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         shared::minwindef::FALSE,
         um::{
             libloaderapi::GetModuleHandleW,
-            wingdi::wglMakeCurrent,
+            wingdi::{wglMakeCurrent, CreateSolidBrush},
             winbase::{INFINITE, WAIT_FAILED},
             winuser::{
                 DispatchMessageW, GetDC, GetMessageW,
@@ -138,11 +138,9 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
     }
 
     // Tell windows that this process is DPI-aware
-    unsafe {
-        SetProcessDPIAware();
-    } // Vista
-      // SetProcessDpiAwareness(); Win8.1
-      // unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE); } // Win10
+    unsafe { SetProcessDPIAware(); } // Vista
+    // SetProcessDpiAwareness(); Win8.1
+    // SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE); // Win10
 
     // Register the application class (shared between windows)
     let mut class_name = encode_wide(CLASS_NAME);
@@ -152,6 +150,7 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
     wc.lpszClassName = class_name.as_mut_ptr();
     wc.lpfnWndProc = Some(WindowProc);
     wc.hCursor = ptr::null_mut();
+    wc.hbrBackground = unsafe { CreateSolidBrush(0x00000000) }; // transparent black
 
     // RegisterClass can fail if the same class is
     // registered twice, error can be ignored
@@ -320,14 +319,22 @@ pub enum WindowsWindowCreateError {
     FailedToCreateHWND(u32),
     NoHDC,
     NoGlContext,
+    Extra(ExtraWglFunctionsLoadError),
     Renderer(WrRendererError),
     BorrowMut(BorrowMutError),
+}
+
+impl From<ExtraWglFunctionsLoadError> for WindowsWindowCreateError {
+    fn from(e: ExtraWglFunctionsLoadError) -> Self {
+        WindowsWindowCreateError::Extra(e)
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum WindowsOpenGlError {
     OpenGL32DllNotFound(u32),
     FailedToGetDC(u32),
+    FailedToCreateHiddenHWND(u32),
     FailedToGetPixelFormat(u32),
     NoMatchingPixelFormat(u32),
     OpenGLNotAvailable(u32),
@@ -1418,9 +1425,9 @@ impl Drop for GlFunctions {
 
 #[derive(Default)]
 struct ExtraWglFunctions {
-    wglCreateContextAttribsARB: Option<extern "system" fn(HDC, HGLRC, *const [i32]) -> HGLRC>,
+    wglCreateContextAttribsARB: Option<extern "system" fn(HDC, HGLRC, *const i32) -> HGLRC>,
     wglSwapIntervalEXT: Option<extern "system" fn(i32) -> i32>,
-    wglChoosePixelFormatARB: Option<extern "system" fn(HDC, *const [i32], *const f32, u32, *mut i32, *mut u32) -> BOOL>,
+    wglChoosePixelFormatARB: Option<extern "system" fn(HDC, *const i32, *const f32, u32, *mut i32, *mut u32) -> BOOL>,
 }
 
 impl fmt::Debug for ExtraWglFunctions {
@@ -1432,48 +1439,124 @@ impl fmt::Debug for ExtraWglFunctions {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum ExtraWglFunctionsLoadError {
+    FailedToCreateDummyWindow,
+    FailedToFindPixelFormat,
+    FailedToSetPixelFormat,
+    FailedToCreateDummyGlContext,
+    FailedToActivateDummyGlContext,
+}
+
 impl ExtraWglFunctions {
-    // Assumes that at least one (dummy) OpenGL is current
-    pub fn load() -> Self {
-        use winapi::um::wingdi::wglGetProcAddress;
+    pub fn load() -> Result<Self, ExtraWglFunctionsLoadError> {
 
-        let mut extra = ExtraWglFunctions {
-            ..Default::default()
+        use winapi::um::{
+            libloaderapi::GetModuleHandleW,
+            winuser::{
+                CreateWindowExW, GetDC,
+                ReleaseDC, DestroyWindow,
+                CW_USEDEFAULT
+            },
+            wingdi::{
+                wglGetProcAddress, ChoosePixelFormat,
+                SetPixelFormat, wglCreateContext,
+                wglMakeCurrent, wglDeleteContext,
+            },
         };
+        use self::ExtraWglFunctionsLoadError::*;
 
-        let mut func_name_1 = encode_ascii("wglChoosePixelFormatARB");
-        let mut func_name_2 = encode_ascii("wglChoosePixelFormatEXT");
+        unsafe {
 
-        let wgl1_result = unsafe { wglGetProcAddress(func_name_1.as_mut_ptr()) };
-        let wgl2_result = unsafe { wglGetProcAddress(func_name_2.as_mut_ptr()) };
+            let mut hidden_class_name = encode_wide(CLASS_NAME);
+            let mut hidden_window_title = encode_wide("Dummy Window");
 
-        let wglarb_ChoosePixelFormatARB = if wgl1_result != ptr::null_mut() {
-            Some(unsafe { mem::transmute(wgl1_result) })
-        } else if wgl2_result != ptr::null_mut() {
-            Some(unsafe { mem::transmute(wgl2_result) })
-        } else {
-            None
-        };
+            let dummy_window = CreateWindowExW(
+                0,
+                hidden_class_name.as_mut_ptr(),
+                hidden_window_title.as_mut_ptr(),
+                0,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                CW_USEDEFAULT,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                GetModuleHandleW(ptr::null_mut()),
+                ptr::null_mut(),
+            );
 
-        extra.wglChoosePixelFormatARB = wglarb_ChoosePixelFormatARB;
+            if dummy_window.is_null() {
+                return Err(FailedToCreateDummyWindow);
+            }
 
-        let mut func_name = encode_ascii("wglCreateContextAttribsARB");
-        let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
-        extra.wglCreateContextAttribsARB = if proc_address == ptr::null_mut() {
-            None
-        } else {
-            Some(unsafe { mem::transmute(proc_address) })
-        };
+            let dummy_dc = GetDC(dummy_window);
 
-        let mut func_name = encode_ascii("wglSwapIntervalEXT");
-        let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
-        extra.wglSwapIntervalEXT = if proc_address == ptr::null_mut() {
-            None
-        } else {
-            Some(unsafe { mem::transmute(proc_address) })
-        };
+            let mut pfd = get_default_pfd();
 
-        extra
+            let pixel_format = ChoosePixelFormat(dummy_dc, &pfd);
+            if pixel_format == 0 {
+                return Err(FailedToFindPixelFormat);
+            }
+
+            if SetPixelFormat(dummy_dc, pixel_format, &pfd) != TRUE {
+                return Err(FailedToSetPixelFormat);
+            }
+
+            let dummy_context = wglCreateContext(dummy_dc);
+            if dummy_context.is_null() {
+                return Err(FailedToCreateDummyGlContext);
+            }
+
+            if wglMakeCurrent(dummy_dc, dummy_context) != TRUE {
+                return Err(FailedToActivateDummyGlContext);
+            }
+
+            let mut extra_functions = ExtraWglFunctions::default();
+
+            extra_functions.wglChoosePixelFormatARB = {
+                let mut func_name_1 = encode_ascii("wglChoosePixelFormatARB");
+                let mut func_name_2 = encode_ascii("wglChoosePixelFormatEXT");
+
+                let wgl1_result = unsafe { wglGetProcAddress(func_name_1.as_mut_ptr()) };
+                let wgl2_result = unsafe { wglGetProcAddress(func_name_2.as_mut_ptr()) };
+
+                if wgl1_result != ptr::null_mut() {
+                    Some(unsafe { mem::transmute(wgl1_result) })
+                } else if wgl2_result != ptr::null_mut() {
+                    Some(unsafe { mem::transmute(wgl2_result) })
+                } else {
+                    None
+                }
+            };
+
+            extra_functions.wglCreateContextAttribsARB = {
+                let mut func_name = encode_ascii("wglCreateContextAttribsARB");
+                let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
+                if proc_address == ptr::null_mut() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(proc_address) })
+                }
+            };
+
+            extra_functions.wglSwapIntervalEXT = {
+                let mut func_name = encode_ascii("wglSwapIntervalEXT");
+                let proc_address = unsafe { wglGetProcAddress(func_name.as_mut_ptr()) };
+                if proc_address == ptr::null_mut() {
+                    None
+                } else {
+                    Some(unsafe { mem::transmute(proc_address) })
+                }
+            };
+
+            wglMakeCurrent(dummy_dc, ptr::null_mut());
+            wglDeleteContext(dummy_context);
+            ReleaseDC(dummy_window, dummy_dc);
+            DestroyWindow(dummy_window);
+
+            return Ok(extra_functions);
+        }
     }
 }
 
@@ -1608,7 +1691,6 @@ impl Window {
 
         let data_ptr = Box::into_raw(Box::new(data.clone())) as *mut SharedApplicationData as *mut c_void;
 
-
         // Create the window
         let hwnd = unsafe {
             CreateWindowExW(
@@ -1666,7 +1748,7 @@ impl Window {
 
         let mut opengl_context: Option<HGLRC> = None;
         let mut rt = RendererType::Software;
-        let mut extra = ExtraWglFunctions::default();
+        let mut extra = ExtraWglFunctions::load()?;
         let mut gl = GlFunctions::initialize();
         let mut gl_context_ptr: OptionGlContextPtr = None.into();
 
@@ -1675,14 +1757,9 @@ impl Window {
             match r {
                 RendererType::Software => {}
                 RendererType::Hardware => {
-                    let gl_context_result = create_gl_context(hwnd);
-                    match gl_context_result {
-                        Ok((o, extra_funcs)) => {
-                            opengl_context = Some(o);
-                            extra = extra_funcs;
-                            break;
-                        }
-                        Err(e) => {}
+                    if let Ok(o) = create_gl_context(hwnd, hinstance, &extra) {
+                        opengl_context = Some(o);
+                        break;
                     }
                 }
             }
@@ -2128,199 +2205,79 @@ impl Window {
     }
 }
 
-// function can fail: creates an OpenGL context on the HWND, stores the context on the window-associated data
-fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOpenGlError> {
+/// Creates an OpenGL 3.2 context using wglCreateContextAttribsARB
+fn create_gl_context(hwnd: HWND, hinstance: HINSTANCE, extra: &ExtraWglFunctions)
+-> Result<HGLRC, WindowsOpenGlError>
+{
     use winapi::um::{
         wingdi::{
-            wglCreateContext, wglDeleteContext, wglMakeCurrent, ChoosePixelFormat,
-            DescribePixelFormat, SetPixelFormat, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW,
-            PFD_MAIN_PLANE, PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR,
+            wglCreateContext, wglDeleteContext,
+            wglMakeCurrent, ChoosePixelFormat,
+            DescribePixelFormat, SetPixelFormat,
         },
-        winuser::{GetDC, ReleaseDC},
+        winuser::{GetDC, ReleaseDC}
     };
 
     use self::WindowsOpenGlError::*;
 
-    // -- window created, now create OpenGL context
+    let wglCreateContextAttribsARB = extra.wglCreateContextAttribsARB
+    .ok_or(OpenGLNotAvailable(get_last_error()))?;
 
-    let opengl32_dll = load_dll("opengl32.dll").ok_or(OpenGL32DllNotFound(get_last_error()))?;
+    let wglChoosePixelFormatARB = extra.wglChoosePixelFormatARB
+    .ok_or(OpenGLNotAvailable(get_last_error()))?;
 
-    // Get DC
+    let opengl32_dll = load_dll("opengl32.dll")
+    .ok_or(OpenGL32DllNotFound(get_last_error()))?;
+
     let hDC = unsafe { GetDC(hwnd) };
     if hDC.is_null() {
-        // unsafe { DestroyWindow(hwnd) };
         return Err(FailedToGetDC(get_last_error()));
     }
 
-    // now this is a kludge; we need to pass something in the PIXELFORMATDESCRIPTOR
-    // to SetPixelFormat; it will be ignored, mostly. OTOH we want to send something
-    // sane, we're nice people after all - it doesn't hurt if this fails.
-    let mut pfd = PIXELFORMATDESCRIPTOR {
-        nSize: mem::size_of::<PIXELFORMATDESCRIPTOR> as u16,
-        nVersion: 1,
-        dwFlags: {
-            PFD_DRAW_TO_WINDOW |   // support window
-            PFD_SUPPORT_OPENGL |   // support OpenGL
-            PFD_DOUBLEBUFFER // double buffered
-        },
-        iPixelType: PFD_TYPE_RGBA as u8,
-        cColorBits: 24,
-        cRedBits: 0,
-        cRedShift: 0,
-        cGreenBits: 0,
-        cGreenShift: 0,
-        cBlueBits: 0,
-        cBlueShift: 0,
-        cAlphaBits: 0,
-        cAlphaShift: 0,
-        cAccumBits: 0,
-        cAccumRedBits: 0,
-        cAccumGreenBits: 0,
-        cAccumBlueBits: 0,
-        cAccumAlphaBits: 0,
-        cDepthBits: 32,                   // 32-bit z-buffer
-        cStencilBits: 0,                  // no stencil buffer
-        cAuxBuffers: 0,                   // no auxiliary buffer
-        iLayerType: PFD_MAIN_PLANE as u8, // main layer
-        bReserved: 0,
-        dwLayerMask: 0,
-        dwVisibleMask: 0,
-        dwDamageMask: 0,
-    };
+    // https://www.khronos.org/registry/OpenGL/api/GL/wglext.h
+    const WGL_DRAW_TO_WINDOW_ARB: i32 = 0x2001;
+    const WGL_DOUBLE_BUFFER_ARB: i32 = 0x2011;
+    const WGL_SUPPORT_OPENGL_ARB: i32 = 0x2010;
+    const WGL_PIXEL_TYPE_ARB: i32 = 0x2013;
+    const WGL_TYPE_RGBA_ARB: i32 = 0x202B;
+    const WGL_TRANSPARENT_ARB: i32 = 0x200A;
+    const WGL_COLOR_BITS_ARB: i32 = 0x2014;
+    const WGL_RED_BITS_ARB: i32 = 0x2015;
+    const WGL_GREEN_BITS_ARB: i32 = 0x2017;
+    const WGL_BLUE_BITS_ARB: i32 = 0x2019;
+    const WGL_ALPHA_BITS_ARB: i32 = 0x201B;
+    const WGL_DEPTH_BITS_ARB: i32 = 0x2022;
+    const WGL_STENCIL_BITS_ARB: i32 = 0x2023;
+    const WGL_FULL_ACCELERATION_ARB: i32 =  0x2027;
+    const WGL_ACCELERATION_ARB: i32 = 0x2003;
 
-    let default_pixel_format = unsafe { ChoosePixelFormat(hDC, &pfd) };
-    unsafe {
-        DescribePixelFormat(
-            hDC,
-            default_pixel_format,
-            mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32,
-            &mut pfd,
-        );
-        if !SetPixelFormat(hDC, default_pixel_format, &pfd) == TRUE {
-            // can't even set the default fallback pixel format: no OpenGL possible
-            ReleaseDC(hwnd, hDC);
-            // DestroyWindow(hwnd);
-            return Err(NoMatchingPixelFormat(get_last_error()));
-        }
+    const GL_TRUE: i32 = 1;
+
+    let pixel_format_attribs = [
+        WGL_DRAW_TO_WINDOW_ARB,     GL_TRUE,
+        WGL_SUPPORT_OPENGL_ARB,     GL_TRUE,
+        WGL_DOUBLE_BUFFER_ARB,      GL_TRUE,
+        WGL_ACCELERATION_ARB,       WGL_FULL_ACCELERATION_ARB,
+        WGL_PIXEL_TYPE_ARB,         WGL_TYPE_RGBA_ARB,
+        WGL_COLOR_BITS_ARB,         32,
+        WGL_DEPTH_BITS_ARB,         24,
+        WGL_STENCIL_BITS_ARB,       8,
+        0
+    ];
+
+    let mut pixel_format = 0;
+    let mut num_formats = 0;
+    unsafe { (wglChoosePixelFormatARB)(hDC, pixel_format_attribs.as_ptr(), ptr::null_mut(), 1, &mut pixel_format, &mut num_formats) };
+    if num_formats == 0 {
+        unsafe { ReleaseDC(hwnd, hDC); }
+        return Err(NoMatchingPixelFormat(get_last_error()));
     }
 
-    // wglGetProcAddress will fail if there is no context being current,
-    // create a dummy context and activate it
-    let dummy_context = unsafe {
-        let dc = wglCreateContext(hDC);
-        wglMakeCurrent(hDC, dc);
-        dc
-    };
+    let mut pfd: PIXELFORMATDESCRIPTOR = get_default_pfd();
 
-    let extra_functions = ExtraWglFunctions::load();
-
-    fn get_transparent_pixel_format_index(
-        hDC: HDC,
-        extra_functions: &ExtraWglFunctions,
-    ) -> Option<i32> {
-        use winapi::um::{
-            wingdi::{wglDeleteContext, wglMakeCurrent, DescribePixelFormat, SetPixelFormat},
-            winuser::ReleaseDC,
-        };
-
-        // https://www.khronos.org/registry/OpenGL/api/GL/wglext.h
-        const WGL_DRAW_TO_WINDOW_ARB: i32 = 0x2001;
-        const WGL_DOUBLE_BUFFER_ARB: i32 = 0x2011;
-        const WGL_SUPPORT_OPENGL_ARB: i32 = 0x2010;
-        const WGL_PIXEL_TYPE_ARB: i32 = 0x2013;
-        const WGL_TYPE_RGBA_ARB: i32 = 0x202B;
-        const WGL_TRANSPARENT_ARB: i32 = 0x200A;
-        const WGL_COLOR_BITS_ARB: i32 = 0x2014;
-        const WGL_RED_BITS_ARB: i32 = 0x2015;
-        const WGL_GREEN_BITS_ARB: i32 = 0x2017;
-        const WGL_BLUE_BITS_ARB: i32 = 0x2019;
-        const WGL_ALPHA_BITS_ARB: i32 = 0x201B;
-        const WGL_DEPTH_BITS_ARB: i32 = 0x2022;
-        const WGL_STENCIL_BITS_ARB: i32 = 0x2023;
-
-        let attribs = [
-            WGL_DRAW_TO_WINDOW_ARB,
-            TRUE,
-            WGL_DOUBLE_BUFFER_ARB,
-            TRUE,
-            WGL_SUPPORT_OPENGL_ARB,
-            TRUE,
-            WGL_PIXEL_TYPE_ARB,
-            WGL_TYPE_RGBA_ARB,
-            WGL_TRANSPARENT_ARB,
-            TRUE,
-            WGL_COLOR_BITS_ARB,
-            32,
-            WGL_RED_BITS_ARB,
-            8,
-            WGL_GREEN_BITS_ARB,
-            8,
-            WGL_BLUE_BITS_ARB,
-            8,
-            WGL_ALPHA_BITS_ARB,
-            8,
-            WGL_DEPTH_BITS_ARB,
-            24,
-            WGL_STENCIL_BITS_ARB,
-            8,
-            0,
-            0,
-        ];
-
-        let mut pixel_format = 0;
-        let mut num_pixel_formats = 0;
-
-        let wglarb_ChoosePixelFormatARB = extra_functions.wglChoosePixelFormatARB?;
-
-        let choose_pixel_format_result = unsafe {
-            (wglarb_ChoosePixelFormatARB)(
-                hDC,
-                &attribs[..],
-                ptr::null(),
-                1,
-                &mut pixel_format,
-                &mut num_pixel_formats,
-            )
-        };
-
-        if choose_pixel_format_result != TRUE {
-            return None; // wglarb_ChoosePixelFormatARB failed
-        }
-
-        // pixel format is now the index of the PIXELFORMATDESCRIPTOR
-        // that can handle a transparent OpenGL context
-        if num_pixel_formats == 0 {
-            None
-        } else {
-            Some(pixel_format)
-        }
-    }
-
-    let mut b_transparent_succeeded = false;
-    let transparent_opengl_pixelformat_index =
-        match get_transparent_pixel_format_index(hDC, &extra_functions) {
-            Some(i) => {
-                b_transparent_succeeded = true;
-                i
-            }
-            None => default_pixel_format,
-        };
-
-    // destroy the dummy context
     unsafe {
-        wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
-        wglDeleteContext(dummy_context);
-    }
-
-    // set the new pixel format. if transparency is not available, this will fallback to the default PFD
-    unsafe {
-        DescribePixelFormat(
-            hDC,
-            transparent_opengl_pixelformat_index,
-            mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32,
-            &mut pfd,
-        );
-        if SetPixelFormat(hDC, transparent_opengl_pixelformat_index, &pfd) != TRUE {
+        DescribePixelFormat(hDC, pixel_format, mem::size_of::<PIXELFORMATDESCRIPTOR>() as u32, &mut pfd);
+        if SetPixelFormat(hDC, pixel_format, &mut pfd) != TRUE{
             ReleaseDC(hwnd, hDC);
             return Err(NoMatchingPixelFormat(get_last_error()));
         }
@@ -2329,33 +2286,76 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
     // https://www.khronos.org/registry/OpenGL/extensions/ARB/WGL_ARB_create_context.txt
     const WGL_CONTEXT_MAJOR_VERSION_ARB: i32 = 0x2091;
     const WGL_CONTEXT_MINOR_VERSION_ARB: i32 = 0x2092;
+    const WGL_CONTEXT_PROFILE_MASK_ARB: i32 = 0x9126;
+    const WGL_CONTEXT_CORE_PROFILE_BIT_ARB: i32 = 0x00000001;
 
-    // Create OpenGL 3.1 context - #version 150 required by WR!
-    let context_attribs = [
+    // Create OpenGL 3.2 core context - #version 150 required by WR!
+    // Specify that we want to create an OpenGL 3.3 core profile context
+    let gl32_attribs = [
         WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
         WGL_CONTEXT_MINOR_VERSION_ARB, 2,
-        0, 0,
+        WGL_CONTEXT_PROFILE_MASK_ARB,  WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+        0,
     ];
 
-    let CreateContextAttribsARB = if b_transparent_succeeded {
-        extra_functions.wglCreateContextAttribsARB
-    } else {
-        None
-    };
-
-    let hRC = match CreateContextAttribsARB {
-        Some(func) => unsafe { (func)(hDC, ptr::null_mut(), &context_attribs[..]) },
-        None => unsafe { wglCreateContext(hDC) },
-    };
-
-    if hRC.is_null() {
+    let gl32_context = unsafe { (wglCreateContextAttribsARB)(hDC, ptr::null_mut(), gl32_attribs.as_ptr()) };
+    if gl32_context.is_null() {
         unsafe { ReleaseDC(hwnd, hDC); }
         return Err(OpenGLNotAvailable(get_last_error()));
     }
 
-    // return final context
     unsafe { ReleaseDC(hwnd, hDC); }
-    return Ok((hRC, extra_functions));
+
+    return Ok(gl32_context);
+}
+
+
+use winapi::um::wingdi::PIXELFORMATDESCRIPTOR;
+
+fn get_default_pfd() -> PIXELFORMATDESCRIPTOR {
+
+    use winapi::um::wingdi::{
+        PFD_DRAW_TO_WINDOW,
+        PFD_SUPPORT_OPENGL,
+        PFD_GENERIC_ACCELERATED,
+        PFD_DOUBLEBUFFER,
+        PFD_MAIN_PLANE,
+        PFD_TYPE_RGBA,
+        PFD_SUPPORT_COMPOSITION,
+    };
+
+    PIXELFORMATDESCRIPTOR {
+        nSize: mem::size_of::<PIXELFORMATDESCRIPTOR> as u16,
+        nVersion: 1,
+        dwFlags: {
+            PFD_DRAW_TO_WINDOW |        // support window
+            PFD_SUPPORT_OPENGL |        // support OpenGL
+            PFD_DOUBLEBUFFER            // double buffered
+        },
+        iPixelType: PFD_TYPE_RGBA as u8,
+        cColorBits: 32,
+        cRedBits: 0,
+        cRedShift: 0,
+        cGreenBits: 0,
+        cGreenShift: 0,
+        cBlueBits: 0,
+        cBlueShift: 0,
+        cAlphaBits: 8, // request alpha
+        cAlphaShift: 0,
+        cAccumBits: 0,
+        cAccumRedBits: 0,
+        cAccumGreenBits: 0,
+        cAccumBlueBits: 0,
+        cAccumAlphaBits: 0,
+        cDepthBits: 24,                   // 16-bit z-buffer
+        cStencilBits: 8,                  // 8-bit stencil
+        cAuxBuffers: 0,                   // no auxiliary buffer
+        iLayerType: PFD_MAIN_PLANE as u8, // main layer
+        bReserved: 0,
+        dwLayerMask: 0,
+        dwVisibleMask: 0,
+        dwDamageMask: 0,
+    }
 }
 
 #[derive(Debug)]
@@ -2571,6 +2571,19 @@ unsafe extern "system" fn WindowProc(
                         image_cache,
                         resource_updates,
                     );
+
+                    // delete unused external OpenGL textures from last frames
+                    if let Some(r) = current_window.renderer.as_mut() {
+                        let pipeline_info = r.flush_pipeline_info();
+                        if !pipeline_info.epochs.is_empty() {
+                            use crate::wr_translate::translate_epoch_wr;
+                            let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
+                            azul_core::gl::gl_textures_remove_epochs_from_pipeline(
+                                &current_window.internal.document_id,
+                                translate_epoch_wr(*oldest_to_remove_epoch)
+                            );
+                        }
+                    }
 
                     current_window.render_api.flush_scene_builder();
 
@@ -3316,18 +3329,6 @@ unsafe extern "system" fn WindowProc(
                 if let Some(r) = current_window.renderer.as_mut() {
                     r.update();
                     let _ = r.render(framebuffer_size, 0);
-                    let pipeline_info = r.flush_pipeline_info();
-                    if !pipeline_info.epochs.is_empty() {
-                        // delete unused external OpenGL texture
-                        use crate::wr_translate::translate_epoch_wr;
-
-                        let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
-                        azul_core::gl::gl_textures_remove_epochs_from_pipeline(
-                            &current_window.internal.document_id,
-                            translate_epoch_wr(*oldest_to_remove_epoch)
-                        );
-                    }
-                    current_window.internal.epoch.increment();
                 }
 
                 SwapBuffers(hDC);
