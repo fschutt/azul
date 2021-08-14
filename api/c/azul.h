@@ -12108,6 +12108,7 @@ extern DLLIMPORT void AzStyledDom_delete(AzStyledDom* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_new(uint32_t texture_id, AzTextureFlags  flags, AzPhysicalSizeU32  size, AzColorU  background_color, AzGl  gl_context, AzRawImageFormat  format);
 extern DLLIMPORT AzTexture AzTexture_allocateRgba8(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
 extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
+extern DLLIMPORT void AzTexture_clear(AzTexture* restrict texture);
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTessellatedSvgNode  node);
 extern DLLIMPORT bool  AzTexture_drawTesselatedSvgGpuNode(AzTexture* restrict texture, AzTessellatedGPUSvgNode * node, AzPhysicalSizeU32  size, AzColorU  color, AzStyleTransformVec  transforms);
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);

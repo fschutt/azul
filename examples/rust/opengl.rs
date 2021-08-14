@@ -39,7 +39,10 @@ fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))
         .with_inline_style("
             flex-grow: 1;
-            border-radius: 50px;
+            border-top-left-radius: 50px;
+            border-top-right-radius: 50px;
+            border-bottom-left-radius: 50px;
+            border-bottom-right-radius: 50px;
             box-sizing: border-box;
             box-shadow: 0px 0px 10px black;
         ".into())
@@ -47,11 +50,8 @@ fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
             Button::new("Button composited over OpenGL content!".into())
             .dom()
             .with_inline_style("
-                position: absolute;
-                flex-grow: 0;
-                max-height: 20px;
-                top: 50px;
-                left: 50px;
+                margin-top: 50px;
+                margin-left: 50px;
             ".into())
         )
     ).style(Css::empty())
@@ -85,33 +85,27 @@ fn render_my_texture_inner(
     let mut data = data.downcast_mut::<OpenGlAppState>()?;
     let mut data = &mut *data;
 
-    println!("---- rendering ");
     let gl_context = info.get_gl_context().into_option()?;
-    println!("gl context: available");
     let fill_vertex_buffer = data.fill_vertex_buffer_id.as_ref()?;
-    println!("fill vertex buffer: {:#?}", fill_vertex_buffer);
     let stroke_vertex_buffer = data.stroke_vertex_buffer_id.as_ref()?;
-    println!("stroke vertex buffer: {:#?}", stroke_vertex_buffer);
     let mut texture = data.texture.as_mut()?;
-    println!("texture: {:#?}", texture);
 
-    println!("drawing fill vertices...");
-    if !texture.draw_tesselated_svg_gpu_node(
+    texture.clear();
+
+    texture.draw_tesselated_svg_gpu_node(
         fill_vertex_buffer,
         texture_size,
-        ColorU::from_str("#F2BA6A".into()),
+        ColorU::from_str("#ff0000".into()),
         StyleTransformVec::from_const_slice(&[]),
-    ) { return None; }
+    );
 
-    println!("drawing stroke vertices...");
-    if !texture.draw_tesselated_svg_gpu_node(
+    texture.draw_tesselated_svg_gpu_node(
         stroke_vertex_buffer,
         texture_size,
         ColorU::from_str("#158DE3".into()),
         StyleTransformVec::from_const_slice(&[]),
-    ) { return None; }
+    );
 
-    println!("drawing done!");
     Some(ImageRef::gl_texture(texture.clone()))
 }
 
@@ -131,17 +125,22 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
     let gl_context = info.get_gl_context().into_option()?;
 
     data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-        &fill_vertex_buffer, gl_context.clone()
+        &fill_vertex_buffer,
+        gl_context.clone()
     ));
 
     data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-        &stroke_vertex_buffer, gl_context.clone()
+        &stroke_vertex_buffer,
+        gl_context.clone()
     ));
+
+    let mut col = ColorU::from_str("#abc0cfdd".into());
+    // col.a = 120;
 
     data.texture = Some(Texture::allocate_rgba8(
         gl_context.clone(),
         PhysicalSizeU32 { width: 800, height: 600 },
-        ColorU::white()
+        col,
     ));
 
     Some(())

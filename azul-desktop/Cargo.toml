@@ -27,7 +27,7 @@ backtrace               = { version = "0.3.43" }
 rust-fontconfig         = { version = "0.1.5", default-features = false, features = ["std"] }
 strfmt                  = { version = "0.1.6", default-features = false }
 libm                    = { version = "0.2.1", default-features = false }
-gl-context-loader       = { version = "0.1.4", default-features = false }
+gl-context-loader       = { version ="0.1.7", default-features = false }
 webrender               = { version = "0.62.1", package = "azul-webrender", default-features = false, features = ["freetype-lib"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]

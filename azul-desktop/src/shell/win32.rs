@@ -50,8 +50,10 @@ use gl_context_loader::GenericGlContext;
 use webrender::{
     api::{
         units::{
-            DeviceIntPoint as WrDeviceIntPoint, DeviceIntRect as WrDeviceIntRect,
-            DeviceIntSize as WrDeviceIntSize, LayoutSize as WrLayoutSize,
+            DeviceIntPoint as WrDeviceIntPoint,
+            DeviceIntRect as WrDeviceIntRect,
+            DeviceIntSize as WrDeviceIntSize,
+            LayoutSize as WrLayoutSize,
         },
         HitTesterRequest as WrHitTesterRequest,
         ApiHitTester as WrApiHitTester, DocumentId as WrDocumentId,
@@ -2328,14 +2330,11 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
     const WGL_CONTEXT_MAJOR_VERSION_ARB: i32 = 0x2091;
     const WGL_CONTEXT_MINOR_VERSION_ARB: i32 = 0x2092;
 
-    // Create OpenGL 3.1 context
+    // Create OpenGL 3.1 context - #version 150 required by WR!
     let context_attribs = [
-        WGL_CONTEXT_MAJOR_VERSION_ARB,
-        3,
-        WGL_CONTEXT_MINOR_VERSION_ARB,
-        1,
-        0,
-        0,
+        WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+        WGL_CONTEXT_MINOR_VERSION_ARB, 2,
+        0, 0,
     ];
 
     let CreateContextAttribsARB = if b_transparent_succeeded {
@@ -2350,16 +2349,12 @@ fn create_gl_context(hwnd: HWND) -> Result<(HGLRC, ExtraWglFunctions), WindowsOp
     };
 
     if hRC.is_null() {
-        unsafe {
-            ReleaseDC(hwnd, hDC);
-        }
+        unsafe { ReleaseDC(hwnd, hDC); }
         return Err(OpenGLNotAvailable(get_last_error()));
     }
 
     // return final context
-    unsafe {
-        ReleaseDC(hwnd, hDC);
-    }
+    unsafe { ReleaseDC(hwnd, hDC); }
     return Ok((hRC, extra_functions));
 }
 

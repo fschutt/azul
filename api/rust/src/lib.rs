@@ -9836,6 +9836,7 @@ mod dll {
         pub(crate) fn AzTexture_new(_:  u32, _:  AzTextureFlags, _:  AzPhysicalSizeU32, _:  AzColorU, _:  AzGl, _:  AzRawImageFormat) -> AzTexture;
         pub(crate) fn AzTexture_allocateRgba8(_:  AzGl, _:  AzPhysicalSizeU32, _:  AzColorU) -> AzTexture;
         pub(crate) fn AzTexture_allocateClipMask(_:  AzGl, _:  AzPhysicalSizeU32, _:  AzColorU) -> AzTexture;
+        pub(crate) fn AzTexture_clear(_:  &mut AzTexture);
         pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
         pub(crate) fn AzTexture_drawTesselatedSvgGpuNode(_:  &mut AzTexture, _:  *const AzTessellatedGPUSvgNode, _:  AzPhysicalSizeU32, _:  AzColorU, _:  AzStyleTransformVec) -> bool;
         pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
@@ -13521,6 +13522,8 @@ pub mod gl {
         pub fn allocate_rgba8(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateRgba8(gl, size, background) } }
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
         pub fn allocate_clip_mask(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size, background) } }
+        /// Clears the texture with the currently set background color
+        pub fn clear(&mut self)  { unsafe { crate::dll::AzTexture_clear(self) } }
         /// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
         pub fn draw_clip_mask(&mut self, node: TessellatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
         /// Draws a `&TessellatedGPUSvgNode` with the given color to the texture

@@ -10072,6 +10072,7 @@ namespace dll {
         Texture Texture_new(uint32_t texture_id, AzTextureFlags  flags, AzPhysicalSizeU32  size, AzColorU  background_color, AzGl  gl_context, AzRawImageFormat  format);
         Texture Texture_allocateRgba8(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
         Texture Texture_allocateClipMask(AzGl  gl, AzPhysicalSizeU32  size, AzColorU  background);
+        void Texture_clear(Texture* restrict texture);
         bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);
         bool  Texture_drawTesselatedSvgGpuNode(Texture* restrict texture, AzTessellatedGPUSvgNode * node, AzPhysicalSizeU32  size, AzColorU  color, AzStyleTransformVec  transforms);
         bool  Texture_applyFxaa(Texture* restrict texture);

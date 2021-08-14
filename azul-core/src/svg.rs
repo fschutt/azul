@@ -184,7 +184,7 @@ impl VertexLayoutDescription for SvgVertex {
             fields: vec![
                 VertexAttribute {
                     name: String::from("vAttrXY").into(),
-                    layout_location: crate::gl::OptionUsize::None,
+                    layout_location: Some(0).into(), // crate::gl::OptionUsize::None,
                     attribute_type: VertexAttributeType::Float,
                     item_count: 2,
                 },

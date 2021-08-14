@@ -23997,6 +23997,11 @@ impl AzTexture {
             mem::transmute(background),
         )) }
     }
+    fn clear(&mut self) -> () {
+        unsafe { mem::transmute(crate::AzTexture_clear(
+            mem::transmute(self),
+        )) }
+    }
     fn draw_clip_mask(&mut self, node: AzTessellatedSvgNode) -> bool {
         unsafe { mem::transmute(crate::AzTexture_drawClipMask(
             mem::transmute(self),

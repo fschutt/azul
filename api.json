@@ -6910,6 +6910,13 @@
                         }
                     },
                     "functions": {
+                        "clear": {
+                            "doc": "Clears the texture with the currently set background color",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "texture.clear()"
+                        },
                         "draw_clip_mask": {
                             "doc": "Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture",
                             "fn_args": [

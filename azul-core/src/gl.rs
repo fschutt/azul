@@ -638,6 +638,7 @@ pub struct GlContextPtrInner {
 
 impl Drop for GlContextPtrInner {
     fn drop(&mut self) {
+        println!("DELETING program {}", self.svg_shader);
         self.ptr.delete_program(self.svg_shader);
         self.ptr.delete_program(self.fxaa_shader);
     }
@@ -651,214 +652,46 @@ impl core::fmt::Debug for GlContextPtr {
     }
 }
 
+static SVG_VERTEX_SHADER: &[u8] = b"#version 150
+
+#if __VERSION__ != 100
+    #define varying out
+    #define attribute in
+#endif
+
+precision mediump float;
+
+uniform vec2 vBboxSize;
+uniform mat4 vTransformMatrix;
+
+in vec2 vAttrXY;
+out vec4 vPosition;
+
+void main() {
+    vPosition = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0) * vTransformMatrix;
+}";
+
+static SVG_FRAGMENT_SHADER: &[u8] = b"#version 150
+
+#if __VERSION__ != 100
+    #define varying in
+#endif
+
+precision mediump float;
+
+uniform vec4 fDrawColor;
+
+in vec4 vPosition;
+out vec4 fOutColor;
+
+void main() {
+    fOutColor = fDrawColor;
+}";
+
 impl GlContextPtr {
+
     pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
 
-        static SVG_VERTEX_SHADER: &[u8] = b"
-            #version 130
-
-            precision mediump float;
-
-            uniform vec2 vBboxSize;
-            uniform mat4 vTransformMatrix;
-
-            in vec2 vAttrXY;
-            out vec4 vPosition;
-
-            void main() {
-                vPosition = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0) * vTransformMatrix;
-            }
-        ";
-
-        static SVG_FRAGMENT_SHADER: &[u8] = b"
-            #version 130
-
-            precision mediump float;
-
-            uniform vec4 fDrawColor;
-
-            in vec4 vPosition;
-            out vec4 fOutColor;
-
-            void main() {
-                fOutColor = fDrawColor;
-            }
-        ";
-
-        /*
-        static FXAA_VERTEX_SHADER: &[u8] = b"
-            #version 130
-
-            /*
-                The MIT License (MIT)
-                Copyright (c) 2014 Matt DesLauriers
-
-                Permission is hereby granted, free of charge, to any person obtaining a copy
-                of this software and associated documentation files (the \"Software\"), to deal
-                in the Software without restriction, including without limitation the rights
-                to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-                copies of the Software, and to permit persons to whom the Software is
-                furnished to do so, subject to the following conditions:
-
-                The above copyright notice and this permission notice shall be included in all
-                copies or substantial portions of the Software.
-
-                THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,
-                EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-                MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-                IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-                DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-                OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
-                OR OTHER DEALINGS IN THE SOFTWARE.
-            */
-
-            precision mediump float;
-
-            uniform vec2 iResolution;
-            in vec2 position;
-
-            out vec2 v_rgbNW;
-            out vec2 v_rgbNE;
-            out vec2 v_rgbSW;
-            out vec2 v_rgbSE;
-            out vec2 v_rgbM;
-            out vec4 vPosition;
-            out vec2 vUv;
-
-            void texcoords(vec2 fragCoord, vec2 resolution, out vec2 v_rgbNW, out vec2 v_rgbNE, out vec2 v_rgbSW, out vec2 v_rgbSE, out vec2 v_rgbM) {
-                vec2 inverseVP = 1.0 / resolution.xy;
-                v_rgbNW = (fragCoord + vec2(-1.0, -1.0)) * inverseVP;
-                v_rgbNE = (fragCoord + vec2(1.0, -1.0)) * inverseVP;
-                v_rgbSW = (fragCoord + vec2(-1.0, 1.0)) * inverseVP;
-                v_rgbSE = (fragCoord + vec2(1.0, 1.0)) * inverseVP;
-                v_rgbM = vec2(fragCoord * inverseVP);
-            }
-
-            void main(void) {
-               vPosition = vec4(position, 1.0, 1.0);
-               vUv = (position + 1.0) * 0.5;
-               vUv.y = 1.0 - vUv.y;
-               vec2 fragCoord = vUv * iResolution;
-               texcoords(fragCoord, iResolution, v_rgbNW, v_rgbNE, v_rgbSW, v_rgbSE, v_rgbM);
-            }
-        ";
-
-        static FXAA_FRAGMENT_SHADER: &[u8] = b"
-            #version 130
-
-            /**
-                Basic FXAA implementation based on the code on geeks3d.com with the
-                modification that the texture2DLod stuff was removed since it's
-                unsupported by WebGL.
-
-                --
-
-                From: https://github.com/mitsuhiko/webgl-meincraft
-                Copyright (c) 2011 by Armin Ronacher.
-                Some rights reserved.
-
-                Redistribution and use in source and binary forms, with or without
-                modification, are permitted provided that the following conditions are
-                met:
-                    * Redistributions of source code must retain the above copyright
-                      notice, this list of conditions and the following disclaimer.
-                    * Redistributions in binary form must reproduce the above
-                      copyright notice, this list of conditions and the following
-                      disclaimer in the documentation and/or other materials provided
-                      with the distribution.
-                    * The names of the contributors may not be used to endorse or
-                      promote products derived from this software without specific
-                      prior written permission.
-
-                THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-                \"AS IS\" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-                LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-                A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-                OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-                SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-                LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-                DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-                THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-                (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-                OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-            */
-
-            precision mediump float;
-
-            in vec2 v_rgbNW;
-            in vec2 v_rgbNE;
-            in vec2 v_rgbSW;
-            in vec2 v_rgbSE;
-            in vec2 v_rgbM;
-            in vec2 vUv;
-
-            uniform vec2 iResolution;
-            uniform sampler2D iChannel0;
-
-            #ifndef FXAA_REDUCE_MIN
-                #define FXAA_REDUCE_MIN   (1.0/ 128.0)
-            #endif
-            #ifndef FXAA_REDUCE_MUL
-                #define FXAA_REDUCE_MUL   (1.0 / 8.0)
-            #endif
-            #ifndef FXAA_SPAN_MAX
-                #define FXAA_SPAN_MAX     8.0
-            #endif
-
-            vec4 fxaa(sampler2D tex, vec2 fragCoord, vec2 resolution, vec2 v_rgbNW, vec2 v_rgbNE, vec2 v_rgbSW, vec2 v_rgbSE, vec2 v_rgbM) {
-                vec4 color;
-                mediump vec2 inverseVP = vec2(1.0 / resolution.x, 1.0 / resolution.y);
-                vec3 rgbNW = texture2D(tex, v_rgbNW).xyz;
-                vec3 rgbNE = texture2D(tex, v_rgbNE).xyz;
-                vec3 rgbSW = texture2D(tex, v_rgbSW).xyz;
-                vec3 rgbSE = texture2D(tex, v_rgbSE).xyz;
-                vec4 texColor = texture2D(tex, v_rgbM);
-                vec3 rgbM  = texColor.xyz;
-                vec3 luma = vec3(0.299, 0.587, 0.114);
-                float lumaNW = dot(rgbNW, luma);
-                float lumaNE = dot(rgbNE, luma);
-                float lumaSW = dot(rgbSW, luma);
-                float lumaSE = dot(rgbSE, luma);
-                float lumaM  = dot(rgbM,  luma);
-                float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
-                float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
-
-                mediump vec2 dir;
-                dir.x = -((lumaNW + lumaNE) - (lumaSW + lumaSE));
-                dir.y =  ((lumaNW + lumaSW) - (lumaNE + lumaSE));
-
-                float dirReduce = max((lumaNW + lumaNE + lumaSW + lumaSE) *
-                                      (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
-
-                float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
-                dir = min(vec2(FXAA_SPAN_MAX, FXAA_SPAN_MAX),
-                          max(vec2(-FXAA_SPAN_MAX, -FXAA_SPAN_MAX),
-                          dir * rcpDirMin)) * inverseVP;
-
-                vec3 rgbA = 0.5 * (
-                    texture2D(tex, fragCoord * inverseVP + dir * (1.0 / 3.0 - 0.5)).xyz +
-                    texture2D(tex, fragCoord * inverseVP + dir * (2.0 / 3.0 - 0.5)).xyz);
-                vec3 rgbB = rgbA * 0.5 + 0.25 * (
-                    texture2D(tex, fragCoord * inverseVP + dir * -0.5).xyz +
-                    texture2D(tex, fragCoord * inverseVP + dir * 0.5).xyz);
-
-                float lumaB = dot(rgbB, luma);
-                if ((lumaB < lumaMin) || (lumaB > lumaMax))
-                    color = vec4(rgbA, texColor.a);
-                else
-                    color = vec4(rgbB, texColor.a);
-                return color;
-            }
-
-            void main() {
-              mediump vec2 fragCoord = vUv * iResolution;
-              vec4 color = fxaa(iChannel0, fragCoord, iResolution, v_rgbNW, v_rgbNE, v_rgbSW, v_rgbSE, v_rgbM);
-              gl_FragColor = color;
-            }
-        ";
-        */
-
-        // compile SVG shader
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
@@ -868,32 +701,14 @@ impl GlContextPtr {
         gl_context.compile_shader(fragment_shader_object);
 
         let svg_program_id = gl_context.create_program();
+
         gl_context.attach_shader(svg_program_id, vertex_shader_object);
         gl_context.attach_shader(svg_program_id, fragment_shader_object);
+        gl_context.bind_attrib_location(svg_program_id, 0, "vAttrXY".into());
         gl_context.link_program(svg_program_id);
 
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
-
-        // compile FXAA shader
-
-        /*
-        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, &[FXAA_VERTEX_SHADER]);
-        gl_context.compile_shader(vertex_shader_object);
-
-        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, &[FXAA_FRAGMENT_SHADER]);
-        gl_context.compile_shader(fragment_shader_object);
-
-        let fxaa_program_id = gl_context.create_program();
-        gl_context.attach_shader(fxaa_program_id, vertex_shader_object);
-        gl_context.attach_shader(fxaa_program_id, fragment_shader_object);
-        gl_context.link_program(fxaa_program_id);
-
-        gl_context.delete_shader(vertex_shader_object);
-        gl_context.delete_shader(fragment_shader_object);
-        */
 
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
@@ -1217,13 +1032,11 @@ impl Texture {
         let textures = gl_context.gen_textures(1);
         let texture_id = textures.as_ref()[0];
 
-        println!("allocated texture ID {} size {:?}", texture_id, size);
-
         let mut current_texture_2d = [0_i32];
         gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
 
         gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA8 as i32, size.width as i32, size.height as i32, 0, gl::RGBA8, gl::UNSIGNED_BYTE, None.into());
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, size.width as i32, size.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
@@ -1241,6 +1054,81 @@ impl Texture {
             gl_context,
             RawImageFormat::BGRA8,
         )
+    }
+
+    pub fn clear(&mut self) {
+
+        // save the OpenGL state
+        let mut current_multisample = [0_u8];
+        let mut current_index_buffer = [0_i32];
+        let mut current_vertex_buffer = [0_i32];
+        let mut current_vertex_array_object = [0_i32];
+        let mut current_program = [0_i32];
+        let mut current_framebuffers = [0_i32];
+        let mut current_renderbuffers = [0_i32];
+        let mut current_texture_2d = [0_i32];
+
+        self.gl_context.get_boolean_v(gl::MULTISAMPLE, (&mut current_multisample[..]).into());
+        self.gl_context.get_integer_v(gl::ARRAY_BUFFER_BINDING, (&mut current_vertex_buffer[..]).into());
+        self.gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER_BINDING, (&mut current_index_buffer[..]).into());
+        self.gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+        self.gl_context.get_integer_v(gl::VERTEX_ARRAY_BINDING, (&mut current_vertex_array_object[..]).into());
+        self.gl_context.get_integer_v(gl::RENDERBUFFER, (&mut current_renderbuffers[..]).into());
+        self.gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
+        self.gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+
+        let framebuffers = self.gl_context.gen_framebuffers(1);
+        let framebuffer_id = framebuffers.get(0).unwrap();
+        self.gl_context.bind_framebuffer(gl::FRAMEBUFFER, *framebuffer_id);
+
+        let depthbuffers = self.gl_context.gen_renderbuffers(1);
+        let depthbuffer_id = depthbuffers.get(0).unwrap();
+
+        self.gl_context.bind_texture(gl::TEXTURE_2D, self.texture_id);
+        self.gl_context.tex_image_2d(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32, // NOT RGBA8 - will generate INVALID_ENUM!
+            self.size.width as i32,
+            self.size.height as i32,
+            0,
+            gl::RGBA, // gl::BRGA?
+            gl::UNSIGNED_BYTE,
+            None.into()
+        );
+        self.gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        self.gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        self.gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        self.gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+        self.gl_context.bind_renderbuffer(gl::RENDERBUFFER, *depthbuffer_id);
+        self.gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, self.size.width as i32, self.size.height as i32);
+        self.gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, *depthbuffer_id);
+
+        self.gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, self.texture_id, 0);
+        self.gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
+
+        let clear_color: ColorF = self.background_color.into();
+        self.gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
+        self.gl_context.clear_depth(0.0);
+        self.gl_context.clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+
+        // Reset the OpenGL state
+        if u32::from(current_multisample[0]) == gl::TRUE {
+            self.gl_context.enable(gl::MULTISAMPLE);
+        }
+        self.gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
+        self.gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
+        self.gl_context.bind_buffer(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
+        self.gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
+        self.gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
+        self.gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
+        self.gl_context.use_program(current_program[0] as u32);
+
+        self.gl_context.delete_framebuffers((&[*framebuffer_id])[..].into());
+        self.gl_context.delete_renderbuffers((&[*depthbuffer_id])[..].into());
+
+        self.gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
     }
 
     pub fn get_descriptor(&self) -> ImageDescriptor {
@@ -1422,7 +1310,9 @@ impl VertexLayout {
             let attribute_location = vertex_attribute.layout_location
                 .as_option()
                 .map(|ll| *ll as i32)
-                .unwrap_or_else(|| gl_context.get_attrib_location(program_id, vertex_attribute.name.as_str().into()));
+                .unwrap_or_else(|| {
+                    gl_context.get_attrib_location(program_id, vertex_attribute.name.as_str().into())
+                });
 
             gl_context.vertex_attrib_pointer(
                 attribute_location as u32,
@@ -1620,12 +1510,12 @@ impl VertexBuffer {
 
         // Save the OpenGL state
         let mut current_vertex_array = [0_i32];
-        let mut current_vertex_buffer = [0_i32];
-        let mut current_index_buffer = [0_i32];
+        // let mut current_vertex_buffer = [0_i32];
+        // let mut current_index_buffer = [0_i32];
 
         gl_context.get_integer_v(gl::VERTEX_ARRAY, (&mut current_vertex_array[..]).into());
-        gl_context.get_integer_v(gl::ARRAY_BUFFER, (&mut current_vertex_buffer[..]).into());
-        gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, (&mut current_index_buffer[..]).into());
+        // gl_context.get_integer_v(gl::ARRAY_BUFFER, (&mut current_vertex_buffer[..]).into());
+        // gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, (&mut current_index_buffer[..]).into());
 
         let vertex_array_object = gl_context.gen_vertex_arrays(1);
         let vertex_array_object = vertex_array_object.get(0).unwrap();
@@ -1660,8 +1550,8 @@ impl VertexBuffer {
         vertex_description.bind(&gl_context.ptr.ptr, shader_program_id);
 
         // Reset the OpenGL state
-        gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
-        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
+        // gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
+        // gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
         gl_context.bind_vertex_array(current_vertex_array[0] as u32);
 
         Self::new_raw(
@@ -1986,7 +1876,6 @@ impl GlShader {
         const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
         let texture_size = texture.size;
-        let clear_color = texture.background_color;
 
         let gl_context = &texture.gl_context;
 
@@ -2018,7 +1907,17 @@ impl GlShader {
         let depthbuffer_id = depthbuffers.get(0).unwrap();
 
         gl_context.bind_texture(gl::TEXTURE_2D, texture.texture_id);
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA8 as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA8, gl::UNSIGNED_BYTE, None.into());
+        gl_context.tex_image_2d(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA as i32, // NOT RGBA8 - will generate INVALID_ENUM!
+            texture_size.width as i32,
+            texture_size.height as i32,
+            0,
+            gl::RGBA, // gl::BRGA?
+            gl::UNSIGNED_BYTE,
+            None.into()
+        );
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
@@ -2030,10 +1929,23 @@ impl GlShader {
 
         gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture.texture_id, 0);
         gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
+
+        let fb_check = gl_context.check_frame_buffer_status(gl::FRAMEBUFFER);
+        match fb_check {
+            gl::FRAMEBUFFER_COMPLETE => { },
+            gl::FRAMEBUFFER_UNDEFINED => { println!("GL_FRAMEBUFFER_UNDEFINED"); },
+            gl::FRAMEBUFFER_INCOMPLETE_ATTACHMENT => { println!("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT"); },
+            gl::FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => { println!("GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT"); },
+            gl::FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER => { println!("GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER"); },
+            gl::FRAMEBUFFER_INCOMPLETE_READ_BUFFER => { println!("GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER"); },
+            gl::FRAMEBUFFER_UNSUPPORTED => { println!("GL_FRAMEBUFFER_UNSUPPORTED"); },
+            gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => { println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE"); },
+            gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => { println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE"); },
+            gl::FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS => { println!("GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS"); },
+            o => { println!("glFramebufferStatus returned unknown return code: {}", o);}
+        }
+
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
-
-        // debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
-
         gl_context.use_program(shader_program_id);
         gl_context.disable(gl::MULTISAMPLE);
 
@@ -2050,17 +1962,14 @@ impl GlShader {
         }
         let mut current_uniforms = vec![None;max_uniform_len];
 
-        // Since the description of the vertex buffers is always the same, only the first layer needs to bind its VAO
-        let clear_color: ColorF = clear_color.into();
-        gl_context.clear_color(clear_color.r, clear_color.g, clear_color.b, clear_color.a);
-        gl_context.clear_depth(0.0);
-        gl_context.clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        // Since the description of the vertex buffers is always the same,
+        // only the first layer needs to bind its VAO
 
         // Draw the actual layers
         for (vertex_index_buffer, uniforms) in buffers {
 
-            gl_context.bind_vertex_array(vertex_index_buffer.vertex_buffer_id);
-            // NOTE: Technically not required, but some drivers...
+            gl_context.bind_vertex_array(vertex_index_buffer.vao.vao_id);
+            gl_context.bind_buffer(gl::ARRAY_BUFFER, vertex_index_buffer.vertex_buffer_id);
             gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, vertex_index_buffer.index_buffer_id);
 
             // Only set the uniform if the value has changed
@@ -2079,12 +1988,14 @@ impl GlShader {
             0);
         }
 
-        // Reset the OpenGL state to what it was before
-        if u32::from(current_multisample[0]) == gl::TRUE { gl_context.enable(gl::MULTISAMPLE); }
-        gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
+        // Reset the OpenGL state
+        if u32::from(current_multisample[0]) == gl::TRUE {
+            gl_context.enable(gl::MULTISAMPLE);
+        }
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
         gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);
-        gl_context.bind_texture(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
+        gl_context.bind_buffer(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
+        gl_context.bind_vertex_array(current_vertex_array_object[0] as u32);
         gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, current_index_buffer[0] as u32);
         gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
         gl_context.use_program(current_program[0] as u32);

@@ -843,9 +843,9 @@ checksum = "0e4075386626662786ddb0ec9081e7c7eeb1ba31951f447ca780ef9f5d568189"
 
 [[package]]
 name = "gl-context-loader"
-version = "0.1.4"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4db728a157b926b6f26baff476fea7da0f45144e7eb80c969c3ffc4a8defcdfc"
+checksum = "c64aa1db02ed7b6b2d4972e5a20c957cc1c0616365b6f47c713bf4506c76bd06"
 
 [[package]]
 name = "glslopt"

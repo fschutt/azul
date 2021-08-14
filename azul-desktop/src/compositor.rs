@@ -19,9 +19,13 @@ impl WrExternalImageHandler for Compositor {
 
         use crate::wr_translate::translate_external_image_id_wr;
 
-        let (tex, wh) = get_opengl_texture(&translate_external_image_id_wr(key))
-        .map(|(tex, (w, h))| (WrExternalImageSource::NativeTexture(tex), WrDevicePoint::new(w, h)))
-        .unwrap_or((WrExternalImageSource::Invalid, WrDevicePoint::zero()));
+        let twh = get_opengl_texture(&translate_external_image_id_wr(key))
+        .map(|(tex, (w, h))| (WrExternalImageSource::NativeTexture(tex), WrDevicePoint::new(w, h)));
+
+        let (tex, wh) = match twh {
+            Some(s) => s,
+            None => (WrExternalImageSource::Invalid, WrDevicePoint::zero()),
+        };
 
         WrExternalImage {
             uv: WrTexelRect {

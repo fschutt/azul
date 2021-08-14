@@ -2481,6 +2481,8 @@ pub use AzTextureTT as AzTexture;
 #[no_mangle] pub extern "C" fn AzTexture_allocateRgba8(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture { AzTexture::allocate_rgba8(gl, size, background) }
 /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
 #[no_mangle] pub extern "C" fn AzTexture_allocateClipMask(gl: AzGl, size: AzPhysicalSizeU32, background: AzColorU) -> AzTexture { azul_impl::svg::allocate_clipmask_texture(gl, size) }
+/// Clears the texture with the currently set background color
+#[no_mangle] pub extern "C" fn AzTexture_clear(texture: &mut AzTexture) { texture.clear() }
 /// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
 #[no_mangle] pub extern "C" fn AzTexture_drawClipMask(texture: &mut AzTexture, node: AzTessellatedSvgNode) -> bool { azul_impl::svg::render_tessellated_node_gpu(texture, &node).is_some() }
 /// Draws a `&TessellatedGPUSvgNode` with the given color to the texture
