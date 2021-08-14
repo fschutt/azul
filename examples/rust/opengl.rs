@@ -39,10 +39,7 @@ fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))
         .with_inline_style("
             flex-grow: 1;
-            border-top-left-radius: 50px;
-            border-top-right-radius: 50px;
-            border-bottom-left-radius: 50px;
-            border-bottom-right-radius: 50px;
+            border-radius: 50px;
             box-sizing: border-box;
             box-shadow: 0px 0px 10px black;
         ".into())
@@ -135,7 +132,6 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
     ));
 
     let mut col = ColorU::from_str("#abc0cfdd".into());
-    // col.a = 120;
 
     data.texture = Some(Texture::allocate_rgba8(
         gl_context.clone(),

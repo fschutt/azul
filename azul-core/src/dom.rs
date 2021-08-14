@@ -632,7 +632,7 @@ macro_rules! parse_from_str {
         let s = $s.trim();
         let css_key_map = CssKeyMap::get();
 
-        s.split(";")
+        let v = s.split(";")
         .filter_map(|kv| {
 
             let mut kv_iter = kv.split(":");
@@ -650,31 +650,50 @@ macro_rules! parse_from_str {
                 &mut declarations
             ).ok()?;
 
-            if let Some(CssDeclaration::Static(c)) = declarations.get(0) {
-                Some(c.clone())
-            } else {
+            let declarations = declarations.iter().filter_map(|c| match c {
+                CssDeclaration::Static(d) => Some(NodeDataInlineCssProperty::$prop_type(d.clone())),
+                _ => None
+            }).collect::<Vec<_>>();
+
+            if declarations.is_empty() {
                 None
+            } else {
+                Some(declarations)
             }
         })
-        .map(|prop| NodeDataInlineCssProperty::$prop_type(prop))
+        .collect::<Vec<Vec<NodeDataInlineCssProperty>>>();
+
+        v
+        .into_iter()
+        .flat_map(|k| k.into_iter())
         .collect::<Vec<_>>()
         .into()
     }};
 }
 
 impl NodeDataInlineCssPropertyVec {
+
+    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Normal(FlexDirection::Row)]
     pub fn parse_normal(s: &str) -> Self {
         return parse_from_str!(s, Normal);
     }
+
+    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Hover(FlexDirection::Row)]
     pub fn parse_hover(s: &str) -> Self {
         return parse_from_str!(s, Hover);
     }
+
+    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Active(FlexDirection::Row)]
     pub fn parse_active(s: &str) -> Self {
         return parse_from_str!(s, Active);
     }
+
+    // given "flex-directin: row", returns vec![NodeDataInlineCssProperty::Focus(FlexDirection::Row)]
     pub fn parse_focus(s: &str) -> Self {
         return parse_from_str!(s, Focus);
     }
+
+    // appends two NodeDataInlineCssPropertyVec, even if both are &'static arrays
     pub fn with_append(&self, mut other: Self) -> Self {
         let mut m = self.clone().into_library_owned_vec();
         m.append(&mut other.into_library_owned_vec());
