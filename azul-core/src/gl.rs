@@ -30,6 +30,8 @@ use crate::{
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
 
+pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
+
 /// Passing *const c_void is not easily possible when generating APIs,
 /// so this wrapper struct is for easier API generation
 #[repr(C)]
@@ -665,33 +667,29 @@ static SVG_VERTEX_SHADER: &[u8] = b"#version 150
     #define attribute in
 #endif
 
-precision mediump float;
-
 uniform vec2 vBboxSize;
-uniform mat4 vTransformMatrix;
 
-in vec2 vAttrXY;
-out vec4 vPosition;
+attribute vec2 vAttrXY;
 
 void main() {
-    vPosition = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0) * vTransformMatrix;
+    gl_Position = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0);
+    gl_PointSize = 1.0;
 }";
 
 static SVG_FRAGMENT_SHADER: &[u8] = b"#version 150
 
-#if __VERSION__ != 100
-    #define varying in
-#endif
-
-precision mediump float;
+precision highp float;
 
 uniform vec4 fDrawColor;
 
-in vec4 vPosition;
-out vec4 fOutColor;
+#if __VERSION__ == 100
+    #define oFragColor gl_FragColor
+#else
+    out vec4 oFragColor;
+#endif
 
 void main() {
-    fOutColor = fDrawColor;
+    oFragColor = fDrawColor;
 }";
 
 impl GlContextPtr {
@@ -1894,6 +1892,8 @@ impl GlShader {
         let mut current_framebuffers = [0_i32];
         let mut current_renderbuffers = [0_i32];
         let mut current_texture_2d = [0_i32];
+        let mut current_blend_enabled = [0_u8];
+        let mut current_primitive_restart_fixed_index_enabled = [0_u8];
 
         gl_context.get_boolean_v(gl::MULTISAMPLE, (&mut current_multisample[..]).into());
         gl_context.get_integer_v(gl::ARRAY_BUFFER_BINDING, (&mut current_vertex_buffer[..]).into());
@@ -1903,6 +1903,8 @@ impl GlShader {
         gl_context.get_integer_v(gl::RENDERBUFFER, (&mut current_renderbuffers[..]).into());
         gl_context.get_integer_v(gl::FRAMEBUFFER, (&mut current_framebuffers[..]).into());
         gl_context.get_integer_v(gl::TEXTURE_2D, (&mut current_texture_2d[..]).into());
+        gl_context.get_boolean_v(gl::BLEND, (&mut current_blend_enabled[..]).into());
+        gl_context.get_boolean_v(gl::PRIMITIVE_RESTART_FIXED_INDEX, (&mut current_primitive_restart_fixed_index_enabled[..]).into());
 
         // 1. Create the framebuffer
         let framebuffers = gl_context.gen_framebuffers(1);
@@ -1952,8 +1954,11 @@ impl GlShader {
         }
 
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
-        gl_context.use_program(shader_program_id);
+        gl_context.enable(gl::BLEND);
+        gl_context.enable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
         gl_context.disable(gl::MULTISAMPLE);
+        gl_context.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA); // TODO: enable / disable
+        gl_context.use_program(shader_program_id);
 
         // Avoid multiple calls to get_uniform_location by caching the uniform locations
         let mut uniform_locations: BTreeMap<AzString, i32> = BTreeMap::new();
@@ -1997,6 +2002,12 @@ impl GlShader {
         // Reset the OpenGL state
         if u32::from(current_multisample[0]) == gl::TRUE {
             gl_context.enable(gl::MULTISAMPLE);
+        }
+        if u32::from(current_blend_enabled[0]) == gl::FALSE {
+            gl_context.disable(gl::BLEND);
+        }
+        if u32::from(current_primitive_restart_fixed_index_enabled[0]) == gl::FALSE {
+            gl_context.disable(gl::PRIMITIVE_RESTART_FIXED_INDEX);
         }
         gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffers[0] as u32);
         gl_context.bind_texture(gl::TEXTURE_2D, current_texture_2d[0] as u32);

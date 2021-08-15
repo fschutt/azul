@@ -53,7 +53,7 @@ pub use azul_core::svg::{
 #[cfg(feature = "svg")]
 extern crate tiny_skia;
 
-const GL_RESTART_INDEX: u32 = core::u32::MAX;
+use azul_core::gl::GL_RESTART_INDEX;
 
 #[cfg(feature = "svg")]
 fn translate_svg_line_join(e: SvgLineJoin) -> lyon::tessellation::LineJoin {

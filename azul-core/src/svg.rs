@@ -184,7 +184,7 @@ impl VertexLayoutDescription for SvgVertex {
             fields: vec![
                 VertexAttribute {
                     name: String::from("vAttrXY").into(),
-                    layout_location: Some(0).into(), // crate::gl::OptionUsize::None,
+                    layout_location: None.into(),
                     attribute_type: VertexAttributeType::Float,
                     item_count: 2,
                 },
@@ -300,6 +300,7 @@ impl TessellatedGPUSvgNode {
         use crate::gl::{GlShader, Uniform, UniformType};
         use azul_css::PixelValue;
 
+        /*
         let transform_origin = StyleTransformOrigin {
             x: PixelValue::px(target_size.width as f32 / 2.0),
             y: PixelValue::px(target_size.height as f32 / 2.0),
@@ -311,7 +312,7 @@ impl TessellatedGPUSvgNode {
             target_size.width as f32,
             target_size.height as f32,
             RotationMode::ForWebRender
-        );
+        );*/
 
         let color: ColorF = color.into();
 
@@ -322,16 +323,17 @@ impl TessellatedGPUSvgNode {
                 uniform_type: UniformType::FloatVec2([target_size.width as f32, target_size.height as f32])
             },
             Uniform {
+                name: "fDrawColor".into(),
+                uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a])
+            },
+            /*
+            Uniform {
                 name: "vTransformMatrix".into(),
                 uniform_type: UniformType::Matrix4 {
                     transpose: false,
                     matrix: unsafe { core::mem::transmute(computed_transform.m) }
                 }
-            },
-            Uniform {
-                name: "fDrawColor".into(),
-                uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a])
-            },
+            },*/
         ];
 
         GlShader::draw(
