@@ -300,7 +300,6 @@ impl TessellatedGPUSvgNode {
         use crate::gl::{GlShader, Uniform, UniformType};
         use azul_css::PixelValue;
 
-        /*
         let transform_origin = StyleTransformOrigin {
             x: PixelValue::px(target_size.width as f32 / 2.0),
             y: PixelValue::px(target_size.height as f32 / 2.0),
@@ -312,7 +311,7 @@ impl TessellatedGPUSvgNode {
             target_size.width as f32,
             target_size.height as f32,
             RotationMode::ForWebRender
-        );*/
+        );
 
         let color: ColorF = color.into();
 
@@ -326,14 +325,13 @@ impl TessellatedGPUSvgNode {
                 name: "fDrawColor".into(),
                 uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a])
             },
-            /*
             Uniform {
                 name: "vTransformMatrix".into(),
                 uniform_type: UniformType::Matrix4 {
                     transpose: false,
                     matrix: unsafe { core::mem::transmute(computed_transform.m) }
                 }
-            },*/
+            },
         ];
 
         GlShader::draw(

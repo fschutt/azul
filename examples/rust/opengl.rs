@@ -15,6 +15,8 @@ struct OpenGlAppState {
     fill_vertices_to_upload: Option<TessellatedSvgNode>,
     stroke_vertices_to_upload: Option<TessellatedSvgNode>,
 
+    rotation_deg: f32,
+
     // vertex (+ index) buffer ID of the uploaded tesselated node
     texture: Option<Texture>,
     fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
@@ -76,7 +78,7 @@ fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> I
 fn render_my_texture_inner(
     data: &mut RefAny,
     info: &mut RenderImageCallbackInfo,
-    texture_size: PhysicalSizeU32
+    texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
 
     let mut data = data.downcast_mut::<OpenGlAppState>()?;
@@ -85,6 +87,7 @@ fn render_my_texture_inner(
     let gl_context = info.get_gl_context().into_option()?;
     let fill_vertex_buffer = data.fill_vertex_buffer_id.as_ref()?;
     let stroke_vertex_buffer = data.stroke_vertex_buffer_id.as_ref()?;
+    let rotation_deg = data.rotation_deg;
     let mut texture = data.texture.as_mut()?;
 
     texture.clear();
@@ -93,14 +96,18 @@ fn render_my_texture_inner(
         fill_vertex_buffer,
         texture_size,
         ColorU::from_str("#ff0000".into()),
-        StyleTransformVec::from_const_slice(&[]),
+        vec![
+            StyleTransform::Rotate(AngleValue::deg(rotation_deg))
+        ].into(),
     );
 
     texture.draw_tesselated_svg_gpu_node(
         stroke_vertex_buffer,
         texture_size,
         ColorU::from_str("#158DE3".into()),
-        StyleTransformVec::from_const_slice(&[]),
+        vec![
+            StyleTransform::Rotate(AngleValue::deg(rotation_deg))
+        ].into(),
     );
 
     Some(ImageRef::gl_texture(texture.clone()))
@@ -112,32 +119,40 @@ extern "C" fn startup_window(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
     Update::DoNothing
 }
 
+struct TimerLocalData { }
+
 // Function called when the OpenGL context has been initialized:
 // allocate all textures and upload vertex buffer to GPU
 fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
 
-    let mut data = data.downcast_mut::<OpenGlAppState>()?;
-    let fill_vertex_buffer = data.fill_vertices_to_upload.take()?;
-    let stroke_vertex_buffer = data.stroke_vertices_to_upload.take()?;
-    let gl_context = info.get_gl_context().into_option()?;
+    {
+        let mut data = data.downcast_mut::<OpenGlAppState>()?;
+        let fill_vertex_buffer = data.fill_vertices_to_upload.take()?;
+        let stroke_vertex_buffer = data.stroke_vertices_to_upload.take()?;
+        let gl_context = info.get_gl_context().into_option()?;
 
-    data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-        &fill_vertex_buffer,
-        gl_context.clone()
-    ));
+        data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
+            &fill_vertex_buffer,
+            gl_context.clone()
+        ));
 
-    data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-        &stroke_vertex_buffer,
-        gl_context.clone()
-    ));
+        data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
+            &stroke_vertex_buffer,
+            gl_context.clone()
+        ));
 
-    let mut col = ColorU::from_str("#abc0cf".into());
+        let mut col = ColorU::from_str("#abc0cf".into());
 
-    data.texture = Some(Texture::allocate_rgba8(
-        gl_context.clone(),
-        PhysicalSizeU32 { width: 800, height: 600 },
-        col,
-    ));
+        data.texture = Some(Texture::allocate_rgba8(
+            gl_context.clone(),
+            PhysicalSizeU32 { width: 800, height: 600 },
+            col,
+        ));
+    }
+
+    println!("starting timer...");
+    let id = info.start_timer(Timer::new(RefAny::new(TimerLocalData { }), animate, info.get_system_time_fn()));
+    println!("id = {:?}", id);
 
     Some(())
 }
@@ -182,6 +197,21 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
     }).collect()
 }
 
+extern "C"
+fn animate(timer_data: &mut RefAny, data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
+    println!("timer running!");
+    TimerCallbackReturn {
+        should_terminate: TerminateTimer::Continue,
+        should_update: match timer_data.downcast_mut::<OpenGlAppState>() {
+            Some(mut s) => {
+                s.rotation_deg += 1.0;
+                Update::RefreshDom
+            },
+            None => Update::DoNothing
+        }
+    }
+}
+
 fn main() {
 
     let multipolygons = parse_multipolygons(DATA);
@@ -204,6 +234,7 @@ fn main() {
     let data = RefAny::new(OpenGlAppState {
         fill_vertices_to_upload: Some(tessellated_fill_join),
         stroke_vertices_to_upload: Some(tessellated_stroke_join),
+        rotation_deg: 0.0,
 
         texture: None,
         fill_vertex_buffer_id: None,

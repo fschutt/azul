@@ -668,13 +668,15 @@ static SVG_VERTEX_SHADER: &[u8] = b"#version 150
 #endif
 
 uniform vec2 vBboxSize;
+uniform mat4 vTransformMatrix;
 
 attribute vec2 vAttrXY;
 
 void main() {
-    vec2 vCalc = vAttrXY / vBboxSize;
-    vec2 vCalc1 = vCalc - vec2(1.0, 1.0);
-    gl_Position = vec4(vCalc1, 0.0, 1.0);
+    vec4 vTransposed = vec4(vAttrXY, 0.0, 1.0) * vTransformMatrix;
+    vec4 vTransposedInScreen = vTransposed / vec4(vBboxSize, 1.0, 1.0);
+    vec4 vCalcFinal = vTransposedInScreen - vec4(1.0, 1.0, 0.0, 0.0);
+    gl_Position = vec4(vCalcFinal.xyz, 1.0);
 }";
 
 static SVG_FRAGMENT_SHADER: &[u8] = b"#version 150
@@ -1688,8 +1690,8 @@ impl UniformType {
             UnsignedIntVec3([r,g,b]) => gl_context.uniform_3ui(location, r, g, b),
             UnsignedIntVec4([r,g,b,a]) => gl_context.uniform_4ui(location, r, g, b, a),
             Matrix2 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
-            Matrix3 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
-            Matrix4 { transpose, matrix } => gl_context.uniform_matrix_2fv(location, transpose, &matrix[..]),
+            Matrix3 { transpose, matrix } => gl_context.uniform_matrix_3fv(location, transpose, &matrix[..]),
+            Matrix4 { transpose, matrix } => gl_context.uniform_matrix_4fv(location, transpose, &matrix[..]),
         }
     }
 }

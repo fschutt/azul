@@ -1632,7 +1632,7 @@ impl Window {
     fn create(
         hinstance: HINSTANCE,
         mut options: WindowCreateOptions,
-        data: SharedApplicationData,
+        mut shared_application_data: SharedApplicationData,
     ) -> Result<Self, WindowsWindowCreateError> {
 
         use crate::{
@@ -1689,7 +1689,7 @@ impl Window {
         let mut class_name = encode_wide(CLASS_NAME);
         let mut window_title = encode_wide(options.state.title.as_str());
 
-        let data_ptr = Box::into_raw(Box::new(data.clone())) as *mut SharedApplicationData as *mut c_void;
+        let data_ptr = Box::into_raw(Box::new(shared_application_data.clone())) as *mut SharedApplicationData as *mut c_void;
 
         // Create the window
         let hwnd = unsafe {
@@ -1875,7 +1875,7 @@ impl Window {
 
         // lock the SharedApplicationData in order to
         // invoke the UI callback for the first time
-        let mut appdata_lock = match data.inner.try_borrow_mut() {
+        let mut appdata_lock = match shared_application_data.inner.try_borrow_mut() {
             Ok(o) => o,
             Err(e) => unsafe {
                 if let Some(hrc) = opengl_context.as_mut() {
@@ -2060,48 +2060,7 @@ impl Window {
         use winapi::um::winuser::PostMessageW;
         unsafe { PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0 ); }
 
-        // invoke the create callback, if there is any
-        if let Some(create_callback) = options.create_callback.as_mut() {
-
-            let hdc = unsafe { GetDC(hwnd) };
-            if let Some(hrc) = opengl_context.as_mut() {
-                unsafe { wglMakeCurrent(hdc, *hrc) };
-            }
-
-            let appdata_lock = &mut *appdata_lock;
-            let fc_cache = &mut appdata_lock.fc_cache;
-            let image_cache = &mut appdata_lock.image_cache;
-            let data = &mut appdata_lock.data;
-            let config = &appdata_lock.config;
-
-            fc_cache.apply_closure(|fc_cache| {
-                use azul_core::window::{RawWindowHandle, WindowsHandle};
-
-                internal.invoke_single_callback(
-                    create_callback,
-                    data,
-                    &RawWindowHandle::Windows(WindowsHandle {
-                        hwnd: hwnd as *mut core::ffi::c_void,
-                        hinstance: hinstance as *mut core::ffi::c_void,
-                    }),
-                    &gl_context_ptr,
-                    image_cache,
-                    fc_cache,
-                    &config.system_callbacks,
-                );
-            });
-
-            if let Some(hrc) = opengl_context.as_mut() {
-                unsafe { wglMakeCurrent(hdc, *hrc) };
-            }
-
-            unsafe { ReleaseDC(hwnd, hdc); }
-        }
-
-        unsafe { ShowWindow(hwnd, sw_options); }
-
-        // NOTE: The window is NOT stored yet
-        Ok(Window {
+        let mut window = Window {
             hwnd,
             internal,
             gl_context: opengl_context,
@@ -2115,7 +2074,74 @@ impl Window {
             timers: BTreeMap::new(),
             thread_timer_running: None,
             high_surrogate: None,
-        })
+        };
+
+        // invoke the create callback, if there is any
+        if let Some(create_callback) = options.create_callback.as_mut() {
+
+            let hdc = unsafe { GetDC(hwnd) };
+            if let Some(hrc) = opengl_context.as_mut() {
+                unsafe { wglMakeCurrent(hdc, *hrc) };
+            }
+
+            let ab = &mut *appdata_lock;
+            let fc_cache = &mut ab.fc_cache;
+            let image_cache = &mut ab.image_cache;
+            let data = &mut ab.data;
+            let config = &ab.config;
+
+            let ccr = fc_cache.apply_closure(|fc_cache| {
+                use azul_core::window::{RawWindowHandle, WindowsHandle};
+
+                window.internal.invoke_single_callback(
+                    create_callback,
+                    data,
+                    &RawWindowHandle::Windows(WindowsHandle {
+                        hwnd: hwnd as *mut core::ffi::c_void,
+                        hinstance: hinstance as *mut core::ffi::c_void,
+                    }),
+                    &window.gl_context_ptr,
+                    image_cache,
+                    fc_cache,
+                    &config.system_callbacks,
+                )
+            });
+
+            let ntc = NodesToCheck::empty(
+                window.internal.current_window_state.mouse_state.mouse_down(),
+                window.internal.current_window_state.focused_node,
+            );
+
+            let mut new_windows = Vec::new();
+            let mut destroyed_windows = Vec::new();
+
+            let ret = process_callback_results(
+                ccr,
+                &mut window,
+                &ntc,
+                image_cache,
+                &mut new_windows,
+                &mut destroyed_windows,
+            );
+
+            if let Some(hrc) = opengl_context.as_mut() {
+                unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+            }
+
+            mem::drop(ab);
+            mem::drop(appdata_lock);
+            create_windows(hinstance, &mut shared_application_data, new_windows);
+            let mut appdata_lock = shared_application_data.inner.try_borrow_mut().unwrap();
+            let mut ab = &mut *appdata_lock;
+            destroy_windows(ab, destroyed_windows);
+
+            unsafe { ReleaseDC(hwnd, hdc); }
+        }
+
+        unsafe { ShowWindow(hwnd, sw_options); }
+
+        // NOTE: The window is NOT stored yet
+        Ok(window)
     }
 
     fn start_stop_timers(
