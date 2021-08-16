@@ -34,7 +34,7 @@ struct Dataset {
 extern "C"
 fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
-    .with_inline_style("background: #ffffff00;".into())
+    .with_inline_style("background: #ffffff; padding: 10px;".into())
     .with_child(
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))
         .with_inline_style("
@@ -131,7 +131,7 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         gl_context.clone()
     ));
 
-    let mut col = ColorU::from_str("#abc0cfdd".into());
+    let mut col = ColorU::from_str("#abc0cf".into());
 
     data.texture = Some(Texture::allocate_rgba8(
         gl_context.clone(),
@@ -163,12 +163,17 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
 
                         let mut current = SvgPoint { x: i[0], y: i[1] };
                         current.x -= 13.804493;
-                        current.x *= 10000.0;
                         current.y -= 51.05264;
-                        current.y *= 10000.0;
+                        current.x *= 50000.0;
+                        current.y *= 50000.0;
+                        current.x += 500.0;
+                        current.y += 500.0;
+                        current.x *= 2.0;
+                        current.y *= 2.0;
 
                         last = Some(current);
                         let last_point = last_point?;
+
                         Some(SvgPathElement::Line(SvgLine { start: last_point, end: current }))
                     }).collect::<Vec<_>>().into(),
                 }

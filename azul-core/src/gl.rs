@@ -672,8 +672,9 @@ uniform vec2 vBboxSize;
 attribute vec2 vAttrXY;
 
 void main() {
-    gl_Position = vec4(vAttrXY / vBboxSize - vec2(1.0), 1.0, 1.0);
-    gl_PointSize = 1.0;
+    vec2 vCalc = vAttrXY / vBboxSize;
+    vec2 vCalc1 = vCalc - vec2(1.0, 1.0);
+    gl_Position = vec4(vCalc1, 0.0, 1.0);
 }";
 
 static SVG_FRAGMENT_SHADER: &[u8] = b"#version 150
