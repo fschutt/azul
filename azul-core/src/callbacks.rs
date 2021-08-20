@@ -408,7 +408,7 @@ impl Clone for RefAny {
             sharing_info: RefCount {
                 ptr: self.sharing_info.ptr,
             },
-            instance_id: self.instance_id.saturating_add(1),
+            instance_id: self.sharing_info.downcast().num_copies.load(AtomicOrdering::SeqCst) as u64,
         }
     }
 }

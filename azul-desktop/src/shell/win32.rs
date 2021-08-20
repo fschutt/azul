@@ -2552,6 +2552,8 @@ unsafe extern "system" fn WindowProc(
 
                 let mut ret = ProcessEventResult::DoNothing;
 
+                println!("called AZ_REGENERATE_DOM!");
+
                 // borrow checker :|
                 let ab = &mut *app_borrow;
                 let windows = &mut ab.windows;
@@ -3548,7 +3550,7 @@ unsafe extern "system" fn WindowProc(
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
                     },
                     ProcessEventResult::ShouldRegenerateDomAllWindows => {
-                        for window in app_borrow.windows.values() {
+                        for window in ab.windows.values() {
                             PostMessageW(window.hwnd, AZ_REGENERATE_DOM, 0, 0);
                         }
                     },
@@ -3556,7 +3558,7 @@ unsafe extern "system" fn WindowProc(
                         PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
                     },
                     ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        if let Some(w) = app_borrow.windows.get_mut(&hwnd_key) {
+                        if let Some(w) = ab.windows.get_mut(&hwnd_key) {
                             w.internal.previous_window_state = Some(w.internal.current_window_state.clone());
                             // TODO: submit display list, wait for new hit-tester and update hit-test results
                             PostMessageW(hwnd, AZ_REGENERATE_DISPLAY_LIST, 0, 0);
@@ -3568,6 +3570,7 @@ unsafe extern "system" fn WindowProc(
                     },
                 }
 
+                mem::drop(ab);
                 mem::drop(app_borrow);
                 return 0;
             },

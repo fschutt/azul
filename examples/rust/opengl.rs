@@ -39,18 +39,9 @@ struct Dataset {
     coordinates: Vec<Vec<Vec<[f32;2]>>>,
 }
 
-struct TestDataSet { }
-
-impl Drop for TestDataSet {
-    fn drop(&mut self) {
-        println!("dropping TestDataSet!");
-    }
-}
-
 extern "C"
 fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
-    .with_dataset(RefAny::new(TestDataSet { }))
     .with_inline_style("background: #ffffff; padding: 10px;".into())
     .with_child(
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))
@@ -104,6 +95,8 @@ fn render_my_texture_inner(
     let stroke_vertex_buffer = data.stroke_vertex_buffer_id.as_ref()?;
     let rotation_deg = data.rotation_deg;
     let mut texture = data.texture.as_mut()?;
+
+    println!("drawing texture size {:#?}", texture_size);
 
     texture.clear();
 

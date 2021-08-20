@@ -722,14 +722,18 @@ pub struct ThreadSender {
 }
 
 impl ThreadSender {
-    pub fn new(t: ThreadSenderInner) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(t))) } }
+
+    pub fn new(t: ThreadSenderInner) -> Self {
+        Self { ptr: Box::new(Arc::new(Mutex::new(t))) }
+    }
+
     // send data from the user thread to the main thread
     pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
         let ts = match self.ptr.lock().ok() {
             Some(s) => s,
             None => return false,
         };
-        (ts.send_fn.cb)(&ts.ptr as *const _ as *const c_void, msg)
+        (ts.send_fn.cb)(ts.ptr.as_ref() as *const _ as *const c_void, msg)
     }
 }
 
@@ -939,13 +943,15 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn new(ti: ThreadInner) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(ti))) } }
+    pub fn new(ti: ThreadInner) -> Self {
+        Self { ptr: Box::new(Arc::new(Mutex::new(ti))) }
+    }
 }
 
 impl ThreadInner {
     /// Returns true if the Thread has been finished, false otherwise
     pub(crate) fn is_finished(&self) -> bool {
-        (self.check_thread_finished_fn.cb)(&self.dropcheck as *const _ as *const c_void)
+        (self.check_thread_finished_fn.cb)(self.dropcheck.as_ref() as *const _ as *const c_void)
     }
 
     pub(crate) fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
