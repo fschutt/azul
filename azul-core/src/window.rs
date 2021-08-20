@@ -901,9 +901,6 @@ impl WindowInternal {
             relayout_fn,
         );
 
-        // removes the last frames OpenGL textures
-        gl_textures_remove_epochs_from_pipeline(&self.document_id, self.epoch);
-
         // inserts the new textures for the next frame
         let gl_texture_cache = GlTextureCache::new(
             &mut layout_results,
@@ -918,6 +915,9 @@ impl WindowInternal {
             all_resource_updates,
             &mut self.renderer_resources,
         );
+
+        // removes the last frames' OpenGL textures
+        gl_textures_remove_epochs_from_pipeline(&self.document_id, self.epoch);
 
         // Delete unused font and image keys (that were not used in this frame)
         self.renderer_resources.do_gc(

@@ -2561,6 +2561,26 @@ unsafe extern "system" fn WindowProc(
 
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
 
+                    use winapi::um::winuser::{GetDC, ReleaseDC};
+
+                    let hDC = GetDC(hwnd);
+
+                    let gl_context = match current_window.gl_context {
+                        Some(c) => {
+                            if !hDC.is_null() {
+                                wglMakeCurrent(hDC, c);
+                            }
+                        },
+                        None => { },
+                    };
+
+                    let mut current_program = [0_i32];
+
+                    {
+                        let mut gl = &mut current_window.gl_functions.functions;
+                        gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                    }
+
                     let document_id = current_window.internal.document_id;
                     let mut hit_tester = &mut current_window.hit_tester;
                     let internal = &mut current_window.internal;
@@ -2570,6 +2590,7 @@ unsafe extern "system" fn WindowProc(
                     internal.current_window_state.focused_node = None;
 
                     println!("before regenerate_styled_dom: {}", data.sharing_info.debug_get_refcount_copied().num_copies);
+
                     let mut resource_updates = Vec::new();
                     fc_cache.apply_closure(|fc_cache| {
                         internal.regenerate_styled_dom(
@@ -2592,6 +2613,16 @@ unsafe extern "system" fn WindowProc(
                             }
                         );
                     });
+
+                    let mut gl = &mut current_window.gl_functions.functions;
+                    gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                    gl.use_program(current_program[0] as u32);
+
+                    wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                    if !hDC.is_null() {
+                        ReleaseDC(hwnd, hDC);
+                    }
 
                     println!("after regenerate_styled_dom: {} - epoch {}",
                         data.sharing_info.debug_get_refcount_copied().num_copies,

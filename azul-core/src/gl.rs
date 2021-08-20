@@ -562,7 +562,8 @@ pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: 
             None => return,
         };
 
-        // NOTE: original code used retain() but that doesn't work on no_std
+        // NOTE: original code used retain() but that
+        // doesn't work on no_std
         let mut epochs_to_remove = Vec::new();
 
         for (gl_texture_epoch, _) in active_epochs.iter() {
@@ -2023,7 +2024,7 @@ impl GlShader {
 
         texture.format = RawImageFormat::RGBA8;
         texture.flags = TextureFlags {
-            is_opaque: true,
+            is_opaque: false,
             is_video_texture: false,
         };
     }

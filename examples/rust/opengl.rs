@@ -156,12 +156,10 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
             gl_context.clone()
         ));
 
-        let mut col = ColorU::from_str("#abc0cf".into());
-
         data.texture = Some(Texture::allocate_rgba8(
             gl_context.clone(),
             PhysicalSizeU32 { width: 800, height: 600 },
-            col,
+            ColorU::from_str("#abc0cf".into()),
         ));
     }
 

@@ -663,6 +663,10 @@ impl RendererResources {
         .map(|(image_ref_hash, resolved_image)| (image_ref_hash.clone(), DeleteImageMsg(resolved_image.key.clone())))
         .collect::<Vec<_>>();
 
+        for (image_ref_hash_to_delete, _) in delete_image_resources.iter() {
+            self.currently_registered_images.remove(image_ref_hash_to_delete);
+        }
+
         all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
         all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
