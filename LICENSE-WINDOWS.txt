@@ -318,7 +318,7 @@ gif v0.11.2 licensed Apache-2.0 OR MIT
     by nwin
 gimli v0.24.0 licensed Apache-2.0 OR MIT
     by Nick Fitzgerald, Philip Craig
-gl-context-loader v0.1.6 licensed Apache-2.0 OR MIT
+gl-context-loader v0.1.7 licensed Apache-2.0 OR MIT
     by Felix Schütt, The Servo Project Developers
 glyph-names v0.1.0 licensed BSD-3-Clause
     by YesLogic Pty. Ltd.

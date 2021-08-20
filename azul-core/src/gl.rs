@@ -545,6 +545,54 @@ pub fn insert_into_active_gl_textures(document_id: DocumentId, epoch: Epoch, tex
     external_image_id
 }
 
+/// Destroys all textures from the given `document_id`
+/// where the texture is **older** than the given `epoch`.
+pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
+
+    // TODO: Handle overflow of Epochs correctly (low priority)
+    unsafe {
+
+        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let active_epochs = match active_textures.get_mut(document_id) {
+            Some(s) => s,
+            None => return,
+        };
+
+        // NOTE: original code used retain() but that doesn't work on no_std
+        let mut epochs_to_remove = Vec::new();
+
+        for (gl_texture_epoch, _) in active_epochs.iter() {
+            if *gl_texture_epoch < epoch {
+                epochs_to_remove.push(*gl_texture_epoch);
+            }
+        }
+
+        for epoch in epochs_to_remove {
+            active_epochs.remove(&epoch);
+        }
+    }
+}
+
+/// Removes a DocumentId from the active epochs
+pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
+    unsafe {
+        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
+            Some(s) => s,
+            None => return,
+        };
+        active_textures.remove(document_id);
+    }
+}
+
+/// Destroys all textures, usually done before destroying the OpenGL context
+pub fn gl_textures_clear_opengl_cache() {
+    unsafe { ACTIVE_GL_TEXTURES = None; }
+}
+
 // Search all epoch hash maps for the given key
 // There does not seem to be a way to get the epoch for the key,
 // so we simply have to search all active epochs
@@ -561,56 +609,6 @@ pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, 
     .flat_map(|active_document| active_document.values())
     .find_map(|active_epoch| active_epoch.get(image_key))
     .map(|tex| (tex.texture_id, (tex.size.width as f32, tex.size.height as f32)))
-}
-
-pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
-    unsafe {
-        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
-            Some(s) => s,
-            None => return,
-        };
-        active_textures.remove(document_id);
-    }
-}
-
-/// Destroys all textures from the pipeline `pipeline_id` where the texture is
-/// **older** than the given `epoch`.
-pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
-
-    println!("flushing epoch: {:?}", epoch);
-
-
-    // TODO: Handle overflow of Epochs correctly (low priority)
-    unsafe {
-        println!("active gl textures: {:#?}", ACTIVE_GL_TEXTURES.as_ref());
-
-        let active_textures = match ACTIVE_GL_TEXTURES.as_mut() {
-            Some(s) => s,
-            None => return,
-        };
-        let active_epochs = match active_textures.get_mut(document_id) {
-            Some(s) => s,
-            None => return,
-        };
-
-        // NOTE: original code used retain() but that doesn't work on no_std
-        let mut epochs_to_remove = Vec::new();
-
-        for (gl_texture_epoch, _) in active_epochs.iter() {
-            if !(*gl_texture_epoch > epoch) {
-                epochs_to_remove.push(*gl_texture_epoch);
-            }
-        }
-
-        for epoch in epochs_to_remove {
-            active_epochs.remove(&epoch);
-        }
-    }
-}
-
-/// Destroys all textures, usually done before destroying the OpenGL context
-pub fn gl_textures_clear_opengl_cache() {
-    unsafe { ACTIVE_GL_TEXTURES = None; }
 }
 
 /// For .get_gl_precision_format(), but ABI-safe - returning an array or a tuple is not ABI-safe

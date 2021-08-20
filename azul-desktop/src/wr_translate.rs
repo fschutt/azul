@@ -976,8 +976,6 @@ pub(crate) fn generate_frame(
         return;
     }
 
-    internal.epoch.increment();
-
     txn.set_root_pipeline(wr_translate_pipeline_id(PipelineId(0, internal.document_id.id)));
     txn.set_document_view(WrDeviceIntRect::from_origin_and_size(WrDeviceIntPoint::new(0, 0), framebuffer_size));
     scroll_all_nodes(&mut internal.scroll_states, &mut txn);
@@ -1012,7 +1010,7 @@ fn wr_translate_layouted_glyphs(input: &[GlyphInstance]) -> Vec<WrGlyphInstance>
 
 #[inline(always)]
 pub(crate) const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
-    WrEpoch(epoch.0)
+    WrEpoch(epoch.into_u32())
 }
 
 // webrender -> core
@@ -1049,7 +1047,7 @@ pub(crate) const fn translate_image_key_wr(image_key: WrImageKey) -> ImageKey {
 
 #[inline(always)]
 pub(crate) const fn translate_epoch_wr(epoch: WrEpoch) -> Epoch {
-    Epoch(epoch.0)
+    Epoch::from(epoch.0)
 }
 
 /*

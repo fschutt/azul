@@ -17,12 +17,12 @@ use azul_css::{
     LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin, StyleBoxShadow,
 };
 use crate::{
-    display_list::{CachedDisplayList, GlTextureCache, RenderCallbacks},
+    display_list::{CachedDisplayList, RenderCallbacks},
     styled_dom::{StyledDom, NodeHierarchyItemId, DomId},
     app_resources::{
         Words, ShapedWords, TransformKey, OpacityKey,
         FontInstanceKey, WordPositions, Epoch,
-        RendererResources, ImageCache,
+        RendererResources, ImageCache, GlTextureCache,
     },
     id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
     dom::{DomNodeHash, ScrollTagId, TagId},
@@ -535,7 +535,6 @@ pub struct HorizontalSolvedPosition(pub f32);
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct VerticalSolvedPosition(pub f32);
 
-#[derive(Debug)]
 pub struct LayoutResult {
     pub dom_id: DomId,
     pub parent_dom_id: Option<DomId>,
@@ -560,6 +559,59 @@ pub struct LayoutResult {
     pub scrollable_nodes: ScrolledNodes,
     pub iframe_mapping: BTreeMap<NodeId, DomId>,
     pub gpu_value_cache: GpuValueCache,
+}
+
+impl fmt::Debug for LayoutResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "LayoutResult {{
+            dom_id: {},
+            bounds: {:?} @ {:?},
+            styled_dom (len = {}): {:#?},
+            preferred_widths(len = {}),
+            preferred_heights(len = {}),
+            width_calculated_rects(len = {}),
+            height_calculated_rects(len = {}),
+            solved_pos_x(len = {}),
+            solved_pos_y(len = {}),
+            layout_flex_grows(len = {}),
+            layout_displays(len = {}),
+            layout_positions(len = {}),
+            layout_flex_directions(len = {}),
+            layout_justify_contents(len = {}),
+            rects(len = {}),
+            words_cache(len = {}),
+            shaped_words_cache(len = {}),
+            positioned_words_cache(len = {}),
+            scrollable_nodes: {:#?},
+            iframe_mapping(len = {}): {:#?},
+            gpu_value_cache: {:#?},
+        }}",
+            self.dom_id.inner,
+            self.root_size,
+            self.root_position,
+            self.styled_dom.node_hierarchy.len(),
+            self.styled_dom,
+            self.preferred_widths.len(),
+            self.preferred_heights.len(),
+            self.width_calculated_rects.len(),
+            self.height_calculated_rects.len(),
+            self.solved_pos_x.len(),
+            self.solved_pos_y.len(),
+            self.layout_flex_grows.len(),
+            self.layout_displays.len(),
+            self.layout_positions.len(),
+            self.layout_flex_directions.len(),
+            self.layout_justify_contents.len(),
+            self.rects.len(),
+            self.words_cache.len(),
+            self.shaped_words_cache.len(),
+            self.positioned_words_cache.len(),
+            self.scrollable_nodes,
+            self.iframe_mapping.len(),
+            self.iframe_mapping,
+            self.gpu_value_cache,
+        )
+    }
 }
 
 pub struct QuickResizeResult {

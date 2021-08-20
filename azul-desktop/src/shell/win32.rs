@@ -19,7 +19,7 @@ use azul_core::{
     app_resources::{
         ImageMask, ImageRef, Epoch,
         AppConfig, ImageCache, ResourceUpdate,
-        RendererResources,
+        RendererResources, GlTextureCache,
     },
     callbacks::{
         RefAny, UpdateImageType,
@@ -30,7 +30,7 @@ use azul_core::{
     ui_solver::LayoutResult,
     styled_dom::DomId,
     dom::NodeId,
-    display_list::{RenderCallbacks, GlTextureCache},
+    display_list::RenderCallbacks,
     window::{
         LogicalSize, Menu, MenuCallback, MenuItem,
         MonitorVec, WindowCreateOptions, WindowInternal,
@@ -279,6 +279,8 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         results.clear();
     }
 
+    println!("end of run() function reached!");
+
     Ok(msg.wParam as isize)
 }
 
@@ -404,6 +406,13 @@ struct ApplicationData {
     fc_cache: LazyFcCache,
     windows: BTreeMap<usize, Window>,
     dwm: Option<DwmFunctions>,
+}
+
+impl Drop for ApplicationData {
+    fn drop(&mut self) {
+        println!("dropping ApplicationData!");
+        println!("self.refany = {:#?}", self.data.sharing_info.debug_get_refcount_copied());
+    }
 }
 
 // Extra functions from dwmapi.dll
@@ -2560,6 +2569,7 @@ unsafe extern "system" fn WindowProc(
                     // unset the focus
                     internal.current_window_state.focused_node = None;
 
+                    println!("before regenerate_styled_dom: {}", data.sharing_info.debug_get_refcount_copied().num_copies);
                     let mut resource_updates = Vec::new();
                     fc_cache.apply_closure(|fc_cache| {
                         internal.regenerate_styled_dom(
@@ -2583,6 +2593,11 @@ unsafe extern "system" fn WindowProc(
                         );
                     });
 
+                    println!("after regenerate_styled_dom: {} - epoch {}",
+                        data.sharing_info.debug_get_refcount_copied().num_copies,
+                        current_window.internal.epoch,
+                    );
+
                     current_window.context_menu = None;
                     Window::set_menu_bar(
                         hwnd,
@@ -2597,19 +2612,6 @@ unsafe extern "system" fn WindowProc(
                         image_cache,
                         resource_updates,
                     );
-
-                    // delete unused external OpenGL textures from last frames
-                    if let Some(r) = current_window.renderer.as_mut() {
-                        let pipeline_info = r.flush_pipeline_info();
-                        if !pipeline_info.epochs.is_empty() {
-                            use crate::wr_translate::translate_epoch_wr;
-                            let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
-                            azul_core::gl::gl_textures_remove_epochs_from_pipeline(
-                                &current_window.internal.document_id,
-                                translate_epoch_wr(*oldest_to_remove_epoch)
-                            );
-                        }
-                    }
 
                     current_window.render_api.flush_scene_builder();
 
@@ -4125,9 +4127,9 @@ fn update_image_resources(
             let existing_key = match existing_key {
                 Some(s) => Some(s),
                 None => {
-                    renderer_resources.currently_registered_images
-                    .get(&existing_image_ref_hash)
-                    .map(|(key, _desc)| *key)
+                    renderer_resources
+                    .get_image(&existing_image_ref_hash)
+                    .map(|resolved_image| resolved_image.key)
                 },
             };
 
@@ -4141,16 +4143,20 @@ fn update_image_resources(
                 DecodedImage::Gl(texture) => {
 
                     let descriptor = texture.get_descriptor();
-                    let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, texture);
-
-
-                    gl_texture_cache.solved_textures
-                        .entry(dom_id.clone())
-                        .or_insert_with(|| BTreeMap::new())
-                        .insert(node_id, (key, descriptor));
+                    let new_external_image_id = match gl_texture_cache.update_texture(
+                        dom_id,
+                        node_id,
+                        document_id,
+                        epoch,
+                        texture,
+                        &crate::app::CALLBACKS,
+                    ) {
+                        Some(s) => s,
+                        None => continue,
+                    };
 
                     let data = ImageData::External(ExternalImageData {
-                        id: external_image_id,
+                        id: new_external_image_id,
                         channel_index: 0,
                         image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
                     });
@@ -4160,7 +4166,7 @@ fn update_image_resources(
                 DecodedImage::Raw((descriptor, data)) => {
                     // use the hash to get the existing image key
                     // TODO: may lead to problems when the same ImageRef is used more than once?
-                    renderer_resources.currently_registered_images.get_mut(&existing_image_ref_hash).unwrap().1 = descriptor.clone();
+                    renderer_resources.update_image(&existing_image_ref_hash, descriptor);
                     (descriptor, data)
                 },
                 DecodedImage::NullImage { .. } => continue, // TODO: NULL image descriptor?

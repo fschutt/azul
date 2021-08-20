@@ -615,7 +615,7 @@ impl IdOrClass {
 
 // memory optimization: store all inline-normal / inline-hover / inline-* attributes
 // as one Vec instad of 4 separate Vecs
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeDataInlineCssProperty {
     Normal(CssProperty),
@@ -698,6 +698,18 @@ impl NodeDataInlineCssPropertyVec {
         let mut m = self.clone().into_library_owned_vec();
         m.append(&mut other.into_library_owned_vec());
         m.into()
+    }
+}
+
+impl fmt::Debug for NodeDataInlineCssProperty {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::NodeDataInlineCssProperty::*;
+        match self {
+            Normal(p) => write!(f, "Normal({}: {})", p.key(), p.value()),
+            Active(p) => write!(f, "Active({}: {})", p.key(), p.value()),
+            Focus(p) => write!(f, "Focus({}: {})", p.key(), p.value()),
+            Hover(p) => write!(f, "Hover({}: {})", p.key(), p.value()),
+        }
     }
 }
 
@@ -976,9 +988,9 @@ impl NodeDataVec {
                     .get(n_internal)
                     .map(|s| css_property_cache.ptr.get_font_id_or_default(node_data, &n_internal, &s.state))
                     .map(|css_font_families| StyleFontFamiliesHash::new(css_font_families.as_ref()))
-                    .and_then(|css_font_families_hash| renderer_resources.font_families_map.get(&css_font_families_hash))
-                    .and_then(|css_font_family| renderer_resources.font_id_map.get(&css_font_family))
-                    .and_then(|font_key| renderer_resources.currently_registered_fonts.get(&font_key))
+                    .and_then(|css_font_families_hash| renderer_resources.get_font_family(&css_font_families_hash))
+                    .and_then(|css_font_family| renderer_resources.get_font_key(&css_font_family))
+                    .and_then(|font_key| renderer_resources.get_registered_font(&font_key))
                     .map(|f| f.0.clone());
 
                 if let Some(font_ref) = font_ref {

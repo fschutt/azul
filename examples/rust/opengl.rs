@@ -23,6 +23,12 @@ struct OpenGlAppState {
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
 }
 
+impl Drop for OpenGlAppState {
+    fn drop(&mut self) {
+        println!("dropping OpenGlAppState!");
+    }
+}
+
 static DATA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/data/testdata.json"
@@ -33,9 +39,18 @@ struct Dataset {
     coordinates: Vec<Vec<Vec<[f32;2]>>>,
 }
 
+struct TestDataSet { }
+
+impl Drop for TestDataSet {
+    fn drop(&mut self) {
+        println!("dropping TestDataSet!");
+    }
+}
+
 extern "C"
 fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
+    .with_dataset(RefAny::new(TestDataSet { }))
     .with_inline_style("background: #ffffff; padding: 10px;".into())
     .with_child(
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))

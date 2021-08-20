@@ -109,10 +109,38 @@ impl Drop for RefCount {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RefCountInnerDebug {
+    pub num_copies: usize,
+    pub num_refs: usize,
+    pub num_mutable_refs: usize,
+    pub _internal_len: usize,
+    pub _internal_layout_size: usize,
+    pub _internal_layout_align: usize,
+    pub type_id: u64,
+    pub type_name: AzString,
+    pub custom_destructor: usize,
+}
+
 impl RefCount {
 
     fn new(ref_count: RefCountInner) -> Self { RefCount { ptr: Box::into_raw(Box::new(ref_count)) } }
     fn downcast(&self) -> &RefCountInner { unsafe { &*self.ptr } }
+
+    pub fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
+        let dc = self.downcast();
+        RefCountInnerDebug {
+            num_copies: dc.num_copies.load(AtomicOrdering::SeqCst),
+            num_refs: dc.num_refs.load(AtomicOrdering::SeqCst),
+            num_mutable_refs: dc.num_mutable_refs.load(AtomicOrdering::SeqCst),
+            _internal_len: dc._internal_len,
+            _internal_layout_size: dc._internal_layout_size,
+            _internal_layout_align: dc._internal_layout_align,
+            type_id: dc.type_id,
+            type_name: dc.type_name.clone(),
+            custom_destructor: dc.custom_destructor as usize,
+        }
+    }
 
     /// Runtime check to check whether this `RefAny` can be borrowed
     pub fn can_be_shared(&self) -> bool {
@@ -389,7 +417,7 @@ impl Drop for RefAny {
     fn drop(&mut self) {
         let current_copies = self.sharing_info.downcast().num_copies.fetch_sub(1, AtomicOrdering::SeqCst);
 
-        if current_copies != 1 {
+        if current_copies > 1 {
             return;
         }
 

@@ -3678,7 +3678,7 @@ def generate_license():
     license_authors = read_file(root_folder + "/LICENSE-WINDOWS.json")
     license_json = json.loads(license_authors)
     license_authors_formatted = format_license_authors(license_json)
-    remove_unused_crates(license_json, root_folder + "/../azul-v1.0-alpha1")
+    remove_unused_crates(license_json, root_folder + "/../azul-v1.0-beta1")
     final_license_text = license_template.replace("$$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$", license_authors_formatted)
     write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
     remove_path(root_folder + "/LICENSE-WINDOWS.json")

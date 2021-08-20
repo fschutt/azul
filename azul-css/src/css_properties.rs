@@ -4483,7 +4483,6 @@ impl Drop for FontRef {
     }
 }
 
-#[derive(Debug)]
 pub struct FontData { // T = ParsedFont
     /// Bytes of the font file, either &'static (never changing bytes) or a Vec<u8>.
     pub bytes: U8Vec,
@@ -4494,6 +4493,17 @@ pub struct FontData { // T = ParsedFont
     pub parsed: *const c_void, // *const ParsedFont
     // destructor of the ParsedFont
     pub parsed_destructor: fn(*mut c_void),
+}
+
+impl fmt::Debug for FontData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "FontData: {{");
+        "    bytes: ".fmt(f)?;
+        self.bytes.len().fmt(f)?;
+        "    font_index: ".fmt(f)?;
+        write!(f, "}}");
+        Ok(())
+    }
 }
 
 unsafe impl Send for FontData { }

@@ -6,6 +6,7 @@ use core::{
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::collections::btree_map::BTreeMap;
 use azul_css::{
     LayoutRect, StyleFontSize, LayoutSize,
     ColorU, U8Vec, U16Vec, F32Vec, U32Vec, AzString, OptionI32,
@@ -14,13 +15,19 @@ use azul_css::{
 use crate::{
     FastHashMap, FastBTreeSet,
     display_list::GlStoreImageFn,
-    callbacks::{RenderImageCallback, RefAny},
+    callbacks::{RenderImageCallback, RefAny, DomNodeId},
     ui_solver::{InlineTextLine, ResolvedTextLayoutOptions, InlineTextLayout},
-    display_list::GlyphInstance,
-    styled_dom::{StyledDom, StyleFontFamilyHash, StyleFontFamiliesHash},
+    display_list::{GlyphInstance, RenderCallbacks},
+    styled_dom::{
+        StyledDom, StyleFontFamilyHash,
+        NodeHierarchyItemId, DomId, StyleFontFamiliesHash
+    },
+    gl::OptionGlContextPtr,
     callbacks::{DocumentId, InlineText},
     task::ExternalSystemCallbacks,
     gl::Texture,
+    id_tree::NodeId,
+    ui_solver::LayoutResult,
     window::{LogicalPosition, LogicalSize, OptionChar, LogicalRect},
 };
 use rust_fontconfig::FcFontCache;
@@ -510,57 +517,131 @@ pub enum ImageType {
     ClipMask,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ResolvedImage {
+    pub key: ImageKey,
+    pub descriptor: ImageDescriptor,
+}
+
 /// Renderer resources that manage font, image and font instance keys.
 /// RendererResources are local to each renderer / window, since the
 /// keys are not shared across renderers
 ///
 /// The resources are automatically managed, meaning that they each new frame
 /// (signified by start_frame_gc and end_frame_gc)
-#[derive(Debug)]
 pub struct RendererResources {
     /// All image keys currently active in the RenderApi
-    pub currently_registered_images: FastHashMap<ImageRefHash, (ImageKey, ImageDescriptor)>,
-    /// All image keys from the last frame, used for automatically
-    /// deleting images once they aren't needed anymore
-    pub last_frame_registered_images: FastHashMap<ImageRefHash, (ImageKey, ImageDescriptor)>,
-
+    currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
+    /// All font keys currently active in the RenderApi
+    currently_registered_fonts: FastHashMap<FontKey, (FontRef, FastHashMap<Au, FontInstanceKey>)>,
+    /// Fonts registered on the last frame
+    ///
+    /// Fonts differ from images in that regard that we can't immediately
+    /// delete them on a new frame, instead we have to delete them on "current frame + 1"
+    /// This is because when the frame is being built, we do not know
+    /// whether the font will actually be successfully loaded
+    last_frame_registered_fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
     /// Map from the calculated families vec (["Arial", "Helvectia"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
     /// because the fonts are loaded in fallback-order)
-    pub font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
+    font_families_map: FastHashMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
     /// Same as AzString -> ImageId, but for fonts, i.e. "Roboto" -> FontId(9)
-    pub font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
-    /// All font keys currently active in the RenderApi
-    pub currently_registered_fonts: FastHashMap<FontKey, (FontRef, FastHashMap<Au, FontInstanceKey>)>,
-    /// All font keys from the last frame, used for automatically
-    /// deleting fonts once they aren't needed anymore
-    pub last_frame_registered_fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
+    font_id_map: FastHashMap<StyleFontFamilyHash, FontKey>,
+}
+
+impl fmt::Debug for RendererResources {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "RendererResources {{
+                currently_registered_images: {:#?},
+                currently_registered_fonts: {:#?},
+                font_families_map: {:#?},
+                font_id_map: {:#?},
+            }}",
+           self.currently_registered_images.keys().collect::<Vec<_>>(),
+           self.currently_registered_fonts.keys().collect::<Vec<_>>(),
+           self.font_families_map.keys().collect::<Vec<_>>(),
+           self.font_id_map.keys().collect::<Vec<_>>(),
+        )
+    }
 }
 
 impl Default for RendererResources {
     fn default() -> Self {
         Self {
             currently_registered_images: FastHashMap::default(),
-            last_frame_registered_images: FastHashMap::default(),
-            font_families_map: FastHashMap::default(),
-            font_id_map: FastHashMap::default(),
             currently_registered_fonts: FastHashMap::default(),
             last_frame_registered_fonts: FastHashMap::default(),
+            font_families_map: FastHashMap::default(),
+            font_id_map: FastHashMap::default(),
         }
     }
 }
 
 impl RendererResources {
 
-    /// Updates the internal cache, adds `ResourceUpdate::Remove()` to the `all_resource_updates`
+    pub fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage> {
+        self.currently_registered_images.get(hash)
+    }
+
+    pub fn get_font_family(&self, style_font_families_hash: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash> {
+        self.font_families_map.get(style_font_families_hash)
+    }
+
+    pub fn get_font_key(&self, style_font_family_hash: &StyleFontFamilyHash) -> Option<&FontKey> {
+        self.font_id_map.get(style_font_family_hash)
+    }
+
+    pub fn get_registered_font(&self, font_key: &FontKey) -> Option<&(FontRef, FastHashMap<Au, FontInstanceKey>)> {
+        self.currently_registered_fonts.get(font_key)
+    }
+
+    pub fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: ImageDescriptor) {
+        if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
+            s.descriptor = descriptor; // key stays the same, only descriptor changes
+        }
+    }
+
+    /// Updates the internal cache, adds `ResourceUpdate::Remove()`
+    /// to the `all_resource_updates`
+    ///
+    /// This function will query all current images and fonts submitted
+    /// into the cache and set them for the next frame so that unused
+    /// resources will be cleaned up.
+    ///
+    /// This function should be called after the StyledDom has been
+    /// exchanged for the next frame and AFTER all OpenGL textures
+    /// and image callbacks have been resolved.
     #[cfg(feature = "multithreading")]
-    pub fn do_gc(&mut self, all_resource_updates: &mut Vec<ResourceUpdate>) {
+    pub fn do_gc(
+        &mut self,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        css_image_cache: &ImageCache,
+        // layout calculated for the NEXT frame
+        new_layout_results: &[LayoutResult],
+        // initialized texture cache of the NEXT frame
+        gl_texture_cache: &GlTextureCache,
+    ) {
 
         use crate::rayon::iter::IntoParallelRefIterator;
         use crate::rayon::iter::ParallelIterator;
+        use alloc::collections::btree_set::BTreeSet;
 
-        // If the last frame contains fonts but the current frame doesn't, delete them
+        // Get all fonts / images that are in the DOM for the next frame
+        let mut next_frame_image_keys = BTreeSet::new();
+
+        for layout_result in new_layout_results {
+            for image_key in layout_result.styled_dom.scan_for_image_keys(css_image_cache) {
+                let hash = image_key.get_hash();
+                next_frame_image_keys.insert(hash);
+            }
+        }
+
+        for ((_dom_id, _node_id, _callback_imageref_hash), image_ref_hash) in gl_texture_cache.hashes.iter() {
+            next_frame_image_keys.insert(*image_ref_hash);
+        }
+
+        // If the current frame contains a font key but the next frame doesn't, delete the font key
         let mut delete_font_resources = Vec::new();
         for (font_key, font_instances) in self.last_frame_registered_fonts.iter() {
             delete_font_resources.extend(
@@ -575,17 +656,27 @@ impl RendererResources {
             }
         }
 
-        // If the last frame contains an image, but the current frame does not, delete it
-        let delete_image_resources = self.last_frame_registered_images
+        // If the current frame contains an image, but the next frame does not, delete it
+        let delete_image_resources = self.currently_registered_images
         .par_iter()
-        .filter(|image_key| !self.currently_registered_images.contains_key(image_key.0))
-        .map(|image_key| ((*image_key.0).clone(), DeleteImageMsg(image_key.1.0.clone())))
+        .filter(|(image_ref_hash, _)| !next_frame_image_keys.contains(image_ref_hash))
+        .map(|(image_ref_hash, resolved_image)| (image_ref_hash.clone(), DeleteImageMsg(resolved_image.key.clone())))
         .collect::<Vec<_>>();
 
         all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
         all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
-        // Delete all font family hashes that do not have a font key anymore
+        self.last_frame_registered_fonts = self.currently_registered_fonts
+            .par_iter()
+            .map(|(fk, (_, fi))| (fk.clone(), fi.clone()))
+            .collect();
+
+        self.remove_font_families_with_zero_references();
+    }
+
+    // Delete all font family hashes that do not have a font key anymore
+    fn remove_font_families_with_zero_references(&mut self) {
+
         let font_family_to_delete = self.font_id_map.iter()
         .filter_map(|(font_family, font_key)| {
             if !self.currently_registered_fonts.contains_key(font_key) {
@@ -612,18 +703,220 @@ impl RendererResources {
         for f in font_families_to_delete {
             self.font_families_map.remove(&f); // font family does not exist anymore
         }
+    }
+}
 
-        // Reset the GC for the next cycle
-        //
-        // NOTE: This system will retain fonts / images for one frame
-        // long than they need to - technically this could be solved
-        // via hashes
-        self.last_frame_registered_fonts = self.currently_registered_fonts
-        .par_iter()
-        .map(|(fk, (_, fi))| (fk.clone(), fi.clone()))
-        .collect();
+#[derive(Debug, Default)]
+pub struct GlTextureCache {
+    pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
+    pub hashes: BTreeMap<(DomId, NodeId, ImageRefHash), ImageRefHash>,
+}
 
-        self.last_frame_registered_images = self.currently_registered_images.clone();
+// necessary so the display list can be built in parallel
+unsafe impl Send for GlTextureCache { }
+
+impl GlTextureCache {
+
+    /// Initializes an empty cache
+    pub fn empty() -> Self {
+        Self {
+            solved_textures: BTreeMap::new(),
+            hashes: BTreeMap::new(),
+        }
+    }
+
+    /// Invokes all ImageCallbacks with the sizes given by the LayoutResult
+    /// and adds them to the `RendererResources`.
+    pub fn new(
+        layout_results: &mut [LayoutResult],
+        gl_context: &OptionGlContextPtr,
+        id_namespace: IdNamespace,
+        document_id: &DocumentId,
+        epoch: Epoch,
+        hidpi_factor: f32,
+        image_cache: &ImageCache,
+        system_fonts: &FcFontCache,
+        callbacks: &RenderCallbacks,
+        all_resource_updates: &mut Vec<ResourceUpdate>,
+        renderer_resources: &mut RendererResources,
+    ) -> Self {
+
+        use crate::{
+            app_resources::{
+                AddImage, ExternalImageData, ImageBufferKind, ExternalImageType,
+                ImageData, add_resources, DecodedImage, ImageRef,
+            },
+            callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds},
+            dom::NodeType,
+        };
+        use gl_context_loader::gl;
+
+        let mut solved_image_callbacks = BTreeMap::new();
+
+        // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
+        for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
+            for callback_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
+
+                // Invoke OpenGL callback, render texture
+                let rect_size = layout_result.rects.as_ref()[callback_node_id].size;
+
+                let callback_image = {
+
+                    let callback_domnode_id = DomNodeId {
+                        dom: DomId { inner: dom_id },
+                        node: NodeHierarchyItemId::from_crate_internal(Some(callback_node_id)),
+                    };
+
+                    let size = LayoutSize::new(
+                        rect_size.width.round() as isize,
+                        rect_size.height.round() as isize
+                    );
+
+                    // NOTE: all of these extra arguments are necessary so that the callback
+                    // has access to information about the text layout, which is used to render
+                    // the "text selection" highlight (the text selection is nothing but an image
+                    // or an image mask).
+                    let mut gl_callback_info = RenderImageCallbackInfo::new(
+                        /*gl_context:*/ &gl_context,
+                        /*image_cache:*/ image_cache,
+                        /*system_fonts:*/ system_fonts,
+                        /*node_hierarchy*/ &layout_result.styled_dom.node_hierarchy,
+                        /*words_cache*/ &layout_result.words_cache,
+                        /*shaped_words_cache*/ &layout_result.shaped_words_cache,
+                        /*positioned_words_cache*/ &layout_result.positioned_words_cache,
+                        /*positioned_rects*/ &layout_result.rects,
+                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
+                        /*hit_dom_node*/ callback_domnode_id,
+                    );
+
+                    let callback_image: Option<(ImageRef, ImageRefHash)> = {
+                        // get a MUTABLE reference to the RefAny inside of the DOM
+                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                        match &mut node_data_mut[callback_node_id].node_type {
+                            NodeType::Image(img) => {
+                                let callback_imageref_hash = img.get_hash();
+
+                                img.get_image_callback_mut()
+                                .map(|gl_texture_callback| {
+                                    ((gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, &mut gl_callback_info), callback_imageref_hash)
+                                })
+                            },
+                            _ => None,
+                        }
+                    };
+
+                    // Reset the framebuffer and SRGB color target to 0
+                    if let Some(gl) = gl_context.as_ref() {
+                        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+                        gl.disable(gl::FRAMEBUFFER_SRGB);
+                        gl.disable(gl::MULTISAMPLE);
+                    }
+
+                    callback_image
+                };
+
+                if let Some((image_ref, callback_imageref_hash)) = callback_image {
+                    solved_image_callbacks
+                        .entry(layout_result.dom_id.clone())
+                        .or_insert_with(|| BTreeMap::default())
+                        .insert(callback_node_id, (callback_imageref_hash, image_ref));
+                }
+            }
+        }
+
+        let mut image_resource_updates = Vec::new();
+        let mut gl_texture_cache = Self::empty();
+
+        for (dom_id, image_refs) in solved_image_callbacks {
+            for (node_id, (callback_imageref_hash, image_ref)) in image_refs {
+
+                // callback_imageref_hash = the hash of the ImageRef::callback()
+                // that is currently in the DOM
+                //
+                // image_ref_hash = the hash of the ImageRef::gl_texture() that was
+                // returned by invoking the ImageRef::callback()
+
+                let image_ref_hash = image_ref.get_hash();
+                let image_data = match image_ref.into_inner() {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let image_result = match image_data {
+                    DecodedImage::Gl(texture) => {
+                        let descriptor = texture.get_descriptor();
+                        let key = ImageKey::unique(id_namespace);
+                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(*document_id, epoch, texture);
+
+                        gl_texture_cache.solved_textures
+                            .entry(dom_id.clone())
+                            .or_insert_with(|| BTreeMap::new())
+                            .insert(node_id, (key, descriptor));
+
+                        gl_texture_cache.hashes.insert((dom_id, node_id, callback_imageref_hash), image_ref_hash);
+
+                        Some((image_ref_hash, AddImageMsg(
+                            AddImage {
+                                key,
+                                data: ImageData::External(ExternalImageData {
+                                    id: external_image_id,
+                                    channel_index: 0,
+                                    image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                                }),
+                                descriptor,
+                                tiling: None,
+                            }
+                        )))
+                    },
+                    DecodedImage::Raw((descriptor, data)) => {
+                        let key = ImageKey::unique(id_namespace);
+                        Some((image_ref_hash, AddImageMsg(AddImage {
+                            key,
+                            data: data,
+                            descriptor: descriptor,
+                            tiling: None
+                        })))
+                    },
+                    DecodedImage::NullImage { width: _, height: _, format: _ } => None,
+                    // Texture callbacks inside of texture callbacks are not rendered
+                    DecodedImage::Callback(_) => None,
+                };
+
+                if let Some((image_ref_hash, add_img_msg)) = image_result {
+                    image_resource_updates.push((callback_imageref_hash, image_ref_hash, add_img_msg));
+                }
+            }
+        }
+
+        // Add the new rendered images to the RenderApi
+        add_gl_resources(
+            renderer_resources,
+            all_resource_updates,
+            image_resource_updates
+        );
+
+        gl_texture_cache
+    }
+
+    /// Updates a given texture
+    pub fn update_texture(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        document_id: DocumentId,
+        epoch: Epoch,
+        new_texture: Texture,
+        callbacks: &RenderCallbacks,
+    ) -> Option<ExternalImageId> {
+
+        // TODO: update self.hashes? - how?
+
+        let new_descriptor = new_texture.get_descriptor();
+        let di_map = self.solved_textures.get_mut(&dom_id)?;
+        let i = di_map.get_mut(&node_id)?;
+        i.1 = new_descriptor;
+        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
+        Some(external_image_id)
     }
 }
 
@@ -1517,13 +1810,19 @@ impl Advance {
 }
 
 /// Word that is scaled (to a font / font instance), but not yet positioned
-#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[derive(PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct ShapedWord {
     /// Glyph codepoint, glyph ID + kerning data
     pub glyph_infos: GlyphInfoVec,
     /// The sum of the width of all the characters in this word
     pub word_width: usize,
+}
+
+impl fmt::Debug for ShapedWord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ShapedWord {{ glyph_infos: {} glyphs, word_width: {} }}", self.glyph_infos.len(), self.word_width)
+    }
 }
 
 impl_vec!(ShapedWord, ShapedWordVec, ShapedWordVecDestructor);
@@ -1891,17 +2190,31 @@ pub struct FontVariation {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Epoch(pub u32);
+pub struct Epoch { inner: u32 }
+
+impl fmt::Display for Epoch {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
 
 impl Epoch {
+
+    // prevent raw access to the .inner field so that
+    // you can grep the codebase for .increment() to see
+    // exactly where the epoch is being incremented
+    pub const fn new() -> Self { Self { inner: 0 } }
+    pub const fn from(i: u32) -> Self { Self { inner: i } }
+    pub const fn into_u32(&self) -> u32 { self.inner }
+
     // We don't want the epoch to increase to u32::MAX, since
     // u32::MAX represents an invalid epoch, which could confuse webrender
     pub fn increment(&mut self) {
         use core::u32;
         const MAX_ID: u32 = u32::MAX - 1;
-        *self = match self.0 {
-            MAX_ID => Epoch(0),
-            other => Epoch(other + 1),
+        *self = match self.inner {
+            MAX_ID => Epoch { inner: 0 },
+            other => Epoch { inner: other.saturating_add(1) },
         };
     }
 }
@@ -2211,6 +2524,25 @@ pub fn build_add_image_resource_updates(
     }).collect()
 }
 
+fn add_gl_resources(
+    renderer_resources: &mut RendererResources,
+    all_resource_updates: &mut Vec<ResourceUpdate>,
+    add_image_resources: Vec<(ImageRefHash, ImageRefHash, AddImageMsg)>,
+) {
+    let add_image_resources = add_image_resources
+        .into_iter()
+        // use the callback_imageref_hash for indexing!
+        .map(|(_, k, v)| (k, v))
+        .collect::<Vec<_>>();
+
+    add_resources(
+        renderer_resources,
+        all_resource_updates,
+        Vec::new(),
+        add_image_resources
+    );
+}
+
 /// Submits the `AddFont`, `AddFontInstance` and `AddImage` resources to the RenderApi.
 /// Extends `currently_registered_images` and `currently_registered_fonts` by the
 /// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
@@ -2226,7 +2558,10 @@ pub fn add_resources(
 
     for (image_ref_hash, add_image_msg) in add_image_resources.iter() {
         renderer_resources.currently_registered_images
-        .insert(*image_ref_hash, (add_image_msg.0.key, add_image_msg.0.descriptor));
+        .insert(*image_ref_hash, ResolvedImage {
+            key: add_image_msg.0.key,
+            descriptor: add_image_msg.0.descriptor
+        });
     }
 
     for (_, add_font_msg) in add_font_resources {

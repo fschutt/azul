@@ -2302,9 +2302,9 @@ pub fn create_shaped_words<'a>(
         let node_data = &node_data[*node_id];
         let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
         let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
-        let css_font_family = renderer_resources.font_families_map.get(&css_font_families_hash)?;
-        let font_key = renderer_resources.font_id_map.get(&css_font_family)?;
-        let (font_ref, _) = renderer_resources.currently_registered_fonts.get(&font_key)?;
+        let css_font_family = renderer_resources.get_font_family(&css_font_families_hash)?;
+        let font_key = renderer_resources.get_font_key(&css_font_family)?;
+        let (font_ref, _) = renderer_resources.get_registered_font(&font_key)?;
         let font_data = font_ref.get_data();
 
         // downcast the loaded_font.font from *const c_void to *const ParsedFont
@@ -2357,9 +2357,9 @@ fn create_word_positions<'a>(
 
         let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
         let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
-        let css_font_family = renderer_resources.font_families_map.get(&css_font_families_hash)?;
-        let font_key = renderer_resources.font_id_map.get(&css_font_family)?;
-        let (_, font_instances) = renderer_resources.currently_registered_fonts.get(&font_key)?;
+        let css_font_family = renderer_resources.get_font_family(&css_font_families_hash)?;
+        let font_key = renderer_resources.get_font_key(&css_font_family)?;
+        let (_, font_instances) = renderer_resources.get_registered_font(&font_key)?;
 
         let font_instance_key = font_instances.get(&font_size_au)?;
 
@@ -2754,15 +2754,15 @@ pub fn do_the_relayout(
 
             let css_font_families = css_property_cache.get_font_id_or_default(node_data, node_id, styled_node_state);
             let css_font_families_hash = StyleFontFamiliesHash::new(css_font_families.as_ref());
-            let css_font_family = match renderer_resources.font_families_map.get(&css_font_families_hash) {
+            let css_font_family = match renderer_resources.get_font_family(&css_font_families_hash) {
                 Some(s) => s,
                 None => continue,
             };
-            let font_key = match renderer_resources.font_id_map.get(&css_font_family) {
+            let font_key = match renderer_resources.get_font_key(&css_font_family) {
                 Some(s) => s,
                 None => continue,
             };
-            let (font_ref, _) = match renderer_resources.currently_registered_fonts.get(&font_key) {
+            let (font_ref, _) = match renderer_resources.get_registered_font(&font_key) {
                 Some(s) => s,
                 None => continue,
             };

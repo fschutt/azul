@@ -666,10 +666,12 @@ impl CssPropertyCache {
         }
     }
 
-    pub fn append(&mut self, other: Self) {
+    pub fn append(&mut self, other: &mut Self) {
 
         macro_rules! append_css_property_vec {($field_name:ident) => {{
-            for (node_id, property_map) in other.$field_name.into_iter() {
+            let mut s = BTreeMap::new();
+            core::mem::swap(&mut s, &mut other.$field_name);
+            for (node_id, property_map) in s.into_iter() {
                 self.$field_name.insert(node_id + self.node_count, property_map);
             }
         }};}
@@ -1462,7 +1464,7 @@ impl StyledDom {
         self.node_hierarchy.append(&mut other.node_hierarchy);
         self.node_data.append(&mut other.node_data);
         self.styled_nodes.append(&mut other.styled_nodes);
-        self.get_css_property_cache_mut().append(*other.css_property_cache.ptr);
+        self.get_css_property_cache_mut().append(other.get_css_property_cache_mut());
 
         for tag_id_node_id in other.tag_ids_to_node_ids.iter_mut() {
             tag_id_node_id.tag_id.inner += self_tag_len as u64;
@@ -1633,11 +1635,10 @@ impl StyledDom {
 
                     let style_font_families_hash = StyleFontFamiliesHash::new(css_font_ids.as_ref());
 
-                    let existing_font_key = resources.font_families_map
-                    .get(&style_font_families_hash)
+                    let existing_font_key = resources
+                    .get_font_family(&style_font_families_hash)
                     .and_then(|font_family_hash| {
-                        resources.font_id_map
-                        .get(&font_family_hash)
+                        resources.get_font_key(&font_family_hash)
                         .map(|font_key| (font_family_hash, font_key))
                     });
 
@@ -2310,7 +2311,7 @@ impl StyledDom {
     // pub fn diff(&self, other: &Self) -> StyledDomDiff { /**/ }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DefaultCallbacksCfg {
     pub smooth_scroll: bool,
     pub enable_autotab: bool,

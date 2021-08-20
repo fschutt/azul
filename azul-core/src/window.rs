@@ -14,13 +14,33 @@ use azul_css::{
     AzString, OptionAzString, LayoutPoint, LayoutRect,
     CssPath, OptionI32,
 };
-use crate::{FastBTreeSet, FastHashMap, app_resources::{ImageRef, ImageCache, RendererResources, IdNamespace, ResourceUpdate, Epoch, ImageMask}, callbacks::{Callback, UpdateImageType, HitTestItem}, callbacks::{
+use crate::{
+    FastBTreeSet,
+    FastHashMap,
+    app_resources::{
+        ImageRef, ImageCache, RendererResources,
+        IdNamespace, ResourceUpdate, Epoch,
+        ImageMask, GlTextureCache,
+    },
+    callbacks::{Callback, UpdateImageType, HitTestItem},
+    callbacks::{
         OptionCallback, PipelineId, RefAny, DocumentId,
         DomNodeId, ScrollPosition, Update, CallbackType,
-    }, callbacks::{LayoutCallback, LayoutCallbackType}, display_list::{GlTextureCache, RenderCallbacks}, dom::NodeHierarchy, id_tree::NodeId, styled_dom::{DomId, NodeHierarchyItemId}, task::{TimerId, ExternalSystemCallbacks, ThreadId, Timer, Thread, Instant}, ui_solver::{
+        LayoutCallback, LayoutCallbackType,
+    },
+    display_list::RenderCallbacks,
+    dom::NodeHierarchy,
+    id_tree::NodeId,
+    styled_dom::{DomId, NodeHierarchyItemId},
+    task::{
+        TimerId, ExternalSystemCallbacks, ThreadId, Timer,
+        Thread, Instant
+    },
+    ui_solver::{
         QuickResizeResult, OverflowingScrollNode,
         HitTest, LayoutResult, ExternalScrollId
-    }, window_state::RelayoutFn};
+    }, window_state::RelayoutFn
+};
 use rust_fontconfig::FcFontCache;
 use crate::gl::OptionGlContextPtr;
 
@@ -695,7 +715,7 @@ impl WindowInternal {
 
         let mut inital_renderer_resources = RendererResources::default();
 
-        let epoch = Epoch(0);
+        let epoch = Epoch::new();
 
         let styled_dom = {
 
@@ -813,6 +833,7 @@ impl WindowInternal {
         use crate::display_list::SolvedLayout;
         use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
         use crate::styled_dom::DefaultCallbacksCfg;
+        use crate::gl::gl_textures_remove_epochs_from_pipeline;
 
         let id_namespace = self.id_namespace;
 
@@ -880,6 +901,10 @@ impl WindowInternal {
             relayout_fn,
         );
 
+        // removes the last frames OpenGL textures
+        gl_textures_remove_epochs_from_pipeline(&self.document_id, self.epoch);
+
+        // inserts the new textures for the next frame
         let gl_texture_cache = GlTextureCache::new(
             &mut layout_results,
             gl_context,
@@ -895,10 +920,17 @@ impl WindowInternal {
         );
 
         // Delete unused font and image keys (that were not used in this frame)
-        self.renderer_resources.do_gc(all_resource_updates);
+        self.renderer_resources.do_gc(
+            all_resource_updates,
+            image_cache,
+            &layout_results,
+            &gl_texture_cache
+        );
+
+        // Increment epoch here!
+        self.epoch.increment();
         self.layout_results = layout_results;
         self.gl_texture_cache = gl_texture_cache;
-        self.epoch.0 += 1;
     }
 
     /// Returns a copy of the current scroll states + scroll positions
