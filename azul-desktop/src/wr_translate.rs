@@ -99,7 +99,11 @@ use azul_core::{
     },
     dom::TagId,
     display_list::DisplayListImageMask,
-    ui_solver::{LayoutResult, ExternalScrollId, PositionInfo, ComputedTransform3D},
+    ui_solver::{
+        LayoutResult, ExternalScrollId,
+        PositionInfo, ComputedTransform3D,
+        QuickResizeResult,
+    },
     window::{
         LogicalSize, CursorPosition, LogicalPosition,
         FullHitTest, LogicalRect, DebugState,
@@ -887,6 +891,22 @@ pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut 
         floats,
         colors: Vec::new(), // TODO: animate colors?
     });
+}
+
+pub(crate) fn wr_synchronize_resize(resize_result: QuickResizeResult, document_id: &DocumentId, txn: &mut WrTransaction) {
+
+    if resize_result.updated_images.is_empty() {
+        return;
+    }
+
+    for updated_image in resize_result.updated_images {
+        txn.update_image(
+            wr_translate_image_key(updated_image.key_to_update),
+            wr_translate_image_descriptor(updated_image.new_descriptor),
+            wr_translate_image_data(updated_image.new_image_data),
+            &WrImageDirtyRect::All,
+        );
+    }
 }
 
 /// Returns the size fo the built display list

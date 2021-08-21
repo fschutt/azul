@@ -835,9 +835,9 @@ impl RendererResources {
 // ```
 #[derive(Debug, Clone)]
 pub struct UpdateImageResult {
-    key_to_update: ImageKey,
-    new_descriptor: ImageDescriptor,
-    new_image_data: ImageData,
+    pub key_to_update: ImageKey,
+    pub new_descriptor: ImageDescriptor,
+    pub new_image_data: ImageData,
 }
 
 #[derive(Debug, Default)]

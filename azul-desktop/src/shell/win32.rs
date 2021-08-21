@@ -11,6 +11,7 @@ use crate::{
         generate_frame,
         synchronize_gpu_values,
         scroll_all_nodes,
+        wr_synchronize_resize,
     }
 };
 use alloc::{collections::BTreeMap, rc::Rc, sync::Arc};
@@ -1985,6 +1986,8 @@ impl Window {
         // internal.previous_window_state = Some(internal.current_window_state.clone());
         internal.current_window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
+        let mut txn = WrTransaction::new();
+
         // re-layout the window content for the first frame
         // (since the width / height might have changed)
         {
@@ -2005,8 +2008,7 @@ impl Window {
                 )
             });
 
-            resize_result.update_images(wr_api);
-            resize_result.synchronize_gl_state(wr_api);
+            wr_synchronize_resize(resize_result, &document_id, &mut txn);
         }
 
         if let Some(hrc) = opengl_context.as_ref() {
@@ -2015,7 +2017,6 @@ impl Window {
 
         unsafe { ReleaseDC(hwnd, hdc); }
 
-        let mut txn = WrTransaction::new();
         txn.set_document_view(
             WrDeviceIntRect::from_size(
                 WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
@@ -3307,8 +3308,12 @@ unsafe extern "system" fn WindowProc(
                             new_window_state.theme,
                         );
 
-                        resize_result.update_images(wr_api);
-                        resize_result.synchronize_gl_state(wr_api);
+                        let mut txn = WrTransaction::new();
+                        wr_synchronize_resize(
+                            resize_result,
+                            &current_window.internal.document_id,
+                            &mut txn
+                        );
 
                         let mut gl = &mut current_window.gl_functions.functions;
                         gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
@@ -3323,7 +3328,6 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
                         current_window.internal.current_window_state = new_window_state;
 
-                        let mut txn = WrTransaction::new();
                         txn.set_document_view(
                             WrDeviceIntRect::from_size(
                                 WrDeviceIntSize::new(new_width as i32, new_height as i32),
