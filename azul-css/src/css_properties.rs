@@ -4474,8 +4474,8 @@ impl Clone for FontRef {
 impl Drop for FontRef {
     fn drop(&mut self) {
         unsafe {
-            let new_copies = self.copies.as_ref().map(|f| f.fetch_sub(1, AtomicOrdering::SeqCst));
-            if new_copies == Some(0) {
+            let copies = unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) };
+            if copies == 1 {
                 let _ = Box::from_raw(self.data as *mut FontData);
                 let _ = Box::from_raw(self.copies as *mut AtomicUsize);
             }

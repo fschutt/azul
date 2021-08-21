@@ -452,8 +452,8 @@ impl Clone for ImageRef {
 impl Drop for ImageRef {
     fn drop(&mut self) {
         unsafe {
-            let new_copies = self.copies.as_ref().map(|m| m.fetch_sub(1, AtomicOrdering::SeqCst));
-            if new_copies == Some(0) {
+            let copies = unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) };
+            if copies == 1 {
                 let _ = Box::from_raw(self.data as *mut DecodedImage);
                 let _ = Box::from_raw(self.copies as *mut AtomicUsize);
             }
