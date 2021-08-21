@@ -22,7 +22,7 @@ use crate::{
     FastHashMap,
     app_resources::{
         ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
-        WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask
+        WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask,
     },
     id_tree::{NodeId, NodeDataContainer},
     styled_dom::{StyledDom, CssPropertyCache, StyledNode},

@@ -1068,6 +1068,12 @@ impl CssPropertyCache {
 #[repr(C)]
 pub struct DomId { pub inner: usize }
 
+impl fmt::Display for DomId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
 impl DomId {
     pub const ROOT_ID: DomId = DomId { inner: 0 };
 }

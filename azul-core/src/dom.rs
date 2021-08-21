@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
 use crate::{
-    app_resources::ImageRef,
+    app_resources::{ImageRef, ImageRefHash},
     styled_dom::{
         CssPropertyCache, CssPropertyCachePtr,
         StyleFontFamilyHash,
@@ -21,7 +21,7 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny, OptionRefAny,
     },
-    app_resources::{ImageMask, RendererResources},
+    app_resources::{ImageMask, RendererResources, ImageCallback},
     id_tree::{
         NodeDataContainer, NodeDataContainerRef,
         NodeDataContainerRefMut
@@ -1375,6 +1375,16 @@ impl NodeData {
     pub fn get_iframe_node(&mut self) -> Option<&mut IFrameNode> {
         match &mut self.node_type {
             NodeType::IFrame(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn get_render_image_callback_node<'a>(&'a mut self) -> Option<(&'a mut ImageCallback, ImageRefHash)> {
+        match &mut self.node_type {
+            NodeType::Image(img) => {
+                let hash = img.get_hash();
+                img.get_image_callback_mut().map(|r| (r, hash))
+            },
             _ => None,
         }
     }

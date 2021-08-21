@@ -23,6 +23,7 @@ use crate::{
         Words, ShapedWords, TransformKey, OpacityKey,
         FontInstanceKey, WordPositions, Epoch,
         RendererResources, ImageCache, GlTextureCache,
+        IdNamespace,
     },
     id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
     dom::{DomNodeHash, ScrollTagId, TagId},
@@ -32,6 +33,7 @@ use crate::{
         IFrameCallbackReturn, HidpiAdjustedBounds,
         IFrameCallbackInfo,
     },
+    gl::OptionGlContextPtr,
     window::{
         ScrollStates, WindowSize, WindowTheme,
         FullWindowState, LogicalPosition, LogicalRect,
@@ -708,9 +710,12 @@ impl LayoutResult {
     // Assumes that an OpenGL context is active
     #[must_use]
     pub fn do_quick_resize(
-        document_id: &DocumentId,
+        id_namespace: IdNamespace,
+        document_id: DocumentId,
+        epoch: Epoch,
         dom_id: DomId,
         image_cache: &ImageCache,
+        gl_context: &OptionGlContextPtr,
         layout_results: &mut [LayoutResult],
         gl_texture_cache: &mut GlTextureCache,
         renderer_resources: &mut RendererResources,
@@ -724,7 +729,7 @@ impl LayoutResult {
         let dom_bounds = LogicalRect::new(LogicalPosition::zero(), window_size.dimensions);
         let mut dom_ids_to_resize = vec![(dom_id, dom_bounds)];
         let mut gpu_event_changes = GpuEventChanges::default();
-        let mut rsn = BTreeMap::new();
+        let mut rsn = BTreeMap::new(); // resized nodes [DomID => Vec<NodeId>]
 
         loop {
             let mut new_dom_ids_to_resize = Vec::new();
@@ -740,7 +745,7 @@ impl LayoutResult {
                     &mut layout_results[dom_id.inner],
                     image_cache,
                     renderer_resources,
-                    document_id,
+                    &document_id,
                     None, // no new nodes to relayout
                     None, // no text changes
                 );
@@ -839,28 +844,19 @@ impl LayoutResult {
         // iframes have been invoked, now re-render OpenGL textures
         for (dom_id, node_ids) in rsn.iter() {
             for node_id in node_ids.iter() {
-                /*
-                    let opengl_node = match layout_results[dom_id.0].get_opengl_node() {
-                        Some(s) => s,
-                        None => continue,
-                    };
-
-                    GlTextureCache::new(
-                        layout_results: &mut [LayoutResult],
-                        gl_context: &OptionGlContextPtr,
-                        id_namespace: IdNamespace,
-                        document_id: &DocumentId,
-                        epoch: Epoch,
-                        hidpi_factor: f32,
-                        image_cache: &ImageCache,
-                        system_fonts: &FcFontCache,
-                        callbacks: &RenderCallbacks,
-                        all_resource_updates: &mut Vec<ResourceUpdate>,
-                        renderer_resources: &mut RendererResources,
-                    ) -> Self {
-                */
-
-                // TODO: invoke OpenGL node again, handle update of image
+                renderer_resources.rerender_image_callback(
+                    *dom_id,
+                    *node_id,
+                    document_id,
+                    epoch,
+                    id_namespace,
+                    gl_context,
+                    image_cache,
+                    fc_cache,
+                    window_size.hidpi_factor,
+                    callbacks,
+                    layout_results,
+                );
             }
         }
 

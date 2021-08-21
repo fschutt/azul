@@ -975,13 +975,17 @@ impl WindowInternal {
         callbacks: &RenderCallbacks,
         relayout_fn: RelayoutFn,
         fc_cache: &FcFontCache,
+        gl_context: &OptionGlContextPtr,
         window_size: &WindowSize,
         window_theme: WindowTheme,
     ) -> QuickResizeResult {
         LayoutResult::do_quick_resize(
-            &self.document_id,
+            self.id_namespace,
+            self.document_id,
+            self.epoch,
             DomId::ROOT_ID,
             image_cache,
+            gl_context,
             &mut self.layout_results,
             &mut self.gl_texture_cache,
             &mut self.renderer_resources,

@@ -1933,13 +1933,6 @@ impl Window {
             })
         };
 
-
-        if let Some(hrc) = opengl_context.as_ref() {
-            unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
-        }
-
-        unsafe { ReleaseDC(hwnd, hdc); }
-
         // Since the menu bar affects the window size, set it first,
         // before querying the window size again
         let mut menu_bar = None;
@@ -2006,11 +1999,18 @@ impl Window {
                     &crate::app::CALLBACKS,
                     azul_layout::do_the_relayout,
                     fc_cache,
+                    &gl_context_ptr,
                     &size,
                     theme,
                 );
             });
         }
+
+        if let Some(hrc) = opengl_context.as_ref() {
+            unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+        }
+
+        unsafe { ReleaseDC(hwnd, hdc); }
 
         let mut txn = WrTransaction::new();
         txn.set_document_view(
@@ -3257,6 +3257,9 @@ unsafe extern "system" fn WindowProc(
 
                 if let Some(current_window) = windows.get_mut(&hwnd_key) {
                     fc_cache.apply_closure(|fc_cache| {
+
+                        use winapi::um::winuser::{GetDC, ReleaseDC};
+
                         let mut new_window_state = current_window.internal.current_window_state.clone();
                         new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
 
@@ -3273,14 +3276,43 @@ unsafe extern "system" fn WindowProc(
                             _ => { }
                         }
 
+                        let hDC = GetDC(hwnd);
+
+                        let gl_context = match current_window.gl_context {
+                            Some(c) => {
+                                if !hDC.is_null() {
+                                    wglMakeCurrent(hDC, c);
+                                }
+                            },
+                            None => { },
+                        };
+
+                        let mut current_program = [0_i32];
+
+                        {
+                            let mut gl = &mut current_window.gl_functions.functions;
+                            gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+                        }
+
                         current_window.internal.do_quick_resize(
                             &image_cache,
                             &crate::app::CALLBACKS,
                             azul_layout::do_the_relayout,
                             fc_cache,
+                            &current_window.gl_context_ptr,
                             &new_window_state.size,
                             new_window_state.theme,
                         );
+
+                        let mut gl = &mut current_window.gl_functions.functions;
+                        gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                        gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                        gl.use_program(current_program[0] as u32);
+
+                        wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+                        if !hDC.is_null() {
+                            ReleaseDC(hwnd, hDC);
+                        }
 
                         current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
                         current_window.internal.current_window_state = new_window_state;

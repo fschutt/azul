@@ -74,14 +74,10 @@ fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> I
         RawImageFormat::R8
     );
 
-    let s = match render_my_texture_inner(data, info, size) {
+    match render_my_texture_inner(data, info, size) {
         Some(s) => s,
         None => invalid
-    };
-
-    println!("returned!");
-
-    s
+    }
 }
 
 fn render_my_texture_inner(

@@ -708,6 +708,68 @@ impl RendererResources {
             self.font_families_map.remove(&f); // font family does not exist anymore
         }
     }
+
+    // Re-invokes the RenderImageCallback on the given node (if there is any),
+    // updates the internal texture (without exchanging the hashes, so that
+    // the GC still works) and updates the internal texture cache.
+    pub fn rerender_image_callback(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        document_id: DocumentId,
+        epoch: Epoch,
+        id_namespace: IdNamespace,
+        gl_context: &OptionGlContextPtr,
+        image_cache: &ImageCache,
+        system_fonts: &FcFontCache,
+        hidpi_factor: f32,
+        callbacks: &RenderCallbacks,
+        layout_results: &mut [LayoutResult],
+    ) -> Option<()> {
+
+        use crate::callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds};
+
+        let mut layout_result = layout_results.get_mut(dom_id.inner)?;
+        let mut node_data_vec = layout_result.styled_dom.node_data.as_container_mut();
+        let mut node_data = node_data_vec.get_mut(node_id)?;
+        let (mut render_image_callback, render_image_callback_hash) = node_data.get_render_image_callback_node()?;
+
+
+        let callback_domnode_id = DomNodeId {
+            dom: dom_id,
+            node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
+        };
+
+        let rect_size = layout_result.rects.as_ref().get(node_id)?.size.clone();
+
+        let size = LayoutSize::new(
+            rect_size.width.round() as isize,
+            rect_size.height.round() as isize
+        );
+
+        // NOTE: all of these extra arguments are necessary so that the callback
+        // has access to information about the text layout, which is used to render
+        // the "text selection" highlight (the text selection is nothing but an image
+        // or an image mask).
+        let mut gl_callback_info = RenderImageCallbackInfo::new(
+            /*gl_context:*/ gl_context,
+            /*image_cache:*/ image_cache,
+            /*system_fonts:*/ system_fonts,
+            /*node_hierarchy*/ &layout_result.styled_dom.node_hierarchy,
+            /*words_cache*/ &layout_result.words_cache,
+            /*shaped_words_cache*/ &layout_result.shaped_words_cache,
+            /*positioned_words_cache*/ &layout_result.positioned_words_cache,
+            /*positioned_rects*/ &layout_result.rects,
+            /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, hidpi_factor),
+            /*hit_dom_node*/ callback_domnode_id,
+        );
+
+        let new_imageref = (render_image_callback.callback.cb)(&mut render_image_callback.data, &mut gl_callback_info);
+
+        println!("new imageref: {:?}", new_imageref);
+
+        Some(())
+    }
 }
 
 #[derive(Debug, Default)]
