@@ -1432,8 +1432,8 @@
                                 {"self": "refmut"},
                                 {"timer": "Timer"}
                             ],
-                            "returns": {"type": "OptionTimerId"},
-                            "fn_body": "callbackinfo.start_timer(timer).into()"
+                            "returns": {"type": "TimerId"},
+                            "fn_body": "callbackinfo.start_timer(timer)"
                         },
                         "start_animation": {
                             "doc": "Starts an animation timer on a give NodeId - same as a `Timer`, but uses a pre-configured interpolation function to drive the animation timer",
@@ -1930,7 +1930,6 @@
                 "TimerCallbackType": {
                     "callback_typedef": {
                         "fn_args": [
-                            {"type": "RefAny", "ref": "refmut"},
                             {"type": "RefAny", "ref": "refmut"},
                             {"type": "TimerCallbackInfo", "ref": "refmut"}
                         ],

@@ -1278,7 +1278,7 @@ pub struct AzTimerCallback {
 }
 
 /// `AzTimerCallbackType` struct
-pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
 /// `AzWriteBackCallbackType` struct
 pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
@@ -13043,16 +13043,11 @@ impl AzCallbackInfo {
             mem::transmute(new_window),
         )) }
     }
-    fn start_timer(&mut self, timer: AzTimer) -> Option<AzTimerId> {
-        let m: AzOptionTimerId = unsafe { mem::transmute(crate::AzCallbackInfo_startTimer(
+    fn start_timer(&mut self, timer: AzTimer) -> AzTimerId {
+        unsafe { mem::transmute(crate::AzCallbackInfo_startTimer(
             mem::transmute(self),
             mem::transmute(timer),
-        )) };
-        match m {
-            AzOptionTimerId::Some(s) => Some(unsafe { mem::transmute(s) }),
-            AzOptionTimerId::None => None,
-        }
-
+        )) }
     }
     fn start_animation(&mut self, node: AzDomNodeId, animation: AzAnimation) -> Option<AzTimerId> {
         let m: AzOptionTimerId = unsafe { mem::transmute(crate::AzCallbackInfo_startAnimation(

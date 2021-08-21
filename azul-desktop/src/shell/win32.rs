@@ -3507,7 +3507,6 @@ unsafe extern "system" fn WindowProc(
                                 ret = process_timer(
                                     id,
                                     hinstance,
-                                    data,
                                     current_window,
                                     fc_cache,
                                     image_cache,
@@ -3840,7 +3839,6 @@ fn process_event(
 fn process_timer(
     timer_id: usize,
     hinstance: HINSTANCE,
-    data: &mut RefAny,
     window: &mut Window,
     fc_cache: &mut LazyFcCache,
     image_cache: &mut ImageCache,
@@ -3862,7 +3860,6 @@ fn process_timer(
         window.internal.run_single_timer(
             timer_id,
             frame_start,
-            data,
             &window_handle,
             &window.gl_context_ptr,
             image_cache,

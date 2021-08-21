@@ -27,7 +27,7 @@ namespace dll {
     
     struct TimerCallbackInfo;
     struct TimerCallbackReturn;
-    using TimerCallbackType = TimerCallbackReturn(*)(RefAny* restrict, RefAny* restrict, TimerCallbackInfo* restrict);
+    using TimerCallbackType = TimerCallbackReturn(*)(RefAny* restrict, TimerCallbackInfo* restrict);
     
     using WriteBackCallbackType = Update(*)(RefAny* restrict, RefAny* restrict, CallbackInfo* restrict);
     
@@ -9732,7 +9732,7 @@ namespace dll {
         void CallbackInfo_updateImageMask(CallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
         void CallbackInfo_stopPropagation(CallbackInfo* restrict callbackinfo);
         void CallbackInfo_createWindow(CallbackInfo* restrict callbackinfo, AzWindowCreateOptions  new_window);
-        OptionTimerId CallbackInfo_startTimer(CallbackInfo* restrict callbackinfo, AzTimer  timer);
+        TimerId CallbackInfo_startTimer(CallbackInfo* restrict callbackinfo, AzTimer  timer);
         OptionTimerId CallbackInfo_startAnimation(CallbackInfo* restrict callbackinfo, AzDomNodeId  node, AzAnimation  animation);
         bool  CallbackInfo_stopTimer(CallbackInfo* restrict callbackinfo, AzTimerId  timer_id);
         OptionThreadId CallbackInfo_startThread(CallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallbackType  callback);

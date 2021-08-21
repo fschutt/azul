@@ -68,7 +68,7 @@ struct AzTimerCallbackInfo;
 typedef struct AzTimerCallbackInfo AzTimerCallbackInfo;
 struct AzTimerCallbackReturn;
 typedef struct AzTimerCallbackReturn AzTimerCallbackReturn;
-typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzTimerCallbackInfo* restrict C);
+typedef AzTimerCallbackReturn (*AzTimerCallbackType)(AzRefAny* restrict A, AzTimerCallbackInfo* restrict B);
 
 typedef AzUpdate (*AzWriteBackCallbackType)(AzRefAny* restrict A, AzRefAny* restrict B, AzCallbackInfo* restrict C);
 
@@ -11768,7 +11768,7 @@ extern DLLIMPORT void AzCallbackInfo_deleteImage(AzCallbackInfo* restrict callba
 extern DLLIMPORT void AzCallbackInfo_updateImageMask(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node_id, AzImageMask  new_mask);
 extern DLLIMPORT void AzCallbackInfo_stopPropagation(AzCallbackInfo* restrict callbackinfo);
 extern DLLIMPORT void AzCallbackInfo_createWindow(AzCallbackInfo* restrict callbackinfo, AzWindowCreateOptions  new_window);
-extern DLLIMPORT AzOptionTimerId AzCallbackInfo_startTimer(AzCallbackInfo* restrict callbackinfo, AzTimer  timer);
+extern DLLIMPORT AzTimerId AzCallbackInfo_startTimer(AzCallbackInfo* restrict callbackinfo, AzTimer  timer);
 extern DLLIMPORT AzOptionTimerId AzCallbackInfo_startAnimation(AzCallbackInfo* restrict callbackinfo, AzDomNodeId  node, AzAnimation  animation);
 extern DLLIMPORT bool  AzCallbackInfo_stopTimer(AzCallbackInfo* restrict callbackinfo, AzTimerId  timer_id);
 extern DLLIMPORT AzOptionThreadId AzCallbackInfo_startThread(AzCallbackInfo* restrict callbackinfo, AzRefAny  thread_initialize_data, AzRefAny  writeback_data, AzThreadCallbackType  callback);

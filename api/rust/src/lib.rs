@@ -1087,7 +1087,7 @@ mod dll {
     }
 
     /// `AzTimerCallbackType` struct
-    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
     /// `AzWriteBackCallbackType` struct
     pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;
@@ -9595,7 +9595,7 @@ mod dll {
         pub(crate) fn AzCallbackInfo_updateImageMask(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzImageMask);
         pub(crate) fn AzCallbackInfo_stopPropagation(_:  &mut AzCallbackInfo);
         pub(crate) fn AzCallbackInfo_createWindow(_:  &mut AzCallbackInfo, _:  AzWindowCreateOptions);
-        pub(crate) fn AzCallbackInfo_startTimer(_:  &mut AzCallbackInfo, _:  AzTimer) -> AzOptionTimerId;
+        pub(crate) fn AzCallbackInfo_startTimer(_:  &mut AzCallbackInfo, _:  AzTimer) -> AzTimerId;
         pub(crate) fn AzCallbackInfo_startAnimation(_:  &mut AzCallbackInfo, _:  AzDomNodeId, _:  AzAnimation) -> AzOptionTimerId;
         pub(crate) fn AzCallbackInfo_stopTimer(_:  &mut AzCallbackInfo, _:  AzTimerId) -> bool;
         pub(crate) fn AzCallbackInfo_startThread(_:  &mut AzCallbackInfo, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType) -> AzOptionThreadId;
@@ -10830,7 +10830,7 @@ pub mod callbacks {
         /// Spawns a new window with the given `WindowCreateOptions`.
         pub fn create_window(&mut self, new_window: WindowCreateOptions)  { unsafe { crate::dll::AzCallbackInfo_createWindow(self, new_window) } }
         /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-        pub fn start_timer(&mut self, timer: Timer)  -> crate::option::OptionTimerId { unsafe { crate::dll::AzCallbackInfo_startTimer(self, timer) } }
+        pub fn start_timer(&mut self, timer: Timer)  -> crate::task::TimerId { unsafe { crate::dll::AzCallbackInfo_startTimer(self, timer) } }
         /// Starts an animation timer on a give NodeId - same as a `Timer`, but uses a pre-configured interpolation function to drive the animation timer
         pub fn start_animation(&mut self, node: DomNodeId, animation: Animation)  -> crate::option::OptionTimerId { unsafe { crate::dll::AzCallbackInfo_startAnimation(self, node, animation) } }
         /// Stops / cancels a `Timer`. See the documentation for `Timer` for more information.

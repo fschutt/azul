@@ -1437,15 +1437,11 @@ impl CallbackInfo {
         self.internal_get_threads_removed().insert(thread_id)
     }
 
-    pub fn start_timer(&mut self, timer: Timer) -> Option<TimerId> {
-        if timer.data.has_no_copies() {
-            let timer_id = TimerId::unique();
-            // TODO: perform sanity checks (timer should not be created in the past, etc.)
-            self.internal_get_timers().insert(timer_id, timer);
-            Some(timer_id)
-        } else {
-            None
-        }
+    pub fn start_timer(&mut self, timer: Timer) -> TimerId {
+        let timer_id = TimerId::unique();
+        // TODO: perform sanity checks (timer should not be created in the past, etc.)
+        self.internal_get_timers().insert(timer_id, timer);
+        timer_id
     }
 
     pub fn start_animation(&mut self, dom_node_id: DomNodeId, animation: Animation) -> Option<TimerId> {
@@ -1676,7 +1672,7 @@ pub enum AnimationRepeatCount {
 }
 
 // callback that drives an animation
-extern "C" fn drive_animation_func(_: &mut RefAny, anim_data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
+extern "C" fn drive_animation_func(anim_data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
 
     let mut anim_data = match anim_data.downcast_mut::<AnimationData>() {
         Some(s) => s,
@@ -2099,7 +2095,7 @@ pub struct TimerCallbackReturn {
     pub should_terminate: TerminateTimer,
 }
 
-pub type TimerCallbackType = extern "C" fn(/* application data */ &mut RefAny, /* timer internal data */ &mut RefAny, &mut TimerCallbackInfo) -> TimerCallbackReturn;
+pub type TimerCallbackType = extern "C" fn(/* timer internal data */ &mut RefAny, &mut TimerCallbackInfo) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)

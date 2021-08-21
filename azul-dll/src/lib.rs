@@ -422,7 +422,7 @@ pub use AzCallbackInfoTT as AzCallbackInfo;
 /// Spawns a new window with the given `WindowCreateOptions`.
 #[no_mangle] pub extern "C" fn AzCallbackInfo_createWindow(callbackinfo: &mut AzCallbackInfo, new_window: AzWindowCreateOptions) { callbackinfo.create_window(new_window); }
 /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-#[no_mangle] pub extern "C" fn AzCallbackInfo_startTimer(callbackinfo: &mut AzCallbackInfo, timer: AzTimer) -> AzOptionTimerId { callbackinfo.start_timer(timer).into() }
+#[no_mangle] pub extern "C" fn AzCallbackInfo_startTimer(callbackinfo: &mut AzCallbackInfo, timer: AzTimer) -> AzTimerId { callbackinfo.start_timer(timer) }
 /// Starts an animation timer on a give NodeId - same as a `Timer`, but uses a pre-configured interpolation function to drive the animation timer
 #[no_mangle] pub extern "C" fn AzCallbackInfo_startAnimation(callbackinfo: &mut AzCallbackInfo, node: AzDomNodeId, animation: AzAnimation) -> AzOptionTimerId { callbackinfo.start_animation(node, animation).into() }
 /// Stops / cancels a `Timer`. See the documentation for `Timer` for more information.
@@ -600,7 +600,7 @@ pub use AzRenderImageCallbackInfoTT as AzRenderImageCallbackInfo;
 pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
 pub use AzTimerCallbackTT as AzTimerCallback;
 
-pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 /// Re-export of rust-allocated (stack based) `TimerCallbackInfo` struct
 pub type AzTimerCallbackInfoTT = azul_impl::callbacks::TimerCallbackInfo;
 pub use AzTimerCallbackInfoTT as AzTimerCallbackInfo;
@@ -5586,7 +5586,7 @@ mod test_sizes {
     }
 
     /// `AzTimerCallbackType` struct
-    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
+    pub type AzTimerCallbackType = extern "C" fn(&mut AzRefAny, &mut AzTimerCallbackInfo) -> AzTimerCallbackReturn;
 
     /// `AzWriteBackCallbackType` struct
     pub type AzWriteBackCallbackType = extern "C" fn(&mut AzRefAny, &mut AzRefAny, &mut AzCallbackInfo) -> AzUpdate;

@@ -1052,7 +1052,6 @@ impl WindowInternal {
         &mut self,
         timer_id: usize,
         frame_start: Instant,
-        data: &mut RefAny,
         current_window_handle: &RawWindowHandle,
         gl_context: &OptionGlContextPtr,
         image_cache: &mut ImageCache,
@@ -1154,7 +1153,6 @@ impl WindowInternal {
             );
 
             let tcr = timer.invoke(
-                data,
                 callback_info,
                 frame_start.clone(),
                 system_callbacks.get_system_time_fn

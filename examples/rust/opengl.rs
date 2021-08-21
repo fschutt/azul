@@ -9,26 +9,6 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
-#[derive(Debug)]
-struct OpenGlAppState {
-    // vertices, uploaded on startup
-    fill_vertices_to_upload: Option<TessellatedSvgNode>,
-    stroke_vertices_to_upload: Option<TessellatedSvgNode>,
-
-    rotation_deg: f32,
-
-    // vertex (+ index) buffer ID of the uploaded tesselated node
-    texture: Option<Texture>,
-    fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
-    stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
-}
-
-impl Drop for OpenGlAppState {
-    fn drop(&mut self) {
-        println!("dropping OpenGlAppState!");
-    }
-}
-
 static DATA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/data/testdata.json"
@@ -39,10 +19,29 @@ struct Dataset {
     coordinates: Vec<Vec<Vec<[f32;2]>>>,
 }
 
+#[derive(Debug)]
+struct OpenGlAppState {
+    // vertices, uploaded on startup
+    fill_vertices_to_upload: Option<TessellatedSvgNode>,
+    stroke_vertices_to_upload: Option<TessellatedSvgNode>,
+
+    rotation_deg: f32,
+
+    // vertex (+ index) buffer ID of the uploaded tesselated node
+    fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
+    stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
+}
+
+impl Drop for OpenGlAppState {
+    fn drop(&mut self) {
+        println!("dropping OpenGlAppState!");
+    }
+}
+
 extern "C"
 fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
-    .with_inline_style("background: #ffffff; padding: 10px;".into())
+    .with_inline_style("background: linear-gradient(blue, black); padding: 10px;".into())
     .with_child(
         Dom::image(ImageRef::callback(data.clone(), render_my_texture))
         .with_inline_style("
@@ -75,10 +74,14 @@ fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> I
         RawImageFormat::R8
     );
 
-    match render_my_texture_inner(data, info, size) {
+    let s = match render_my_texture_inner(data, info, size) {
         Some(s) => s,
         None => invalid
-    }
+    };
+
+    println!("returned!");
+
+    s
 }
 
 fn render_my_texture_inner(
@@ -94,7 +97,11 @@ fn render_my_texture_inner(
     let fill_vertex_buffer = data.fill_vertex_buffer_id.as_ref()?;
     let stroke_vertex_buffer = data.stroke_vertex_buffer_id.as_ref()?;
     let rotation_deg = data.rotation_deg;
-    let mut texture = data.texture.as_mut()?;
+    let mut texture = Texture::allocate_rgba8(
+        gl_context.clone(),
+        texture_size,
+        ColorU::from_str("#abc0cf88".into()),
+    );
 
     println!("drawing texture size {:#?}", texture_size);
 
@@ -118,7 +125,10 @@ fn render_my_texture_inner(
         ].into(),
     );
 
-    Some(ImageRef::gl_texture(texture.clone()))
+    // TODO: segfault when inserting the following line:
+    // let tx = ImageRef::gl_texture(texture.clone());
+
+    Some(ImageRef::gl_texture(texture))
 }
 
 // uploads the vertex buffer to the GPU on creation
@@ -126,8 +136,6 @@ extern "C" fn startup_window(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
     let _ = startup_window_inner(data, info);
     Update::DoNothing
 }
-
-struct TimerLocalData { }
 
 // Function called when the OpenGL context has been initialized:
 // allocate all textures and upload vertex buffer to GPU
@@ -148,17 +156,11 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
             &stroke_vertex_buffer,
             gl_context.clone()
         ));
-
-        data.texture = Some(Texture::allocate_rgba8(
-            gl_context.clone(),
-            PhysicalSizeU32 { width: 800, height: 600 },
-            ColorU::from_str("#abc0cf".into()),
-        ));
     }
 
-    println!("starting timer...");
-    let id = info.start_timer(Timer::new(RefAny::new(TimerLocalData { }), animate, info.get_system_time_fn()));
-    println!("id = {:?}", id);
+    // println!("starting timer...");
+    // let id = info.start_timer(Timer::new(data.clone(), animate, info.get_system_time_fn()));
+    // println!("id = {:?}", id);
 
     Some(())
 }
@@ -204,7 +206,7 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
 }
 
 extern "C"
-fn animate(timer_data: &mut RefAny, data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
+fn animate(timer_data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
     println!("timer running!");
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
@@ -242,7 +244,6 @@ fn main() {
         stroke_vertices_to_upload: Some(tessellated_stroke_join),
         rotation_deg: 0.0,
 
-        texture: None,
         fill_vertex_buffer_id: None,
         stroke_vertex_buffer_id: None,
     });

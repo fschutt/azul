@@ -627,7 +627,7 @@ impl Timer {
     }
 
     /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `Update::DoNothing`
-    pub fn invoke(&mut self, data: &mut RefAny, callback_info: CallbackInfo, frame_start: Instant, get_system_time_fn: GetSystemTimeCallback) -> TimerCallbackReturn {
+    pub fn invoke(&mut self, callback_info: CallbackInfo, frame_start: Instant, get_system_time_fn: GetSystemTimeCallback) -> TimerCallbackReturn {
 
         let instant_now = (get_system_time_fn.cb)();
 
@@ -657,7 +657,7 @@ impl Timer {
             _abi_ref: core::ptr::null(),
             _abi_mut: core::ptr::null_mut(),
         };
-        let mut res = (self.callback.cb)(data, &mut self.data, &mut timer_callback_info);
+        let mut res = (self.callback.cb)(&mut self.data, &mut timer_callback_info);
 
         // Check if the timers timeout is reached
         if is_about_to_finish {
