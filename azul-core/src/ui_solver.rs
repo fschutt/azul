@@ -23,7 +23,7 @@ use crate::{
         Words, ShapedWords, TransformKey, OpacityKey,
         FontInstanceKey, WordPositions, Epoch,
         RendererResources, ImageCache, GlTextureCache,
-        IdNamespace,
+        IdNamespace, UpdateImageResult,
     },
     id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
     dom::{DomNodeHash, ScrollTagId, TagId},
@@ -618,6 +618,7 @@ impl fmt::Debug for LayoutResult {
 
 pub struct QuickResizeResult {
     pub gpu_event_changes: GpuEventChanges,
+    pub updated_images: Vec<UpdateImageResult>,
     pub resized_nodes: BTreeMap<DomId, Vec<NodeId>>,
 }
 
@@ -841,10 +842,10 @@ impl LayoutResult {
             }
         }
 
-        // iframes have been invoked, now re-render OpenGL textures
+        let mut updated_images = Vec::new();
         for (dom_id, node_ids) in rsn.iter() {
             for node_id in node_ids.iter() {
-                renderer_resources.rerender_image_callback(
+                if let Some(update) = renderer_resources.rerender_image_callback(
                     *dom_id,
                     *node_id,
                     document_id,
@@ -856,12 +857,16 @@ impl LayoutResult {
                     window_size.hidpi_factor,
                     callbacks,
                     layout_results,
-                );
+                    gl_texture_cache,
+                ) {
+                    updated_images.push(update);
+                }
             }
         }
 
         QuickResizeResult {
             gpu_event_changes,
+            updated_images,
             resized_nodes: rsn,
         }
     }

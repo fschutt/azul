@@ -578,6 +578,15 @@ pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: 
     }
 }
 
+// document_id, epoch, external_image_id
+pub fn remove_single_texture_from_active_gl_textures(document_id: &DocumentId, epoch: &Epoch, external_image_id: &ExternalImageId) -> Option<()> {
+    let mut active_textures = unsafe { ACTIVE_GL_TEXTURES.as_mut()? };
+    let mut epochs = active_textures.get_mut(document_id)?;
+    let mut images_in_epoch = epochs.get_mut(epoch)?;
+    images_in_epoch.remove(external_image_id);
+    Some(())
+}
+
 /// Removes a DocumentId from the active epochs
 pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
     unsafe {

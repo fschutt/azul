@@ -884,7 +884,7 @@ pub fn displaylist_handle_rect<'a>(
                     }
                 },
                 DecodedImage::Callback(_) => {
-                    if let Some((key, descriptor)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
+                    if let Some((key, descriptor, _)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
                         frame.content.push(LayoutRectContent::Image {
                             size: LogicalSize::new(descriptor.width as f32, descriptor.height as f32),
                             offset: LogicalPosition::zero(),

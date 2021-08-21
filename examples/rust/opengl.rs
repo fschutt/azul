@@ -154,9 +154,9 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         ));
     }
 
-    println!("starting timer...");
-    let id = info.start_timer(Timer::new(data.clone(), animate, info.get_system_time_fn()));
-    println!("id = {:?}", id);
+    // println!("starting timer...");
+    // let id = info.start_timer(Timer::new(data.clone(), animate, info.get_system_time_fn()));
+    // println!("id = {:?}", id);
 
     Some(())
 }

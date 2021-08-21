@@ -712,6 +712,7 @@ impl RendererResources {
     // Re-invokes the RenderImageCallback on the given node (if there is any),
     // updates the internal texture (without exchanging the hashes, so that
     // the GC still works) and updates the internal texture cache.
+    #[must_use]
     pub fn rerender_image_callback(
         &mut self,
         dom_id: DomId,
@@ -725,8 +726,13 @@ impl RendererResources {
         hidpi_factor: f32,
         callbacks: &RenderCallbacks,
         layout_results: &mut [LayoutResult],
-    ) -> Option<()> {
+        gl_texture_cache: &mut GlTextureCache,
+    ) -> Option<UpdateImageResult> {
 
+        use crate::gl::{
+            remove_single_texture_from_active_gl_textures,
+            insert_into_active_gl_textures,
+        };
         use crate::callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds};
 
         let mut layout_result = layout_results.get_mut(dom_id.inner)?;
@@ -766,15 +772,77 @@ impl RendererResources {
 
         let new_imageref = (render_image_callback.callback.cb)(&mut render_image_callback.data, &mut gl_callback_info);
 
-        println!("new imageref: {:?}", new_imageref);
+        // remove old imageref from GlTextureCache and active textures
+        let existing_image_key = gl_texture_cache.solved_textures
+        .get(&dom_id).and_then(|m| m.get(&node_id)).map(|k| k.0.clone())
+        .or(self.currently_registered_images.get(&render_image_callback_hash).map(|i| i.key.clone()))?;
 
-        Some(())
+        if let Some(dom_map) = gl_texture_cache.solved_textures.get_mut(&dom_id) {
+            if let Some((image_key, image_descriptor, external_image_id)) = dom_map.remove(&node_id) {
+                remove_single_texture_from_active_gl_textures(&document_id, &epoch, &external_image_id);
+            }
+        }
+
+        match new_imageref.into_inner()? {
+            DecodedImage::Gl(new_tex) => {
+
+                // for GL textures, generate a new external image ID
+                let new_descriptor = new_tex.get_descriptor();
+                let new_external_id = insert_into_active_gl_textures(document_id, epoch, new_tex);
+                let new_image_data = ImageData::External(ExternalImageData {
+                    id: new_external_id,
+                    channel_index: 0,
+                    image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                });
+
+                gl_texture_cache.solved_textures
+                .entry(dom_id)
+                .or_insert_with(|| BTreeMap::new())
+                .insert(node_id, (existing_image_key, new_descriptor.clone(), new_external_id));
+
+                Some(UpdateImageResult {
+                    key_to_update: existing_image_key,
+                    new_descriptor,
+                    new_image_data,
+                })
+            },
+            DecodedImage::Raw((descriptor, data)) => {
+                if let Some(existing_image) = self.currently_registered_images.get_mut(&render_image_callback_hash) {
+                    existing_image.descriptor = descriptor.clone(); // update descriptor, key stays the same
+                    Some(UpdateImageResult {
+                        key_to_update: existing_image_key,
+                        new_descriptor: descriptor,
+                        new_image_data: data,
+                    })
+                } else {
+                    None
+                }
+            },
+            _ => None,
+        }
     }
+}
+
+// Result returned from rerender_image_callback() - should be used as:
+//
+// ```rust
+// txn.update_image(
+//     wr_translate_image_key(key),
+//     wr_translate_image_descriptor(descriptor),
+//     wr_translate_image_data(data),
+//     &WrImageDirtyRect::All,
+// );
+// ```
+#[derive(Debug, Clone)]
+pub struct UpdateImageResult {
+    key_to_update: ImageKey,
+    new_descriptor: ImageDescriptor,
+    new_image_data: ImageData,
 }
 
 #[derive(Debug, Default)]
 pub struct GlTextureCache {
-    pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
+    pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
     pub hashes: BTreeMap<(DomId, NodeId, ImageRefHash), ImageRefHash>,
 }
 
@@ -917,7 +985,7 @@ impl GlTextureCache {
                         gl_texture_cache.solved_textures
                             .entry(dom_id.clone())
                             .or_insert_with(|| BTreeMap::new())
-                            .insert(node_id, (key, descriptor));
+                            .insert(node_id, (key, descriptor, external_image_id));
 
                         gl_texture_cache.hashes.insert((dom_id, node_id, callback_imageref_hash), image_ref_hash);
 

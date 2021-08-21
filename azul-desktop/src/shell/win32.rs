@@ -1993,7 +1993,7 @@ impl Window {
             let image_cache = &appdata_lock.image_cache;
             let size = internal.current_window_state.size.clone();
             let theme = internal.current_window_state.theme;
-            fc_cache.apply_closure(|fc_cache| {
+            let resize_result = fc_cache.apply_closure(|fc_cache| {
                 internal.do_quick_resize(
                     &image_cache,
                     &crate::app::CALLBACKS,
@@ -2002,8 +2002,11 @@ impl Window {
                     &gl_context_ptr,
                     &size,
                     theme,
-                );
+                )
             });
+
+            resize_result.update_images(wr_api);
+            resize_result.synchronize_gl_state(wr_api);
         }
 
         if let Some(hrc) = opengl_context.as_ref() {
@@ -3294,7 +3297,7 @@ unsafe extern "system" fn WindowProc(
                             gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
                         }
 
-                        current_window.internal.do_quick_resize(
+                        let resize_result = current_window.internal.do_quick_resize(
                             &image_cache,
                             &crate::app::CALLBACKS,
                             azul_layout::do_the_relayout,
@@ -3303,6 +3306,9 @@ unsafe extern "system" fn WindowProc(
                             &new_window_state.size,
                             new_window_state.theme,
                         );
+
+                        resize_result.update_images(wr_api);
+                        resize_result.synchronize_gl_state(wr_api);
 
                         let mut gl = &mut current_window.gl_functions.functions;
                         gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
