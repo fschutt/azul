@@ -578,7 +578,7 @@ impl Timer {
         match self.interval.as_ref() {
             Some(Duration::System(s)) => { s.millis() }
             Some(Duration::Tick(s)) => { s.tick_diff },
-            None => 16, // ms
+            None => 10, // ms
         }
     }
 

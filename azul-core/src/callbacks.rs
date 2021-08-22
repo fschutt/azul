@@ -1501,7 +1501,7 @@ impl CallbackInfo {
             run_count: 0,
             last_run: None.into(),
             delay: None.into(),
-            interval: Some(AzDuration::System(SystemTimeDiff::from_millis(16))).into(),
+            interval: Some(AzDuration::System(SystemTimeDiff::from_millis(10))).into(),
             timeout: timer_duration.into(),
             callback: TimerCallback { cb: drive_animation_func },
         };

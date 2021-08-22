@@ -27,8 +27,6 @@ struct OpenGlAppState {
 
     rotation_deg: f32,
 
-    test_id: Option<VertexArrayObject>,
-
     // vertex (+ index) buffer ID of the uploaded tesselated node
     fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
@@ -57,7 +55,8 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         .style(Css::empty())
 }
 
-extern "C" fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
+extern "C"
+fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
     // size = the calculated size that the div has AFTER LAYOUTING
     // this way you can render the OpenGL texture with the correct size
     // even if you don't know upfront what the size of the texture in the UI is going to be
@@ -89,7 +88,7 @@ fn render_my_texture_inner(
     let mut texture = Texture::allocate_rgba8(
         gl_context.clone(),
         texture_size,
-        ColorU::from_str("#abc0cf88".into()),
+        ColorU::from_str("#ffffffef".into()),
     );
 
     texture.clear();
@@ -97,15 +96,23 @@ fn render_my_texture_inner(
     texture.draw_tesselated_svg_gpu_node(
         fill_vertex_buffer,
         texture_size,
-        ColorU::from_str("#ff0000".into()),
-        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))].into(),
+        ColorU::from_str("#cc00cc".into()),
+        vec![
+            StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::const_percent(50),
+                y: PixelValue::const_percent(50),
+            }),
+            StyleTransform::Rotate(AngleValue::deg(rotation_deg)),
+        ].into(),
     );
 
     texture.draw_tesselated_svg_gpu_node(
         stroke_vertex_buffer,
         texture_size,
         ColorU::from_str("#158DE3".into()),
-        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))].into(),
+        vec![
+            StyleTransform::Rotate(AngleValue::deg(rotation_deg))
+        ].into(),
     );
 
     // TODO: segfault when inserting the following line:
@@ -129,22 +136,18 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         let stroke_vertex_buffer = data.stroke_vertices_to_upload.take()?;
         let gl_context = info.get_gl_context().into_option()?;
 
-        let n1 = TessellatedGPUSvgNode::new(
+        data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
             &fill_vertex_buffer,
             gl_context.clone(),
-        );
+        ));
 
-        data.test_id = Some(n1.vertex_index_buffer.vao.clone());
-        data.fill_vertex_buffer_id = Some(n1);
         data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
             &stroke_vertex_buffer,
             gl_context.clone(),
         ));
     }
 
-    // println!("starting timer...");
-    // let id = info.start_timer(Timer::new(data.clone(), animate, info.get_system_time_fn()));
-    // println!("id = {:?}", id);
+    info.start_timer(Timer::new(data.clone(), animate, info.get_system_time_fn()));
 
     Some(())
 }
@@ -174,12 +177,12 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
                                 let last_point = last.clone();
 
                                 let mut current = SvgPoint { x: i[0], y: i[1] };
-                                current.x -= 13.804493;
-                                current.y -= 51.05264;
+                                current.x -= 13.804483;
+                                current.y -= 51.05274;
                                 current.x *= 50000.0;
                                 current.y *= 50000.0;
-                                current.x += 500.0;
-                                current.y += 500.0;
+                                current.x += 700.0;
+                                current.y += 700.0;
                                 current.x *= 2.0;
                                 current.y *= 2.0;
 
@@ -205,7 +208,6 @@ extern "C" fn animate(
     timer_data: &mut RefAny,
     info: &mut TimerCallbackInfo,
 ) -> TimerCallbackReturn {
-    println!("timer running!");
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
         should_update: match timer_data.downcast_mut::<OpenGlAppState>() {
@@ -231,10 +233,13 @@ fn main() {
         .into();
     let tessellated_fill_join = TessellatedSvgNode::from_nodes(tessellated_fill.as_ref_vec());
 
+    let mut stroke_style = SvgStrokeStyle::default();
+    stroke_style.line_width = 4.0;
+
     // tesselate stroke
     let tessellated_stroke: TessellatedSvgNodeVec = multipolygons
         .iter()
-        .map(|mp| mp.tessellate_stroke(SvgStrokeStyle::default()))
+        .map(|mp| mp.tessellate_stroke(stroke_style))
         .collect::<Vec<_>>()
         .into();
     let tessellated_stroke_join = TessellatedSvgNode::from_nodes(tessellated_stroke.as_ref_vec());
@@ -245,7 +250,6 @@ fn main() {
         stroke_vertices_to_upload: Some(tessellated_stroke_join),
         rotation_deg: 0.0,
 
-        test_id: None,
         fill_vertex_buffer_id: None,
         stroke_vertex_buffer_id: None,
     });
@@ -253,6 +257,7 @@ fn main() {
     let mut app = App::new(data, AppConfig::new(LayoutSolver::Default));
 
     let mut window = WindowCreateOptions::new(layout);
+    window.state.flags.frame = WindowFrame::Maximized;
     window.create_callback = Some(Callback { cb: startup_window }).into();
     app.run(window);
 }
