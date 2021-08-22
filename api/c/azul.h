@@ -431,6 +431,7 @@ typedef void (*AzNodeDataVecDestructorType)(AzNodeDataVec* restrict A);
 
 struct AzApp {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzApp AzApp;
 
@@ -952,6 +953,7 @@ typedef struct AzThreadCallback AzThreadCallback;
 
 struct AzRefCount {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzRefCount AzRefCount;
 
@@ -1698,11 +1700,13 @@ typedef struct AzTagId AzTagId;
 
 struct AzCssPropertyCache {
     void* restrict ptr;
+    bool  run_destructor;
 };
 typedef struct AzCssPropertyCache AzCssPropertyCache;
 
 struct AzGlVoidPtrConst {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzGlVoidPtrConst AzGlVoidPtrConst;
 
@@ -1811,6 +1815,7 @@ typedef struct AzRefstr AzRefstr;
 
 struct AzGLsyncPtr {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzGLsyncPtr AzGLsyncPtr;
 
@@ -1823,6 +1828,7 @@ typedef struct AzTextureFlags AzTextureFlags;
 struct AzImageRef {
     void* data;
     void* copies;
+    bool  run_destructor;
 };
 typedef struct AzImageRef AzImageRef;
 
@@ -1860,16 +1866,19 @@ typedef enum AzDecodeImageError AzDecodeImageError;
 struct AzFontRef {
     void* data;
     void* copies;
+    bool  run_destructor;
 };
 typedef struct AzFontRef AzFontRef;
 
 struct AzSvg {
     void* restrict ptr;
+    bool  run_destructor;
 };
 typedef struct AzSvg AzSvg;
 
 struct AzSvgXmlNode {
     void* restrict ptr;
+    bool  run_destructor;
 };
 typedef struct AzSvgXmlNode AzSvgXmlNode;
 
@@ -2053,6 +2062,7 @@ typedef struct AzColorPickerDialog AzColorPickerDialog;
 
 struct AzSystemClipboard {
     void* _native;
+    bool  run_destructor;
 };
 typedef struct AzSystemClipboard AzSystemClipboard;
 
@@ -2100,16 +2110,19 @@ typedef struct AzThreadId AzThreadId;
 
 struct AzThread {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzThread AzThread;
 
 struct AzThreadSender {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzThreadSender AzThreadSender;
 
 struct AzThreadReceiver {
     void* ptr;
+    bool  run_destructor;
 };
 typedef struct AzThreadReceiver AzThreadReceiver;
 
@@ -3827,6 +3840,7 @@ struct AzRefAny {
     void* _internal_ptr;
     AzRefCount sharing_info;
     uint64_t instance_id;
+    bool  run_destructor;
 };
 typedef struct AzRefAny AzRefAny;
 
@@ -6136,6 +6150,7 @@ typedef struct AzParentWithNodeDepth AzParentWithNodeDepth;
 struct AzGl {
     void* ptr;
     AzRendererType renderer_type;
+    bool  run_destructor;
 };
 typedef struct AzGl AzGl;
 
@@ -6254,6 +6269,7 @@ struct AzInstantPtr {
     void* ptr;
     AzInstantPtrCloneFn clone_fn;
     AzInstantPtrDestructorFn destructor;
+    bool  run_destructor;
 };
 typedef struct AzInstantPtr AzInstantPtr;
 
@@ -7962,6 +7978,7 @@ struct AzTexture {
     AzGl gl_context;
     AzRawImageFormat format;
     void* refcount;
+    bool  run_destructor;
 };
 typedef struct AzTexture AzTexture;
 
@@ -8867,6 +8884,7 @@ typedef union AzSvgStyle AzSvgStyle;
 struct AzFile {
     void* ptr;
     AzString path;
+    bool  run_destructor;
 };
 typedef struct AzFile AzFile;
 
@@ -9653,6 +9671,7 @@ struct AzVertexArrayObject {
     uint32_t vao_id;
     AzGl gl_context;
     void* refcount;
+    bool  run_destructor;
 };
 typedef struct AzVertexArrayObject AzVertexArrayObject;
 
@@ -9664,6 +9683,7 @@ struct AzVertexBuffer {
     size_t index_buffer_len;
     AzIndexBufferFormat index_buffer_format;
     void* refcount;
+    bool  run_destructor;
 };
 typedef struct AzVertexBuffer AzVertexBuffer;
 

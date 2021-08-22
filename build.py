@@ -657,7 +657,10 @@ def generate_rust_dll(api_data):
                     if class_has_custom_destructor or treat_external_as_ptr:
                         rust_functions_map[str(class_ptr_name + "_delete")] = ["object: &mut " + class_ptr_name, ""];
                     code += "#[no_mangle] pub extern \"C\" fn " + class_ptr_name + "_delete(object: &mut " + class_ptr_name + ") { "
-                    code += " unsafe { core::ptr::drop_in_place(object); } "
+                    if is_boxed_object:
+                        code += " if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }"
+                    else:
+                        code += " unsafe { core::ptr::drop_in_place(object); } "
                     code += "}\r\n"
 
                 if treat_external_as_ptr and class_can_be_cloned:
@@ -2153,7 +2156,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
             if treat_external_as_ptr and class_can_be_cloned:
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + class_ptr_name + "_deepCopy(self) } } }\r\n"
             if treat_external_as_ptr:
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } } }\r\n"
 
 
         module_file_map[module_name] = code

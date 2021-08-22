@@ -1,8 +1,8 @@
 #![windows_subsystem = "windows"]
 
 use azul::prelude::*;
-use azul::widgets::Button;
 use azul::str::String as AzString;
+use azul::widgets::Button;
 
 extern crate serde;
 #[macro_use(Deserialize)]
@@ -16,7 +16,7 @@ static DATA: &str = include_str!(concat!(
 
 #[derive(Debug, Clone, Deserialize)]
 struct Dataset {
-    coordinates: Vec<Vec<Vec<[f32;2]>>>,
+    coordinates: Vec<Vec<Vec<[f32; 2]>>>,
 }
 
 #[derive(Debug)]
@@ -27,43 +27,37 @@ struct OpenGlAppState {
 
     rotation_deg: f32,
 
+    test_id: Option<VertexArrayObject>,
+
     // vertex (+ index) buffer ID of the uploaded tesselated node
     fill_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
     stroke_vertex_buffer_id: Option<TessellatedGPUSvgNode>,
 }
 
-impl Drop for OpenGlAppState {
-    fn drop(&mut self) {
-        println!("dropping OpenGlAppState!");
-    }
-}
-
-extern "C"
-fn layout(data: &mut RefAny, _:  &mut LayoutCallbackInfo) -> StyledDom {
+extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
-    .with_inline_style("background: linear-gradient(blue, black); padding: 10px;".into())
-    .with_child(
-        Dom::image(ImageRef::callback(data.clone(), render_my_texture))
-        .with_inline_style("
-            flex-grow: 1;
-            border-radius: 50px;
-            box-sizing: border-box;
-            box-shadow: 0px 0px 10px black;
-        ".into())
+        .with_inline_style("background: linear-gradient(blue, black); padding: 10px;".into())
         .with_child(
-            Button::new("Button composited over OpenGL content!".into())
-            .dom()
+            Dom::image(ImageRef::callback(data.clone(), render_my_texture))
             .with_inline_style("
-                margin-top: 50px;
-                margin-left: 50px;
+                flex-grow: 1;
+                border-radius: 50px;
+                box-sizing: border-box;
+                box-shadow: 0px 0px 10px black;
             ".into())
+            .with_child(
+                Button::new("Button composited over OpenGL content!".into())
+                .dom()
+                .with_inline_style("
+                    margin-top: 50px;
+                    margin-left: 50px;
+                ".into()),
+            )
         )
-    ).style(Css::empty())
+        .style(Css::empty())
 }
 
-extern "C"
-fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
-
+extern "C" fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
     // size = the calculated size that the div has AFTER LAYOUTING
     // this way you can render the OpenGL texture with the correct size
     // even if you don't know upfront what the size of the texture in the UI is going to be
@@ -71,12 +65,12 @@ fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> I
     let invalid = ImageRef::invalid(
         size.width as usize,
         size.height as usize,
-        RawImageFormat::R8
+        RawImageFormat::R8,
     );
 
     match render_my_texture_inner(data, info, size) {
         Some(s) => s,
-        None => invalid
+        None => invalid,
     }
 }
 
@@ -85,7 +79,6 @@ fn render_my_texture_inner(
     info: &mut RenderImageCallbackInfo,
     texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
-
     let mut data = data.downcast_mut::<OpenGlAppState>()?;
     let mut data = &mut *data;
 
@@ -99,26 +92,20 @@ fn render_my_texture_inner(
         ColorU::from_str("#abc0cf88".into()),
     );
 
-    println!("drawing texture size {:#?}", texture_size);
-
     texture.clear();
 
     texture.draw_tesselated_svg_gpu_node(
         fill_vertex_buffer,
         texture_size,
         ColorU::from_str("#ff0000".into()),
-        vec![
-            StyleTransform::Rotate(AngleValue::deg(rotation_deg))
-        ].into(),
+        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))].into(),
     );
 
     texture.draw_tesselated_svg_gpu_node(
         stroke_vertex_buffer,
         texture_size,
         ColorU::from_str("#158DE3".into()),
-        vec![
-            StyleTransform::Rotate(AngleValue::deg(rotation_deg))
-        ].into(),
+        vec![StyleTransform::Rotate(AngleValue::deg(rotation_deg))].into(),
     );
 
     // TODO: segfault when inserting the following line:
@@ -136,21 +123,22 @@ extern "C" fn startup_window(data: &mut RefAny, info: &mut CallbackInfo) -> Upda
 // Function called when the OpenGL context has been initialized:
 // allocate all textures and upload vertex buffer to GPU
 fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
-
     {
         let mut data = data.downcast_mut::<OpenGlAppState>()?;
         let fill_vertex_buffer = data.fill_vertices_to_upload.take()?;
         let stroke_vertex_buffer = data.stroke_vertices_to_upload.take()?;
         let gl_context = info.get_gl_context().into_option()?;
 
-        data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
+        let n1 = TessellatedGPUSvgNode::new(
             &fill_vertex_buffer,
-            gl_context.clone()
-        ));
+            gl_context.clone(),
+        );
 
+        data.test_id = Some(n1.vertex_index_buffer.vao.clone());
+        data.fill_vertex_buffer_id = Some(n1);
         data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
             &stroke_vertex_buffer,
-            gl_context.clone()
+            gl_context.clone(),
         ));
     }
 
@@ -168,41 +156,55 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
         Err(e) => {
             MsgBox::error(format!("{}", e).into());
             return Vec::new();
-        },
+        }
     };
 
     // parse the multipolygons
-    parsed.iter().map(|p| {
-        SvgMultiPolygon {
-            rings: p.coordinates[0].iter().map(|r| {
-                let mut last: Option<SvgPoint> = None;
-                SvgPath {
-                    items: r.iter().filter_map(|i| {
-                        let last_point = last.clone();
+    parsed
+        .iter()
+        .map(|p| SvgMultiPolygon {
+            rings: p.coordinates[0]
+                .iter()
+                .map(|r| {
+                    let mut last: Option<SvgPoint> = None;
+                    SvgPath {
+                        items: r
+                            .iter()
+                            .filter_map(|i| {
+                                let last_point = last.clone();
 
-                        let mut current = SvgPoint { x: i[0], y: i[1] };
-                        current.x -= 13.804493;
-                        current.y -= 51.05264;
-                        current.x *= 50000.0;
-                        current.y *= 50000.0;
-                        current.x += 500.0;
-                        current.y += 500.0;
-                        current.x *= 2.0;
-                        current.y *= 2.0;
+                                let mut current = SvgPoint { x: i[0], y: i[1] };
+                                current.x -= 13.804493;
+                                current.y -= 51.05264;
+                                current.x *= 50000.0;
+                                current.y *= 50000.0;
+                                current.x += 500.0;
+                                current.y += 500.0;
+                                current.x *= 2.0;
+                                current.y *= 2.0;
 
-                        last = Some(current);
-                        let last_point = last_point?;
+                                last = Some(current);
+                                let last_point = last_point?;
 
-                        Some(SvgPathElement::Line(SvgLine { start: last_point, end: current }))
-                    }).collect::<Vec<_>>().into(),
-                }
-            }).collect::<Vec<_>>().into(),
-        }
-    }).collect()
+                                Some(SvgPathElement::Line(SvgLine {
+                                    start: last_point,
+                                    end: current,
+                                }))
+                            })
+                            .collect::<Vec<_>>()
+                            .into(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        })
+        .collect()
 }
 
-extern "C"
-fn animate(timer_data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallbackReturn {
+extern "C" fn animate(
+    timer_data: &mut RefAny,
+    info: &mut TimerCallbackInfo,
+) -> TimerCallbackReturn {
     println!("timer running!");
     TimerCallbackReturn {
         should_terminate: TerminateTimer::Continue,
@@ -210,28 +212,31 @@ fn animate(timer_data: &mut RefAny, info: &mut TimerCallbackInfo) -> TimerCallba
             Some(mut s) => {
                 s.rotation_deg += 1.0;
                 Update::RefreshDom
-            },
-            None => Update::DoNothing
-        }
+            }
+            None => Update::DoNothing,
+        },
     }
 }
 
 fn main() {
-
     let multipolygons = parse_multipolygons(DATA);
 
     println!("parsed {} multipolygons!", multipolygons.len());
 
     // tesselate fill
-    let tessellated_fill: TessellatedSvgNodeVec = multipolygons.iter().map(|mp| {
-        mp.tessellate_fill(SvgFillStyle::default())
-    }).collect::<Vec<_>>().into();
+    let tessellated_fill: TessellatedSvgNodeVec = multipolygons
+        .iter()
+        .map(|mp| mp.tessellate_fill(SvgFillStyle::default()))
+        .collect::<Vec<_>>()
+        .into();
     let tessellated_fill_join = TessellatedSvgNode::from_nodes(tessellated_fill.as_ref_vec());
 
     // tesselate stroke
-    let tessellated_stroke: TessellatedSvgNodeVec = multipolygons.iter().map(|mp| {
-        mp.tessellate_stroke(SvgStrokeStyle::default())
-    }).collect::<Vec<_>>().into();
+    let tessellated_stroke: TessellatedSvgNodeVec = multipolygons
+        .iter()
+        .map(|mp| mp.tessellate_stroke(SvgStrokeStyle::default()))
+        .collect::<Vec<_>>()
+        .into();
     let tessellated_stroke_join = TessellatedSvgNode::from_nodes(tessellated_stroke.as_ref_vec());
 
     // initalize data
@@ -240,11 +245,12 @@ fn main() {
         stroke_vertices_to_upload: Some(tessellated_stroke_join),
         rotation_deg: 0.0,
 
+        test_id: None,
         fill_vertex_buffer_id: None,
         stroke_vertex_buffer_id: None,
     });
 
-    let app = App::new(data, AppConfig::new(LayoutSolver::Default));
+    let mut app = App::new(data, AppConfig::new(LayoutSolver::Default));
 
     let mut window = WindowCreateOptions::new(layout);
     window.create_callback = Some(Callback { cb: startup_window }).into();

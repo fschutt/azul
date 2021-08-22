@@ -369,6 +369,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzApp {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Configuration to set which messages should be logged.
@@ -1118,6 +1119,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzRefCount {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
@@ -2208,6 +2210,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
@@ -2216,6 +2219,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGlVoidPtrConst {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
@@ -2392,6 +2396,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
@@ -2412,6 +2417,7 @@ mod dll {
     pub struct AzImageRef {
         pub data: *const c_void,
         pub copies: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
@@ -2468,6 +2474,7 @@ mod dll {
     pub struct AzFontRef {
         pub data: *const c_void,
         pub copies: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `Svg` struct
@@ -2476,6 +2483,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
@@ -2484,6 +2492,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzSvgXmlNode {
         pub(crate) ptr: *mut c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgCircle` struct
@@ -2742,6 +2751,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzSystemClipboard {
         pub _native: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// `AzInstantPtrCloneFnType` struct
@@ -2834,6 +2844,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzThread {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
@@ -2842,6 +2853,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzThreadSender {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
@@ -2850,6 +2862,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzThreadReceiver {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// `AzCreateThreadFnType` struct
@@ -4123,6 +4136,7 @@ mod dll {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
         pub instance_id: u64,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -5953,6 +5967,7 @@ mod dll {
     pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub renderer_type: AzRendererType,
+        pub run_destructor: bool,
     }
 
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
@@ -6110,6 +6125,7 @@ mod dll {
         pub(crate) ptr: *const c_void,
         pub clone_fn: AzInstantPtrCloneFn,
         pub destructor: AzInstantPtrDestructorFn,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `Duration` struct
@@ -7481,6 +7497,7 @@ mod dll {
         pub gl_context: AzGl,
         pub format: AzRawImageFormat,
         pub refcount: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -8317,6 +8334,7 @@ mod dll {
     pub struct AzFile {
         pub(crate) ptr: *const c_void,
         pub path: AzString,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `FileTypeList` struct
@@ -8797,6 +8815,7 @@ mod dll {
         pub vao_id: u32,
         pub gl_context: AzGl,
         pub refcount: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
@@ -8811,6 +8830,7 @@ mod dll {
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
         pub refcount: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
@@ -10293,7 +10313,7 @@ pub mod app {
     }
 
     impl Clone for App { fn clone(&self) -> Self { unsafe { crate::dll::AzApp_deepCopy(self) } } }
-    impl Drop for App { fn drop(&mut self) { unsafe { crate::dll::AzApp_delete(self) } } }
+    impl Drop for App { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzApp_delete(self) } } } }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     
 #[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
@@ -11019,7 +11039,7 @@ pub mod callbacks {
     }
 
     impl Clone for RefCount { fn clone(&self) -> Self { unsafe { crate::dll::AzRefCount_deepCopy(self) } } }
-    impl Drop for RefCount { fn drop(&mut self) { unsafe { crate::dll::AzRefCount_delete(self) } } }
+    impl Drop for RefCount { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzRefCount_delete(self) } } } }
     /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     
 #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
@@ -11033,7 +11053,7 @@ pub mod callbacks {
     }
 
     impl Clone for RefAny { fn clone(&self) -> Self { unsafe { crate::dll::AzRefAny_deepCopy(self) } } }
-    impl Drop for RefAny { fn drop(&mut self) { unsafe { crate::dll::AzRefAny_delete(self) } } }
+    impl Drop for RefAny { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzRefAny_delete(self) } } } }
     /// `LayoutCallbackInfo` struct
     
 #[doc(inline)] pub use crate::dll::AzLayoutCallbackInfo as LayoutCallbackInfo;
@@ -13228,7 +13248,7 @@ pub mod style {
     
 #[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;
     impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::AzCssPropertyCache_deepCopy(self) } } }
-    impl Drop for CssPropertyCache { fn drop(&mut self) { unsafe { crate::dll::AzCssPropertyCache_delete(self) } } }
+    impl Drop for CssPropertyCache { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzCssPropertyCache_delete(self) } } } }
     /// `StyledDom` struct
     
 #[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;
@@ -13533,12 +13553,12 @@ pub mod gl {
     }
 
     impl Clone for Texture { fn clone(&self) -> Self { unsafe { crate::dll::AzTexture_deepCopy(self) } } }
-    impl Drop for Texture { fn drop(&mut self) { unsafe { crate::dll::AzTexture_delete(self) } } }
+    impl Drop for Texture { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzTexture_delete(self) } } } }
     /// `GlVoidPtrConst` struct
     
 #[doc(inline)] pub use crate::dll::AzGlVoidPtrConst as GlVoidPtrConst;
     impl Clone for GlVoidPtrConst { fn clone(&self) -> Self { unsafe { crate::dll::AzGlVoidPtrConst_deepCopy(self) } } }
-    impl Drop for GlVoidPtrConst { fn drop(&mut self) { unsafe { crate::dll::AzGlVoidPtrConst_delete(self) } } }
+    impl Drop for GlVoidPtrConst { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGlVoidPtrConst_delete(self) } } } }
     /// `GlVoidPtrMut` struct
     
 #[doc(inline)] pub use crate::dll::AzGlVoidPtrMut as GlVoidPtrMut;
@@ -15428,7 +15448,7 @@ pub mod gl {
     }
 
     impl Clone for Gl { fn clone(&self) -> Self { unsafe { crate::dll::AzGl_deepCopy(self) } } }
-    impl Drop for Gl { fn drop(&mut self) { unsafe { crate::dll::AzGl_delete(self) } } }
+    impl Drop for Gl { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGl_delete(self) } } } }
     /// `GlShaderPrecisionFormatReturn` struct
     
 #[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
@@ -15450,7 +15470,7 @@ pub mod gl {
     }
 
     impl Clone for VertexArrayObject { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexArrayObject_deepCopy(self) } } }
-    impl Drop for VertexArrayObject { fn drop(&mut self) { unsafe { crate::dll::AzVertexArrayObject_delete(self) } } }
+    impl Drop for VertexArrayObject { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzVertexArrayObject_delete(self) } } } }
     /// `IndexBufferFormat` struct
     
 #[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
@@ -15463,7 +15483,7 @@ pub mod gl {
     }
 
     impl Clone for VertexBuffer { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexBuffer_deepCopy(self) } } }
-    impl Drop for VertexBuffer { fn drop(&mut self) { unsafe { crate::dll::AzVertexBuffer_delete(self) } } }
+    impl Drop for VertexBuffer { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzVertexBuffer_delete(self) } } } }
     /// `GlType` struct
     
 #[doc(inline)] pub use crate::dll::AzGlType as GlType;
@@ -15516,7 +15536,7 @@ pub mod gl {
     
 #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
     impl Clone for GLsyncPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzGLsyncPtr_deepCopy(self) } } }
-    impl Drop for GLsyncPtr { fn drop(&mut self) { unsafe { crate::dll::AzGLsyncPtr_delete(self) } } }
+    impl Drop for GLsyncPtr { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGLsyncPtr_delete(self) } } } }
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     
 #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
@@ -15564,7 +15584,7 @@ pub mod image {
     }
 
     impl Clone for ImageRef { fn clone(&self) -> Self { unsafe { crate::dll::AzImageRef_deepCopy(self) } } }
-    impl Drop for ImageRef { fn drop(&mut self) { unsafe { crate::dll::AzImageRef_delete(self) } } }
+    impl Drop for ImageRef { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzImageRef_delete(self) } } } }
     /// `RawImage` struct
     
 #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
@@ -15639,7 +15659,7 @@ pub mod font {
     }
 
     impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }
-    impl Drop for FontRef { fn drop(&mut self) { unsafe { crate::dll::AzFontRef_delete(self) } } }
+    impl Drop for FontRef { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzFontRef_delete(self) } } } }
 }
 
 pub mod svg {
@@ -15666,7 +15686,7 @@ pub mod svg {
     }
 
     impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
-    impl Drop for Svg { fn drop(&mut self) { unsafe { crate::dll::AzSvg_delete(self) } } }
+    impl Drop for Svg { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSvg_delete(self) } } } }
     /// `SvgXmlNode` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
@@ -15680,7 +15700,7 @@ pub mod svg {
     }
 
     impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
-    impl Drop for SvgXmlNode { fn drop(&mut self) { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } }
+    impl Drop for SvgXmlNode { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } } }
     /// `SvgMultiPolygon` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
@@ -15898,7 +15918,7 @@ pub mod fs {
     }
 
     impl Clone for File { fn clone(&self) -> Self { unsafe { crate::dll::AzFile_deepCopy(self) } } }
-    impl Drop for File { fn drop(&mut self) { unsafe { crate::dll::AzFile_delete(self) } } }
+    impl Drop for File { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzFile_delete(self) } } } }
 }
 
 pub mod dialog {
@@ -15983,7 +16003,7 @@ pub mod clipboard {
     }
 
     impl Clone for SystemClipboard { fn clone(&self) -> Self { unsafe { crate::dll::AzSystemClipboard_deepCopy(self) } } }
-    impl Drop for SystemClipboard { fn drop(&mut self) { unsafe { crate::dll::AzSystemClipboard_delete(self) } } }
+    impl Drop for SystemClipboard { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSystemClipboard_delete(self) } } } }
 }
 
 pub mod time {
@@ -16007,7 +16027,7 @@ pub mod time {
     
 #[doc(inline)] pub use crate::dll::AzInstantPtr as InstantPtr;
     impl Clone for InstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzInstantPtr_deepCopy(self) } } }
-    impl Drop for InstantPtr { fn drop(&mut self) { unsafe { crate::dll::AzInstantPtr_delete(self) } } }
+    impl Drop for InstantPtr { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzInstantPtr_delete(self) } } } }
     /// `InstantPtrCloneFnType` struct
     
 #[doc(inline)] pub use crate::dll::AzInstantPtrCloneFnType as InstantPtrCloneFnType;
@@ -16068,7 +16088,7 @@ pub mod task {
     
 #[doc(inline)] pub use crate::dll::AzThread as Thread;
     impl Clone for Thread { fn clone(&self) -> Self { unsafe { crate::dll::AzThread_deepCopy(self) } } }
-    impl Drop for Thread { fn drop(&mut self) { unsafe { crate::dll::AzThread_delete(self) } } }
+    impl Drop for Thread { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThread_delete(self) } } } }
     /// `ThreadSender` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;
@@ -16078,7 +16098,7 @@ pub mod task {
     }
 
     impl Clone for ThreadSender { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadSender_deepCopy(self) } } }
-    impl Drop for ThreadSender { fn drop(&mut self) { unsafe { crate::dll::AzThreadSender_delete(self) } } }
+    impl Drop for ThreadSender { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThreadSender_delete(self) } } } }
     /// `ThreadReceiver` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;
@@ -16088,7 +16108,7 @@ pub mod task {
     }
 
     impl Clone for ThreadReceiver { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadReceiver_deepCopy(self) } } }
-    impl Drop for ThreadReceiver { fn drop(&mut self) { unsafe { crate::dll::AzThreadReceiver_delete(self) } } }
+    impl Drop for ThreadReceiver { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThreadReceiver_delete(self) } } } }
     /// `ThreadSendMsg` struct
     
 #[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;
@@ -16388,6 +16408,8 @@ pub mod vec {
                     $destructor_name::NoDestructor => { },
                     $destructor_name::External(f) => { f(self); }
                 }
+                // necessary so that double-frees are avoided
+                self.destructor = $destructor_name::NoDestructor;
             }
         }
 

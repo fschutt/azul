@@ -274,6 +274,7 @@ pub struct ImageRef {
     pub data: *const DecodedImage,
     /// How many copies does this image have (if 0, the font data will be deleted on drop)
     pub copies: *const AtomicUsize,
+    pub run_destructor: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
@@ -401,6 +402,7 @@ impl ImageRef {
         Self {
             data: Box::into_raw(Box::new(data)),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
         }
     }
 
@@ -445,12 +447,14 @@ impl Clone for ImageRef {
         Self {
             data: self.data, // copy the pointer
             copies: self.copies, // copy the pointer
+            run_destructor: true,
         }
     }
 }
 
 impl Drop for ImageRef {
     fn drop(&mut self) {
+        self.run_destructor = false;
         unsafe {
             let copies = unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) };
             if copies == 1 {

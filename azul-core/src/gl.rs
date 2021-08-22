@@ -38,13 +38,21 @@ pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 #[derive(Debug)]
 pub struct GlVoidPtrConst {
     pub ptr: *const GLvoid,
+    pub run_destructor: bool,
 }
 
 impl Clone for GlVoidPtrConst {
     fn clone(&self) -> Self {
         Self {
-            ptr: self.ptr
+            ptr: self.ptr,
+            run_destructor: true,
         }
+    }
+}
+
+impl Drop for GlVoidPtrConst {
+    fn drop(&mut self) {
+        self.run_destructor = false;
     }
 }
 
@@ -482,12 +490,14 @@ pub struct GetActiveUniformReturn {
 #[repr(C)]
 pub struct GLsyncPtr {
     pub ptr: *const c_void, /* *const __GLsync */
+    pub run_destructor: bool,
 }
 
 impl Clone for GLsyncPtr {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
+            run_destructor: true,
         }
     }
 }
@@ -499,8 +509,14 @@ impl core::fmt::Debug for GLsyncPtr {
 }
 
 impl GLsyncPtr {
-    pub fn new(p: GLsync) -> Self { Self { ptr: p as *const c_void } }
+    pub fn new(p: GLsync) -> Self { Self { ptr: p as *const c_void, run_destructor: true } }
     pub fn get(self) -> GLsync { self.ptr as GLsync }
+}
+
+impl Drop for GLsyncPtr {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
@@ -631,11 +647,27 @@ pub struct GlShaderPrecisionFormatReturn {
 }
 
 #[repr(C)]
-#[derive(Clone)]
 pub struct GlContextPtr {
     pub ptr: Box<Rc<GlContextPtrInner>>,
     /// Whether to force a hardware or software renderer
     pub renderer_type: RendererType,
+    pub run_destructor: bool,
+}
+
+impl Clone for GlContextPtr {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr.clone(),
+            renderer_type: self.renderer_type.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for GlContextPtr {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 impl GlContextPtr {
@@ -654,7 +686,6 @@ pub struct GlContextPtrInner {
 
 impl Drop for GlContextPtrInner {
     fn drop(&mut self) {
-        println!("DELETING program {}", self.svg_shader);
         self.ptr.delete_program(self.svg_shader);
         self.ptr.delete_program(self.fxaa_shader);
     }
@@ -732,6 +763,7 @@ impl GlContextPtr {
                 ptr: gl_context,
             })),
             renderer_type,
+            run_destructor: true,
         }
     }
 
@@ -1005,6 +1037,7 @@ pub struct Texture {
     pub format: RawImageFormat,
     /// Reference count, shared across
     pub refcount: *const AtomicUsize,
+    pub run_destructor: bool,
 }
 
 impl Clone for Texture {
@@ -1018,6 +1051,7 @@ impl Clone for Texture {
             gl_context: self.gl_context.clone(),
             format: self.format.clone(),
             refcount: self.refcount,
+            run_destructor: true,
         }
     }
 }
@@ -1035,6 +1069,7 @@ impl Texture {
             gl_context,
             format,
             refcount: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
         }
     }
 
@@ -1284,9 +1319,9 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
+        self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
-            println!("deleted texture ID {} size {:?}", self.texture_id, self.size);
             let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
             self.gl_context.delete_textures((&[self.texture_id])[..].into());
         }
@@ -1428,7 +1463,8 @@ pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
     pub vao_id: GLuint,
     pub gl_context: GlContextPtr,
-    pub refcount: *const AtomicUsize
+    pub refcount: *const AtomicUsize,
+    pub run_destructor: bool,
 }
 
 impl VertexArrayObject {
@@ -1438,6 +1474,7 @@ impl VertexArrayObject {
             vao_id,
             gl_context,
             refcount: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
         }
     }
 }
@@ -1450,12 +1487,14 @@ impl Clone for VertexArrayObject {
             vao_id: self.vao_id,
             gl_context: self.gl_context.clone(),
             refcount: self.refcount,
+            run_destructor: true,
         }
     }
 }
 
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
+        self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
             let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
@@ -1473,6 +1512,7 @@ pub struct VertexBuffer {
     pub index_buffer_len: usize,
     pub index_buffer_format: IndexBufferFormat,
     pub refcount: *const AtomicUsize,
+    pub run_destructor: bool,
 }
 
 impl core::fmt::Display for VertexBuffer {
@@ -1497,14 +1537,17 @@ impl Clone for VertexBuffer {
             index_buffer_len: self.index_buffer_len.clone(),
             index_buffer_format: self.index_buffer_format.clone(),
             refcount: self.refcount,
+            run_destructor: true,
         }
     }
 }
 
 impl Drop for VertexBuffer {
     fn drop(&mut self) {
+        self.run_destructor = false;
         let copies = unsafe { (*self.refcount).fetch_sub(1, AtomicOrdering::SeqCst) };
         if copies == 1 {
+            self.vao.vertex_layout = VertexLayout { fields: VertexAttributeVec::from_const_slice(&[]) };
             let _ = unsafe { Box::from_raw(self.refcount as *mut AtomicUsize) };
             self.vao.gl_context.delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
         }
@@ -1548,7 +1591,7 @@ impl VertexBuffer {
         gl_context.buffer_data_untyped(
             gl::ARRAY_BUFFER,
             (mem::size_of::<T>() * vertices.len()) as isize,
-            GlVoidPtrConst { ptr: vertices.as_ptr() as *const std::ffi::c_void },
+            GlVoidPtrConst { ptr: vertices.as_ptr() as *const std::ffi::c_void, run_destructor: true },
             gl::STATIC_DRAW
         );
 
@@ -1557,7 +1600,7 @@ impl VertexBuffer {
         gl_context.buffer_data_untyped(
             gl::ELEMENT_ARRAY_BUFFER,
             (mem::size_of::<u32>() * indices.len()) as isize,
-            GlVoidPtrConst { ptr: indices.as_ptr() as *const std::ffi::c_void },
+            GlVoidPtrConst { ptr: indices.as_ptr() as *const std::ffi::c_void, run_destructor: true },
             gl::STATIC_DRAW
         );
 
@@ -1599,6 +1642,7 @@ impl VertexBuffer {
             index_buffer_len,
             index_buffer_format,
             refcount: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
         }
     }
 }

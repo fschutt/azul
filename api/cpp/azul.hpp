@@ -306,6 +306,7 @@ namespace dll {
     
     struct App {
         void* ptr;
+        bool  run_destructor;
         App& operator=(const App&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         App(const App&) = delete; /* disable copy constructor, use explicit .clone() */
         App() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -845,6 +846,7 @@ namespace dll {
     
     struct RefCount {
         void* ptr;
+        bool  run_destructor;
         RefCount& operator=(const RefCount&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         RefCount(const RefCount&) = delete; /* disable copy constructor, use explicit .clone() */
         RefCount() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1605,6 +1607,7 @@ namespace dll {
     
     struct CssPropertyCache {
         void* restrict ptr;
+        bool  run_destructor;
         CssPropertyCache& operator=(const CssPropertyCache&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         CssPropertyCache(const CssPropertyCache&) = delete; /* disable copy constructor, use explicit .clone() */
         CssPropertyCache() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1612,6 +1615,7 @@ namespace dll {
     
     struct GlVoidPtrConst {
         void* ptr;
+        bool  run_destructor;
         GlVoidPtrConst& operator=(const GlVoidPtrConst&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         GlVoidPtrConst(const GlVoidPtrConst&) = delete; /* disable copy constructor, use explicit .clone() */
         GlVoidPtrConst() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1744,6 +1748,7 @@ namespace dll {
     
     struct GLsyncPtr {
         void* ptr;
+        bool  run_destructor;
         GLsyncPtr& operator=(const GLsyncPtr&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         GLsyncPtr(const GLsyncPtr&) = delete; /* disable copy constructor, use explicit .clone() */
         GLsyncPtr() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1759,6 +1764,7 @@ namespace dll {
     struct ImageRef {
         void* data;
         void* copies;
+        bool  run_destructor;
         ImageRef& operator=(const ImageRef&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         ImageRef(const ImageRef&) = delete; /* disable copy constructor, use explicit .clone() */
         ImageRef() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1795,6 +1801,7 @@ namespace dll {
     struct FontRef {
         void* data;
         void* copies;
+        bool  run_destructor;
         FontRef& operator=(const FontRef&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         FontRef(const FontRef&) = delete; /* disable copy constructor, use explicit .clone() */
         FontRef() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1802,6 +1809,7 @@ namespace dll {
     
     struct Svg {
         void* restrict ptr;
+        bool  run_destructor;
         Svg& operator=(const Svg&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Svg(const Svg&) = delete; /* disable copy constructor, use explicit .clone() */
         Svg() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1809,6 +1817,7 @@ namespace dll {
     
     struct SvgXmlNode {
         void* restrict ptr;
+        bool  run_destructor;
         SvgXmlNode& operator=(const SvgXmlNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         SvgXmlNode(const SvgXmlNode&) = delete; /* disable copy constructor, use explicit .clone() */
         SvgXmlNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -1987,6 +1996,7 @@ namespace dll {
     
     struct SystemClipboard {
         void* _native;
+        bool  run_destructor;
         SystemClipboard& operator=(const SystemClipboard&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         SystemClipboard(const SystemClipboard&) = delete; /* disable copy constructor, use explicit .clone() */
         SystemClipboard() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -2042,6 +2052,7 @@ namespace dll {
     
     struct Thread {
         void* ptr;
+        bool  run_destructor;
         Thread& operator=(const Thread&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Thread(const Thread&) = delete; /* disable copy constructor, use explicit .clone() */
         Thread() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -2049,6 +2060,7 @@ namespace dll {
     
     struct ThreadSender {
         void* ptr;
+        bool  run_destructor;
         ThreadSender& operator=(const ThreadSender&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         ThreadSender(const ThreadSender&) = delete; /* disable copy constructor, use explicit .clone() */
         ThreadSender() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -2056,6 +2068,7 @@ namespace dll {
     
     struct ThreadReceiver {
         void* ptr;
+        bool  run_destructor;
         ThreadReceiver& operator=(const ThreadReceiver&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         ThreadReceiver(const ThreadReceiver&) = delete; /* disable copy constructor, use explicit .clone() */
         ThreadReceiver() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -3505,6 +3518,7 @@ namespace dll {
         void* _internal_ptr;
         RefCount sharing_info;
         uint64_t instance_id;
+        bool  run_destructor;
         RefAny& operator=(const RefAny&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         RefAny(const RefAny&) = delete; /* disable copy constructor, use explicit .clone() */
         RefAny() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -5540,6 +5554,7 @@ namespace dll {
     struct Gl {
         void* ptr;
         RendererType renderer_type;
+        bool  run_destructor;
         Gl& operator=(const Gl&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Gl(const Gl&) = delete; /* disable copy constructor, use explicit .clone() */
         Gl() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -5672,6 +5687,7 @@ namespace dll {
         void* ptr;
         InstantPtrCloneFn clone_fn;
         InstantPtrDestructorFn destructor;
+        bool  run_destructor;
         InstantPtr& operator=(const InstantPtr&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         InstantPtr(const InstantPtr&) = delete; /* disable copy constructor, use explicit .clone() */
         InstantPtr() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -7258,6 +7274,7 @@ namespace dll {
         Gl gl_context;
         RawImageFormat format;
         void* refcount;
+        bool  run_destructor;
         Texture& operator=(const Texture&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Texture(const Texture&) = delete; /* disable copy constructor, use explicit .clone() */
         Texture() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -8151,6 +8168,7 @@ namespace dll {
     struct File {
         void* ptr;
         String path;
+        bool  run_destructor;
         File& operator=(const File&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         File(const File&) = delete; /* disable copy constructor, use explicit .clone() */
         File() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -8852,6 +8870,7 @@ namespace dll {
         uint32_t vao_id;
         Gl gl_context;
         void* refcount;
+        bool  run_destructor;
         VertexArrayObject& operator=(const VertexArrayObject&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         VertexArrayObject(const VertexArrayObject&) = delete; /* disable copy constructor, use explicit .clone() */
         VertexArrayObject() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -8865,6 +8884,7 @@ namespace dll {
         size_t index_buffer_len;
         IndexBufferFormat index_buffer_format;
         void* refcount;
+        bool  run_destructor;
         VertexBuffer& operator=(const VertexBuffer&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         VertexBuffer(const VertexBuffer&) = delete; /* disable copy constructor, use explicit .clone() */
         VertexBuffer() = delete; /* disable default constructor, use C++20 designated initializer instead */

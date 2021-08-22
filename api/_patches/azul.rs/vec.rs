@@ -150,6 +150,8 @@
                     $destructor_name::NoDestructor => { },
                     $destructor_name::External(f) => { f(self); }
                 }
+                // necessary so that double-frees are avoided
+                self.destructor = $destructor_name::NoDestructor;
             }
         }
 

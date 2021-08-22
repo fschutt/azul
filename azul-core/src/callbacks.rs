@@ -87,6 +87,7 @@ pub struct RefCountInner {
 #[repr(C)]
 pub struct RefCount {
     pub ptr: *const RefCountInner,
+    pub run_destructor: bool,
 }
 
 impl fmt::Debug for RefCount {
@@ -99,12 +100,14 @@ impl Clone for RefCount {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
+            run_destructor: true,
         }
     }
 }
 
 impl Drop for RefCount {
     fn drop(&mut self) {
+        self.run_destructor = false;
         // note: the owning struct of the RefCount has to do the dropping!
     }
 }
@@ -124,7 +127,7 @@ pub struct RefCountInnerDebug {
 
 impl RefCount {
 
-    fn new(ref_count: RefCountInner) -> Self { RefCount { ptr: Box::into_raw(Box::new(ref_count)) } }
+    fn new(ref_count: RefCountInner) -> Self { RefCount { ptr: Box::into_raw(Box::new(ref_count)), run_destructor: true } }
     fn downcast(&self) -> &RefCountInner { unsafe { &*self.ptr } }
 
     pub fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
@@ -233,6 +236,7 @@ pub struct RefAny {
     ///
     /// Necessary to distinguish between the original copy and all other clones
     pub instance_id: u64,
+    pub run_destructor: bool,
 }
 
 impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Hash, Clone, PartialEq, PartialOrd, Ord, Eq]);
@@ -316,6 +320,7 @@ impl RefAny {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
             sharing_info: RefCount::new(ref_count_inner),
             instance_id: 0,
+            run_destructor: true,
         }
     }
 
@@ -407,33 +412,36 @@ impl Clone for RefAny {
             _internal_ptr: self._internal_ptr,
             sharing_info: RefCount {
                 ptr: self.sharing_info.ptr,
+                run_destructor: true,
             },
             instance_id: self.sharing_info.downcast().num_copies.load(AtomicOrdering::SeqCst) as u64,
+            run_destructor: true,
         }
     }
 }
 
 impl Drop for RefAny {
     fn drop(&mut self) {
+
+        self.run_destructor = false;
+
         let current_copies = self.sharing_info.downcast().num_copies.fetch_sub(1, AtomicOrdering::SeqCst);
 
-        if current_copies > 1 {
-            return;
-        }
+        if current_copies == 1 {
+            let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
+            let sharing_info = *sharing_info; // sharing_info itself deallocates here
 
-        let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
-        let sharing_info = *sharing_info; // sharing_info itself deallocates here
+            (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
 
-        (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
-
-        unsafe {
-            alloc::alloc::dealloc(
-                self._internal_ptr as *mut u8,
-                Layout::from_size_align_unchecked(
-                    sharing_info._internal_layout_size,
-                    sharing_info._internal_layout_align
-                ),
-            );
+            unsafe {
+                alloc::alloc::dealloc(
+                    self._internal_ptr as *mut u8,
+                    Layout::from_size_align_unchecked(
+                        sharing_info._internal_layout_size,
+                        sharing_info._internal_layout_align
+                    ),
+                );
+            }
         }
     }
 }

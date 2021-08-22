@@ -4402,6 +4402,7 @@ pub struct FontRef {
     pub data: *const FontData,
     /// How many copies does this font have (if 0, the font data will be deleted on drop)
     pub copies: *const AtomicUsize,
+    pub run_destructor: bool,
 }
 
 impl fmt::Debug for FontRef {
@@ -4457,6 +4458,7 @@ impl FontRef {
         Self {
             data: Box::into_raw(Box::new(data)),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
+            run_destructor: true,
         }
     }
 }
@@ -4467,12 +4469,14 @@ impl Clone for FontRef {
         Self {
             data: self.data, // copy the pointer
             copies: self.copies, // copy the pointer
+            run_destructor: true,
         }
     }
 }
 
 impl Drop for FontRef {
     fn drop(&mut self) {
+        self.run_destructor = false;
         unsafe {
             let copies = unsafe { (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst) };
             if copies == 1 {

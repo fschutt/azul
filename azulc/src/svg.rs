@@ -653,7 +653,7 @@ pub fn render_tessellated_node_gpu(
     gl_context.buffer_data_untyped(
         gl::ARRAY_BUFFER,
         (mem::size_of::<SvgVertex>() * node.vertices.len()) as isize,
-        GlVoidPtrConst { ptr: &node.vertices as *const _ as *const std::ffi::c_void },
+        GlVoidPtrConst { ptr: &node.vertices as *const _ as *const std::ffi::c_void, run_destructor: true },
         gl::STATIC_DRAW
     );
 
@@ -661,7 +661,7 @@ pub fn render_tessellated_node_gpu(
     gl_context.buffer_data_untyped(
         gl::ELEMENT_ARRAY_BUFFER,
         (mem::size_of::<u32>() * node.indices.len()) as isize,
-        GlVoidPtrConst { ptr: &node.indices as *const _ as *const std::ffi::c_void },
+        GlVoidPtrConst { ptr: &node.indices as *const _ as *const std::ffi::c_void, run_destructor: true },
         gl::STATIC_DRAW
     );
 
@@ -915,17 +915,33 @@ pub fn render_node_clipmask_cpu(
 // ---------------------------- SVG RENDERING
 
 #[cfg(feature = "svg")]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct SvgXmlNode {
     node: Box<usvg::Node>, // usvg::Node
+    pub run_destructor: bool,
+}
+
+impl Clone for SvgXmlNode {
+    fn clone(&self) -> Self {
+        Self {
+            node: self.node.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for SvgXmlNode {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 #[cfg(not(feature = "svg"))]
 pub use azul_core::svg::SvgXmlNode;
 
 #[cfg(feature = "svg")]
-fn svgxmlnode_new(node: usvg::Node) -> SvgXmlNode { SvgXmlNode { node: Box::new(node) } }
+fn svgxmlnode_new(node: usvg::Node) -> SvgXmlNode { SvgXmlNode { node: Box::new(node), run_destructor: true } }
 
 #[cfg(feature = "svg")]
 pub fn svgxmlnode_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<SvgXmlNode, SvgParseError> {
@@ -987,10 +1003,25 @@ pub fn svgxmlnode_from_xml(xml: Xml) -> Result<Self, SvgParseError> {
 
 
 #[cfg(feature = "svg")]
-#[derive(Clone)]
 #[repr(C)]
 pub struct Svg {
     tree: Box<usvg::Tree>, // *mut usvg::Tree,
+    pub run_destructor: bool,
+}
+
+impl Clone for Svg {
+    fn clone(&self) -> Self {
+        Self {
+            tree: self.tree.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for Svg {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 #[cfg(not(feature = "svg"))]
@@ -1004,7 +1035,7 @@ impl fmt::Debug for Svg {
 }
 
 #[cfg(feature = "svg")]
-fn svg_new(tree: usvg::Tree) -> Svg { Svg { tree: Box::new(tree) } }
+fn svg_new(tree: usvg::Tree) -> Svg { Svg { tree: Box::new(tree), run_destructor: true, } }
 
 /// NOTE: SVG file data may be Zlib compressed
 #[cfg(feature = "svg")]

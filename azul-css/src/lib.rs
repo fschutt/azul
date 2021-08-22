@@ -157,6 +157,8 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name
                 $destructor_name::NoDestructor => { },
                 $destructor_name::External(f) => { f(self); }
             }
+            // necessary so that double-frees are avoided
+            self.destructor = $destructor_name::NoDestructor;
         }
     }
 )}

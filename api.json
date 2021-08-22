@@ -8,7 +8,8 @@
                     "is_boxed_object": true,
                     "doc": "Main application class",
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "new": {
@@ -1997,7 +1998,8 @@
                     "external": "azul_impl::callbacks::RefCount",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "functions": {
                         "can_be_shared": {
@@ -2047,7 +2049,8 @@
                     "struct_fields": [
                         {"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
                         {"sharing_info":  {"type": "RefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
-                        {"instance_id": {"type": "u64", "doc": "Instance ID of this `RefAny`: should be 0 for the `root` node, and increase for every copy. Necessary to identify the \"root\" `RefAny`, otherwise all instances would have the same priority."}}
+                        {"instance_id": {"type": "u64", "doc": "Instance ID of this `RefAny`: should be 0 for the `root` node, and increase for every copy. Necessary to identify the \"root\" `RefAny`, otherwise all instances would have the same priority."}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "new_c": {
@@ -6736,7 +6739,8 @@
                     "external": "azul_impl::styled_dom::CssPropertyCachePtr",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*mut c_void" } }
+                        {"ptr": {"type": "*mut c_void" } },
+                        {"run_destructor": {"type": "bool"}}
                     ]
                 },
                 "StyledDom": {
@@ -6875,7 +6879,8 @@
                         {"background_color": {"type": "ColorU", "doc": "Background color of this texture"}},
                         {"gl_context": {"type": "Gl", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}},
                         {"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
-                        {"refcount": {"type": "*const c_void", "doc": "Reference count for this texture. Texture will be automatically deleted when the refcount reaches 0."}}
+                        {"refcount": {"type": "*const c_void", "doc": "Reference count for this texture. Texture will be automatically deleted when the refcount reaches 0."}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "new": {
@@ -6951,7 +6956,8 @@
                     "external": "azul_impl::gl::GlVoidPtrConst",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ]
                 },
                 "GlVoidPtrMut": {
@@ -6965,7 +6971,8 @@
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void", "doc": "Reference-counted pointer to the OpenGL context. Can not be copied between threads."}},
-                        {"renderer_type": {"type": "RendererType", "doc": "Extra flag to see whether we are using hardware OpenGL or software OpenGL"}}
+                        {"renderer_type": {"type": "RendererType", "doc": "Extra flag to see whether we are using hardware OpenGL or software OpenGL"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "functions": {
                         "get_type": {
@@ -10470,7 +10477,8 @@
                         {"vertex_layout": {"type": "VertexLayout"}},
                         {"vao_id": {"type": "u32"}},
                         {"gl_context": {"type": "Gl"}},
-                        {"refcount": {"type": "*const c_void"}}
+                        {"refcount": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "new": {
@@ -10505,7 +10513,8 @@
                         {"index_buffer_id": {"type": "u32"}},
                         {"index_buffer_len": {"type": "usize"}},
                         {"index_buffer_format": {"type": "IndexBufferFormat"}},
-                        {"refcount": {"type": "*const c_void"}}
+                        {"refcount": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "new": {
@@ -10657,7 +10666,8 @@
                     "doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ]
                 },
                 "GetActiveUniformReturn": {
@@ -10694,7 +10704,8 @@
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"data": {"type": "*const c_void"}},
-                        {"copies": {"type": "*const c_void"}}
+                        {"copies": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "invalid": {
@@ -11010,7 +11021,8 @@
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"data": {"type": "*const c_void"}},
-                        {"copies": {"type": "*const c_void"}}
+                        {"copies": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "parse": {
@@ -11052,7 +11064,8 @@
                     "external": "azul_impl::svg::Svg",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*mut c_void"}}
+                        {"ptr": {"type": "*mut c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "from_string": {
@@ -11102,7 +11115,8 @@
                     "external": "azul_impl::svg::SvgXmlNode",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*mut c_void"}}
+                        {"ptr": {"type": "*mut c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "parse_from": {
@@ -11618,7 +11632,8 @@
                     "is_boxed_object": true,
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}},
-                        {"path": {"type": "String"}}
+                        {"path": {"type": "String"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "open": {
@@ -11869,7 +11884,8 @@
                     "external": "azul_impl::app::Clipboard",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}}
+                        {"_native": {"type": "*const c_void", "doc": "Native clipboard handle"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
                         "new": {
@@ -11945,7 +11961,8 @@
                     "struct_fields": [
                         {"ptr": {"type": "*const c_void"}},
                         {"clone_fn": {"type": "InstantPtrCloneFn"}},
-                        {"destructor": {"type": "InstantPtrDestructorFn"}}
+                        {"destructor": {"type": "InstantPtrDestructorFn"}},
+                        {"run_destructor": {"type": "bool"}}
                     ]
                 },
                 "InstantPtrCloneFnType": {
@@ -12089,14 +12106,16 @@
                     "external": "azul_impl::task::Thread",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void" }}
+                        {"ptr": {"type": "*const c_void" }},
+                        {"run_destructor": {"type": "bool"}}
                     ]
                 },
                 "ThreadSender": {
                     "external": "azul_impl::task::ThreadSender",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "functions": {
                         "send": {
@@ -12113,7 +12132,8 @@
                     "external": "azul_impl::task::ThreadReceiver",
                     "is_boxed_object": true,
                     "struct_fields": [
-                        {"ptr": {"type": "*const c_void"}}
+                        {"ptr": {"type": "*const c_void"}},
+                        {"run_destructor": {"type": "bool"}}
                     ],
                     "functions": {
                         "receive": {

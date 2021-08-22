@@ -547,16 +547,18 @@ pub enum c_void { }
 
 pub type GlyphId = u16;
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct SvgXmlNode {
     pub node: *const c_void, // usvg::Node
+    pub run_destructor: bool,
 }
 
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct Svg {
     tree: *const c_void, // *mut usvg::Tree,
+    pub run_destructor: bool,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]

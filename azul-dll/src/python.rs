@@ -720,6 +720,7 @@ impl PyGCProtocol for AzNodeData {
 #[repr(C)]
 pub struct AzApp {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Configuration to set which messages should be logged.
@@ -1305,6 +1306,7 @@ pub type AzRefAnyDestructorType = extern "C" fn(&mut c_void);
 #[repr(C)]
 pub struct AzRefCount {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
@@ -2158,12 +2160,14 @@ pub struct AzTagId {
 #[repr(C)]
 pub struct AzCssPropertyCache {
     pub ptr: *mut c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
 #[repr(C)]
 pub struct AzGlVoidPtrConst {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
@@ -2289,6 +2293,7 @@ pub struct AzRefstr {
 #[repr(C)]
 pub struct AzGLsyncPtr {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `TextureFlags` struct
@@ -2303,6 +2308,7 @@ pub struct AzTextureFlags {
 pub struct AzImageRef {
     pub data: *const c_void,
     pub copies: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
@@ -2347,18 +2353,21 @@ pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
 pub struct AzFontRef {
     pub data: *const c_void,
     pub copies: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `Svg` struct
 #[repr(C)]
 pub struct AzSvg {
     pub ptr: *mut c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
 #[repr(C)]
 pub struct AzSvgXmlNode {
     pub ptr: *mut c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgCircle` struct
@@ -2535,6 +2544,7 @@ pub struct AzColorPickerDialog {
 #[repr(C)]
 pub struct AzSystemClipboard {
     pub _native: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// `AzInstantPtrCloneFnType` struct
@@ -2597,18 +2607,21 @@ pub struct AzThreadId {
 #[repr(C)]
 pub struct AzThread {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `ThreadSender` struct
 #[repr(C)]
 pub struct AzThreadSender {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
 #[repr(C)]
 pub struct AzThreadReceiver {
     pub ptr: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// `AzCreateThreadFnType` struct
@@ -3642,6 +3655,7 @@ pub struct AzRefAny {
     pub _internal_ptr: *const c_void,
     pub sharing_info: AzRefCount,
     pub instance_id: u64,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -4883,6 +4897,7 @@ pub struct AzParentWithNodeDepth {
 pub struct AzGl {
     pub ptr: *const c_void,
     pub renderer_type: AzRendererTypeEnumWrapper,
+    pub run_destructor: bool,
 }
 
 /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
@@ -5010,6 +5025,7 @@ pub struct AzInstantPtr {
     pub ptr: *const c_void,
     pub clone_fn: AzInstantPtrCloneFn,
     pub destructor: AzInstantPtrDestructorFn,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `Duration` struct
@@ -6063,6 +6079,7 @@ pub struct AzTexture {
     pub gl_context: AzGl,
     pub format: AzRawImageFormatEnumWrapper,
     pub refcount: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -6705,6 +6722,7 @@ pub enum AzSvgStyle {
 pub struct AzFile {
     pub ptr: *const c_void,
     pub path: AzString,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `FileTypeList` struct
@@ -7111,6 +7129,7 @@ pub struct AzVertexArrayObject {
     pub vao_id: u32,
     pub gl_context: AzGl,
     pub refcount: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
@@ -7123,6 +7142,7 @@ pub struct AzVertexBuffer {
     pub index_buffer_len: usize,
     pub index_buffer_format: AzIndexBufferFormatEnumWrapper,
     pub refcount: *const c_void,
+    pub run_destructor: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct

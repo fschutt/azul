@@ -6,10 +6,26 @@ use alloc::sync::Arc;
 use std::sync::Mutex;
 
 #[repr(C)]
-#[derive(Clone)]
 pub struct File {
     pub ptr: Box<Arc<Mutex<fs::File>>>,
     pub path: AzString,
+    pub run_destructor: bool,
+}
+
+impl Clone for File {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr.clone(),
+            path: self.path.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for File {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 impl fmt::Debug for File {
@@ -45,6 +61,7 @@ impl File {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(f))),
             path,
+            run_destructor: true,
         }
     }
     pub fn open(path: &str) -> Option<Self> {

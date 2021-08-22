@@ -24,12 +24,20 @@ pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
 #[repr(C)]
 pub struct AzAppPtr {
     pub ptr: Box<Arc<Mutex<App>>>,
+    pub run_destructor: bool,
+}
+
+impl Drop for AzAppPtr {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 impl AzAppPtr {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(App::new(initial_data, app_config)))),
+            run_destructor: true,
         }
     }
 
@@ -54,7 +62,8 @@ impl AzAppPtr {
 
     pub fn run(&self, root_window: WindowCreateOptions) {
         if let Ok(mut l) = self.ptr.try_lock() {
-            let mut app = App::new(l.data.clone(), l.config.clone());
+            struct Dummy { }
+            let mut app = App::new(RefAny::new(Dummy { }), l.config.clone());
             core::mem::swap(&mut *l, &mut app);
             app.run(root_window)
         }
@@ -247,6 +256,7 @@ impl LazyFcCache {
 #[derive(Clone)]
 pub struct Clipboard {
     pub _native: Box<Arc<Mutex<SystemClipboard>>>,
+    pub run_destructor: bool,
 }
 
 impl fmt::Debug for Clipboard {
@@ -262,6 +272,7 @@ impl Clipboard {
         let clipboard = SystemClipboard::new().ok()?;
         Some(Self {
             _native: Box::new(Arc::new(Mutex::new(clipboard))),
+            run_destructor: true,
         })
     }
 
@@ -287,7 +298,9 @@ impl Clipboard {
 }
 
 impl Drop for Clipboard {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 pub mod extra {

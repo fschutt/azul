@@ -35,7 +35,7 @@ pub use AzAppTT as AzApp;
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
 #[no_mangle] pub extern "C" fn AzApp_run(app: &AzApp, window: AzWindowCreateOptions) { app.run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzApp_delete(object: &mut AzApp) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzApp_delete(object: &mut AzApp) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzApp_deepCopy(object: &AzApp) -> AzApp { object.clone() }
 
@@ -638,7 +638,7 @@ pub use AzRefCountTT as AzRefCount;
 /// Equivalent to the Rust `RefCount::decrease_refmut()` function.
 #[no_mangle] pub extern "C" fn AzRefCount_decreaseRefmut(refcount: &mut AzRefCount) { refcount.decrease_refmut() }
 /// Destructor: Takes ownership of the `RefCount` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzRefCount_delete(object: &mut AzRefCount) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzRefCount_delete(object: &mut AzRefCount) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzRefCount_deepCopy(object: &AzRefCount) -> AzRefCount { object.clone() }
 
@@ -653,7 +653,7 @@ pub use AzRefAnyTT as AzRefAny;
 /// Equivalent to the Rust `RefAny::get_type_name()` function.
 #[no_mangle] pub extern "C" fn AzRefAny_getTypeName(refany: &AzRefAny) -> AzString { refany.get_type_name() }
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzRefAny_delete(object: &mut AzRefAny) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzRefAny_delete(object: &mut AzRefAny) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzRefAny_deepCopy(object: &AzRefAny) -> AzRefAny { object.clone() }
 
@@ -2435,7 +2435,7 @@ pub use AzParentWithNodeDepthTT as AzParentWithNodeDepth;
 pub type AzCssPropertyCacheTT = azul_impl::styled_dom::CssPropertyCachePtr;
 pub use AzCssPropertyCacheTT as AzCssPropertyCache;
 /// Destructor: Takes ownership of the `CssPropertyCache` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzCssPropertyCache_delete(object: &mut AzCssPropertyCache) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzCssPropertyCache_delete(object: &mut AzCssPropertyCache) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzCssPropertyCache_deepCopy(object: &AzCssPropertyCache) -> AzCssPropertyCache { object.clone() }
 
@@ -2490,7 +2490,7 @@ pub use AzTextureTT as AzTexture;
 /// Applies an FXAA filter to the texture
 #[no_mangle] pub extern "C" fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { azul_impl::svg::apply_fxaa(texture).is_some() }
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzTexture_delete(object: &mut AzTexture) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzTexture_delete(object: &mut AzTexture) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzTexture_deepCopy(object: &AzTexture) -> AzTexture { object.clone() }
 
@@ -2498,7 +2498,7 @@ pub use AzTextureTT as AzTexture;
 pub type AzGlVoidPtrConstTT = azul_impl::gl::GlVoidPtrConst;
 pub use AzGlVoidPtrConstTT as AzGlVoidPtrConst;
 /// Destructor: Takes ownership of the `GlVoidPtrConst` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzGlVoidPtrConst_delete(object: &mut AzGlVoidPtrConst) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzGlVoidPtrConst_delete(object: &mut AzGlVoidPtrConst) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzGlVoidPtrConst_deepCopy(object: &AzGlVoidPtrConst) -> AzGlVoidPtrConst { object.clone() }
 
@@ -2952,7 +2952,7 @@ pub use AzGlTT as AzGl;
 /// Equivalent to the Rust `Gl::flush_mapped_buffer_range()` function.
 #[no_mangle] pub extern "C" fn AzGl_flushMappedBufferRange(gl: &AzGl, target: u32, offset: isize, length: isize) { gl.flush_mapped_buffer_range(target, offset, length) }
 /// Destructor: Takes ownership of the `Gl` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzGl_delete(object: &mut AzGl) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzGl_delete(object: &mut AzGl) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzGl_deepCopy(object: &AzGl) -> AzGl { object.clone() }
 
@@ -2983,7 +2983,7 @@ pub use AzVertexArrayObjectTT as AzVertexArrayObject;
 /// Equivalent to the Rust `VertexArrayObject::new()` constructor.
 #[no_mangle] pub extern "C" fn AzVertexArrayObject_new(vertex_layout: AzVertexLayout, vao_id: u32, gl_context: AzGl) -> AzVertexArrayObject { AzVertexArrayObject::new(vertex_layout, vao_id, gl_context) }
 /// Destructor: Takes ownership of the `VertexArrayObject` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzVertexArrayObject_delete(object: &mut AzVertexArrayObject) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzVertexArrayObject_delete(object: &mut AzVertexArrayObject) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzVertexArrayObject_deepCopy(object: &AzVertexArrayObject) -> AzVertexArrayObject { object.clone() }
 
@@ -2998,7 +2998,7 @@ pub use AzVertexBufferTT as AzVertexBuffer;
 /// Equivalent to the Rust `VertexBuffer::new()` constructor.
 #[no_mangle] pub extern "C" fn AzVertexBuffer_new(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: AzVertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: AzIndexBufferFormat) -> AzVertexBuffer { AzVertexBuffer::new_raw(vertex_buffer_id, vertex_buffer_len, vao, index_buffer_id, index_buffer_len, index_buffer_format) }
 /// Destructor: Takes ownership of the `VertexBuffer` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzVertexBuffer_delete(object: &mut AzVertexBuffer) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzVertexBuffer_delete(object: &mut AzVertexBuffer) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzVertexBuffer_deepCopy(object: &AzVertexBuffer) -> AzVertexBuffer { object.clone() }
 
@@ -3076,7 +3076,7 @@ pub use AzGetActiveAttribReturnTT as AzGetActiveAttribReturn;
 pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
 pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzGLsyncPtr_delete(object: &mut AzGLsyncPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzGLsyncPtr_delete(object: &mut AzGLsyncPtr) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzGLsyncPtr_deepCopy(object: &AzGLsyncPtr) -> AzGLsyncPtr { object.clone() }
 
@@ -3114,7 +3114,7 @@ pub use AzImageRefTT as AzImageRef;
 /// Returns whether the image is a `RenderImageCallback`
 #[no_mangle] pub extern "C" fn AzImageRef_isCallback(imageref: &AzImageRef) -> bool { imageref.is_callback() }
 /// Destructor: Takes ownership of the `ImageRef` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzImageRef_delete(object: &mut AzImageRef) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzImageRef_delete(object: &mut AzImageRef) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzImageRef_deepCopy(object: &AzImageRef) -> AzImageRef { object.clone() }
 
@@ -3191,7 +3191,7 @@ pub use AzFontRefTT as AzFontRef;
 /// Returns the text layout of the shaped text
 #[no_mangle] pub extern "C" fn AzFontRef_shapeText(fontref: &AzFontRef, text: AzRefstr, options: AzResolvedTextLayoutOptions) -> AzInlineText { azul_impl::text_layout::shape_text(fontref, text.as_str(), &options) }
 /// Destructor: Takes ownership of the `FontRef` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzFontRef_delete(object: &mut AzFontRef) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzFontRef_delete(object: &mut AzFontRef) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzFontRef_deepCopy(object: &AzFontRef) -> AzFontRef { object.clone() }
 
@@ -3211,7 +3211,7 @@ pub use AzSvgTT as AzSvg;
 /// Equivalent to the Rust `Svg::to_string()` function.
 #[no_mangle] pub extern "C" fn AzSvg_toString(svg: &AzSvg, options: AzSvgStringFormatOptions) -> AzString { azul_impl::svg::svg_to_string(svg, options).into() }
 /// Destructor: Takes ownership of the `Svg` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzSvg_delete(object: &mut AzSvg) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvg_delete(object: &mut AzSvg) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzSvg_deepCopy(object: &AzSvg) -> AzSvg { object.clone() }
 
@@ -3226,7 +3226,7 @@ pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Equivalent to the Rust `SvgXmlNode::to_string()` function.
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_toString(svgxmlnode: &AzSvgXmlNode, options: AzSvgStringFormatOptions) -> AzString { azul_impl::svg::svgxmlnode_to_string(svgxmlnode, options).into() }
 /// Destructor: Takes ownership of the `SvgXmlNode` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_deepCopy(object: &AzSvgXmlNode) -> AzSvgXmlNode { object.clone() }
 
@@ -3447,7 +3447,7 @@ pub use AzFileTT as AzFile;
 /// Destructor, closes the file handle
 #[no_mangle] pub extern "C" fn AzFile_close(file: &mut AzFile) { file.clone().close() }
 /// Destructor: Takes ownership of the `File` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzFile_delete(object: &mut AzFile) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzFile_delete(object: &mut AzFile) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzFile_deepCopy(object: &AzFile) -> AzFile { object.clone() }
 
@@ -3515,7 +3515,7 @@ pub use AzSystemClipboardTT as AzSystemClipboard;
 /// Sets the system clipboard contents to the new string, returns true if the system clipboard was updated
 #[no_mangle] pub extern "C" fn AzSystemClipboard_setStringContents(systemclipboard: &mut AzSystemClipboard, contents: AzString) -> bool { systemclipboard.set_clipboard_string(contents).is_some() }
 /// Destructor: Takes ownership of the `SystemClipboard` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzSystemClipboard_delete(object: &mut AzSystemClipboard) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzSystemClipboard_delete(object: &mut AzSystemClipboard) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzSystemClipboard_deepCopy(object: &AzSystemClipboard) -> AzSystemClipboard { object.clone() }
 
@@ -3535,7 +3535,7 @@ pub use AzInstantTT as AzInstant;
 pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
 pub use AzInstantPtrTT as AzInstantPtr;
 /// Destructor: Takes ownership of the `InstantPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzInstantPtr_delete(object: &mut AzInstantPtr) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzInstantPtr_delete(object: &mut AzInstantPtr) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzInstantPtr_deepCopy(object: &AzInstantPtr) -> AzInstantPtr { object.clone() }
 
@@ -3596,7 +3596,7 @@ pub use AzThreadIdTT as AzThreadId;
 pub type AzThreadTT = azul_impl::task::Thread;
 pub use AzThreadTT as AzThread;
 /// Destructor: Takes ownership of the `Thread` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzThread_delete(object: &mut AzThread) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzThread_delete(object: &mut AzThread) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzThread_deepCopy(object: &AzThread) -> AzThread { object.clone() }
 
@@ -3606,7 +3606,7 @@ pub use AzThreadSenderTT as AzThreadSender;
 /// Equivalent to the Rust `ThreadSender::send()` function.
 #[no_mangle] pub extern "C" fn AzThreadSender_send(threadsender: &mut AzThreadSender, msg: AzThreadReceiveMsg) -> bool { threadsender.send(msg) }
 /// Destructor: Takes ownership of the `ThreadSender` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzThreadSender_delete(object: &mut AzThreadSender) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzThreadSender_delete(object: &mut AzThreadSender) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzThreadSender_deepCopy(object: &AzThreadSender) -> AzThreadSender { object.clone() }
 
@@ -3616,7 +3616,7 @@ pub use AzThreadReceiverTT as AzThreadReceiver;
 /// Equivalent to the Rust `ThreadReceiver::receive()` function.
 #[no_mangle] pub extern "C" fn AzThreadReceiver_receive(threadreceiver: &mut AzThreadReceiver) -> AzOptionThreadSendMsg { threadreceiver.recv().into() }
 /// Destructor: Takes ownership of the `ThreadReceiver` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzThreadReceiver_delete(object: &mut AzThreadReceiver) {  unsafe { core::ptr::drop_in_place(object); } }
+#[no_mangle] pub extern "C" fn AzThreadReceiver_delete(object: &mut AzThreadReceiver) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
 #[no_mangle] pub extern "C" fn AzThreadReceiver_deepCopy(object: &AzThreadReceiver) -> AzThreadReceiver { object.clone() }
 
@@ -5028,6 +5028,7 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzApp {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Configuration to set which messages should be logged.
@@ -5613,6 +5614,7 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzRefCount {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
@@ -6466,12 +6468,14 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzCssPropertyCache {
         pub(crate) ptr: *mut c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `GlVoidPtrConst` struct
     #[repr(C)]
     pub struct AzGlVoidPtrConst {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `GlVoidPtrMut` struct
@@ -6597,6 +6601,7 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzGLsyncPtr {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
@@ -6611,6 +6616,7 @@ mod test_sizes {
     pub struct AzImageRef {
         pub data: *const c_void,
         pub copies: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
@@ -6655,18 +6661,21 @@ mod test_sizes {
     pub struct AzFontRef {
         pub data: *const c_void,
         pub copies: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `Svg` struct
     #[repr(C)]
     pub struct AzSvg {
         pub(crate) ptr: *mut c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
     #[repr(C)]
     pub struct AzSvgXmlNode {
         pub(crate) ptr: *mut c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgCircle` struct
@@ -6843,6 +6852,7 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzSystemClipboard {
         pub _native: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// `AzInstantPtrCloneFnType` struct
@@ -6905,18 +6915,21 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzThread {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `ThreadSender` struct
     #[repr(C)]
     pub struct AzThreadSender {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `ThreadReceiver` struct
     #[repr(C)]
     pub struct AzThreadReceiver {
         pub(crate) ptr: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// `AzCreateThreadFnType` struct
@@ -7950,6 +7963,7 @@ mod test_sizes {
         pub _internal_ptr: *const c_void,
         pub sharing_info: AzRefCount,
         pub instance_id: u64,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `IFrameNode` struct
@@ -9191,6 +9205,7 @@ mod test_sizes {
     pub struct AzGl {
         pub(crate) ptr: *const c_void,
         pub renderer_type: AzRendererType,
+        pub run_destructor: bool,
     }
 
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
@@ -9318,6 +9333,7 @@ mod test_sizes {
         pub(crate) ptr: *const c_void,
         pub clone_fn: AzInstantPtrCloneFn,
         pub destructor: AzInstantPtrDestructorFn,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `Duration` struct
@@ -10371,6 +10387,7 @@ mod test_sizes {
         pub gl_context: AzGl,
         pub format: AzRawImageFormat,
         pub refcount: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
@@ -11013,6 +11030,7 @@ mod test_sizes {
     pub struct AzFile {
         pub(crate) ptr: *const c_void,
         pub path: AzString,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `FileTypeList` struct
@@ -11419,6 +11437,7 @@ mod test_sizes {
         pub vao_id: u32,
         pub gl_context: AzGl,
         pub refcount: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
@@ -11431,6 +11450,7 @@ mod test_sizes {
         pub index_buffer_len: usize,
         pub index_buffer_format: AzIndexBufferFormat,
         pub refcount: *const c_void,
+        pub run_destructor: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct

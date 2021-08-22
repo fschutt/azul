@@ -196,6 +196,7 @@ pub struct AzInstantPtr {
     pub ptr: *const c_void,
     pub clone_fn: InstantPtrCloneCallback,
     pub destructor: InstantPtrDestructorCallback,
+    pub run_destructor: bool,
 }
 
 pub type InstantPtrCloneCallbackType = extern "C" fn (*const AzInstantPtr) -> AzInstantPtr;
@@ -297,6 +298,7 @@ extern "C" fn std_instant_clone(ptr: *const AzInstantPtr) -> AzInstantPtr {
         ptr: az_instant_ptr.ptr.clone(),
         clone_fn: az_instant_ptr.clone_fn.clone(),
         destructor: az_instant_ptr.destructor.clone(),
+        run_destructor: true,
     }
 }
 
@@ -307,6 +309,7 @@ impl From<StdInstant> for AzInstantPtr {
             ptr: Box::new(s),
             clone_fn: InstantPtrCloneCallback { cb: std_instant_clone },
             destructor: InstantPtrDestructorCallback { cb: std_instant_drop },
+            run_destructor: true,
         }
     }
 }
@@ -320,6 +323,7 @@ impl From<AzInstantPtr> for StdInstant {
 
 impl Drop for AzInstantPtr {
     fn drop(&mut self) {
+        self.run_destructor = false;
         (self.destructor.cb)(self);
     }
 }
@@ -712,19 +716,38 @@ impl ThreadWriteBackMsg {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct ThreadSender {
     #[cfg(feature = "std")]
     pub ptr: Box<Arc<Mutex<ThreadSenderInner>>>,
     #[cfg(not(feature = "std"))]
     pub ptr: *const c_void,
+    pub run_destructor: bool,
+}
+
+impl Clone for ThreadSender {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for ThreadSender {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 impl ThreadSender {
 
     pub fn new(t: ThreadSenderInner) -> Self {
-        Self { ptr: Box::new(Arc::new(Mutex::new(t))) }
+        Self {
+            ptr: Box::new(Arc::new(Mutex::new(t))),
+            run_destructor: true,
+        }
     }
 
     // send data from the user thread to the main thread
@@ -737,14 +760,39 @@ impl ThreadSender {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct ThreadReceiver {
+    #[cfg(feature = "std")]
     pub ptr: Box<Arc<Mutex<ThreadReceiverInner>>>,
+    #[cfg(not(feature = "std"))]
+    pub ptr: *const c_void,
+    pub run_destructor: bool,
+}
+
+impl Clone for ThreadReceiver {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for ThreadReceiver {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 impl ThreadReceiver {
-    pub fn new(t: ThreadReceiverInner) -> Self { Self { ptr: Box::new(Arc::new(Mutex::new(t))) } }
+    pub fn new(t: ThreadReceiverInner) -> Self {
+        Self {
+            ptr: Box::new(Arc::new(Mutex::new(t))),
+            run_destructor: true,
+        }
+    }
+
     // receive data from the main thread
     pub fn recv(&mut self) -> OptionThreadSendMsg {
         let ts = match self.ptr.lock().ok() {
@@ -933,18 +981,34 @@ pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInn
 impl_callback!(ThreadSenderDestructorCallback);
 
 /// Wrapper around Thread because Thread needs to be clone-able for Python
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct Thread {
     #[cfg(feature = "std")]
     pub ptr: Box<Arc<Mutex<ThreadInner>>>,
     #[cfg(not(feature = "std"))]
     pub ptr: *const c_void,
+    pub run_destructor: bool,
+}
+
+impl Clone for Thread {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr.clone(),
+            run_destructor: true,
+        }
+    }
+}
+
+impl Drop for Thread {
+    fn drop(&mut self) {
+        self.run_destructor = false;
+    }
 }
 
 impl Thread {
     pub fn new(ti: ThreadInner) -> Self {
-        Self { ptr: Box::new(Arc::new(Mutex::new(ti))) }
+        Self { ptr: Box::new(Arc::new(Mutex::new(ti))), run_destructor: true, }
     }
 }
 

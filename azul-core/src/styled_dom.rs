@@ -148,16 +148,24 @@ impl StyledNodeVec {
 #[derive(Debug, PartialEq, Clone)]
 pub struct CssPropertyCachePtr {
     pub ptr: Box<CssPropertyCache>,
+    pub run_destructor: bool,
 }
 
 impl CssPropertyCachePtr {
     pub fn new(cache: CssPropertyCache) -> Self {
         Self {
-            ptr: Box::new(cache)
+            ptr: Box::new(cache),
+            run_destructor: true,
         }
     }
     fn downcast_mut<'a>(&'a mut self) -> &'a mut CssPropertyCache {
         &mut *self.ptr
+    }
+}
+
+impl Drop for CssPropertyCachePtr {
+    fn drop(&mut self) {
+        self.run_destructor = false;
     }
 }
 

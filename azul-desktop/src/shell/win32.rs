@@ -14,7 +14,11 @@ use crate::{
         wr_synchronize_resize,
     }
 };
-use alloc::{collections::BTreeMap, rc::Rc, sync::Arc};
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+    sync::Arc
+};
 use azul_core::{
     FastBTreeSet, FastHashMap,
     app_resources::{
@@ -160,38 +164,45 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
     let dwm = DwmFunctions::initialize();
     let gl = GlFunctions::initialize();
 
-    let App {
-        data,
-        config,
-        windows,
-        image_cache,
-        fc_cache,
-    } = app;
+    let mut active_hwnds = Rc::new(RefCell::new(BTreeSet::new()));
 
-    let app_data_inner = Rc::new(RefCell::new(ApplicationData {
-        hinstance,
-        data,
-        config,
-        image_cache,
-        fc_cache,
-        windows: BTreeMap::new(),
-        dwm,
-    }));
+    {
+        let App {
+            data,
+            config,
+            windows,
+            image_cache,
+            fc_cache,
+        } = app;
 
-    for opts in windows {
-        if let Ok(w) = Window::create(hinstance, opts, SharedApplicationData { inner: app_data_inner.clone() }) {
+        let app_data_inner = Rc::new(RefCell::new(ApplicationData {
+            hinstance,
+            data,
+            config,
+            image_cache,
+            fc_cache,
+            windows: BTreeMap::new(),
+            active_hwnds: active_hwnds.clone(),
+            dwm,
+        }));
+
+        for opts in windows {
+            if let Ok(w) = Window::create(hinstance, opts, SharedApplicationData { inner: app_data_inner.clone() }) {
+                active_hwnds.try_borrow_mut()?.insert(w.hwnd);
+                app_data_inner
+                    .try_borrow_mut()?
+                    .windows
+                    .insert(w.get_id(), w);
+            }
+        }
+
+        if let Ok(w) = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() }) {
+            active_hwnds.try_borrow_mut()?.insert(w.hwnd);
             app_data_inner
                 .try_borrow_mut()?
                 .windows
                 .insert(w.get_id(), w);
         }
-    }
-
-    if let Ok(w) = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() }) {
-        app_data_inner
-            .try_borrow_mut()?
-            .windows
-            .insert(w.get_id(), w);
     }
 
     // Process the window messages one after another
@@ -204,15 +215,11 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
 
     'main: loop {
 
-        {
-            let app = match app_data_inner.try_borrow().ok() {
-                Some(s) => s,
-                None => break 'main, // borrow error
-            };
-
-            for win in app.windows.values() {
-                hwnds.push(win.hwnd);
-            }
+        match active_hwnds.try_borrow().ok() {
+            Some(windows_vec) => {
+                hwnds = windows_vec.clone().into_iter().collect();
+            },
+            None => break 'main, // borrow error
         }
 
         // For single-window apps, GetMessageW will block until
@@ -279,8 +286,6 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
         hwnds.clear();
         results.clear();
     }
-
-    println!("end of run() function reached!");
 
     Ok(msg.wParam as isize)
 }
@@ -406,14 +411,9 @@ struct ApplicationData {
     image_cache: ImageCache,
     fc_cache: LazyFcCache,
     windows: BTreeMap<usize, Window>,
+    // active HWNDS, tracked separately from the ApplicationData
+    active_hwnds: Rc<RefCell<BTreeSet<HWND>>>,
     dwm: Option<DwmFunctions>,
-}
-
-impl Drop for ApplicationData {
-    fn drop(&mut self) {
-        println!("dropping ApplicationData!");
-        println!("self.refany = {:#?}", self.data.sharing_info.debug_get_refcount_copied());
-    }
 }
 
 // Extra functions from dwmapi.dll
@@ -1616,10 +1616,16 @@ impl fmt::Debug for Window {
 impl Drop for Window {
     fn drop(&mut self) {
         use winapi::um::wingdi::{wglMakeCurrent, wglDeleteContext};
+
+        // drop the layout results first
+        self.internal.layout_results = Vec::new();
+
         unsafe { wglMakeCurrent(ptr::null_mut(), ptr::null_mut()) };
+
         if let Some(context) = self.gl_context.as_mut() {
             unsafe { wglDeleteContext(*context); }
         }
+
         if let Some(renderer) = self.renderer.take() {
             renderer.deinit();
         }
@@ -2556,8 +2562,6 @@ unsafe extern "system" fn WindowProc(
 
                 let mut ret = ProcessEventResult::DoNothing;
 
-                println!("called AZ_REGENERATE_DOM!");
-
                 // borrow checker :|
                 let ab = &mut *app_borrow;
                 let windows = &mut ab.windows;
@@ -2595,8 +2599,6 @@ unsafe extern "system" fn WindowProc(
                     // unset the focus
                     internal.current_window_state.focused_node = None;
 
-                    println!("before regenerate_styled_dom: {}", data.sharing_info.debug_get_refcount_copied().num_copies);
-
                     let mut resource_updates = Vec::new();
                     fc_cache.apply_closure(|fc_cache| {
                         internal.regenerate_styled_dom(
@@ -2629,11 +2631,6 @@ unsafe extern "system" fn WindowProc(
                     if !hDC.is_null() {
                         ReleaseDC(hwnd, hDC);
                     }
-
-                    println!("after regenerate_styled_dom: {} - epoch {}",
-                        data.sharing_info.debug_get_refcount_copied().num_copies,
-                        current_window.internal.epoch,
-                    );
 
                     current_window.context_menu = None;
                     Window::set_menu_bar(
@@ -2857,6 +2854,9 @@ unsafe extern "system" fn WindowProc(
                 return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_CREATE => {
+                if let Ok(mut o) = app_borrow.active_hwnds.try_borrow_mut() {
+                    o.insert(hwnd);
+                }
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
@@ -3469,7 +3469,6 @@ unsafe extern "system" fn WindowProc(
                         return DefWindowProcW(hwnd, msg, wparam, lparam);
                     },
                     AZ_THREAD_TICK => {
-                        println!("got AZ_THREAD_TICK!");
 
                         // tick every 16ms to process new thread messages
                         match windows.get_mut(&hwnd_key) {
@@ -3493,8 +3492,6 @@ unsafe extern "system" fn WindowProc(
                                     gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
                                 }
 
-                                println!("calling process_threads...");
-
                                 ret = process_threads(
                                     hinstance,
                                     data,
@@ -3505,8 +3502,6 @@ unsafe extern "system" fn WindowProc(
                                     &mut new_windows,
                                     &mut destroyed_windows,
                                 );
-
-                                println!("ok: process_threads called: {:?}", ret);
 
                                 let mut gl = &mut current_window.gl_functions.functions;
                                 gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
@@ -3760,19 +3755,68 @@ unsafe extern "system" fn WindowProc(
             },
             WM_DESTROY => {
 
-                let windows_is_emtpy = {
-                    let mut app = &mut *app_borrow;
-                    let _ = app.windows.remove(&(hwnd as usize));
-                    app.windows.is_empty()
-                };
+                use winapi::um::winuser::{GetDC, ReleaseDC};
 
-                // destruct the window data
-                let mut window_data = Box::from_raw(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SharedApplicationData);
-                mem::drop(window_data);
-                mem::drop(app_borrow);
-                if windows_is_emtpy {
+                // make OpenGL context current in case there are
+                // OpenGL objects stored in the windows' RefAny data
+
+                let mut ab = &mut *app_borrow;
+                let mut windows_is_empty = false;
+
+                if let Ok(mut o) = ab.active_hwnds.try_borrow_mut() {
+                    o.remove(&hwnd);
+                    windows_is_empty = o.is_empty();
+                }
+
+                if let Some(mut current_window) = ab.windows.remove(&(hwnd as usize)) {
+
+                    let hDC = GetDC(hwnd);
+                    if let Some(c) = current_window.gl_context {
+                        if !hDC.is_null() {
+                            wglMakeCurrent(hDC, c);
+                        }
+                    }
+
+                    // destruct the window data
+                    let mut window_data = Box::from_raw(GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut SharedApplicationData);
+
+                    // if this window was the last window, the RefAny data
+                    // should be dropped here, while the OpenGL context
+                    // is still current!
+                    mem::drop(window_data);
+                    if let Some(c) = current_window.gl_context.as_mut() {
+                        if !hDC.is_null() {
+                            wglMakeCurrent(hDC, *c);
+                        }
+                    }
+
+                    mem::drop(ab);
+                    if let Some(c) = current_window.gl_context.as_mut() {
+                        if !hDC.is_null() {
+                            wglMakeCurrent(hDC, *c);
+                        }
+                    }
+
+                    mem::drop(app_borrow);
+                    if let Some(c) = current_window.gl_context.as_mut() {
+                        if !hDC.is_null() {
+                            wglMakeCurrent(hDC, *c);
+                        }
+                    }
+
+                    mem::drop(current_window);
+
+                    wglMakeCurrent(ptr::null_mut(), ptr::null_mut());
+
+                    if !hDC.is_null() {
+                        ReleaseDC(hwnd, hDC);
+                    }
+                }
+
+                if windows_is_empty {
                     PostQuitMessage(0);
                 }
+
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             _ => {
