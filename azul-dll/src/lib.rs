@@ -6421,6 +6421,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
     #[repr(C)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde-support", serde(transparent))]
     pub struct AzInputOutputTypeId {
         pub inner: u64,
     }
@@ -6428,6 +6429,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `NodeTypeId` struct
     #[repr(C)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde-support", serde(transparent))]
     pub struct AzNodeTypeId {
         pub inner: u64,
     }
@@ -6435,6 +6437,7 @@ mod test_sizes {
     /// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
     #[repr(C)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde-support", serde(transparent))]
     pub struct AzNodeGraphNodeId {
         pub inner: u64,
     }

@@ -2127,6 +2127,7 @@ mod dll {
     #[derive(Ord)]
     #[derive(Hash)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde-support", serde(transparent))]
     pub struct AzInputOutputTypeId {
         pub inner: u64,
     }
@@ -2141,6 +2142,7 @@ mod dll {
     #[derive(Ord)]
     #[derive(Hash)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde-support", serde(transparent))]
     pub struct AzNodeTypeId {
         pub inner: u64,
     }
@@ -2155,6 +2157,7 @@ mod dll {
     #[derive(Ord)]
     #[derive(Hash)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    #[cfg_attr(feature = "serde-support", serde(transparent))]
     pub struct AzNodeGraphNodeId {
         pub inner: u64,
     }

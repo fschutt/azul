@@ -524,6 +524,10 @@ def generate_rust_dll(api_data):
 
             code += "/// " + struct_doc  + "\r\n"
 
+            struct_serde = ""
+            if "serde" in c.keys():
+                struct_serde = c["serde"]
+
             if "external" in c.keys():
                 external_path = c["external"]
                 if class_is_const:
@@ -539,6 +543,9 @@ def generate_rust_dll(api_data):
                         "doc": struct_doc,
                         "struct": [{"ptr": {"type": "*mut c_void" }}]
                     }
+                    if len(struct_serde) > 0:
+                        structs_map[class_ptr_name]["serde"] = struct_serde
+
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                         code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -556,6 +563,8 @@ def generate_rust_dll(api_data):
                             "doc": struct_doc, "struct":
                             c["struct_fields"]
                         }
+                        if len(struct_serde) > 0:
+                            structs_map[class_ptr_name]["serde"] = struct_serde
                     elif "enum_fields" in c.keys():
                         structs_map[class_ptr_name] = {
                             "external": external_path,
@@ -567,12 +576,13 @@ def generate_rust_dll(api_data):
                             "doc": struct_doc,
                             "enum": c["enum_fields"]
                         }
+                        if len(struct_serde) > 0:
+                            structs_map[class_ptr_name]["serde"] = struct_serde
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
             else:
                 raise Exception("structs without 'external' key are not allowed! " + class_name)
-
             if "constructors" in c.keys():
                 for fn_name in c["constructors"]:
 
@@ -916,6 +926,11 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
         if class_implements_default:
             opt_derive_default = indent_str + "#[derive(Default)]\r\n"
 
+        opt_derive_serde_extra_options = ""
+        if class_can_be_serde_serialized or class_can_be_serde_deserialized:
+            if "serde" in struct.keys():
+                opt_derive_serde_extra_options = indent_str + "#[cfg_attr(feature = \"serde-support\", serde(" + struct["serde"] + "))]\r\n"
+
         opt_derive_serde = ""
         if class_can_be_serde_serialized and class_can_be_serde_deserialized:
             opt_derive_serde = indent_str + "#[cfg_attr(feature = \"serde-support\", derive(Serialize, Deserialize))]\r\n"
@@ -927,6 +942,7 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
         if no_derive:
             opt_derive_serde = ""
             opt_derive_default = ""
+            opt_derive_serde_extra_options = ""
 
         if class_is_callback_typedef:
             fn_ptr = generate_rust_callback_fn_type(api_data, struct["callback_typedef"])
@@ -997,6 +1013,7 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             code += opt_derive_hash
             code += opt_derive_default
             code += opt_derive_serde
+            code += opt_derive_serde_extra_options
             code += indent_str + "pub struct " + struct_name + " {\r\n"
 
             for field in struct:
@@ -1107,6 +1124,7 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             code += opt_derive_hash
             code += opt_derive_default
             code += opt_derive_serde
+            code += opt_derive_serde_extra_options
             code += indent_str + "pub enum " + struct_name + " {\r\n"
 
             for variant in enum:

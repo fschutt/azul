@@ -6467,6 +6467,7 @@
                 "InputOutputTypeId": {
                     "external": "crate::widgets::node_graph::InputOutputTypeId",
                     "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash", "Serialize", "Deserialize"],
+                    "serde": "transparent",
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
@@ -6474,6 +6475,7 @@
                 "NodeTypeId": {
                     "external": "crate::widgets::node_graph::NodeTypeId",
                     "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash", "Serialize", "Deserialize"],
+                    "serde": "transparent",
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
@@ -6481,6 +6483,7 @@
                 "NodeGraphNodeId": {
                     "external": "crate::widgets::node_graph::NodeGraphNodeId",
                     "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash", "Serialize", "Deserialize"],
+                    "serde": "transparent",
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
