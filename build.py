@@ -897,6 +897,9 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
 
         class_is_callback_typedef = "callback_typedef" in struct.keys() and (len(struct["callback_typedef"].keys()) > 0)
         class_can_be_copied = "derive" in struct.keys() and "Copy" in struct["derive"]
+        class_can_be_serde_serialized = "derive" in struct.keys() and "Serialize" in struct["derive"]
+        class_can_be_serde_deserialized = "derive" in struct.keys() and "Deserialize" in struct["derive"]
+        class_implements_default = "derive" in struct.keys() and "Default" in struct["derive"]
         class_implements_eq = "derive" in struct.keys() and "Eq" in struct["derive"]
         class_implements_ord = "derive" in struct.keys() and "Ord" in struct["derive"]
         class_implements_hash = "derive" in struct.keys() and "Hash" in struct["derive"]
@@ -907,6 +910,23 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
 
         is_boxed_object = "is_boxed_object" in struct.keys() and struct["is_boxed_object"]
         treat_external_as_ptr = "external" in struct.keys() and is_boxed_object
+
+
+        opt_derive_default = ""
+        if class_implements_default:
+            opt_derive_default = indent_str + "#[derive(Default)]\r\n"
+
+        opt_derive_serde = ""
+        if class_can_be_serde_serialized and class_can_be_serde_deserialized:
+            opt_derive_serde = indent_str + "#[cfg_attr(feature = \"serde-support\", derive(Serialize, Deserialize))]\r\n"
+        elif class_can_be_serde_serialized:
+            opt_derive_serde = indent_str + "#[cfg_attr(feature = \"serde-support\", derive(Serialize))]\r\n"
+        elif class_can_be_serde_deserialized:
+            opt_derive_serde = indent_str + "#[cfg_attr(feature = \"serde-support\", derive(Deserialize))]\r\n"
+
+        if no_derive:
+            opt_derive_serde = ""
+            opt_derive_default = ""
 
         if class_is_callback_typedef:
             fn_ptr = generate_rust_callback_fn_type(api_data, struct["callback_typedef"])
@@ -935,6 +955,9 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
 
             if not(class_can_be_cloned) or (treat_external_as_ptr and class_can_be_cloned):
                 opt_derive_clone = ""
+
+            if struct_name == "AzString":
+                opt_derive_debug = ""
 
             if class_has_custom_destructor or not(autoderive) or struct_name == "AzU8VecRef":
                 opt_derive_copy = ""
@@ -972,6 +995,8 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             code += opt_derive_other + opt_derive_copy
             code += opt_derive_eq + opt_derive_ord
             code += opt_derive_hash
+            code += opt_derive_default
+            code += opt_derive_serde
             code += indent_str + "pub struct " + struct_name + " {\r\n"
 
             for field in struct:
@@ -1080,6 +1105,8 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
             code += opt_derive_other + opt_derive_copy
             code += opt_derive_ord + opt_derive_eq
             code += opt_derive_hash
+            code += opt_derive_default
+            code += opt_derive_serde
             code += indent_str + "pub enum " + struct_name + " {\r\n"
 
             for variant in enum:

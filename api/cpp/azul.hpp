@@ -665,7 +665,6 @@ namespace dll {
         bool  profiler_capture;
         bool  force_picture_invalidation;
         DebugState& operator=(const DebugState&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        DebugState(const DebugState&) = delete; /* disable copy constructor, use explicit .clone() */
         DebugState() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
@@ -3422,7 +3421,6 @@ namespace dll {
         uint16_t bit_depth;
         uint16_t refresh_rate;
         VideoMode& operator=(const VideoMode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
-        VideoMode(const VideoMode&) = delete; /* disable copy constructor, use explicit .clone() */
         VideoMode() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     

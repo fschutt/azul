@@ -20,9 +20,13 @@ build = "build.rs"
 links = "azul"
 
 [dependencies]
+serde = { version = "1", optional = true, default-features = false }
+serde_derive = { version = "1", optional = true, default-features = false }
 # azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, features = ["rlib"], optional = true }
 
 [features]
+default = []
+serde-support = ["serde_derive", "serde"]
 docs_rs = []
 
 [package.metadata.docs.rs]

@@ -204,6 +204,7 @@
 // https://spdx.org/licenses/ and replace the license author in the source
 // text in any given license with the name of the author.
 #![no_std]
+#![allow(non_upper_case_globals)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
@@ -212,6 +213,11 @@
 //! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "
 
 extern crate alloc;
+#[cfg(feature = "serde-support")]
+extern crate serde;
+#[cfg(feature = "serde-support")]
+#[macro_use(Serialize, Deserialize)]
+extern crate serde_derive;
 
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
 pub mod prelude {
@@ -378,6 +384,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAppLogLevel {
         Off,
         Error,
@@ -393,6 +400,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzLayoutSolver {
         Default,
     }
@@ -403,6 +411,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzVsync {
         Enabled,
         Disabled,
@@ -415,6 +424,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzSrgb {
         Enabled,
         Disabled,
@@ -427,6 +437,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzHwAcceleration {
         Enabled,
         Disabled,
@@ -439,6 +450,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLayoutPoint {
         pub x: isize,
         pub y: isize,
@@ -450,6 +462,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLayoutSize {
         pub width: isize,
         pub height: isize,
@@ -571,6 +584,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPhysicalPositionI32 {
         pub x: i32,
         pub y: i32,
@@ -582,6 +596,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPhysicalSizeU32 {
         pub width: u32,
         pub height: u32,
@@ -593,6 +608,8 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[derive(Default)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLogicalPosition {
         pub x: f32,
         pub y: f32,
@@ -604,6 +621,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLogicalSize {
         pub width: f32,
         pub height: f32,
@@ -625,6 +643,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzVirtualKeyCode {
         Key1,
         Key2,
@@ -797,6 +816,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzWindowFrame {
         Normal,
         Minimized,
@@ -809,6 +829,8 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzDebugState {
         pub profiler_dbg: bool,
         pub render_target_dbg: bool,
@@ -845,6 +867,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzMouseCursorType {
         Default,
         Crosshair,
@@ -889,6 +912,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzRendererType {
         Hardware,
         Software,
@@ -933,6 +957,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzWindowTheme {
         DarkMode,
         LightMode,
@@ -987,6 +1012,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzUpdateImageType {
         Background,
         Content,
@@ -998,6 +1024,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzUpdate {
         DoNothing,
         RefreshDom,
@@ -1041,6 +1068,8 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAnimationRepeat {
         NoRepeat,
         Loop,
@@ -1052,6 +1081,8 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAnimationRepeatCount {
         Times(usize),
         Infinite,
@@ -1537,6 +1568,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzColorU {
         pub r: u8,
         pub g: u8,
@@ -1550,6 +1582,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzSizeMetric {
         Px,
         Pt,
@@ -1563,6 +1596,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzFloatValue {
         pub number: isize,
     }
@@ -1573,6 +1607,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBoxShadowClipMode {
         Outset,
         Inset,
@@ -1712,6 +1747,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAngleMetric {
         Degree,
         Radians,
@@ -1726,6 +1762,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzDirectionCorner {
         Right,
         Left,
@@ -1743,6 +1780,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzExtendMode {
         Clamp,
         Repeat,
@@ -1754,6 +1792,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzShape {
         Ellipse,
         Circle,
@@ -1777,6 +1816,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzStyleBackgroundRepeat {
         NoRepeat,
         Repeat,
@@ -1790,6 +1830,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBorderStyle {
         None,
         Solid,
@@ -1991,6 +2032,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzNodeGraphStyle {
         Default,
     }
@@ -2084,6 +2126,7 @@ mod dll {
     #[derive(Eq)]
     #[derive(Ord)]
     #[derive(Hash)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzInputOutputTypeId {
         pub inner: u64,
     }
@@ -2097,6 +2140,7 @@ mod dll {
     #[derive(Eq)]
     #[derive(Ord)]
     #[derive(Hash)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeId {
         pub inner: u64,
     }
@@ -2110,6 +2154,7 @@ mod dll {
     #[derive(Eq)]
     #[derive(Ord)]
     #[derive(Hash)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeGraphNodeId {
         pub inner: u64,
     }
@@ -2120,6 +2165,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodePosition {
         pub x: f32,
         pub y: f32,
@@ -2131,6 +2177,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzGraphDragAmount {
         pub x: f32,
         pub y: f32,
@@ -2142,6 +2189,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeDragAmount {
         pub x: f32,
         pub y: f32,
@@ -2513,6 +2561,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgPoint {
         pub x: f32,
         pub y: f32,
@@ -2524,6 +2573,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgRect {
         pub width: f32,
         pub height: f32,
@@ -2541,6 +2591,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgVertex {
         pub x: f32,
         pub y: f32,
@@ -3907,6 +3958,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzRendererOptions {
         pub vsync: AzVsync,
         pub srgb: AzSrgb,
@@ -3919,6 +3971,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLayoutRect {
         pub origin: AzLayoutPoint,
         pub size: AzLayoutSize,
@@ -3948,6 +4001,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLogicalRect {
         pub origin: AzLogicalPosition,
         pub size: AzLogicalSize,
@@ -3959,6 +4013,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAcceleratorKey {
         Ctrl,
         Alt,
@@ -3972,6 +4027,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzWindowFlags {
         pub frame: AzWindowFrame,
         pub is_about_to_close: bool,
@@ -3992,6 +4048,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzCursorPosition {
         OutOfWindow,
         Uninitialized,
@@ -4004,6 +4061,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzWindowPosition {
         Uninitialized,
         Initialized(AzPhysicalPositionI32),
@@ -4015,6 +4073,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzImePosition {
         Uninitialized,
         Initialized(AzLogicalPosition),
@@ -4025,6 +4084,8 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
@@ -4060,6 +4121,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -4199,6 +4261,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPixelValue {
         pub metric: AzSizeMetric,
         pub number: AzFloatValue,
@@ -4210,6 +4273,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPixelValueNoPercent {
         pub inner: AzPixelValue,
     }
@@ -4434,6 +4498,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPercentageValue {
         pub number: AzFloatValue,
     }
@@ -4444,6 +4509,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
@@ -4455,6 +4521,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNormalizedLinearColorStop {
         pub offset: AzPercentageValue,
         pub color: AzColorU,
@@ -4466,6 +4533,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNormalizedRadialColorStop {
         pub offset: AzAngleValue,
         pub color: AzColorU,
@@ -4477,6 +4545,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzDirectionCorners {
         pub from: AzDirectionCorner,
         pub to: AzDirectionCorner,
@@ -4488,6 +4557,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzDirection {
         Angle(AzAngleValue),
         FromTo(AzDirectionCorners),
@@ -4499,6 +4569,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBackgroundPositionHorizontal {
         Left,
         Center,
@@ -4512,6 +4583,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBackgroundPositionVertical {
         Top,
         Center,
@@ -4525,6 +4597,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBackgroundPosition {
         pub horizontal: AzBackgroundPositionHorizontal,
         pub vertical: AzBackgroundPositionVertical,
@@ -4536,6 +4609,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzStyleBackgroundSize {
         ExactSize([AzPixelValue;2]),
         Contain,
@@ -4548,6 +4622,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBorderBottomColor {
         pub inner: AzColorU,
     }
@@ -4558,6 +4633,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBorderBottomLeftRadius {
         pub inner: AzPixelValue,
     }
@@ -4568,6 +4644,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBorderBottomRightRadius {
         pub inner: AzPixelValue,
     }
@@ -6071,6 +6148,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgQuadraticCurve {
         pub start: AzSvgPoint,
         pub ctrl: AzSvgPoint,
@@ -6083,6 +6161,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgCubicCurve {
         pub start: AzSvgPoint,
         pub ctrl_1: AzSvgPoint,
@@ -6880,6 +6959,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzOptionMouseCursorType {
         None,
         Some(AzMouseCursorType),
@@ -6891,6 +6971,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzOptionLogicalSize {
         None,
         Some(AzLogicalSize),
@@ -7096,6 +7177,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -7178,6 +7260,8 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAnimationEasing {
         Ease,
         Linear,
@@ -7626,7 +7710,6 @@ mod dll {
 
     /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)]
-    #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzString {
@@ -7946,6 +8029,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStringPair {
         pub key: AzString,
         pub value: AzString,
@@ -8171,6 +8255,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzNodeTypeFieldValue {
         TextInput(AzString),
         NumberInput(f32),
@@ -8183,6 +8268,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeInfo {
         pub is_root: bool,
         pub name: AzString,
@@ -8195,6 +8281,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzInputOutputInfo {
         pub data_type: AzString,
         pub color: AzColorU,
@@ -8762,6 +8849,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeIdInfoMap {
         pub node_type_id: AzNodeTypeId,
         pub node_type_info: AzNodeTypeInfo,
@@ -8772,6 +8860,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzInputOutputTypeIdInfoMap {
         pub io_type_id: AzInputOutputTypeId,
         pub io_info: AzInputOutputInfo,
@@ -8782,6 +8871,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeField {
         pub key: AzString,
         pub value: AzNodeTypeFieldValue,
@@ -16188,6 +16278,28 @@ pub mod str {
 
     use alloc::string;
 
+    #[cfg(feature = "serde-support")]
+    use serde::{Serialize, Deserialize, Serializer, Deserializer};
+
+    #[cfg(feature = "serde-support")]
+    impl Serialize for crate::str::String {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer,
+        {
+            serializer.serialize_str(self.as_str())
+        }
+    }
+
+    #[cfg(feature = "serde-support")]
+    impl<'de> Deserialize<'de> for crate::str::String {
+        fn deserialize<D>(deserializer: D) -> Result<crate::str::String, D::Error>
+        where D: Deserializer<'de>,
+        {
+            let s = string::String::deserialize(deserializer)?;
+            Ok(s.into())
+        }
+    }
+
 
     impl From<&'static str> for crate::str::String {
         fn from(v: &'static str) -> crate::str::String {
@@ -16204,6 +16316,12 @@ pub mod str {
     impl AsRef<str> for crate::str::String {
         fn as_ref(&self) -> &str {
             self.as_str()
+        }
+    }
+
+    impl core::fmt::Debug for crate::str::String {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            self.as_str().fmt(f)
         }
     }
 
@@ -16432,7 +16550,6 @@ pub mod vec {
         }
     )}
 
-    #[macro_export]
     macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
         impl $struct_name {
             /// NOTE: CLONES the memory if the memory is external or &'static
@@ -16458,6 +16575,30 @@ pub mod vec {
         impl Clone for $struct_name {
             fn clone(&self) -> Self {
                 self.clone_self()
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_serde {($struct_type:ident, $struct_name:ident) => (
+        #[cfg(feature = "serde-support")]
+        use serde::{Serialize, Deserialize, Serializer, Deserializer};
+
+        #[cfg(feature = "serde-support")]
+        impl Serialize for $struct_name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where S: Serializer,
+            {
+                self.as_ref().serialize(serializer)
+            }
+        }
+
+        #[cfg(feature = "serde-support")]
+        impl<'de> Deserialize<'de> for $struct_name {
+            fn deserialize<D>(deserializer: D) -> Result<$struct_name, D::Error>
+            where D: Deserializer<'de>,
+            {
+                let s = Vec::<$struct_type>::deserialize(deserializer)?;
+                Ok(s.into())
             }
         }
     )}
@@ -16572,6 +16713,7 @@ pub mod vec {
     impl_vec_clone!(AzNodeIdNodeMap, AzNodeIdNodeMapVec, AzNodeIdNodeMapVecDestructor);
     impl_vec!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor, az_input_output_type_id_vec_destructor, AzInputOutputTypeIdVec_delete);
     impl_vec_clone!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor);
+    impl_vec_serde!(AzInputOutputTypeId, AzInputOutputTypeIdVec);
     impl_vec!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor, az_node_type_field_vec_destructor, AzNodeTypeFieldVec_delete);
     impl_vec_clone!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor);
     impl_vec!(AzInputConnection, AzInputConnectionVec, AzInputConnectionVecDestructor, az_input_connection_vec_destructor, AzInputConnectionVec_delete);

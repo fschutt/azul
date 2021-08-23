@@ -5033,6 +5033,7 @@ mod test_sizes {
 
     /// Configuration to set which messages should be logged.
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAppLogLevel {
         Off,
         Error,
@@ -5044,12 +5045,14 @@ mod test_sizes {
 
     /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzLayoutSolver {
         Default,
     }
 
     /// Whether the renderer has VSync enabled
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzVsync {
         Enabled,
         Disabled,
@@ -5058,6 +5061,7 @@ mod test_sizes {
 
     /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzSrgb {
         Enabled,
         Disabled,
@@ -5066,6 +5070,7 @@ mod test_sizes {
 
     /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzHwAcceleration {
         Enabled,
         Disabled,
@@ -5074,6 +5079,7 @@ mod test_sizes {
 
     /// Offset in physical pixels (integer units)
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLayoutPoint {
         pub x: isize,
         pub y: isize,
@@ -5081,6 +5087,7 @@ mod test_sizes {
 
     /// Size in physical pixels (integer units)
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLayoutSize {
         pub width: isize,
         pub height: isize,
@@ -5162,6 +5169,7 @@ mod test_sizes {
 
     /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPhysicalPositionI32 {
         pub x: i32,
         pub y: i32,
@@ -5169,6 +5177,7 @@ mod test_sizes {
 
     /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPhysicalSizeU32 {
         pub width: u32,
         pub height: u32,
@@ -5176,6 +5185,8 @@ mod test_sizes {
 
     /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     #[repr(C)]
+    #[derive(Default)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLogicalPosition {
         pub x: f32,
         pub y: f32,
@@ -5183,6 +5194,7 @@ mod test_sizes {
 
     /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLogicalSize {
         pub width: f32,
         pub height: f32,
@@ -5196,6 +5208,7 @@ mod test_sizes {
 
     /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzVirtualKeyCode {
         Key1,
         Key2,
@@ -5364,6 +5377,7 @@ mod test_sizes {
 
     /// State of the window frame (minimized, maximized, fullscreen or normal window)
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzWindowFrame {
         Normal,
         Minimized,
@@ -5373,6 +5387,7 @@ mod test_sizes {
 
     /// Debugging information, will be rendered as an overlay on top of the UI
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzDebugState {
         pub profiler_dbg: bool,
         pub render_target_dbg: bool,
@@ -5405,6 +5420,7 @@ mod test_sizes {
 
     /// Current icon of the mouse cursor
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzMouseCursorType {
         Default,
         Crosshair,
@@ -5445,6 +5461,7 @@ mod test_sizes {
 
     /// Renderer type of the current windows OpenGL context
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzRendererType {
         Hardware,
         Software,
@@ -5473,6 +5490,7 @@ mod test_sizes {
 
     /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzWindowTheme {
         DarkMode,
         LightMode,
@@ -5513,6 +5531,7 @@ mod test_sizes {
 
     /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzUpdateImageType {
         Background,
         Content,
@@ -5520,6 +5539,7 @@ mod test_sizes {
 
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzUpdate {
         DoNothing,
         RefreshDom,
@@ -5549,6 +5569,7 @@ mod test_sizes {
 
     /// How should an animation repeat (loop, ping-pong, etc.)
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAnimationRepeat {
         NoRepeat,
         Loop,
@@ -5557,6 +5578,7 @@ mod test_sizes {
 
     /// How many times should an animation repeat
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAnimationRepeatCount {
         Times(usize),
         Infinite,
@@ -5971,6 +5993,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `ColorU` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzColorU {
         pub r: u8,
         pub g: u8,
@@ -5980,6 +6003,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SizeMetric` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzSizeMetric {
         Px,
         Pt,
@@ -5989,12 +6013,14 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `FloatValue` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzFloatValue {
         pub number: isize,
     }
 
     /// Re-export of rust-allocated (stack based) `BoxShadowClipMode` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBoxShadowClipMode {
         Outset,
         Inset,
@@ -6090,6 +6116,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `AngleMetric` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAngleMetric {
         Degree,
         Radians,
@@ -6100,6 +6127,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzDirectionCorner {
         Right,
         Left,
@@ -6113,6 +6141,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `ExtendMode` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzExtendMode {
         Clamp,
         Repeat,
@@ -6120,6 +6149,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `Shape` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzShape {
         Ellipse,
         Circle,
@@ -6136,6 +6166,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeat` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzStyleBackgroundRepeat {
         NoRepeat,
         Repeat,
@@ -6145,6 +6176,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `BorderStyle` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBorderStyle {
         None,
         Solid,
@@ -6309,6 +6341,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzNodeGraphStyle {
         Default,
     }
@@ -6387,24 +6420,28 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `InputOutputTypeId` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzInputOutputTypeId {
         pub inner: u64,
     }
 
     /// Re-export of rust-allocated (stack based) `NodeTypeId` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeId {
         pub inner: u64,
     }
 
     /// Re-export of rust-allocated (stack based) `NodeGraphNodeId` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeGraphNodeId {
         pub inner: u64,
     }
 
     /// Re-export of rust-allocated (stack based) `NodePosition` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodePosition {
         pub x: f32,
         pub y: f32,
@@ -6412,6 +6449,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `GraphDragAmount` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzGraphDragAmount {
         pub x: f32,
         pub y: f32,
@@ -6419,6 +6457,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NodeDragAmount` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeDragAmount {
         pub x: f32,
         pub y: f32,
@@ -6688,6 +6727,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgPoint` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgPoint {
         pub x: f32,
         pub y: f32,
@@ -6695,6 +6735,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgRect` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgRect {
         pub width: f32,
         pub height: f32,
@@ -6708,6 +6749,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgVertex` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgVertex {
         pub x: f32,
         pub y: f32,
@@ -7794,6 +7836,7 @@ mod test_sizes {
 
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzRendererOptions {
         pub vsync: AzVsync,
         pub srgb: AzSrgb,
@@ -7802,6 +7845,7 @@ mod test_sizes {
 
     /// Represents a rectangle in physical pixels (integer units)
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLayoutRect {
         pub origin: AzLayoutPoint,
         pub size: AzLayoutSize,
@@ -7823,6 +7867,7 @@ mod test_sizes {
 
     /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzLogicalRect {
         pub origin: AzLogicalPosition,
         pub size: AzLogicalSize,
@@ -7830,6 +7875,7 @@ mod test_sizes {
 
     /// Symbolic accelerator key (ctrl, alt, shift)
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAcceleratorKey {
         Ctrl,
         Alt,
@@ -7839,6 +7885,7 @@ mod test_sizes {
 
     /// Boolean flags relating to the current window state
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzWindowFlags {
         pub frame: AzWindowFrame,
         pub is_about_to_close: bool,
@@ -7855,6 +7902,7 @@ mod test_sizes {
 
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzCursorPosition {
         OutOfWindow,
         Uninitialized,
@@ -7863,6 +7911,7 @@ mod test_sizes {
 
     /// Position of the top left corner of the window relative to the top left of the monitor
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzWindowPosition {
         Uninitialized,
         Initialized(AzPhysicalPositionI32),
@@ -7870,6 +7919,7 @@ mod test_sizes {
 
     /// Position of the virtual keyboard necessary to insert CJK characters
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzImePosition {
         Uninitialized,
         Initialized(AzLogicalPosition),
@@ -7877,6 +7927,7 @@ mod test_sizes {
 
     /// Describes a rendering configuration for a monitor
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzVideoMode {
         pub size: AzLayoutSize,
         pub bit_depth: u16,
@@ -7901,6 +7952,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzHidpiAdjustedBounds {
         pub logical_size: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -8005,6 +8057,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `PixelValue` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPixelValue {
         pub metric: AzSizeMetric,
         pub number: AzFloatValue,
@@ -8012,6 +8065,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `PixelValueNoPercent` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPixelValueNoPercent {
         pub inner: AzPixelValue,
     }
@@ -8148,12 +8202,14 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `PercentageValue` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzPercentageValue {
         pub number: AzFloatValue,
     }
 
     /// Re-export of rust-allocated (stack based) `AngleValue` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzAngleValue {
         pub metric: AzAngleMetric,
         pub number: AzFloatValue,
@@ -8161,6 +8217,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNormalizedLinearColorStop {
         pub offset: AzPercentageValue,
         pub color: AzColorU,
@@ -8168,6 +8225,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NormalizedRadialColorStop` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNormalizedRadialColorStop {
         pub offset: AzAngleValue,
         pub color: AzColorU,
@@ -8175,6 +8233,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `DirectionCorners` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzDirectionCorners {
         pub from: AzDirectionCorner,
         pub to: AzDirectionCorner,
@@ -8182,6 +8241,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `Direction` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzDirection {
         Angle(AzAngleValue),
         FromTo(AzDirectionCorners),
@@ -8189,6 +8249,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBackgroundPositionHorizontal {
         Left,
         Center,
@@ -8198,6 +8259,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `BackgroundPositionVertical` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzBackgroundPositionVertical {
         Top,
         Center,
@@ -8207,6 +8269,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `StyleBackgroundPosition` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBackgroundPosition {
         pub horizontal: AzBackgroundPositionHorizontal,
         pub vertical: AzBackgroundPositionVertical,
@@ -8214,6 +8277,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `StyleBackgroundSize` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzStyleBackgroundSize {
         ExactSize([AzPixelValue;2]),
         Contain,
@@ -8222,18 +8286,21 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomColor` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBorderBottomColor {
         pub inner: AzColorU,
     }
 
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadius` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBorderBottomLeftRadius {
         pub inner: AzPixelValue,
     }
 
     /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadius` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStyleBorderBottomRightRadius {
         pub inner: AzPixelValue,
     }
@@ -9292,6 +9359,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgQuadraticCurve {
         pub start: AzSvgPoint,
         pub ctrl: AzSvgPoint,
@@ -9300,6 +9368,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgCubicCurve {
         pub start: AzSvgPoint,
         pub ctrl_1: AzSvgPoint,
@@ -9931,6 +10000,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzOptionMouseCursorType {
         None,
         Some(AzMouseCursorType),
@@ -9938,6 +10008,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzOptionLogicalSize {
         None,
         Some(AzLogicalSize),
@@ -10077,6 +10148,7 @@ mod test_sizes {
 
     /// Minimum / maximum / current size of the window in logical dimensions
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
@@ -10141,6 +10213,7 @@ mod test_sizes {
 
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzAnimationEasing {
         Ease,
         Linear,
@@ -10738,6 +10811,7 @@ mod test_sizes {
 
     /// Key-value pair, used for setting WM hints values specific to GNOME
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzStringPair {
         pub key: AzString,
         pub value: AzString,
@@ -10909,6 +10983,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzNodeTypeFieldValue {
         TextInput(AzString),
         NumberInput(f32),
@@ -10918,6 +10993,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeInfo {
         pub is_root: bool,
         pub name: AzString,
@@ -10927,6 +11003,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `InputOutputInfo` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzInputOutputInfo {
         pub data_type: AzString,
         pub color: AzColorU,
@@ -11398,6 +11475,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NodeTypeIdInfoMap` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeIdInfoMap {
         pub node_type_id: AzNodeTypeId,
         pub node_type_info: AzNodeTypeInfo,
@@ -11405,6 +11483,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `InputOutputTypeIdInfoMap` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzInputOutputTypeIdInfoMap {
         pub io_type_id: AzInputOutputTypeId,
         pub io_info: AzInputOutputInfo,
@@ -11412,6 +11491,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `NodeTypeField` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzNodeTypeField {
         pub key: AzString,
         pub value: AzNodeTypeFieldValue,

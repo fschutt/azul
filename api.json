@@ -81,7 +81,7 @@
                 "AppLogLevel": {
                     "doc": "Configuration to set which messages should be logged.",
                     "external": "azul_impl::resources::AppLogLevel",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Off": {"doc": "No logging"}},
                         {"Error": {"doc": "Log errors"}},
@@ -94,7 +94,7 @@
                 "LayoutSolver": {
                     "external": "azul_impl::resources::LayoutSolverVersion",
                     "doc": "Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Default": {"doc": "Default, current layout solver version"}}
                     ]
@@ -144,7 +144,7 @@
                 "RendererOptions": {
                     "doc": "Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.",
                     "external": "azul_core::window::RendererOptions",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"vsync": {"type": "Vsync", "doc": "Force the renderer to enable VSync. Set this only if your application can't run without VSync."}},
                         {"srgb": {"type": "Srgb", "doc": "Force the renderer to enable SRGB (OpenGL extension). Set this only if your application can't run without correct SRGB handling and color correctness is a priority."}},
@@ -154,7 +154,7 @@
                 "Vsync": {
                     "doc": "Whether the renderer has VSync enabled",
                     "external": "azul_core::window::Vsync",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Enabled": {}},
                         {"Disabled": {}},
@@ -164,7 +164,7 @@
                 "Srgb": {
                     "doc": "Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly",
                     "external": "azul_core::window::Srgb",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Enabled": {}},
                         {"Disabled": {}},
@@ -174,7 +174,7 @@
                 "HwAcceleration": {
                     "doc": "Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly",
                     "external": "azul_core::window::HwAcceleration",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Enabled": {}},
                         {"Disabled": {}},
@@ -184,7 +184,7 @@
                 "LayoutPoint": {
                     "doc": "Offset in physical pixels (integer units)",
                     "external": "azul_impl::css::LayoutPoint",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "isize", "doc": "**Note**: can be negative"}},
                         {"y": {"type": "isize", "doc": "**Note**: can be negative"}}
@@ -193,7 +193,7 @@
                 "LayoutSize": {
                     "doc": "Size in physical pixels (integer units)",
                     "external": "azul_impl::css::LayoutSize",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"width": {"type": "isize", "doc": "**Note**: can be negative"}},
                         {"height": {"type": "isize", "doc": "**Note**: can be negative"}}
@@ -202,7 +202,7 @@
                 "LayoutRect": {
                     "external": "azul_impl::css::LayoutRect",
                     "doc": "Represents a rectangle in physical pixels (integer units)",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"origin": {"type": "LayoutPoint", "doc": "**Note**: can be negative"}},
                         {"size": {"type": "LayoutSize", "doc": "**Note**: can be negative"}}
@@ -311,7 +311,7 @@
                 "PhysicalPositionI32": {
                     "doc": "Same as `LayoutPoint`, but uses `i32` instead of `isize`",
                     "external": "azul_core::window::PhysicalPositionI32",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "i32"}},
                         {"y": {"type": "i32"}}
@@ -320,7 +320,7 @@
                 "PhysicalSizeU32": {
                     "doc": "Same as `LayoutPoint`, but uses `u32` instead of `isize`",
                     "external": "azul_core::window::PhysicalSizeU32",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"width": {"type": "u32"}},
                         {"height": {"type": "u32"}}
@@ -329,7 +329,7 @@
                 "LogicalRect": {
                     "doc": "Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
                     "external": "azul_core::window::LogicalRect",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"origin": {"type": "LogicalPosition"}},
                         {"size": {"type": "LogicalSize"}}
@@ -338,7 +338,7 @@
                 "LogicalPosition": {
                     "doc": "Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.",
                     "external": "azul_core::window::LogicalPosition",
-                    "derive": ["Copy"],
+                    "derive": ["Default", "Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -347,7 +347,7 @@
                 "LogicalSize": {
                     "doc": "A size in \"logical\" (non-HiDPI-adjusted) pixels in floating-point units",
                     "external": "azul_core::window::LogicalSize",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"width": {"type": "f32"}},
                         {"height": {"type": "f32"}}
@@ -396,7 +396,7 @@
                 "VirtualKeyCode": {
                     "doc": "Symbolic name for a keyboard key, does **not** take the keyboard locale into account",
                     "external": "azul_core::window::VirtualKeyCode",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Key1": {}},
                         {"Key2": {}},
@@ -566,7 +566,7 @@
                 "AcceleratorKey": {
                     "doc": "Symbolic accelerator key (ctrl, alt, shift)",
                     "external": "azul_core::window::AcceleratorKey",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Ctrl": {}},
                         {"Alt": {}},
@@ -577,7 +577,7 @@
                 "WindowSize": {
                     "doc": "Minimum / maximum / current size of the window in logical dimensions",
                     "external": "azul_core::window::WindowSize",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"dimensions": {"type": "LogicalSize", "doc": "Current dimensions in logical units"}},
                         {"hidpi_factor": {"type": "f32", "doc": "HiDPI factor that can be overridden by the application"}},
@@ -590,7 +590,7 @@
                 "WindowFlags": {
                     "doc": "Boolean flags relating to the current window state",
                     "external": "azul_core::window::WindowFlags",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"frame": {"type": "WindowFrame", "doc": "Is the window currently minimized, maximized, fullscreened or normal"}},
                         {"is_about_to_close": {"type": "bool", "doc": "Is the window about to close on the next frame? Setting this to true will close the window."}},
@@ -608,7 +608,7 @@
                 "WindowFrame": {
                     "doc": "State of the window frame (minimized, maximized, fullscreen or normal window)",
                     "external": "azul_core::window::WindowFrame",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Normal": {}},
                         {"Minimized": {}},
@@ -619,6 +619,7 @@
                 "DebugState": {
                     "doc": "Debugging information, will be rendered as an overlay on top of the UI",
                     "external": "azul_core::window::DebugState",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"profiler_dbg": {"type": "bool", "doc": "Display the frame profiler on screen"}},
                         {"render_target_dbg": {"type": "bool", "doc": "Display intermediate render targets on screen"}},
@@ -666,7 +667,7 @@
                 "MouseCursorType": {
                     "doc": "Current icon of the mouse cursor",
                     "external": "azul_core::window::MouseCursorType",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Default": {}},
                         {"Crosshair": {}},
@@ -708,7 +709,7 @@
                 "CursorPosition": {
                     "doc": "Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).",
                     "external": "azul_core::window::CursorPosition",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"OutOfWindow": {"doc": "The cursor is out of bound of the window. For security reasons, tracking the cursor is not permitted by the library"}},
                         {"Uninitialized": {"doc": "The cursor position is unknown because the app hasn't yet been started. This is the default value and should generally only be set on startup."}},
@@ -803,7 +804,7 @@
                 "RendererType": {
                     "doc": "Renderer type of the current windows OpenGL context",
                     "external": "azul_core::window::RendererType",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Hardware": {"doc": "Hardware rendering active (OpenGL 3.1 / OpenGL ES 3.0)"}},
                         {"Software": {"doc": "Software OpenGL rendering active (swgl)"}}
@@ -812,6 +813,7 @@
                 "StringPair": {
                     "doc": "Key-value pair, used for setting WM hints values specific to GNOME",
                     "external": "azul_core::window::AzStringPair",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"key": {"type": "String"}},
                         {"value": {"type": "String"}}
@@ -861,7 +863,7 @@
                 "WindowTheme": {
                     "doc": "Window theme, set by the operating system or `WindowCreateOptions.theme` on startup",
                     "external": "azul_core::window::WindowTheme",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"DarkMode": {"doc": "Dark mode theme"}},
                         {"LightMode": {"doc": "Light mode theme (default)"}}
@@ -870,7 +872,7 @@
                 "WindowPosition": {
                     "doc": "Position of the top left corner of the window relative to the top left of the monitor",
                     "external": "azul_core::window::WindowPosition",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Uninitialized": {"doc": "Window position has not been initialized yet (default, only set on startup)"}},
                         {"Initialized": {"type": "PhysicalPositionI32", "doc": "Initialized window position: modifying this value will move the window"}}
@@ -879,7 +881,7 @@
                 "ImePosition": {
                     "doc": "Position of the virtual keyboard necessary to insert CJK characters",
                     "external": "azul_core::window::ImePosition",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Uninitialized": {}},
                         {"Initialized": {"type": "LogicalPosition"}}
@@ -909,6 +911,7 @@
                 "VideoMode": {
                     "doc": "Describes a rendering configuration for a monitor",
                     "external": "azul_core::window::VideoMode",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"size": {"type": "LayoutSize", "doc": "Screen resolution in pixels"}},
                         {"bit_depth": {"type": "u16", "doc": "Returns the bit depth of this video mode, as in how many bits you have available per color. This is generally 24 bits or 32 bits on modern systems, depending on whether the alpha channel is counted or not.\r\nWayland: always returns 32.\r\niOS: always returns 32."}},
@@ -1490,7 +1493,7 @@
                 "UpdateImageType": {
                     "doc": "Which type of image should be updated: background image (the CSS background) or content image (the <img src=\"\"> content)",
                     "external": "azul_impl::callbacks::UpdateImageType",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Background": {"doc": "Update the background image"}},
                         {"Content": {"doc": "Update the <img> content of the DOM node"}}
@@ -1499,7 +1502,7 @@
                 "Update": {
                     "doc": "Specifies if the screen should be updated after the callback function has returned",
                     "external": "azul_impl::callbacks::Update",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"DoNothing": {"doc": "The screen does not need to redraw after the callback has been called"}},
                         {"RefreshDom": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
@@ -1574,7 +1577,7 @@
                 },
                 "HidpiAdjustedBounds": {
                     "external": "azul_impl::callbacks::HidpiAdjustedBounds",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"logical_size": {"type": "LogicalSize"}},
                         {"hidpi_factor": {"type": "f32"}}
@@ -1729,6 +1732,7 @@
                 "AnimationRepeat": {
                     "doc": "How should an animation repeat (loop, ping-pong, etc.)",
                     "external": "azul_impl::callbacks::AnimationRepeat",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"NoRepeat": {"doc": "Terminate the animation after the first iteration"}},
                         {"Loop": {"doc": "Loop animation, reset the animation on every iteration"}},
@@ -1738,6 +1742,7 @@
                 "AnimationRepeatCount": {
                     "doc": "How many times should an animation repeat",
                     "external": "azul_impl::callbacks::AnimationRepeatCount",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Times": {"type": "usize"}},
                         {"Infinite": {}}
@@ -1746,6 +1751,7 @@
                 "AnimationEasing": {
                     "doc": "Easing function of the animation (ease-in, ease-out, ease-in-out, custom)",
                     "external": "azul_impl::css::AnimationInterpolationFunction",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Ease": {}},
                         {"Linear": {}},
@@ -3595,7 +3601,7 @@
                 },
                 "ColorU": {
                     "external": "azul_impl::css::ColorU",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"r": {"type": "u8"}},
                         {"g": {"type": "u8"}},
@@ -3634,7 +3640,7 @@
                 },
                 "SizeMetric": {
                     "external": "azul_impl::css::SizeMetric",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Px": {}},
                         {"Pt": {}},
@@ -3644,14 +3650,14 @@
                 },
                 "FloatValue": {
                     "external": "azul_impl::css::FloatValue",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"number": {"type": "isize"}}
                     ]
                 },
                 "PixelValue": {
                     "external": "azul_impl::css::PixelValue",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"metric": {"type": "SizeMetric"}},
                         {"number": {"type": "FloatValue"}}
@@ -3659,14 +3665,14 @@
                 },
                 "PixelValueNoPercent": {
                     "external": "azul_impl::css::PixelValueNoPercent",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "PixelValue"}}
                     ]
                 },
                 "BoxShadowClipMode": {
                     "external": "azul_impl::css::BoxShadowClipMode",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Outset": {}},
                         {"Inset": {}}
@@ -3923,21 +3929,21 @@
                 },
                 "FloatValue": {
                     "external": "azul_impl::css::FloatValue",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         { "number": {"type": "isize" }}
                     ]
                 },
                 "PercentageValue": {
                     "external": "azul_impl::css::PercentageValue",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         { "number": {"type": "FloatValue" }}
                     ]
                 },
                 "AngleMetric": {
                     "external": "azul_impl::css::AngleMetric",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Degree": {}},
                         {"Radians": {}},
@@ -3948,7 +3954,7 @@
                 },
                 "AngleValue": {
                     "external": "azul_impl::css::AngleValue",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         { "metric": {"type": "AngleMetric" }},
                         { "number": {"type": "FloatValue" }}
@@ -3956,7 +3962,7 @@
                 },
                 "NormalizedLinearColorStop": {
                     "external": "azul_impl::css::NormalizedLinearColorStop",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"offset": {"type": "PercentageValue"}},
                         {"color": {"type": "ColorU"}}
@@ -3964,7 +3970,7 @@
                 },
                 "NormalizedRadialColorStop": {
                     "external": "azul_impl::css::NormalizedRadialColorStop",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"offset": {"type": "AngleValue"}},
                         {"color": {"type": "ColorU"}}
@@ -3972,7 +3978,7 @@
                 },
                 "DirectionCorner": {
                     "external": "azul_impl::css::DirectionCorner",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Right": {}},
                         {"Left": {}},
@@ -3986,7 +3992,7 @@
                 },
                 "DirectionCorners": {
                     "external": "azul_impl::css::DirectionCorners",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"from": {"type": "DirectionCorner"}},
                         {"to": {"type": "DirectionCorner"}}
@@ -3994,7 +4000,7 @@
                 },
                 "Direction": {
                     "external": "azul_impl::css::Direction",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Angle": {"type": "AngleValue"}},
                         {"FromTo": {"type": "DirectionCorners"}}
@@ -4002,7 +4008,7 @@
                 },
                 "ExtendMode": {
                     "external": "azul_impl::css::ExtendMode",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Clamp": {}},
                         {"Repeat": {}}
@@ -4018,7 +4024,7 @@
                 },
                 "Shape": {
                     "external": "azul_impl::css::Shape",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Ellipse": {}},
                         {"Circle": {}}
@@ -4064,7 +4070,7 @@
                 },
                 "BackgroundPositionHorizontal": {
                     "external": "azul_impl::css::BackgroundPositionHorizontal",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Left": {}},
                         {"Center": {}},
@@ -4074,7 +4080,7 @@
                 },
                 "BackgroundPositionVertical": {
                     "external": "azul_impl::css::BackgroundPositionVertical",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Top": {}},
                         {"Center": {}},
@@ -4084,7 +4090,7 @@
                 },
                 "StyleBackgroundPosition": {
                     "external": "azul_impl::css::StyleBackgroundPosition",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"horizontal": {"type": "BackgroundPositionHorizontal"}},
                         {"vertical": {"type": "BackgroundPositionVertical"}}
@@ -4092,7 +4098,7 @@
                 },
                 "StyleBackgroundRepeat": {
                     "external": "azul_impl::css::StyleBackgroundRepeat",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"NoRepeat": {}},
                         {"Repeat": {}},
@@ -4102,7 +4108,7 @@
                 },
                 "StyleBackgroundSize": {
                     "external": "azul_impl::css::StyleBackgroundSize",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"ExactSize": {"type": "[PixelValue;2]"}},
                         {"Contain": {}},
@@ -4111,28 +4117,28 @@
                 },
                 "StyleBorderBottomColor": {
                     "external": "azul_impl::css::StyleBorderBottomColor",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "ColorU"}}
                     ]
                 },
                 "StyleBorderBottomLeftRadius": {
                     "external": "azul_impl::css::StyleBorderBottomLeftRadius",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "PixelValue"}}
                     ]
                 },
                 "StyleBorderBottomRightRadius": {
                     "external": "azul_impl::css::StyleBorderBottomRightRadius",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "PixelValue"}}
                     ]
                 },
                 "BorderStyle": {
                     "external": "azul_impl::css::BorderStyle",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"None": {}},
                         {"Solid": {}},
@@ -6222,6 +6228,7 @@
                 },
                 "NodeTypeIdInfoMap": {
                     "external": "crate::widgets::node_graph::NodeTypeIdInfoMap",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"node_type_id": {"type": "NodeTypeId" }},
                         {"node_type_info": {"type": "NodeTypeInfo" }}
@@ -6229,6 +6236,7 @@
                 },
                 "InputOutputTypeIdInfoMap": {
                     "external": "crate::widgets::node_graph::InputOutputTypeIdInfoMap",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"io_type_id": {"type": "InputOutputTypeId" }},
                         {"io_info": {"type": "InputOutputInfo" }}
@@ -6243,6 +6251,7 @@
                 },
                 "NodeGraphStyle": {
                     "external": "crate::widgets::node_graph::NodeGraphStyle",
+                    "derive": ["Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Default": {}}
                     ]
@@ -6457,21 +6466,21 @@
                 },
                 "InputOutputTypeId": {
                     "external": "crate::widgets::node_graph::InputOutputTypeId",
-                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash"],
+                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
                 },
                 "NodeTypeId": {
                     "external": "crate::widgets::node_graph::NodeTypeId",
-                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash"],
+                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
                 },
                 "NodeGraphNodeId": {
                     "external": "crate::widgets::node_graph::NodeGraphNodeId",
-                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash"],
+                    "derive": ["Copy", "Clone", "PartialEq", "PartialOrd", "Ord", "Eq", "Hash", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"inner": {"type": "u64"}}
                     ]
@@ -6488,6 +6497,7 @@
                 },
                 "NodeTypeField": {
                     "external": "crate::widgets::node_graph::NodeTypeField",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"key": {"type": "String"}},
                         {"value": {"type": "NodeTypeFieldValue"}}
@@ -6495,6 +6505,7 @@
                 },
                 "NodeTypeFieldValue": {
                     "external": "crate::widgets::node_graph::NodeTypeFieldValue",
+                    "derive": ["Serialize", "Deserialize"],
                     "enum_fields": [
                         {"TextInput": {"type": "String"}},
                         {"NumberInput": {"type": "f32"}},
@@ -6532,6 +6543,7 @@
                 },
                 "NodeTypeInfo": {
                     "external": "crate::widgets::node_graph::NodeTypeInfo",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"is_root": {"type": "bool"}},
                         {"name": {"type": "String"}},
@@ -6541,6 +6553,7 @@
                 },
                 "InputOutputInfo": {
                     "external": "crate::widgets::node_graph::InputOutputInfo",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"data_type": {"type": "String"}},
                         {"color": {"type": "ColorU"}}
@@ -6548,7 +6561,7 @@
                 },
                 "NodePosition": {
                     "external": "crate::widgets::node_graph::NodePosition",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -6556,7 +6569,7 @@
                 },
                 "GraphDragAmount": {
                     "external": "crate::widgets::node_graph::GraphDragAmount",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -6564,7 +6577,7 @@
                 },
                 "NodeDragAmount": {
                     "external": "crate::widgets::node_graph::NodeDragAmount",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -11285,7 +11298,7 @@
                 },
                 "SvgPoint": {
                     "external": "azul_impl::svg::SvgPoint",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -11293,7 +11306,7 @@
                 },
                 "SvgQuadraticCurve": {
                     "external": "azul_impl::svg::SvgQuadraticCurve",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"start": {"type": "SvgPoint"}},
                         {"ctrl": {"type": "SvgPoint"}},
@@ -11302,7 +11315,7 @@
                 },
                 "SvgCubicCurve": {
                     "external": "azul_impl::svg::SvgCubicCurve",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"start": {"type": "SvgPoint"}},
                         {"ctrl_1": {"type": "SvgPoint"}},
@@ -11312,7 +11325,7 @@
                 },
                 "SvgRect": {
                     "external": "azul_impl::svg::SvgRect",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"width": {"type": "f32"}},
                         {"height": {"type": "f32"}},
@@ -11344,7 +11357,7 @@
                 },
                 "SvgVertex": {
                     "external": "azul_impl::svg::SvgVertex",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
@@ -14615,7 +14628,7 @@
                 },
                 "OptionMouseCursorType": {
                     "external": "azul_core::window::OptionMouseCursorType",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "MouseCursorType" }}
@@ -14623,7 +14636,7 @@
                 },
                 "OptionLogicalSize": {
                     "external": "azul_core::window::OptionLogicalSize",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "LogicalSize" }}

@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(non_upper_case_globals)]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
@@ -7,6 +8,11 @@
 //! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "
 
 extern crate alloc;
+#[cfg(feature = "serde-support")]
+extern crate serde;
+#[cfg(feature = "serde-support")]
+#[macro_use(Serialize, Deserialize)]
+extern crate serde_derive;
 
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
 pub mod prelude {

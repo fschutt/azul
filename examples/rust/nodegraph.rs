@@ -352,7 +352,7 @@ fn userfunc_on_node_connected(
         None => return Update::DoNothing,
     };
 
-    nodegraph.nodes.get_mut(&input_node_id).unwrap().connect_in
+    nodegraph.nodes.get_mut(&input_node_id).unwrap().connect_out
         .entry(input_index)
         .or_insert_with(|| BTreeMap::new())
         .insert(output_node_id, output_index);

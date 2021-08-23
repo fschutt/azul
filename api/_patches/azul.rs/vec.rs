@@ -174,7 +174,6 @@
         }
     )}
 
-    #[macro_export]
     macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
         impl $struct_name {
             /// NOTE: CLONES the memory if the memory is external or &'static
@@ -200,6 +199,30 @@
         impl Clone for $struct_name {
             fn clone(&self) -> Self {
                 self.clone_self()
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_serde {($struct_type:ident, $struct_name:ident) => (
+        #[cfg(feature = "serde-support")]
+        use serde::{Serialize, Deserialize, Serializer, Deserializer};
+
+        #[cfg(feature = "serde-support")]
+        impl Serialize for $struct_name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where S: Serializer,
+            {
+                self.as_ref().serialize(serializer)
+            }
+        }
+
+        #[cfg(feature = "serde-support")]
+        impl<'de> Deserialize<'de> for $struct_name {
+            fn deserialize<D>(deserializer: D) -> Result<$struct_name, D::Error>
+            where D: Deserializer<'de>,
+            {
+                let s = Vec::<$struct_type>::deserialize(deserializer)?;
+                Ok(s.into())
             }
         }
     )}
@@ -314,6 +337,7 @@
     impl_vec_clone!(AzNodeIdNodeMap, AzNodeIdNodeMapVec, AzNodeIdNodeMapVecDestructor);
     impl_vec!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor, az_input_output_type_id_vec_destructor, AzInputOutputTypeIdVec_delete);
     impl_vec_clone!(AzInputOutputTypeId, AzInputOutputTypeIdVec, AzInputOutputTypeIdVecDestructor);
+    impl_vec_serde!(AzInputOutputTypeId, AzInputOutputTypeIdVec);
     impl_vec!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor, az_node_type_field_vec_destructor, AzNodeTypeFieldVec_delete);
     impl_vec_clone!(AzNodeTypeField, AzNodeTypeFieldVec, AzNodeTypeFieldVecDestructor);
     impl_vec!(AzInputConnection, AzInputConnectionVec, AzInputConnectionVecDestructor, az_input_connection_vec_destructor, AzInputConnectionVec_delete);
