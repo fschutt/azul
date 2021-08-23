@@ -3989,17 +3989,14 @@ fn process_threads(
         });
 
         let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
-        println!("calling run_all_threads...");
-        let r = window.internal.run_all_threads(
+        window.internal.run_all_threads(
             data,
             &window_handle,
             &window.gl_context_ptr,
             image_cache,
             fc_cache,
             &config.system_callbacks,
-        );
-        println!("run_all_threads called! result = {:#?}", r);
-        r
+        )
     });
 
     return process_callback_results(

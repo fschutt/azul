@@ -66,21 +66,22 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
 
     use self::ConnectionStatus::*;
 
-    let mut body = Dom::body();
-    /*
+    let mut body = Dom::body()
     .with_inline_style("
         font-family: sans-serif;
         align-items: center;
         justify-content: center;
+        flex-direction: row;
     ".into());
-*/
+
     let mut data_clone = data.clone();
     let downcasted = match data.downcast_ref::<MyDataModel>() {
         Some(f) => f,
         None => return body.style(Css::empty()), // error
     };
 
-    body.add_child(match &downcasted.connection_status {
+    body.add_child(Dom::div().with_inline_style("flex-direction: column; align-items: center; justify-content: center;".into())
+    .with_children(vec![match &downcasted.connection_status {
         NotConnected { database } => {
             Dom::div()
             .with_children(vec![
@@ -166,7 +167,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
                 reset_btn,
             ].into())
         },
-    });
+    }.with_inline_style("max-width: 350px; display:block;".into())].into()));
 
     body.style(Css::empty())
 }
@@ -299,8 +300,6 @@ extern "C" fn writeback_callback(app_data: &mut RefAny, incoming_data: &mut RefA
         None => return Update::DoNothing,
     };
 
-    println!("got writeback data: {:#?}, {:?}", &*incoming_data, data_mut.connection_status);
-
     match &mut *incoming_data {
         StatusUpdated { new } => {
             match &mut data_mut.connection_status {
@@ -390,6 +389,8 @@ extern "C" fn background_thread(
             }));
         }
     }
+
+    println!("all rows sent!");
 
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         data: RefAny::new(StatusUpdated {

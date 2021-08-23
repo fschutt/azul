@@ -1257,7 +1257,6 @@ impl WindowInternal {
             );
             let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
 
-            println!("locking thread...");
             let thread = &mut *match thread.ptr.lock().ok() {
                 Some(s) => s,
                 None => {
@@ -1266,17 +1265,13 @@ impl WindowInternal {
                 },
             };
 
-            println!("sending tick...");
             let _ = thread.sender_send(ThreadSendMsg::Tick);
-            println!("get recv...");
             let update = thread.receiver_try_recv();
-            println!("update = {:#?}", update);
             let msg = match update {
                 OptionThreadReceiveMsg::None => continue,
                 OptionThreadReceiveMsg::Some(s) => s,
             };
 
-            println!("msg = {:#?}", msg);
             let ThreadWriteBackMsg { mut data, callback } = match msg {
                 ThreadReceiveMsg::Update(update_screen) => {
                     ret.callbacks_update_screen.max_self(update_screen);
@@ -1284,8 +1279,6 @@ impl WindowInternal {
                 },
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
-
-            println!("WriteBack = {:#?}, {:?}", data, callback);
 
             let mut callback_info = CallbackInfo::new(
                 &layout_result.styled_dom.css_property_cache.ptr,
@@ -1323,9 +1316,7 @@ impl WindowInternal {
                 cursor_in_viewport,
             );
 
-            println!("invoking callback...");
             let callback_update = (callback.cb)(&mut thread.writeback_data, &mut data, &mut callback_info);
-            println!("callback invoked!");
             ret.callbacks_update_screen.max_self(callback_update);
 
             if thread.is_finished() {
