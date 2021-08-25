@@ -1515,6 +1515,15 @@ impl Dom {
     #[inline(always)]
     pub fn with_inline_css_props(mut self, inline_css_props: NodeDataInlineCssPropertyVec) -> Self { self.root.inline_css_props = inline_css_props; self }
 
+    pub fn set_inline_style(&mut self, style: &str) {
+        self.root.set_inline_css_props(self.root.get_inline_css_props().with_append(NodeDataInlineCssPropertyVec::parse_normal(style)))
+    }
+
+    pub fn with_inline_style(mut self, style: &str) -> Self {
+        self.set_inline_style(style);
+        self
+    }
+
     #[inline]
     pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
         self.root.set_context_menu(context_menu);

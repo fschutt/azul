@@ -7,6 +7,7 @@ use azul::prelude::String as AzString;
 use std::string::String;
 
 // Custom node graph data model
+#[derive(Debug)]
 struct MyNodeGraph {
     node_types: BTreeMap<NodeTypeId, NodeTypeInfo>,
     input_output_types: BTreeMap<InputOutputTypeId, InputOutputInfo>,
@@ -64,6 +65,7 @@ impl MyNodeGraph {
     }
 }
 
+#[derive(Debug)]
 struct MyNode {
     node_type: NodeTypeId,
     position: NodePosition,
@@ -85,6 +87,7 @@ impl MyNode {
 }
 
 // Custom node type
+#[derive(Debug)]
 enum MyNodeType {
     MyTypeVariant1 {
         textfield1: String,
@@ -347,17 +350,18 @@ fn userfunc_on_node_connected(
     output_node_id: NodeGraphNodeId,
     output_index: usize,
 ) -> Update {
+
     let mut nodegraph = match data.downcast_mut::<MyNodeGraph>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    nodegraph.nodes.get_mut(&input_node_id).unwrap().connect_out
+    nodegraph.nodes.get_mut(&input_node_id).unwrap().connect_in
         .entry(input_index)
         .or_insert_with(|| BTreeMap::new())
         .insert(output_node_id, output_index);
 
-    nodegraph.nodes.get_mut(&output_node_id).unwrap().connect_in
+    nodegraph.nodes.get_mut(&output_node_id).unwrap().connect_out
         .entry(output_index)
         .or_insert_with(|| BTreeMap::new())
         .insert(input_node_id, input_index);

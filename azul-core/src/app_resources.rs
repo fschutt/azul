@@ -15,7 +15,7 @@ use azul_css::{
 use crate::{
     FastHashMap, FastBTreeSet,
     display_list::GlStoreImageFn,
-    callbacks::{RenderImageCallback, RefAny, DomNodeId},
+    callbacks::{RenderImageCallback, RenderImageCallbackType, RefAny, DomNodeId},
     ui_solver::{InlineTextLine, ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::{GlyphInstance, RenderCallbacks},
     styled_dom::{
@@ -385,8 +385,8 @@ impl ImageRef {
         Self::new(DecodedImage::NullImage { width, height, format })
     }
 
-    pub fn callback(gl_callback: RenderImageCallback, data: RefAny) -> Self {
-        Self::new(DecodedImage::Callback(ImageCallback { callback: gl_callback, data }))
+    pub fn callback(gl_callback: RenderImageCallbackType, data: RefAny) -> Self {
+        Self::new(DecodedImage::Callback(ImageCallback { callback: RenderImageCallback { cb: gl_callback }, data }))
     }
 
     pub fn new_rawimage(image_data: RawImage) -> Option<Self> {

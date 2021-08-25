@@ -123,9 +123,7 @@ fn svg_multipolygon_to_lyon_path(polygon: &SvgMultiPolygon) -> Path {
             }
         }
 
-        if p.is_closed() {
-            builder.close();
-        }
+        builder.end(p.is_closed());
     }
 
     builder.build()
@@ -164,9 +162,8 @@ fn svg_path_to_lyon_path_events(path: &SvgPath) -> Path {
             }
         }
 
-        if path.is_closed() {
-            builder.close();
-        }
+
+        builder.end(path.is_closed());
     }
 
     builder.build()

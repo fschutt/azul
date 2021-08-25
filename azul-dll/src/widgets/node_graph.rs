@@ -11,11 +11,21 @@ use azul_desktop::dom::{
     NodeDataInlineCssProperty::{Normal, Hover},
     DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec,
 };
+use azul_desktop::gl::Texture;
+use azul_desktop::app::extra::coloru_from_str;
+use azul_core::svg::{
+    SvgPathElement, SvgLine, SvgPath,
+    SvgStrokeStyle, TessellatedGPUSvgNode
+};
 use azul_desktop::callbacks::{
     Update, RefAny, CallbackInfo, Callback,
+    RenderImageCallbackInfo,
+};
+use azul_core::app_resources::{
+    ImageRef, RawImageFormat
 };
 use azul_core::window::{
-    LogicalSize, LogicalPosition, LogicalRect,
+    LogicalSize, LogicalPosition, LogicalRect, PhysicalSizeU32,
     CursorPosition::InWindow, Menu, MenuItem, StringMenuItem,
 };
 
@@ -357,6 +367,8 @@ impl NodeGraph {
         output_node_id: NodeGraphNodeId,
         output_index: usize,
     ) -> Result<(), NodeGraphError> {
+
+        println!("connecting output node id {}:{} with input node id {}:{}", output_node_id.inner, output_index, input_node_id.inner, input_index);
 
         // Verify that the node type of the connection matches
         let _ = self.verify_nodetype_match(
@@ -728,7 +740,7 @@ struct NodeFieldLocalDataset {
     backref: RefAny, // RefAny<NodeLocalDataset>
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct ConnectionLocalDataset {
     out_node_id: NodeGraphNodeId,
     out_idx: usize,
@@ -2395,10 +2407,11 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
 
                     // let connection_background = draw_connection(rect.width, rect.height, connection_dot_height);
 
-                    let connection_div = Dom::div()
-                        .with_dataset(Some(RefAny::new(cld)).into())
+                    let cld_refany = RefAny::new(cld);
+                    let connection_div = Dom::image(ImageRef::callback(draw_connection, cld_refany.clone()))
+                        .with_dataset(Some(cld_refany).into())
                         .with_inline_css_props(vec![
-                            Normal(CssProperty::position(LayoutPosition::Absolute)),
+                            // Normal(CssProperty::position(LayoutPosition::Absolute)),
                             NodeDataInlineCssProperty::Normal(CssProperty::Transform(
                                 StyleTransformVecValue::Exact(vec![
                                 StyleTransform::Translate(StyleTransformTranslate2D {
@@ -2406,28 +2419,107 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                                     y: PixelValue::px(node_graph.offset.y + rect.origin.y),
                                 })].into())
                             )),
+
+                            NodeDataInlineCssProperty::Normal(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
+                                LayoutMinWidth { inner: PixelValue::px(rect.size.width) },
+                            ))),
+                            NodeDataInlineCssProperty::Normal(CssProperty::MinHeight(LayoutMinHeightValue::Exact(
+                                LayoutMinHeight { inner: PixelValue::px(rect.size.height) },
+                            ))),
+                            NodeDataInlineCssProperty::Normal(CssProperty::MaxWidth(LayoutMaxWidthValue::Exact(
+                                LayoutMaxWidth { inner: PixelValue::px(rect.size.width) },
+                            ))),
+                            NodeDataInlineCssProperty::Normal(CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
+                                LayoutMaxHeight { inner: PixelValue::px(rect.size.height) },
+                            ))),
+
                             NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
                                 LayoutWidth { inner: PixelValue::px(rect.size.width) },
                             ))),
                             NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
                                 LayoutHeight { inner: PixelValue::px(rect.size.height) },
                             ))),
-
-                            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
-                                StyleBackgroundContentVecValue::Exact(
-                                    BACKGROUND_COLOR_RED // ImageRef::new(connection_background)
-                                ),
-                            )),
-
                         ].into());
 
-                    children.push(connection_div);
+                    children.push(
+                        Dom::div()
+                        .with_inline_style("flex-grow: 1; position: absolute; overflow: hidden;")
+                        .with_children(vec![connection_div].into())
+                    );
                 }
              }
         }
 
         children.into()
     })
+}
+
+extern "C"
+fn draw_connection(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
+
+    let size = info.get_bounds().get_physical_size();
+    let invalid = ImageRef::invalid(
+        size.width as usize,
+        size.height as usize,
+        RawImageFormat::R8,
+    );
+
+    match draw_connection_inner(data, info, size) {
+        Some(s) => s,
+        None => invalid,
+    }
+}
+
+fn draw_connection_inner(
+    data: &mut RefAny,
+    info: &mut RenderImageCallbackInfo,
+    texture_size: PhysicalSizeU32,
+) -> Option<ImageRef> {
+
+    use azul_desktop::svg::{
+        tessellate_path_stroke,
+        tessellate_multi_polygon_stroke,
+    };
+    use azul_core::svg::SvgMultiPolygon;
+
+    let mut data = data.downcast_mut::<ConnectionLocalDataset>()?;
+    let mut data = &mut *data;
+
+    let gl_context = info.get_gl_context().into_option()?;
+
+    let mut texture = Texture::allocate_rgba8(
+        gl_context.clone(),
+        texture_size,
+        coloru_from_str("#00ff00"),
+    );
+
+    texture.clear();
+
+    let mut stroke_style = SvgStrokeStyle::default();
+    stroke_style.line_width = 4.0;
+
+    let tessellated_stroke = tessellate_path_stroke(&SvgPath {
+        items: vec![
+            SvgPathElement::Line(SvgLine {
+                start: SvgPoint { x: 0.0, y: -(texture_size.height as f32) },
+                end: SvgPoint { x: texture_size.width as f32, y: 0.0 },
+            })
+        ].into()
+    }, stroke_style);
+
+    let tesselated_gpu_buffer = TessellatedGPUSvgNode::new(
+        &tessellated_stroke,
+        gl_context.clone(),
+    );
+
+    tesselated_gpu_buffer.draw(
+        &mut texture,
+        texture_size,
+        coloru_from_str("#ff0000"),
+        Vec::new().into()
+    );
+
+    Some(ImageRef::new_gltexture(texture))
 }
 
 // calculates the rect on which the connection is drawn in the UI
@@ -2627,7 +2719,12 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
 
         first_connection_child = info.get_next_sibling(connection_nodeid);
 
-        let mut dataset = match info.get_dataset(connection_nodeid) {
+        let first_child = match info.get_first_child(connection_nodeid) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let mut dataset = match info.get_dataset(first_child) {
             Some(s) => s,
             None => continue,
         };
@@ -2646,19 +2743,30 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
             None => continue,
         };
 
-        info.set_css_property(connection_nodeid, CssProperty::transform(vec![
+        info.set_css_property(first_child, CssProperty::transform(vec![
             StyleTransform::Translate(StyleTransformTranslate2D {
                 x: PixelValue::px(backref.node_graph.offset.x + new_rect.origin.x),
                 y: PixelValue::px(backref.node_graph.offset.y + new_rect.origin.y),
             })
         ].into()));
 
-        info.set_css_property(connection_nodeid, CssProperty::Width(LayoutWidthValue::Exact(
+        info.set_css_property(first_child, CssProperty::Width(LayoutWidthValue::Exact(
             LayoutWidth { inner: PixelValue::px(new_rect.size.width) },
         )));
-
-        info.set_css_property(connection_nodeid, CssProperty::Height(LayoutHeightValue::Exact(
+        info.set_css_property(first_child, CssProperty::Height(LayoutHeightValue::Exact(
             LayoutHeight { inner: PixelValue::px(new_rect.size.height) },
+        )));
+        info.set_css_property(first_child, CssProperty::MinWidth(LayoutMinWidthValue::Exact(
+            LayoutMinWidth { inner: PixelValue::px(new_rect.size.width) },
+        )));
+        info.set_css_property(first_child, CssProperty::MinHeight(LayoutMinHeightValue::Exact(
+            LayoutMinHeight { inner: PixelValue::px(new_rect.size.height) },
+        )));
+        info.set_css_property(first_child, CssProperty::MaxWidth(LayoutMaxWidthValue::Exact(
+            LayoutMaxWidth { inner: PixelValue::px(new_rect.size.width) },
+        )));
+        info.set_css_property(first_child, CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
+            LayoutMaxHeight { inner: PixelValue::px(new_rect.size.height) },
         )));
 
         /*
@@ -2774,6 +2882,16 @@ extern "C" fn nodegraph_input_output_connect(data: &mut RefAny, info: &mut Callb
                 }
             }
         };
+
+    // verify that the nodetype matches
+    match backref.node_graph.connect_input_output(input_node, input_index, output_node, output_index) {
+        Ok(_) => { }
+        Err(e) => {
+            eprintln!("{:?}", e);
+            backref.last_input_or_output_clicked = None;
+            return Update::DoNothing;
+        }
+    }
 
     let result = match backref.callbacks.on_node_connected.as_mut() {
         Some(OnNodeConnected { callback, data }) => {

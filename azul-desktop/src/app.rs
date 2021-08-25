@@ -308,6 +308,11 @@ pub mod extra {
     use azul_core::dom::{Dom, NodeType};
     use azul_core::styled_dom::StyledDom;
     use azul_css::Css;
+    use azul_css::ColorU;
+
+    pub fn coloru_from_str(s: &str) -> ColorU {
+        azul_css_parser::parse_css_color(s).ok().unwrap_or(ColorU::BLACK)
+    }
 
     // extra functions that can't be implemented in azul_core
     #[cfg(not(feature = "xml"))]

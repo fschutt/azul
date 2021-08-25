@@ -10754,7 +10754,7 @@
                                 {"data": "RefAny"},
                                 {"callback": "RenderImageCallbackType"}
                             ],
-                            "fn_body": "AzImageRef::callback(AzRenderImageCallback { cb: callback }, data)"
+                            "fn_body": "AzImageRef::callback(callback, data)"
                         }
                     },
                     "functions": {

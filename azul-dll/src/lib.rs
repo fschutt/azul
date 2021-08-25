@@ -3102,7 +3102,7 @@ pub use AzImageRefTT as AzImageRef;
 /// Creates an image reference from an OpenGL texture
 #[no_mangle] pub extern "C" fn AzImageRef_glTexture(texture: AzTexture) -> AzImageRef { AzImageRef::new_gltexture(texture) }
 /// Creates an image reference from a callback that is going to be rendered with the given nodes computed size
-#[no_mangle] pub extern "C" fn AzImageRef_callback(data: AzRefAny, callback: AzRenderImageCallbackType) -> AzImageRef { AzImageRef::callback(AzRenderImageCallback { cb: callback }, data) }
+#[no_mangle] pub extern "C" fn AzImageRef_callback(data: AzRefAny, callback: AzRenderImageCallbackType) -> AzImageRef { AzImageRef::callback(callback, data) }
 /// Creates a new copy of the image bytes instead of shallow-copying the reference
 #[no_mangle] pub extern "C" fn AzImageRef_cloneBytes(imageref: &AzImageRef) -> AzImageRef { imageref.deep_copy() }
 /// Returns whether the image is a null (invalid) image
