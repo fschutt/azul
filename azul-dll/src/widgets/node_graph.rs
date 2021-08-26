@@ -2601,6 +2601,17 @@ fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Optio
     }, should_swap_vertical, should_swap_horizontal))
 }
 
+
+extern "C" fn node_on_mousedown(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    // nodegraph.current_active = Some(info.get_hit_node())
+    Update::DoNothing
+}
+
+extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    // nodegraph.current_active = None;
+    Update::DoNothing
+}
+
 extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
     let mut data = match data.downcast_mut::<NodeGraphLocalDataset>() {
@@ -2637,6 +2648,11 @@ extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -
 
     // Update the visual node positions
     let node_container = match info.get_first_child(nodegraph_node) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    let node_container = match info.get_next_sibling(node_container) {
         Some(s) => s,
         None => return Update::DoNothing,
     };
