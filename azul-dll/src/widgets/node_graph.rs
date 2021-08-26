@@ -629,10 +629,12 @@ impl NodeGraph {
             Normal(CssProperty::position(LayoutPosition::Relative)),
         ];
 
+        let node_connection_marker = RefAny::new(NodeConnectionMarkerDataset { });
 
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
             node_graph: self.clone(), // TODO: expensive
             last_input_or_output_clicked: None,
+            node_connection_marker: node_connection_marker.clone(),
             callbacks: self.callbacks.clone(),
         });
 
@@ -675,7 +677,6 @@ impl NodeGraph {
                }
            ].into())
            .with_children({
-                let node_connection_marker = RefAny::new(NodeConnectionMarkerDataset { });
                 vec![
                       // nodes
                       self.nodes.iter()
@@ -684,7 +685,6 @@ impl NodeGraph {
                            let node_type_info = self.node_types.iter().find(|i| i.node_type_id == node.node_type)?;
                            let node_local_dataset = NodeLocalDataset {
                                node_id: *node_id,
-                               node_connection_marker: node_connection_marker.clone(),
                                backref: node_graph_local_dataset.clone(),
                            };
 
@@ -708,6 +708,7 @@ impl NodeGraph {
 struct NodeGraphLocalDataset {
     node_graph: NodeGraph,
     last_input_or_output_clicked: Option<(NodeGraphNodeId, InputOrOutput)>,
+    node_connection_marker: RefAny, // Ref<NodeConnectionMarkerDataset>
     callbacks: NodeGraphCallbacks,
 }
 
@@ -720,7 +721,6 @@ struct NodeConnectionMarkerDataset { }
 
 struct NodeLocalDataset {
     node_id: NodeGraphNodeId,
-    node_connection_marker: RefAny, // Ref<NodeConnectionMarkerDataset>
     backref: RefAny, // RefAny<NodeGraphLocalDataset>
 }
 
@@ -2552,13 +2552,6 @@ fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Optio
     })
 }
 
-// fn draw_connection(width: f32, height: f32, connection_dot_height: f32) -> ImageRef {
-//     let start = (0.0, connection_dot_height / 2.0);
-//     let end = (width, height - (connection_dot_height / 2.0));
-//     let clip = RawImage::allocate_clip_mask(LayoutSize { });
-//     let line = ImageRef::raw_image();
-// }
-
 extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
     let mut data = match data.downcast_mut::<NodeGraphLocalDataset>() {
@@ -2638,6 +2631,48 @@ extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -
         };
     }
 
+    let node_connection_marker = &mut data.node_connection_marker;
+
+    // Update the connection positions
+    let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
+        Some(s) => s,
+        None => return result,
+    };
+
+    let mut first_connection_child = info.get_first_child(connection_container_nodeid);
+
+    while let Some(connection_nodeid) = first_connection_child {
+
+        first_connection_child = info.get_next_sibling(connection_nodeid);
+
+        let first_child = match info.get_first_child(connection_nodeid) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let mut dataset = match info.get_dataset(first_child) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let cld = match dataset.downcast_ref::<ConnectionLocalDataset>() {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let new_rect = match get_rect(&data.node_graph, *cld) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        info.set_css_property(first_child, CssProperty::transform(vec![
+            StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
+                y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+            })
+        ].into()));
+    }
+
     info.stop_propagation();
 
     result
@@ -2674,12 +2709,14 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
 
     let data = &mut *data;
     let backref = &mut data.backref;
-    let node_connection_marker = &mut data.node_connection_marker;
 
     let mut backref = match backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+
+    let mut backref = &mut *backref;
+    let node_connection_marker = &mut backref.node_connection_marker;
 
     let nodegraph_node = info.get_hit_node();
     let result = match backref.callbacks.on_node_dragged.as_mut() {
@@ -2768,16 +2805,6 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
         info.set_css_property(first_child, CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
             LayoutMaxHeight { inner: PixelValue::px(new_rect.size.height) },
         )));
-
-        /*
-            NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
-                StyleBackgroundContentVecValue::Exact(
-                    BACKGROUND_COLOR_RED // ImageRef::new(connection_background)
-                ),
-            )),
-        */
-
-        // info.update_image(connection_nodeid, render_connection(), ImageType::Background);
     }
 
     result
