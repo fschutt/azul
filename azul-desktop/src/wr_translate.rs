@@ -90,7 +90,7 @@ use azul_core::{
         ExternalImageType, ImageBufferKind, UpdateImage, ImageDirtyRect,
         Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
         FontInstancePlatformOptions, SyntheticItalics, PrimitiveFlags,
-        TransformKey,
+        TransformKey, UpdateImageResult,
     },
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
@@ -893,13 +893,13 @@ pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut 
     });
 }
 
-pub(crate) fn wr_synchronize_resize(resize_result: QuickResizeResult, document_id: &DocumentId, txn: &mut WrTransaction) {
+pub(crate) fn wr_synchronize_updated_images(updated_images: Vec<UpdateImageResult>, document_id: &DocumentId, txn: &mut WrTransaction) {
 
-    if resize_result.updated_images.is_empty() {
+    if updated_images.is_empty() {
         return;
     }
 
-    for updated_image in resize_result.updated_images {
+    for updated_image in updated_images {
         txn.update_image(
             wr_translate_image_key(updated_image.key_to_update),
             wr_translate_image_descriptor(updated_image.new_descriptor),

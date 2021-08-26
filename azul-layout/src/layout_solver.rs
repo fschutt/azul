@@ -3036,27 +3036,85 @@ pub fn do_the_relayout(
         }
     }
 
-    // propagate min_inner_size_px change from the inside out
-    for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.iter().rev() {
+    let mut subtree_needs_relayout_width = BTreeSet::new();
+    let mut subtree_needs_relayout_height = BTreeSet::new();
 
-        let node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
+    // propagate width / height change from the inside out
+    while !parents_that_need_to_recalc_width_of_children.is_empty() {
 
-        if let Some(change_amount) = rebubble_parent_widths.remove(&node_id) {
-            layout_result.width_calculated_rects.as_ref_mut()[node_id].min_inner_size_px += change_amount;
-            if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id() {
-                *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0.0) += change_amount;
-                parents_that_need_to_recalc_width_of_children.insert(parent_id);
-            }
-        }
+        let previous_widths = parents_that_need_to_recalc_width_of_children.iter()
+        .filter_map(|node_id| {
+            layout_result.width_calculated_rects.as_ref().get(*node_id).map(|s| (node_id, *s))
+        }).collect::<BTreeMap<_, _>>();
 
-        if let Some(change_amount) = rebubble_parent_heights.remove(&node_id) {
-            layout_result.height_calculated_rects.as_ref_mut()[node_id].min_inner_size_px += change_amount;
-            if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id() {
-                *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0.0) += change_amount;
-                parents_that_need_to_recalc_height_of_children.insert(parent_id);
-            }
-        }
+        subtree_needs_relayout_width.extend(parents_that_need_to_recalc_width_of_children.iter().cloned());
+
+        width_calculated_rect_arena_apply_flex_grow(
+            &mut layout_result.width_calculated_rects,
+            &layout_result.styled_dom.node_hierarchy.as_container(),
+            &layout_result.layout_displays.as_ref(),
+            &layout_result.layout_flex_grows.as_ref(),
+            &layout_result.layout_positions.as_ref(),
+            &layout_result.layout_flex_directions.as_ref(),
+            &layout_result.styled_dom.non_leaf_nodes.as_ref(),
+            root_size.width as f32,
+            // important - only recalc the widths necessary!
+            &parents_that_need_to_recalc_width_of_children
+        );
+
+        // if the parent width is not the same, bubble
+        let parents_that_changed_width = parents_that_need_to_recalc_width_of_children.iter().filter_map(|p| {
+            // get the current width after relayout
+            let current_width = layout_result.width_calculated_rects.as_ref().get(*p).copied()?;
+            let previous_width = previous_widths.get(p).copied()?;
+            if current_width == previous_width { return None; }
+            let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[*p].parent_id()?;
+            Some(parent_id)
+        }).collect();
+
+        // loop while there are still widths that changed size
+        parents_that_need_to_recalc_width_of_children = parents_that_changed_width;
     }
+
+    parents_that_need_to_recalc_width_of_children = subtree_needs_relayout_width;
+
+    while !parents_that_need_to_recalc_height_of_children.is_empty() {
+
+        subtree_needs_relayout_height.extend(parents_that_need_to_recalc_height_of_children.iter().cloned());
+
+        let previous_heights = parents_that_need_to_recalc_height_of_children.iter()
+        .filter_map(|node_id| {
+            layout_result.height_calculated_rects.as_ref().get(*node_id).map(|s| (node_id, *s))
+        }).collect::<BTreeMap<_, _>>();
+
+        height_calculated_rect_arena_apply_flex_grow(
+            &mut layout_result.height_calculated_rects,
+            &layout_result.styled_dom.node_hierarchy.as_container(),
+            &layout_result.layout_displays.as_ref(),
+            &layout_result.layout_flex_grows.as_ref(),
+            &layout_result.layout_positions.as_ref(),
+            &layout_result.layout_flex_directions.as_ref(),
+            &layout_result.styled_dom.non_leaf_nodes.as_ref(),
+            root_size.height as f32,
+            // important - only recalc the heights necessary!
+            &parents_that_need_to_recalc_height_of_children
+        );
+
+        // if the parent height is not the same, bubble
+        let mut parents_that_changed_height = parents_that_need_to_recalc_height_of_children.iter().filter_map(|p| {
+            // get the current height after relayout
+            let current_height = layout_result.height_calculated_rects.as_ref().get(*p).copied()?;
+            let previous_height = previous_heights.get(p).copied()?;
+            if current_height == previous_height { return None; }
+            let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[*p].parent_id()?;
+            Some(parent_id)
+        }).collect();
+
+        // loop while there are still heights that changed size
+        parents_that_need_to_recalc_height_of_children = parents_that_changed_height;
+    }
+
+    parents_that_need_to_recalc_height_of_children = subtree_needs_relayout_height;
 
     // if a node has been modified then the entire subtree needs to be re-laid out
     for n in parents_that_need_to_recalc_width_of_children.clone() {
@@ -3066,6 +3124,7 @@ pub fn do_the_relayout(
         }
         parents_that_need_to_reposition_children_x.insert(n);
     }
+
     for n in parents_that_need_to_recalc_height_of_children.clone() {
         let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
         for s in subtree_parents {
@@ -3073,12 +3132,14 @@ pub fn do_the_relayout(
         }
         parents_that_need_to_reposition_children_y.insert(n);
     }
+
     for n in parents_that_need_to_reposition_children_x.clone() {
         let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
         for s in subtree_parents {
             parents_that_need_to_reposition_children_x.insert(s);
         }
     }
+
     for n in parents_that_need_to_reposition_children_y.clone() {
         let subtree_parents = layout_result.styled_dom.get_subtree_parents(n);
         for s in subtree_parents {
@@ -3086,11 +3147,8 @@ pub fn do_the_relayout(
         }
     }
 
-    // parents_that_need_to_recalc_width_of_children += parents_that_need_to_recalc_width_of_children.subtree_parents();
+    // -- step 2: recalc position for those parents that need it
 
-    // now for all nodes that need to recalculate their width, calculate their flex_grow_px,
-    // then recalculate the width of their children, but STOP recalculating once a child
-    // with an exact width is found
     width_calculated_rect_arena_apply_flex_grow(
         &mut layout_result.width_calculated_rects,
         &layout_result.styled_dom.node_hierarchy.as_container(),

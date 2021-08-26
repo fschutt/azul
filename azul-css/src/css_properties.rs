@@ -808,7 +808,7 @@ pub fn get_css_key_map() -> CssKeyMap {
 
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum CssPropertyType {
     TextColor,
@@ -1039,10 +1039,15 @@ impl CssPropertyType {
     }
 }
 
+impl fmt::Debug for CssPropertyType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
 impl fmt::Display for CssPropertyType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let key = CSS_PROPERTY_KEY_MAP.iter().find(|(v, _)| *v == *self).and_then(|(k, _)| Some(k)).unwrap();
-        write!(f, "{}", key)
+        write!(f, "{}", self.to_str())
     }
 }
 

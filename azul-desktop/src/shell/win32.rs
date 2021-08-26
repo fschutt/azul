@@ -11,7 +11,7 @@ use crate::{
         generate_frame,
         synchronize_gpu_values,
         scroll_all_nodes,
-        wr_synchronize_resize,
+        wr_synchronize_updated_images,
     }
 };
 use alloc::{
@@ -2014,7 +2014,7 @@ impl Window {
                 )
             });
 
-            wr_synchronize_resize(resize_result, &document_id, &mut txn);
+            wr_synchronize_updated_images(resize_result.updated_images, &document_id, &mut txn);
         }
 
         if let Some(hrc) = opengl_context.as_ref() {
@@ -2139,6 +2139,7 @@ impl Window {
                 &mut window,
                 &ntc,
                 image_cache,
+                fc_cache,
                 &mut new_windows,
                 &mut destroyed_windows,
             );
@@ -3309,8 +3310,8 @@ unsafe extern "system" fn WindowProc(
                         );
 
                         let mut txn = WrTransaction::new();
-                        wr_synchronize_resize(
-                            resize_result,
+                        wr_synchronize_updated_images(
+                            resize_result.updated_images,
                             &current_window.internal.document_id,
                             &mut txn
                         );
@@ -3701,6 +3702,7 @@ unsafe extern "system" fn WindowProc(
                             current_window,
                             &ntc,
                             image_cache,
+                            fc_cache,
                             &mut new_windows,
                             &mut destroyed_windows,
                         );
@@ -3916,6 +3918,7 @@ fn process_event(
         window,
         &nodes_to_check,
         image_cache,
+        fc_cache,
         new_windows,
         destroyed_windows
     );
@@ -3962,6 +3965,7 @@ fn process_timer(
             window.internal.current_window_state.focused_node,
         ),
         image_cache,
+        fc_cache,
         new_windows,
         destroyed_windows
     );
@@ -4007,6 +4011,7 @@ fn process_threads(
             window.internal.current_window_state.focused_node,
         ),
         image_cache,
+        fc_cache,
         new_windows,
         destroyed_windows
     );
@@ -4018,6 +4023,7 @@ fn process_callback_results(
     window: &mut Window,
     nodes_to_check: &NodesToCheck,
     image_cache: &mut ImageCache,
+    fc_cache: &mut LazyFcCache,
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<usize>,
 ) -> ProcessEventResult {
@@ -4114,6 +4120,38 @@ fn process_callback_results(
         &callback_results.update_focused_node,
         azul_layout::do_the_relayout,
     );
+
+
+    if let Some(rsn) = style_layout_changes.nodes_that_changed_size.as_ref() {
+
+        use crate::wr_translate::wr_translate_document_id;
+
+        let updated_images = fc_cache.apply_closure(|fc_cache| {
+            LayoutResult::resize_images(
+                window.internal.id_namespace,
+                window.internal.document_id,
+                window.internal.epoch,
+                DomId::ROOT_ID,
+                &image_cache,
+                &window.gl_context_ptr,
+                &mut window.internal.layout_results,
+                &mut window.internal.gl_texture_cache,
+                &mut window.internal.renderer_resources,
+                &crate::app::CALLBACKS,
+                azul_layout::do_the_relayout,
+                fc_cache,
+                &window.internal.current_window_state.size,
+                window.internal.current_window_state.theme,
+                &rsn,
+            )
+        });
+
+        if !updated_images.is_empty() {
+            let mut txn = WrTransaction::new();
+            wr_synchronize_updated_images(updated_images, &window.internal.document_id, &mut txn);
+            window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+        }
+    }
 
     // FOCUS CHANGE HAPPENS HERE!
     if let Some(focus_change) = style_layout_changes.focus_change.clone() {

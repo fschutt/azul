@@ -842,7 +842,50 @@ impl LayoutResult {
             }
         }
 
+        let updated_images = Self::resize_images(
+            id_namespace,
+            document_id,
+            epoch,
+            dom_id,
+            image_cache,
+            gl_context,
+            layout_results,
+            gl_texture_cache,
+            renderer_resources,
+            callbacks,
+            relayout_fn,
+            fc_cache,
+            window_size,
+            window_theme,
+            &rsn,
+        );
+
+        QuickResizeResult {
+            gpu_event_changes,
+            updated_images,
+            resized_nodes: rsn,
+        }
+    }
+
+    pub fn resize_images(
+        id_namespace: IdNamespace,
+        document_id: DocumentId,
+        epoch: Epoch,
+        dom_id: DomId,
+        image_cache: &ImageCache,
+        gl_context: &OptionGlContextPtr,
+        layout_results: &mut [LayoutResult],
+        gl_texture_cache: &mut GlTextureCache,
+        renderer_resources: &mut RendererResources,
+        callbacks: &RenderCallbacks,
+        relayout_fn: RelayoutFn,
+        fc_cache: &FcFontCache,
+        window_size: &WindowSize,
+        window_theme: WindowTheme,
+        rsn: &BTreeMap<DomId, Vec<NodeId>>,
+    ) -> Vec<UpdateImageResult> {
         let mut updated_images = Vec::new();
+
         for (dom_id, node_ids) in rsn.iter() {
             for node_id in node_ids.iter() {
                 if let Some(update) = renderer_resources.rerender_image_callback(
@@ -864,11 +907,7 @@ impl LayoutResult {
             }
         }
 
-        QuickResizeResult {
-            gpu_event_changes,
-            updated_images,
-            resized_nodes: rsn,
-        }
+        updated_images
     }
 
     // Calls the IFrame callbacks again if they are currently
