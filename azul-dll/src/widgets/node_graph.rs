@@ -368,8 +368,6 @@ impl NodeGraph {
         output_index: usize,
     ) -> Result<(), NodeGraphError> {
 
-        println!("connecting output node id {}:{} with input node id {}:{}", output_node_id.inner, output_index, input_node_id.inner, input_index);
-
         // Verify that the node type of the connection matches
         let _ = self.verify_nodetype_match(
             output_node_id,
@@ -678,9 +676,12 @@ impl NodeGraph {
            ].into())
            .with_children({
                 vec![
-                      // nodes
-                      self.nodes.iter()
-                      .filter_map(|NodeIdNodeMap { node_id, node }| {
+                        // connections
+                        render_connections(&self, node_connection_marker),
+
+                        // nodes
+                        self.nodes.iter()
+                        .filter_map(|NodeIdNodeMap { node_id, node }| {
 
                            let node_type_info = self.node_types.iter().find(|i| i.node_type_id == node.node_type)?;
                            let node_local_dataset = NodeLocalDataset {
@@ -689,13 +690,10 @@ impl NodeGraph {
                            };
 
                            Some(render_node(node, (self.offset.x, self.offset.y), &node_type_info.node_type_info, node_local_dataset))
-                       })
-                      .collect::<Dom>()
-                      .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_CLASS))
-                      .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_PROPS)),
-
-                      // connections
-                      render_connections(&self, node_connection_marker),
+                        })
+                        .collect::<Dom>()
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_CLASS))
+                        .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_PROPS)),
 
                 ].into()
             })
@@ -740,12 +738,13 @@ struct NodeFieldLocalDataset {
     backref: RefAny, // RefAny<NodeLocalDataset>
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 struct ConnectionLocalDataset {
     out_node_id: NodeGraphNodeId,
     out_idx: usize,
     in_node_id: NodeGraphNodeId,
     in_idx: usize,
+    color: ColorU,
 }
 
 fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, mut node_local_dataset: NodeLocalDataset) -> Dom {
@@ -2386,8 +2385,23 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref().iter() {
 
             let out_node_id = node_id;
+            let node_type_info = match node_graph.node_types.iter().find(|i| i.node_type_id == node.node_type) {
+                Some(s) => &s.node_type_info,
+                None => continue,
+            };
 
             for OutputConnection { output_index, connects_to } in node.connect_out.as_ref().iter() {
+
+                let output_type_id = match node_type_info.outputs.iter().find(|o| o.inner == *output_index as u64) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                // input_output_types: InputOutputTypeIdInfoMapVec,
+                let output_color = match node_graph.input_output_types.iter().find(|o| o.io_type_id == *output_type_id) {
+                    Some(s) => s.io_info.color.clone(),
+                    None => continue,
+                };
 
                 for InputNodeAndIndex { node_id, input_index } in connects_to.as_ref().iter() {
 
@@ -2398,6 +2412,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                         out_idx: *output_index,
                         in_node_id: *in_node_id,
                         in_idx: *input_index,
+                        color: output_color,
                     };
 
                     let rect = match get_rect(&node_graph, cld) {
@@ -2490,7 +2505,7 @@ fn draw_connection_inner(
     let mut texture = Texture::allocate_rgba8(
         gl_context.clone(),
         texture_size,
-        coloru_from_str("#00ff00"),
+        coloru_from_str("#00000000"),
     );
 
     texture.clear();
@@ -2498,11 +2513,15 @@ fn draw_connection_inner(
     let mut stroke_style = SvgStrokeStyle::default();
     stroke_style.line_width = 4.0;
 
+    let tex_half = (texture_size.width as f32) / 2.0;
+
     let tessellated_stroke = tessellate_path_stroke(&SvgPath {
         items: vec![
-            SvgPathElement::Line(SvgLine {
-                start: SvgPoint { x: 0.0, y: -(texture_size.height as f32) },
-                end: SvgPoint { x: texture_size.width as f32, y: 0.0 },
+            SvgPathElement::CubicCurve(SvgCubicCurve {
+                start: SvgPoint { x: 0.0, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                ctrl_1: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                ctrl_2: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                end: SvgPoint { x: texture_size.width as f32, y: CONNECTION_DOT_HEIGHT / 2.0 },
             })
         ].into()
     }, stroke_style);
@@ -2515,33 +2534,33 @@ fn draw_connection_inner(
     tesselated_gpu_buffer.draw(
         &mut texture,
         texture_size,
-        coloru_from_str("#ff0000"),
+        data.color,
         Vec::new().into()
     );
 
     Some(ImageRef::new_gltexture(texture))
 }
 
+const NODE_WIDTH: f32 = 250.0;
+const V_OFFSET: f32 = 71.0;
+const DIST_BETWEEN_NODES: f32 = 10.0;
+const CONNECTION_DOT_HEIGHT: f32 = 15.0;
+
 // calculates the rect on which the connection is drawn in the UI
 fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Option<LogicalRect> {
 
-    let ConnectionLocalDataset { out_node_id, out_idx, in_node_id, in_idx } = connection;
+    let ConnectionLocalDataset { out_node_id, out_idx, in_node_id, in_idx, .. } = connection;
     let out_node = node_graph.nodes.iter().find(|i| i.node_id == out_node_id)?;
     let in_node = node_graph.nodes.iter().find(|i| i.node_id == in_node_id)?;
 
-    let node_width = 250.0;
-    let v_offset = 71.0;
-    let dist_between_nodes = 10.0;
-    let connection_dot_height = 15.0;
-
-    let x_out = out_node.node.position.x + node_width;
-    let y_out = out_node.node.position.y + v_offset + (out_idx as f32 * (dist_between_nodes + connection_dot_height));
+    let x_out = out_node.node.position.x + NODE_WIDTH;
+    let y_out = out_node.node.position.y + V_OFFSET + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
 
     let x_in = in_node.node.position.x;
-    let y_in = in_node.node.position.y + v_offset + (in_idx as f32 * (dist_between_nodes + connection_dot_height));
+    let y_in = in_node.node.position.y + V_OFFSET + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
 
     let width = (x_in - x_out).abs();
-    let height = (y_in - y_out).abs() + connection_dot_height;
+    let height = (y_in - y_out).abs() + CONNECTION_DOT_HEIGHT;
 
     let x = x_in.min(x_out);
     let y = y_in.min(y_out);

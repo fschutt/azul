@@ -53,12 +53,12 @@ impl MyNodeGraph {
 
         map.insert(InputOutputTypeId { inner: 0 }, InputOutputInfo {
             data_type: "MyData".into(),
-            color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+            color: ColorU::from_str("#ff0000".into()),
         });
 
         map.insert(InputOutputTypeId { inner: 1 }, InputOutputInfo {
             data_type: "MyOtherDataType".into(),
-            color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+            color: ColorU::from_str("#00ff00".into()),
         });
 
         map
