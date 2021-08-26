@@ -744,6 +744,8 @@ struct ConnectionLocalDataset {
     out_idx: usize,
     in_node_id: NodeGraphNodeId,
     in_idx: usize,
+    swap_vert: bool,
+    swap_horz: bool,
     color: ColorU,
 }
 
@@ -2407,26 +2409,28 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
 
                     let in_node_id = node_id;
 
-                    let cld = ConnectionLocalDataset {
+                    let mut cld = ConnectionLocalDataset {
                         out_node_id: *out_node_id,
                         out_idx: *output_index,
                         in_node_id: *in_node_id,
                         in_idx: *input_index,
+                        swap_vert: false,
+                        swap_horz: false,
                         color: output_color,
                     };
 
-                    let rect = match get_rect(&node_graph, cld) {
+                    let (rect, swap_vert, swap_horz) = match get_rect(&node_graph, cld) {
                         Some(s) => s,
                         None => continue,
                     };
 
-                    // let connection_background = draw_connection(rect.width, rect.height, connection_dot_height);
+                    cld.swap_vert = swap_vert;
+                    cld.swap_horz = swap_horz;
 
                     let cld_refany = RefAny::new(cld);
                     let connection_div = Dom::image(ImageRef::callback(draw_connection, cld_refany.clone()))
                         .with_dataset(Some(cld_refany).into())
                         .with_inline_css_props(vec![
-                            // Normal(CssProperty::position(LayoutPosition::Absolute)),
                             NodeDataInlineCssProperty::Normal(CssProperty::Transform(
                                 StyleTransformVecValue::Exact(vec![
                                 StyleTransform::Translate(StyleTransformTranslate2D {
@@ -2434,20 +2438,6 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                                     y: PixelValue::px(node_graph.offset.y + rect.origin.y),
                                 })].into())
                             )),
-
-                            NodeDataInlineCssProperty::Normal(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-                                LayoutMinWidth { inner: PixelValue::px(rect.size.width) },
-                            ))),
-                            NodeDataInlineCssProperty::Normal(CssProperty::MinHeight(LayoutMinHeightValue::Exact(
-                                LayoutMinHeight { inner: PixelValue::px(rect.size.height) },
-                            ))),
-                            NodeDataInlineCssProperty::Normal(CssProperty::MaxWidth(LayoutMaxWidthValue::Exact(
-                                LayoutMaxWidth { inner: PixelValue::px(rect.size.width) },
-                            ))),
-                            NodeDataInlineCssProperty::Normal(CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
-                                LayoutMaxHeight { inner: PixelValue::px(rect.size.height) },
-                            ))),
-
                             NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
                                 LayoutWidth { inner: PixelValue::px(rect.size.width) },
                             ))),
@@ -2497,8 +2487,8 @@ fn draw_connection_inner(
     };
     use azul_core::svg::SvgMultiPolygon;
 
-    let mut data = data.downcast_mut::<ConnectionLocalDataset>()?;
-    let mut data = &mut *data;
+    let data = data.downcast_ref::<ConnectionLocalDataset>()?;
+    let data = &*data;
 
     let gl_context = info.get_gl_context().into_option()?;
 
@@ -2517,12 +2507,49 @@ fn draw_connection_inner(
 
     let tessellated_stroke = tessellate_path_stroke(&SvgPath {
         items: vec![
-            SvgPathElement::CubicCurve(SvgCubicCurve {
-                start: SvgPoint { x: 0.0, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                ctrl_1: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
-                ctrl_2: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
-                end: SvgPoint { x: texture_size.width as f32, y: CONNECTION_DOT_HEIGHT / 2.0 },
-            })
+            // depending on in which quadrant the curve is drawn relative to the input node,
+            // we need a different curve
+            if data.swap_vert {
+                if data.swap_horz {
+                    //          /- input
+                    //  output-/
+                    SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: 0.0, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                        ctrl_1: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                        ctrl_2: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                        end: SvgPoint { x: texture_size.width as f32, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                    })
+                } else {
+                    //  input -\
+                    //          \- output
+                    SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: 0.0, y: CONNECTION_DOT_HEIGHT / 2.0  },
+                        ctrl_1: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                        ctrl_2: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                        end: SvgPoint { x: texture_size.width as f32, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                    })
+                }
+            } else {
+                if data.swap_horz {
+                    //  output-\
+                    //          \- input
+                    SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: 0.0, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                        ctrl_1: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                        ctrl_2: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                        end: SvgPoint { x: texture_size.width as f32, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                    })
+                } else {
+                    //         /- output
+                    // input -/
+                    SvgPathElement::CubicCurve(SvgCubicCurve {
+                        start: SvgPoint { x: 0.0, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                        ctrl_1: SvgPoint { x: tex_half, y: texture_size.height as f32 - (CONNECTION_DOT_HEIGHT / 2.0) },
+                        ctrl_2: SvgPoint { x: tex_half, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                        end: SvgPoint { x: texture_size.width as f32, y: CONNECTION_DOT_HEIGHT / 2.0 },
+                    })
+                }
+            }
         ].into()
     }, stroke_style);
 
@@ -2547,7 +2574,7 @@ const DIST_BETWEEN_NODES: f32 = 10.0;
 const CONNECTION_DOT_HEIGHT: f32 = 15.0;
 
 // calculates the rect on which the connection is drawn in the UI
-fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Option<LogicalRect> {
+fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Option<(LogicalRect, bool, bool)> {
 
     let ConnectionLocalDataset { out_node_id, out_idx, in_node_id, in_idx, .. } = connection;
     let out_node = node_graph.nodes.iter().find(|i| i.node_id == out_node_id)?;
@@ -2559,16 +2586,19 @@ fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Optio
     let x_in = in_node.node.position.x;
     let y_in = in_node.node.position.y + V_OFFSET + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
 
+    let should_swap_vertical = y_in > y_out;
+    let should_swap_horizontal = x_in < x_out;
+
     let width = (x_in - x_out).abs();
     let height = (y_in - y_out).abs() + CONNECTION_DOT_HEIGHT;
 
     let x = x_in.min(x_out);
     let y = y_in.min(y_out);
 
-    Some(LogicalRect {
+    Some((LogicalRect {
         size: LogicalSize { width, height },
         origin: LogicalPosition { x, y },
-    })
+    }, should_swap_vertical, should_swap_horizontal))
 }
 
 extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
@@ -2679,7 +2709,7 @@ extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -
             None => continue,
         };
 
-        let new_rect = match get_rect(&data.node_graph, *cld) {
+        let (new_rect, _, _) = match get_rect(&data.node_graph, *cld) {
             Some(s) => s,
             None => continue,
         };
@@ -2785,7 +2815,7 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
             None => continue,
         };
 
-        let cld = match dataset.downcast_ref::<ConnectionLocalDataset>() {
+        let mut cld = match dataset.downcast_mut::<ConnectionLocalDataset>() {
             Some(s) => s,
             None => continue,
         };
@@ -2794,10 +2824,14 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
             continue; // connection does not need to be modified
         }
 
-        let new_rect = match get_rect(&backref.node_graph, *cld) {
+
+        let (new_rect, swap_vert, swap_horz) = match get_rect(&backref.node_graph, *cld) {
             Some(s) => s,
             None => continue,
         };
+
+        cld.swap_vert = swap_vert;
+        cld.swap_horz = swap_horz;
 
         info.set_css_property(first_child, CssProperty::transform(vec![
             StyleTransform::Translate(StyleTransformTranslate2D {
@@ -2811,18 +2845,6 @@ extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) ->
         )));
         info.set_css_property(first_child, CssProperty::Height(LayoutHeightValue::Exact(
             LayoutHeight { inner: PixelValue::px(new_rect.size.height) },
-        )));
-        info.set_css_property(first_child, CssProperty::MinWidth(LayoutMinWidthValue::Exact(
-            LayoutMinWidth { inner: PixelValue::px(new_rect.size.width) },
-        )));
-        info.set_css_property(first_child, CssProperty::MinHeight(LayoutMinHeightValue::Exact(
-            LayoutMinHeight { inner: PixelValue::px(new_rect.size.height) },
-        )));
-        info.set_css_property(first_child, CssProperty::MaxWidth(LayoutMaxWidthValue::Exact(
-            LayoutMaxWidth { inner: PixelValue::px(new_rect.size.width) },
-        )));
-        info.set_css_property(first_child, CssProperty::MaxHeight(LayoutMaxHeightValue::Exact(
-            LayoutMaxHeight { inner: PixelValue::px(new_rect.size.height) },
         )));
     }
 
