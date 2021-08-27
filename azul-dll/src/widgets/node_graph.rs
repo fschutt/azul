@@ -2402,12 +2402,11 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
 
             for OutputConnection { output_index, connects_to } in node.connect_out.as_ref().iter() {
 
-                let output_type_id = match node_type_info.outputs.iter().find(|o| o.inner == *output_index as u64) {
+                let output_type_id = match node_type_info.outputs.get(*output_index) {
                     Some(s) => s,
                     None => continue,
                 };
 
-                // input_output_types: InputOutputTypeIdInfoMapVec,
                 let output_color = match node_graph.input_output_types.iter().find(|o| o.io_type_id == *output_type_id) {
                     Some(s) => s.io_info.color.clone(),
                     None => continue,
