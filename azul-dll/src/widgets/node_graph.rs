@@ -632,6 +632,7 @@ impl NodeGraph {
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
             node_graph: self.clone(), // TODO: expensive
             last_input_or_output_clicked: None,
+            active_node_being_dragged: None,
             node_connection_marker: node_connection_marker.clone(),
             callbacks: self.callbacks.clone(),
         });
@@ -671,8 +672,13 @@ impl NodeGraph {
                CallbackData {
                    event: EventFilter::Hover(HoverEventFilter::MouseOver),
                    data: node_graph_local_dataset.clone(),
-                   callback: Callback { cb: nodegraph_drag_graph },
-               }
+                   callback: Callback { cb: nodegraph_drag_graph_or_nodes },
+               },
+               CallbackData {
+                   event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+                   data: node_graph_local_dataset.clone(),
+                   callback: Callback { cb: nodegraph_unset_active_node },
+               },
            ].into())
            .with_children({
                 vec![
@@ -706,6 +712,8 @@ impl NodeGraph {
 struct NodeGraphLocalDataset {
     node_graph: NodeGraph,
     last_input_or_output_clicked: Option<(NodeGraphNodeId, InputOrOutput)>,
+    // Ref<NodeLocalDataSet> - used as a marker for getting the visual node ID
+    active_node_being_dragged: Option<(NodeGraphNodeId, RefAny)>,
     node_connection_marker: RefAny, // Ref<NodeConnectionMarkerDataset>
     callbacks: NodeGraphCallbacks,
 }
@@ -1766,9 +1774,9 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
     Dom::div()
     .with_callbacks(vec![
         CallbackData {
-            event: EventFilter::Hover(HoverEventFilter::MouseOver),
+            event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
             data: node_local_dataset.clone(),
-            callback: Callback { cb: nodegraph_drag_node },
+            callback: Callback { cb: nodegraph_set_active_node },
         },
     ].into())
     .with_inline_css_props(vec![
@@ -2602,22 +2610,32 @@ fn get_rect(node_graph: &NodeGraph, connection: ConnectionLocalDataset) -> Optio
 }
 
 
-extern "C" fn node_on_mousedown(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    // nodegraph.current_active = Some(info.get_hit_node())
+extern "C" fn nodegraph_set_active_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let data_clone = data.clone();
+    if let Some(mut data) = data.downcast_mut::<NodeLocalDataset>() {
+        let node_id = data.node_id.clone();
+        if let Some(mut backref) = data.backref.downcast_mut::<NodeGraphLocalDataset>() {
+            backref.active_node_being_dragged = Some((node_id, data_clone));
+        }
+    }
     Update::DoNothing
 }
 
 extern "C" fn nodegraph_unset_active_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    // nodegraph.current_active = None;
+    if let Some(mut data) = data.downcast_mut::<NodeGraphLocalDataset>() {
+        data.active_node_being_dragged = None;
+    }
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+// drag either the graph or the currently active nodes
+extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
     let mut data = match data.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+    let mut data = &mut *data;
 
     let prev = match info.get_previous_mouse_state() {
         Some(s) => s,
@@ -2636,235 +2654,210 @@ extern "C" fn nodegraph_drag_graph(data: &mut RefAny, info: &mut CallbackInfo) -
 
     let dx = current_mouse_pos.x - previous_mouse_pos.x;
     let dy = current_mouse_pos.y - previous_mouse_pos.y;
-
     let nodegraph_node = info.get_hit_node();
-    let result = match data.callbacks.on_node_graph_dragged.as_mut() {
-        Some(OnNodeGraphDragged { callback, data }) => (callback.cb)(data, info, GraphDragAmount { x: dx, y: dy }),
-        None => Update::DoNothing,
-    };
 
-    data.node_graph.offset.x += dx;
-    data.node_graph.offset.y += dy;
+    let should_update = match data.active_node_being_dragged.clone() {
+        // drag node
+        Some((node_graph_node_id, data_marker)) => {
 
-    // Update the visual node positions
-    let node_container = match info.get_first_child(nodegraph_node) {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
+            let node_connection_marker = &mut data.node_connection_marker;
 
-    let node_container = match info.get_next_sibling(node_container) {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
+            let nodegraph_node = info.get_hit_node();
+            let result = match data.callbacks.on_node_dragged.as_mut() {
+                Some(OnNodeDragged { callback, data }) => (callback.cb)(data, info, node_graph_node_id, NodeDragAmount { x: dx, y: dy }),
+                None => Update::DoNothing,
+            };
 
-    let mut node = match info.get_first_child(node_container) {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
+            // update the visual transform of the node in the UI
+            let node_position = match data.node_graph.nodes.iter_mut().find(|i| i.node_id == node_graph_node_id) {
+                Some(s) => {
+                    s.node.position.x += dx;
+                    s.node.position.y += dy;
+                    s.node.position
+                },
+                None => return Update::DoNothing,
+            };
 
-    loop {
+            let visual_node_id = match info.get_node_id_of_root_dataset(data_marker) {
+                Some(s) => s,
+                None => return Update::DoNothing,
+            };
 
-        let mut node_local_dataset = match info.get_dataset(node) {
-            None => return Update::DoNothing,
-            Some(s) => s,
-        };
+            info.set_css_property(visual_node_id, CssProperty::transform(vec![
+                StyleTransform::Translate(StyleTransformTranslate2D {
+                    x: PixelValue::px(node_position.x + data.node_graph.offset.x),
+                    y: PixelValue::px(node_position.y + data.node_graph.offset.y),
+                })
+            ].into()));
 
-        let mut node_graph_node_id = match node_local_dataset.downcast_ref::<NodeLocalDataset>() {
-            Some(s) => s,
-            None => continue,
-        };
+            // get the NodeId of the node containing all the connection lines
+            let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
+                Some(s) => s,
+                None => return result,
+            };
 
-        let node_graph_node_id = node_graph_node_id.node_id;
+            // animate all the connections
+            let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
-        let node_position = match data.node_graph.nodes.iter().find(|i| i.node_id == node_graph_node_id) {
-            Some(s) => s.node.position,
-            None => continue,
-        };
+            while let Some(connection_nodeid) = first_connection_child {
 
-        let node_transform = CssProperty::transform(vec![
-            StyleTransform::Translate(StyleTransformTranslate2D {
-                x: PixelValue::px(node_position.x + data.node_graph.offset.x),
-                y: PixelValue::px(node_position.y + data.node_graph.offset.y),
-            })
-        ].into());
+                first_connection_child = info.get_next_sibling(connection_nodeid);
 
-        info.set_css_property(node, node_transform);
+                let first_child = match info.get_first_child(connection_nodeid) {
+                    Some(s) => s,
+                    None => continue,
+                };
 
-        node = match info.get_next_sibling(node) {
-            Some(s) => s,
-            None => break,
-        };
-    }
+                let mut dataset = match info.get_dataset(first_child) {
+                    Some(s) => s,
+                    None => continue,
+                };
 
-    let node_connection_marker = &mut data.node_connection_marker;
+                let mut cld = match dataset.downcast_mut::<ConnectionLocalDataset>() {
+                    Some(s) => s,
+                    None => continue,
+                };
 
-    // Update the connection positions
-    let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-        Some(s) => s,
-        None => return result,
-    };
+                if !(cld.out_node_id == node_graph_node_id || cld.in_node_id == node_graph_node_id) {
+                    continue; // connection does not need to be modified
+                }
 
-    let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
-    while let Some(connection_nodeid) = first_connection_child {
+                let (new_rect, swap_vert, swap_horz) = match get_rect(&data.node_graph, *cld) {
+                    Some(s) => s,
+                    None => continue,
+                };
 
-        first_connection_child = info.get_next_sibling(connection_nodeid);
+                cld.swap_vert = swap_vert;
+                cld.swap_horz = swap_horz;
 
-        let first_child = match info.get_first_child(connection_nodeid) {
-            Some(s) => s,
-            None => continue,
-        };
+                info.set_css_property(first_child, CssProperty::transform(vec![
+                    StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
+                        y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+                    })
+                ].into()));
 
-        let mut dataset = match info.get_dataset(first_child) {
-            Some(s) => s,
-            None => continue,
-        };
+                info.set_css_property(first_child, CssProperty::Width(LayoutWidthValue::Exact(
+                    LayoutWidth { inner: PixelValue::px(new_rect.size.width) },
+                )));
+                info.set_css_property(first_child, CssProperty::Height(LayoutHeightValue::Exact(
+                    LayoutHeight { inner: PixelValue::px(new_rect.size.height) },
+                )));
+            }
 
-        let cld = match dataset.downcast_ref::<ConnectionLocalDataset>() {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let (new_rect, _, _) = match get_rect(&data.node_graph, *cld) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        info.set_css_property(first_child, CssProperty::transform(vec![
-            StyleTransform::Translate(StyleTransformTranslate2D {
-                x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
-                y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
-            })
-        ].into()));
-    }
-
-    info.stop_propagation();
-
-    result
-}
-
-extern "C" fn nodegraph_drag_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
-    let mut data = match data.downcast_mut::<NodeLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    let prev = match info.get_previous_mouse_state() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    let cur = info.get_current_mouse_state();
-
-    if !(cur.left_down && prev.left_down) {
-        // event is not a drag event
-        return Update::DoNothing;
-    }
-
-    let (current_mouse_pos, previous_mouse_pos) = match (cur.cursor_position, prev.cursor_position) {
-        (InWindow(c), InWindow(p)) => (c, p),
-        _ => return Update::DoNothing,
-    };
-
-    let node_graph_node_id = data.node_id;
-
-    let dx = current_mouse_pos.x - previous_mouse_pos.x;
-    let dy = current_mouse_pos.y - previous_mouse_pos.y;
-
-    let data = &mut *data;
-    let backref = &mut data.backref;
-
-    let mut backref = match backref.downcast_mut::<NodeGraphLocalDataset>() {
-        Some(s) => s,
-        None => return Update::DoNothing,
-    };
-
-    let mut backref = &mut *backref;
-    let node_connection_marker = &mut backref.node_connection_marker;
-
-    let nodegraph_node = info.get_hit_node();
-    let result = match backref.callbacks.on_node_dragged.as_mut() {
-        Some(OnNodeDragged { callback, data }) => (callback.cb)(data, info, node_graph_node_id, NodeDragAmount { x: dx, y: dy }),
-        None => Update::DoNothing,
-    };
-
-    // update the visual transform of the node in the UI
-    let node_position = match backref.node_graph.nodes.iter_mut().find(|i| i.node_id == node_graph_node_id) {
-        Some(s) => {
-            s.node.position.x += dx;
-            s.node.position.y += dy;
-            s.node.position
+            result
         },
-        None => return Update::DoNothing,
-    };
+        // drag graph
+        None => {
 
-    info.set_css_property(info.get_hit_node(), CssProperty::transform(vec![
-        StyleTransform::Translate(StyleTransformTranslate2D {
-            x: PixelValue::px(node_position.x + backref.node_graph.offset.x),
-            y: PixelValue::px(node_position.y + backref.node_graph.offset.y),
-        })
-    ].into()));
+            let result = match data.callbacks.on_node_graph_dragged.as_mut() {
+                Some(OnNodeGraphDragged { callback, data }) => (callback.cb)(data, info, GraphDragAmount { x: dx, y: dy }),
+                None => Update::DoNothing,
+            };
+
+            data.node_graph.offset.x += dx;
+            data.node_graph.offset.y += dy;
+
+            // Update the visual node positions
+            let node_container = match info.get_first_child(nodegraph_node) {
+                Some(s) => s,
+                None => return Update::DoNothing,
+            };
+
+            let node_container = match info.get_next_sibling(node_container) {
+                Some(s) => s,
+                None => return Update::DoNothing,
+            };
+
+            let mut node = match info.get_first_child(node_container) {
+                Some(s) => s,
+                None => return Update::DoNothing,
+            };
+
+            loop {
+
+                let mut node_local_dataset = match info.get_dataset(node) {
+                    None => return Update::DoNothing,
+                    Some(s) => s,
+                };
+
+                let mut node_graph_node_id = match node_local_dataset.downcast_ref::<NodeLocalDataset>() {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let node_graph_node_id = node_graph_node_id.node_id;
+
+                let node_position = match data.node_graph.nodes.iter().find(|i| i.node_id == node_graph_node_id) {
+                    Some(s) => s.node.position,
+                    None => continue,
+                };
+
+                let node_transform = CssProperty::transform(vec![
+                    StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(node_position.x + data.node_graph.offset.x),
+                        y: PixelValue::px(node_position.y + data.node_graph.offset.y),
+                    })
+                ].into());
+
+                info.set_css_property(node, node_transform);
+
+                node = match info.get_next_sibling(node) {
+                    Some(s) => s,
+                    None => break,
+                };
+            }
+
+            let node_connection_marker = &mut data.node_connection_marker;
+
+            // Update the connection positions
+            let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
+                Some(s) => s,
+                None => return result,
+            };
+
+            let mut first_connection_child = info.get_first_child(connection_container_nodeid);
+
+            while let Some(connection_nodeid) = first_connection_child {
+
+                first_connection_child = info.get_next_sibling(connection_nodeid);
+
+                let first_child = match info.get_first_child(connection_nodeid) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let mut dataset = match info.get_dataset(first_child) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let cld = match dataset.downcast_ref::<ConnectionLocalDataset>() {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let (new_rect, _, _) = match get_rect(&data.node_graph, *cld) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                info.set_css_property(first_child, CssProperty::transform(vec![
+                    StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
+                        y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+                    })
+                ].into()));
+            }
+
+            result
+        }
+    };
 
     info.stop_propagation();
 
-    // get the NodeId of the node containing all the connection lines
-    let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
-        Some(s) => s,
-        None => return result,
-    };
-
-    // animate all the connections
-    let mut first_connection_child = info.get_first_child(connection_container_nodeid);
-
-    while let Some(connection_nodeid) = first_connection_child {
-
-        first_connection_child = info.get_next_sibling(connection_nodeid);
-
-        let first_child = match info.get_first_child(connection_nodeid) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let mut dataset = match info.get_dataset(first_child) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let mut cld = match dataset.downcast_mut::<ConnectionLocalDataset>() {
-            Some(s) => s,
-            None => continue,
-        };
-
-        if !(cld.out_node_id == node_graph_node_id || cld.in_node_id == node_graph_node_id) {
-            continue; // connection does not need to be modified
-        }
-
-
-        let (new_rect, swap_vert, swap_horz) = match get_rect(&backref.node_graph, *cld) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        cld.swap_vert = swap_vert;
-        cld.swap_horz = swap_horz;
-
-        info.set_css_property(first_child, CssProperty::transform(vec![
-            StyleTransform::Translate(StyleTransformTranslate2D {
-                x: PixelValue::px(backref.node_graph.offset.x + new_rect.origin.x),
-                y: PixelValue::px(backref.node_graph.offset.y + new_rect.origin.y),
-            })
-        ].into()));
-
-        info.set_css_property(first_child, CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth { inner: PixelValue::px(new_rect.size.width) },
-        )));
-        info.set_css_property(first_child, CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight { inner: PixelValue::px(new_rect.size.height) },
-        )));
-    }
-
-    result
+    should_update
 }
 
 extern "C" fn nodegraph_duplicate_node(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
