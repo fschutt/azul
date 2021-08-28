@@ -8022,17 +8022,20 @@ namespace dll {
        NumberInput,
        CheckBox,
        ColorInput,
+       FileInput,
     };
     
     struct NodeTypeFieldValueVariant_TextInput { NodeTypeFieldValueTag tag; String payload; };
     struct NodeTypeFieldValueVariant_NumberInput { NodeTypeFieldValueTag tag; float payload; };
     struct NodeTypeFieldValueVariant_CheckBox { NodeTypeFieldValueTag tag; bool payload; };
     struct NodeTypeFieldValueVariant_ColorInput { NodeTypeFieldValueTag tag; ColorU payload; };
+    struct NodeTypeFieldValueVariant_FileInput { NodeTypeFieldValueTag tag; OptionString payload; };
     union NodeTypeFieldValue {
         NodeTypeFieldValueVariant_TextInput TextInput;
         NodeTypeFieldValueVariant_NumberInput NumberInput;
         NodeTypeFieldValueVariant_CheckBox CheckBox;
         NodeTypeFieldValueVariant_ColorInput ColorInput;
+        NodeTypeFieldValueVariant_FileInput FileInput;
     };
     
     

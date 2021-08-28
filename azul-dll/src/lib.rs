@@ -10992,6 +10992,7 @@ mod test_sizes {
         NumberInput(f32),
         CheckBox(bool),
         ColorInput(AzColorU),
+        FileInput(AzOptionString),
     }
 
     /// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct

@@ -6513,7 +6513,8 @@
                         {"TextInput": {"type": "String"}},
                         {"NumberInput": {"type": "f32"}},
                         {"CheckBox": {"type": "bool"}},
-                        {"ColorInput": {"type": "ColorU"}}
+                        {"ColorInput": {"type": "ColorU"}},
+                        {"FileInput": {"type": "OptionString"}}
                     ]
                 },
                 "InputConnection": {

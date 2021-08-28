@@ -8756,6 +8756,7 @@ enum AzNodeTypeFieldValueTag {
    AzNodeTypeFieldValueTag_NumberInput,
    AzNodeTypeFieldValueTag_CheckBox,
    AzNodeTypeFieldValueTag_ColorInput,
+   AzNodeTypeFieldValueTag_FileInput,
 };
 typedef enum AzNodeTypeFieldValueTag AzNodeTypeFieldValueTag;
 
@@ -8767,11 +8768,14 @@ struct AzNodeTypeFieldValueVariant_CheckBox { AzNodeTypeFieldValueTag tag; bool 
 typedef struct AzNodeTypeFieldValueVariant_CheckBox AzNodeTypeFieldValueVariant_CheckBox;
 struct AzNodeTypeFieldValueVariant_ColorInput { AzNodeTypeFieldValueTag tag; AzColorU payload; };
 typedef struct AzNodeTypeFieldValueVariant_ColorInput AzNodeTypeFieldValueVariant_ColorInput;
+struct AzNodeTypeFieldValueVariant_FileInput { AzNodeTypeFieldValueTag tag; AzOptionString payload; };
+typedef struct AzNodeTypeFieldValueVariant_FileInput AzNodeTypeFieldValueVariant_FileInput;
 union AzNodeTypeFieldValue {
     AzNodeTypeFieldValueVariant_TextInput TextInput;
     AzNodeTypeFieldValueVariant_NumberInput NumberInput;
     AzNodeTypeFieldValueVariant_CheckBox CheckBox;
     AzNodeTypeFieldValueVariant_ColorInput ColorInput;
+    AzNodeTypeFieldValueVariant_FileInput FileInput;
 };
 typedef union AzNodeTypeFieldValue AzNodeTypeFieldValue;
 
@@ -11274,6 +11278,7 @@ typedef struct AzCss AzCss;
 #define AzNodeTypeFieldValue_NumberInput(v) { .NumberInput = { .tag = AzNodeTypeFieldValueTag_NumberInput, .payload = v } }
 #define AzNodeTypeFieldValue_CheckBox(v) { .CheckBox = { .tag = AzNodeTypeFieldValueTag_CheckBox, .payload = v } }
 #define AzNodeTypeFieldValue_ColorInput(v) { .ColorInput = { .tag = AzNodeTypeFieldValueTag_ColorInput, .payload = v } }
+#define AzNodeTypeFieldValue_FileInput(v) { .FileInput = { .tag = AzNodeTypeFieldValueTag_FileInput, .payload = v } }
 #define AzSvgStyle_Fill(v) { .Fill = { .tag = AzSvgStyleTag_Fill, .payload = v } }
 #define AzSvgStyle_Stroke(v) { .Stroke = { .tag = AzSvgStyleTag_Stroke, .payload = v } }
 #define AzFmtValue_Bool(v) { .Bool = { .tag = AzFmtValueTag_Bool, .payload = v } }
@@ -17300,6 +17305,20 @@ bool AzNodeTypeFieldValue_matchRefColorInput(const AzNodeTypeFieldValue* value, 
 bool AzNodeTypeFieldValue_matchMutColorInput(AzNodeTypeFieldValue* restrict value, AzColorU* restrict * restrict out) {
     AzNodeTypeFieldValueVariant_ColorInput* restrict casted = (AzNodeTypeFieldValueVariant_ColorInput* restrict)value;
     bool valid = casted->tag == AzNodeTypeFieldValueTag_ColorInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchRefFileInput(const AzNodeTypeFieldValue* value, const AzOptionString** restrict out) {
+    const AzNodeTypeFieldValueVariant_FileInput* casted = (const AzNodeTypeFieldValueVariant_FileInput*)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_FileInput;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzNodeTypeFieldValue_matchMutFileInput(AzNodeTypeFieldValue* restrict value, AzOptionString* restrict * restrict out) {
+    AzNodeTypeFieldValueVariant_FileInput* restrict casted = (AzNodeTypeFieldValueVariant_FileInput* restrict)value;
+    bool valid = casted->tag == AzNodeTypeFieldValueTag_FileInput;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

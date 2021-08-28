@@ -288,6 +288,12 @@ impl Button {
     }
 
     #[inline]
+    pub fn with_on_click(mut self, data: RefAny, on_click: ButtonOnClickCallbackType) -> Self {
+        self.set_on_click(data, on_click);
+        self
+    }
+
+    #[inline]
     pub fn dom(self) -> Dom {
 
         use azul_desktop::dom::{

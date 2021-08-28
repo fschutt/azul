@@ -92,6 +92,7 @@ enum MyNodeType {
     MyTypeVariant1 {
         textfield1: String,
         color1: ColorU,
+        fileinput1: Option<String>,
     },
     MyTypeVariant2 {
         checkbox1: bool,
@@ -114,6 +115,7 @@ impl MyNodeType {
             0 => Self::MyTypeVariant1 {
                 textfield1: String::new(),
                 color1: ColorU { r: 0, g: 200, b: 0, a: 255 },
+                fileinput1: None,
             },
             _ => Self::MyTypeVariant2 {
                 checkbox1: false,
@@ -125,7 +127,7 @@ impl MyNodeType {
 
     pub fn get_fields(&self) -> Vec<NodeTypeField> {
         match self {
-            Self::MyTypeVariant1 { textfield1, color1 } => {
+            Self::MyTypeVariant1 { textfield1, color1, fileinput1 } => {
                 vec![
                     NodeTypeField {
                         key: "Text 1".into(),
@@ -134,6 +136,10 @@ impl MyNodeType {
                     NodeTypeField {
                         key: "Color".into(),
                         value: NodeTypeFieldValue::ColorInput(color1.clone().into()),
+                    },
+                    NodeTypeField {
+                        key: "File".into(),
+                        value: NodeTypeFieldValue::FileInput(fileinput1.as_ref().map(|s| s.clone().into()).into()),
                     }
                 ]
             },
@@ -164,10 +170,11 @@ impl MyNodeType {
     ) {
         use self::MyNodeType::*;
         match (node_type.inner, self) {
-            (0, MyTypeVariant1 { textfield1, color1 }) => {
+            (0, MyTypeVariant1 { textfield1, color1, fileinput1 }) => {
                 match (field_idx, new_value) {
                     (0, NodeTypeFieldValue::TextInput(s)) => *textfield1 = s.as_str().into(),
                     (1, NodeTypeFieldValue::ColorInput(s)) => *color1 = s,
+                    (2, NodeTypeFieldValue::FileInput(s)) => *fileinput1 = s.into_option().map(|s| s.as_str().to_string()),
                     _ => { },
                 }
             },

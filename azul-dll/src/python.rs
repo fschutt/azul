@@ -6606,6 +6606,7 @@ pub enum AzNodeTypeFieldValue {
     NumberInput(f32),
     CheckBox(bool),
     ColorInput(AzColorU),
+    FileInput(AzOptionString),
 }
 
 /// Re-export of rust-allocated (stack based) `NodeTypeInfo` struct
@@ -23348,6 +23349,8 @@ impl AzNodeTypeFieldValueEnumWrapper {
     fn CheckBox(v: bool) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::CheckBox(v) } }
     #[staticmethod]
     fn ColorInput(v: AzColorU) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::ColorInput(v) } }
+    #[staticmethod]
+    fn FileInput(v: AzOptionStringEnumWrapper) -> AzNodeTypeFieldValueEnumWrapper { AzNodeTypeFieldValueEnumWrapper { inner: AzNodeTypeFieldValue::FileInput(unsafe { mem::transmute(v) }) } }
 
     fn r#match(&self) -> PyResult<Vec<PyObject>> {
         use crate::python::AzNodeTypeFieldValue;
@@ -23359,6 +23362,7 @@ impl AzNodeTypeFieldValueEnumWrapper {
             AzNodeTypeFieldValue::NumberInput(v) => Ok(vec!["NumberInput".into_py(py), v.into_py(py)]),
             AzNodeTypeFieldValue::CheckBox(v) => Ok(vec!["CheckBox".into_py(py), v.into_py(py)]),
             AzNodeTypeFieldValue::ColorInput(v) => Ok(vec!["ColorInput".into_py(py), v.clone().into_py(py)]),
+            AzNodeTypeFieldValue::FileInput(v) => Ok(vec!["FileInput".into_py(py), { let m: &AzOptionStringEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
         }
     }
 }
