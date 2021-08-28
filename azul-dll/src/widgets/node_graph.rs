@@ -3208,10 +3208,12 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(data: &mut RefAny, info: &mu
     };
 
     // If a new file was selected, invoke callback
-    let result = match node_graph.callbacks.on_node_field_edited.as_mut() {
+    let mut result = match node_graph.callbacks.on_node_field_edited.as_mut() {
         Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::FileInput(user_new_file_selected)),
-        None => Update::DoNothing,
+        None => return Update::DoNothing,
     };
+
+    result.max_self(Update::RegenerateStyledDomForCurrentWindow);
 
     result
 }

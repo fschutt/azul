@@ -14601,6 +14601,7 @@
                 },
                 "OptionString": {
                     "external": "azul_impl::css::OptionAzString",
+                    "derive": ["Clone", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"None": {}},
                         {"Some": { "type": "String" }}

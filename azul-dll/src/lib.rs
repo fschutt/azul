@@ -10691,6 +10691,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `OptionString` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzOptionString {
         None,
         Some(AzString),

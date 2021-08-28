@@ -7876,6 +7876,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzOptionString {
         None,
         Some(AzString),
