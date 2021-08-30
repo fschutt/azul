@@ -29980,28 +29980,6 @@ impl PyObjectProtocol for AzSvgPathElementEnumWrapper {
 }
 
 #[pymethods]
-impl AzSvgLine {
-    #[new]
-    fn __new__(start: AzSvgPoint, end: AzSvgPoint) -> Self {
-        Self {
-            start,
-            end,
-        }
-    }
-
-}
-
-#[pyproto]
-impl PyObjectProtocol for AzSvgLine {
-    fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgLine = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
-    }
-    fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgLine = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
-    }
-}
-
-#[pymethods]
 impl AzSvgPoint {
     #[new]
     fn __new__(x: f32, y: f32) -> Self {
@@ -30024,6 +30002,34 @@ impl PyObjectProtocol for AzSvgPoint {
 }
 
 #[pymethods]
+impl AzSvgLine {
+    #[new]
+    fn __new__(start: AzSvgPoint, end: AzSvgPoint) -> Self {
+        Self {
+            start,
+            end,
+        }
+    }
+
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgLine_tessellateStroke(
+            mem::transmute(self),
+            mem::transmute(stroke_style),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzSvgLine {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgLine = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgLine = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzSvgQuadraticCurve {
     #[new]
     fn __new__(start: AzSvgPoint, ctrl: AzSvgPoint, end: AzSvgPoint) -> Self {
@@ -30034,6 +30040,12 @@ impl AzSvgQuadraticCurve {
         }
     }
 
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_tessellateStroke(
+            mem::transmute(self),
+            mem::transmute(stroke_style),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -30058,6 +30070,12 @@ impl AzSvgCubicCurve {
         }
     }
 
+    fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_tessellateStroke(
+            mem::transmute(self),
+            mem::transmute(stroke_style),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -38685,8 +38703,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzSvgCircle>()?;
     m.add_class::<AzSvgPath>()?;
     m.add_class::<AzSvgPathElementEnumWrapper>()?;
-    m.add_class::<AzSvgLine>()?;
     m.add_class::<AzSvgPoint>()?;
+    m.add_class::<AzSvgLine>()?;
     m.add_class::<AzSvgQuadraticCurve>()?;
     m.add_class::<AzSvgCubicCurve>()?;
     m.add_class::<AzSvgRect>()?;

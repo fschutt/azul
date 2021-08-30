@@ -11290,15 +11290,17 @@
                         {"Line": {"type": "SvgLine"}},
                         {"QuadraticCurve": {"type": "SvgQuadraticCurve"}},
                         {"CubicCurve": {"type": "SvgCubicCurve"}}
-                    ]
-                },
-                "SvgLine": {
-                    "external": "azul_impl::svg::SvgLine",
-                    "derive": ["Copy"],
-                    "struct_fields": [
-                        {"start": {"type": "SvgPoint"}},
-                        {"end": {"type": "SvgPoint"}}
-                    ]
+                    ],
+                    "functions": {
+                        "tessellate_stroke": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"stroke_style": "SvgStrokeStyle"}
+                            ],
+                            "returns": {"type": "TessellatedSvgNode"},
+                            "fn_body": "azul_impl::svg::tessellate_svgpathelement_stroke(svgpathelement, stroke_style)"
+                        }
+                    }
                 },
                 "SvgPoint": {
                     "external": "azul_impl::svg::SvgPoint",
@@ -11308,6 +11310,24 @@
                         {"y": {"type": "f32"}}
                     ]
                 },
+                "SvgLine": {
+                    "external": "azul_impl::svg::SvgLine",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"start": {"type": "SvgPoint"}},
+                        {"end": {"type": "SvgPoint"}}
+                    ],
+                    "functions": {
+                        "tessellate_stroke": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"stroke_style": "SvgStrokeStyle"}
+                            ],
+                            "returns": {"type": "TessellatedSvgNode"},
+                            "fn_body": "azul_impl::svg::tessellate_line_stroke(svgline, stroke_style)"
+                        }
+                    }
+                },
                 "SvgQuadraticCurve": {
                     "external": "azul_impl::svg::SvgQuadraticCurve",
                     "derive": ["Copy", "Serialize", "Deserialize"],
@@ -11315,7 +11335,17 @@
                         {"start": {"type": "SvgPoint"}},
                         {"ctrl": {"type": "SvgPoint"}},
                         {"end": {"type": "SvgPoint"}}
-                    ]
+                    ],
+                    "functions": {
+                        "tessellate_stroke": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"stroke_style": "SvgStrokeStyle"}
+                            ],
+                            "returns": {"type": "TessellatedSvgNode"},
+                            "fn_body": "azul_impl::svg::tessellate_quadraticcurve_stroke(svgquadraticcurve, stroke_style)"
+                        }
+                    }
                 },
                 "SvgCubicCurve": {
                     "external": "azul_impl::svg::SvgCubicCurve",
@@ -11325,7 +11355,17 @@
                         {"ctrl_1": {"type": "SvgPoint"}},
                         {"ctrl_2": {"type": "SvgPoint"}},
                         {"end": {"type": "SvgPoint"}}
-                    ]
+                    ],
+                    "functions": {
+                        "tessellate_stroke": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"stroke_style": "SvgStrokeStyle"}
+                            ],
+                            "returns": {"type": "TessellatedSvgNode"},
+                            "fn_body": "azul_impl::svg::tessellate_cubiccurve_stroke(svgcubiccurve, stroke_style)"
+                        }
+                    }
                 },
                 "SvgRect": {
                     "external": "azul_impl::svg::SvgRect",

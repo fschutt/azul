@@ -12435,6 +12435,10 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateStroke(const AzSvgCi
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateFill(const AzSvgPath* svgpath, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateStroke(const AzSvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgPath_delete(AzSvgPath* restrict instance);
+extern DLLIMPORT AzTessellatedSvgNode AzSvgPathElement_tessellateStroke(const AzSvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTessellatedSvgNode AzSvgLine_tessellateStroke(const AzSvgLine* svgline, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTessellatedSvgNode AzSvgQuadraticCurve_tessellateStroke(const AzSvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTessellatedSvgNode AzSvgCubicCurve_tessellateStroke(const AzSvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateFill(const AzSvgRect* svgrect, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateStroke(const AzSvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_empty();

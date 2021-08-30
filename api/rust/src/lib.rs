@@ -10239,6 +10239,10 @@ mod dll {
         pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_tessellateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPathElement_tessellateStroke(_:  &AzSvgPathElement, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgLine_tessellateStroke(_:  &AzSvgLine, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgQuadraticCurve_tessellateStroke(_:  &AzSvgQuadraticCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgCubicCurve_tessellateStroke(_:  &AzSvgCubicCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgRect_tessellateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgRect_tessellateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode;
@@ -15847,18 +15851,38 @@ pub mod svg {
     /// `SvgPathElement` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
-    /// `SvgLine` struct
-    
-#[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
+    impl SvgPathElement {
+        /// Calls the `SvgPathElement::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPathElement_tessellateStroke(self, stroke_style) } }
+    }
+
     /// `SvgPoint` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
+    /// `SvgLine` struct
+    
+#[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
+    impl SvgLine {
+        /// Calls the `SvgLine::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgLine_tessellateStroke(self, stroke_style) } }
+    }
+
     /// `SvgQuadraticCurve` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
+    impl SvgQuadraticCurve {
+        /// Calls the `SvgQuadraticCurve::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgQuadraticCurve_tessellateStroke(self, stroke_style) } }
+    }
+
     /// `SvgCubicCurve` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
+    impl SvgCubicCurve {
+        /// Calls the `SvgCubicCurve::tessellate_stroke` function.
+        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCubicCurve_tessellateStroke(self, stroke_style) } }
+    }
+
     /// `SvgRect` struct
     
 #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;

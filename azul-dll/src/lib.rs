@@ -3279,22 +3279,30 @@ pub use AzSvgPathTT as AzSvgPath;
 /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
 pub type AzSvgPathElementTT = azul_impl::svg::SvgPathElement;
 pub use AzSvgPathElementTT as AzSvgPathElement;
-
-/// Re-export of rust-allocated (stack based) `SvgLine` struct
-pub type AzSvgLineTT = azul_impl::svg::SvgLine;
-pub use AzSvgLineTT as AzSvgLine;
+/// Equivalent to the Rust `SvgPathElement::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgPathElement_tessellateStroke(svgpathelement: &AzSvgPathElement, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_svgpathelement_stroke(svgpathelement, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgPoint` struct
 pub type AzSvgPointTT = azul_impl::svg::SvgPoint;
 pub use AzSvgPointTT as AzSvgPoint;
 
+/// Re-export of rust-allocated (stack based) `SvgLine` struct
+pub type AzSvgLineTT = azul_impl::svg::SvgLine;
+pub use AzSvgLineTT as AzSvgLine;
+/// Equivalent to the Rust `SvgLine::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgLine_tessellateStroke(svgline: &AzSvgLine, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_line_stroke(svgline, stroke_style) }
+
 /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
 pub type AzSvgQuadraticCurveTT = azul_impl::svg::SvgQuadraticCurve;
 pub use AzSvgQuadraticCurveTT as AzSvgQuadraticCurve;
+/// Equivalent to the Rust `SvgQuadraticCurve::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_tessellateStroke(svgquadraticcurve: &AzSvgQuadraticCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_quadraticcurve_stroke(svgquadraticcurve, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
 pub type AzSvgCubicCurveTT = azul_impl::svg::SvgCubicCurve;
 pub use AzSvgCubicCurveTT as AzSvgCubicCurve;
+/// Equivalent to the Rust `SvgCubicCurve::tessellate_stroke()` function.
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_tessellateStroke(svgcubiccurve: &AzSvgCubicCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_cubiccurve_stroke(svgcubiccurve, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgRect` struct
 pub type AzSvgRectTT = azul_impl::svg::SvgRect;

@@ -10395,6 +10395,10 @@ namespace dll {
         TessellatedSvgNode SvgPath_tessellateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgPath_tessellateStroke(const SvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
         void SvgPath_delete(SvgPath* restrict instance);
+        TessellatedSvgNode SvgPathElement_tessellateStroke(const SvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgLine_tessellateStroke(const SvgLine* svgline, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgQuadraticCurve_tessellateStroke(const SvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
+        TessellatedSvgNode SvgCubicCurve_tessellateStroke(const SvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode SvgRect_tessellateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgRect_tessellateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode TessellatedSvgNode_empty();

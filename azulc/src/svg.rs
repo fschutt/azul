@@ -98,26 +98,26 @@ fn svg_multipolygon_to_lyon_path(polygon: &SvgMultiPolygon) -> Path {
         }
 
         let start_item = p.items.as_ref()[0];
-        let first_point = Point2D::new(start_item.get_start().x, -(start_item.get_start().y));
+        let first_point = Point2D::new(start_item.get_start().x, start_item.get_start().y);
 
         builder.begin(first_point);
 
         for q in p.items.as_ref().iter().rev() /* NOTE: REVERSE ITERATOR */ {
             match q {
                 SvgPathElement::Line(l) => {
-                    builder.line_to(Point2D::new(l.end.x, -(l.end.y)));
+                    builder.line_to(Point2D::new(l.end.x, l.end.y));
                 },
                 SvgPathElement::QuadraticCurve(qc) => {
                     builder.quadratic_bezier_to(
-                        Point2D::new(qc.ctrl.x, -(qc.ctrl.y)),
-                        Point2D::new(qc.end.x, -(qc.end.y))
+                        Point2D::new(qc.ctrl.x, qc.ctrl.y),
+                        Point2D::new(qc.end.x, qc.end.y)
                     );
                 },
                 SvgPathElement::CubicCurve(cc) => {
                     builder.cubic_bezier_to(
-                        Point2D::new(cc.ctrl_1.x, -(cc.ctrl_1.y)),
-                        Point2D::new(cc.ctrl_2.x, -(cc.ctrl_2.y)),
-                        Point2D::new(cc.end.x, -(cc.end.y))
+                        Point2D::new(cc.ctrl_1.x, cc.ctrl_1.y),
+                        Point2D::new(cc.ctrl_2.x, cc.ctrl_2.y),
+                        Point2D::new(cc.end.x, cc.end.y)
                     );
                 },
             }
@@ -137,26 +137,26 @@ fn svg_path_to_lyon_path_events(path: &SvgPath) -> Path {
     if !path.items.as_ref().is_empty() {
 
         let start_item = path.items.as_ref()[0];
-        let first_point = Point2D::new(start_item.get_start().x, -(start_item.get_start().y));
+        let first_point = Point2D::new(start_item.get_start().x, start_item.get_start().y);
 
         builder.begin(first_point);
 
         for p in path.items.as_ref().iter() {
             match p {
                 SvgPathElement::Line(l) => {
-                    builder.line_to(Point2D::new(l.end.x, -(l.end.y)));
+                    builder.line_to(Point2D::new(l.end.x, l.end.y));
                 },
                 SvgPathElement::QuadraticCurve(qc) => {
                     builder.quadratic_bezier_to(
-                        Point2D::new(qc.ctrl.x, -(qc.ctrl.y)),
-                        Point2D::new(qc.end.x, -(qc.end.y))
+                        Point2D::new(qc.ctrl.x, qc.ctrl.y),
+                        Point2D::new(qc.end.x, qc.end.y)
                     );
                 },
                 SvgPathElement::CubicCurve(cc) => {
                     builder.cubic_bezier_to(
-                        Point2D::new(cc.ctrl_1.x, -(cc.ctrl_1.y)),
-                        Point2D::new(cc.ctrl_2.x, -(cc.ctrl_2.y)),
-                        Point2D::new(cc.end.x, -(cc.end.y))
+                        Point2D::new(cc.ctrl_1.x, cc.ctrl_1.y),
+                        Point2D::new(cc.ctrl_2.x, cc.ctrl_2.y),
+                        Point2D::new(cc.end.x, cc.end.y)
                     );
                 },
             }
@@ -443,6 +443,129 @@ pub fn tessellate_styled_node(node: &SvgStyledNode) -> TessellatedSvgNode {
 
 #[cfg(not(feature = "svg"))]
 pub fn tessellate_styled_node(node: &SvgStyledNode) -> TessellatedSvgNode {
+    TessellatedSvgNode::default()
+}
+
+#[cfg(feature = "svg")]
+pub fn tessellate_line_stroke(svgline: &SvgLine, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    let stroke_options: StrokeOptions = translate_svg_stroke_style(stroke_style);
+
+    let mut builder = Path::builder();
+    builder.begin(Point2D::new(svgline.start.x, svgline.start.y));
+    builder.line_to(Point2D::new(svgline.end.x, svgline.end.y));
+    builder.end(/* closed */ false);
+    let path = builder.build();
+
+    let mut stroke_geometry = VertexBuffers::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    let tess_result = stroke_tess.tessellate_path(
+        &path,
+        &stroke_options,
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+            let xy_arr = vertex.position();
+            SvgVertex { x: xy_arr.x, y: xy_arr.y }
+        }),
+    );
+
+    if let Err(_) = tess_result {
+        TessellatedSvgNode::empty()
+    } else {
+        vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
+    }
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn tessellate_line_stroke(svgline: &SvgLine, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    TessellatedSvgNode::default()
+}
+
+#[cfg(feature = "svg")]
+pub fn tessellate_cubiccurve_stroke(svgcubiccurve: &SvgCubicCurve, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    let stroke_options: StrokeOptions = translate_svg_stroke_style(stroke_style);
+
+    let mut builder = Path::builder();
+    builder.begin(Point2D::new(svgcubiccurve.start.x, svgcubiccurve.start.y));
+    builder.cubic_bezier_to(
+        Point2D::new(svgcubiccurve.ctrl_1.x, svgcubiccurve.ctrl_1.y),
+        Point2D::new(svgcubiccurve.ctrl_2.x, svgcubiccurve.ctrl_2.y),
+        Point2D::new(svgcubiccurve.end.x, svgcubiccurve.end.y)
+    );
+    builder.end(/* closed */ false);
+    let path = builder.build();
+
+    let mut stroke_geometry = VertexBuffers::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    let tess_result = stroke_tess.tessellate_path(
+        &path,
+        &stroke_options,
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+            let xy_arr = vertex.position();
+            SvgVertex { x: xy_arr.x, y: xy_arr.y }
+        }),
+    );
+
+    if let Err(_) = tess_result {
+        TessellatedSvgNode::empty()
+    } else {
+        vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
+    }
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn tessellate_cubiccurve_stroke(svgline: &SvgCubicCurve, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    TessellatedSvgNode::default()
+}
+
+#[cfg(feature = "svg")]
+pub fn tessellate_quadraticcurve_stroke(svgquadraticcurve: &SvgQuadraticCurve, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    let stroke_options: StrokeOptions = translate_svg_stroke_style(stroke_style);
+
+    let mut builder = Path::builder();
+    builder.begin(Point2D::new(svgquadraticcurve.start.x, svgquadraticcurve.start.y));
+    builder.quadratic_bezier_to(
+        Point2D::new(svgquadraticcurve.ctrl.x, svgquadraticcurve.ctrl.y),
+        Point2D::new(svgquadraticcurve.end.x, svgquadraticcurve.end.y)
+    );
+    builder.end(/* closed */ false);
+    let path = builder.build();
+
+    let mut stroke_geometry = VertexBuffers::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    let tess_result = stroke_tess.tessellate_path(
+        &path,
+        &stroke_options,
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+            let xy_arr = vertex.position();
+            SvgVertex { x: xy_arr.x, y: xy_arr.y }
+        }),
+    );
+
+    if let Err(_) = tess_result {
+        TessellatedSvgNode::empty()
+    } else {
+        vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
+    }
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn tessellate_quadraticcurve_stroke(svgquadraticcurve: &SvgQuadraticCurve, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    TessellatedSvgNode::default()
+}
+
+#[cfg(feature = "svg")]
+pub fn tessellate_svgpathelement_stroke(svgpathelement: &SvgPathElement, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    match svgpathelement {
+        SvgPathElement::Line(l) => tessellate_line_stroke(l, stroke_style),
+        SvgPathElement::QuadraticCurve(l) => tessellate_quadraticcurve_stroke(l, stroke_style),
+        SvgPathElement::CubicCurve(l) => tessellate_cubiccurve_stroke(l, stroke_style),
+    }
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn tessellate_svgpathelement_stroke(svgpathelement: &SvgPathElement, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
     TessellatedSvgNode::default()
 }
 
