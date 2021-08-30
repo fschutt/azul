@@ -5392,6 +5392,92 @@
                         {"callback": {"type": "Callback"}}
                     ]
                 },
+                "FileInput": {
+                    "external": "crate::widgets::file_input::FileInput",
+                    "struct_fields": [
+                        {"state": {"type": "FileInputStateWrapper"}},
+                        {"default_text": {"type": "String"}},
+                        {"image": {"type": "OptionImageRef"}},
+                        {"container_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"label_style": {"type": "NodeDataInlineCssPropertyVec"}},
+                        {"image_style": {"type": "NodeDataInlineCssPropertyVec"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "doc": "Creates a new file input button",
+                            "fn_args": [
+                                {"path": "OptionString"}
+                            ],
+                            "fn_body": "AzFileInput::new(path)"
+                        }
+                    },
+                    "functions": {
+                        "set_on_path_change": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "FileInputOnPathChangeCallbackType"}
+                            ],
+                            "fn_body": "fileinput.set_on_path_change(data, callback);"
+                        },
+                        "with_on_path_change": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"data": "RefAny"},
+                                {"callback": "FileInputOnPathChangeCallbackType"}
+                            ],
+                            "returns": {"type": "FileInput"},
+                            "fn_body": "let mut fileinput = fileinput.swap_with_default(); fileinput.set_on_path_change(data, callback); fileinput"
+                        },
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "fileinput.swap_with_default().dom()"
+                        }
+                    }
+                },
+                "FileInputStateWrapper": {
+                    "external": "crate::widgets::file_input::FileInputStateWrapper",
+                    "struct_fields": [
+                        {"inner": {"type": "FileInputState"}},
+                        {"on_file_path_change": {"type": "OptionFileInputOnPathChange"}},
+                        {"file_dialog_title": {"type": "String"}},
+                        {"default_dir": {"type": "OptionString"}},
+                        {"file_types": {"type": "OptionFileTypeList"}}
+                    ]
+                },
+                "FileInputState": {
+                    "external": "crate::widgets::file_input::FileInputState",
+                    "struct_fields": [
+                        {"path": {"type": "OptionString"}}
+                    ]
+                },
+                "FileInputOnPathChange": {
+                    "external": "crate::widgets::file_input::FileInputOnPathChange",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "FileInputOnPathChangeCallback"}}
+                    ]
+                },
+                "FileInputOnPathChangeCallback": {
+                    "external": "crate::widgets::file_input::FileInputOnPathChangeCallback",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"cb": {"type": "FileInputOnPathChangeCallbackType"}}
+                    ]
+                },
+                "FileInputOnPathChangeCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "FileInputState", "ref": "ref"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
                 "CheckBox": {
                     "external": "crate::widgets::check_box::CheckBox",
                     "struct_fields": [
@@ -11292,6 +11378,30 @@
                         {"CubicCurve": {"type": "SvgCubicCurve"}}
                     ],
                     "functions": {
+                        "get_start": {
+                            "doc": "Returns the starting point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgpathelement.get_start()"
+                        },
+                        "get_end": {
+                            "doc": "Returns the ending point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgpathelement.get_end()"
+                        },
+                        "get_bounds": {
+                            "doc": "Returns the bounding box of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgpathelement.get_bounds()"
+                        },
                         "tessellate_stroke": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -14272,6 +14382,13 @@
                     "enum_fields": [
                         {"None": {}},
                         {"Some": {"type": "ButtonOnClick"}}
+                    ]
+                },
+                "OptionFileInputOnPathChange": {
+                    "external": "crate::widgets::file_input::OptionFileInputOnPathChange",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "FileInputOnPathChange"}}
                     ]
                 },
                 "OptionCheckBoxOnToggle": {

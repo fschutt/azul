@@ -17,7 +17,7 @@ use azul_css::{
 use core::fmt;
 use crate::xml::XmlError;
 use azul_css::{AzString, OptionAzString, StringVec, OptionLayoutSize, OptionColorU};
-pub use azul_css::{SvgCubicCurve, SvgPoint};
+pub use azul_css::{SvgCubicCurve, SvgPoint, SvgRect};
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
@@ -37,12 +37,54 @@ pub struct SvgLine {
     pub end: SvgPoint,
 }
 
+impl SvgLine {
+    pub fn get_bounds(&self) -> SvgRect {
+        let min_x = self.start.x.min(self.end.x);
+        let max_x = self.start.x.max(self.end.x);
+
+        let min_y = self.start.y.min(self.end.y);
+        let max_y = self.start.y.max(self.end.y);
+
+        let width = (max_x - min_x).abs();
+        let height = (max_y - min_y).abs();
+
+        SvgRect {
+            width,
+            height,
+            x: min_x,
+            y: min_y,
+            .. SvgRect::default()
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgQuadraticCurve {
     pub start: SvgPoint,
     pub ctrl: SvgPoint,
     pub end: SvgPoint,
+}
+
+impl SvgQuadraticCurve {
+    pub fn get_bounds(&self) -> SvgRect {
+        let min_x = self.start.x.min(self.end.x).min(self.ctrl.x);
+        let max_x = self.start.x.max(self.end.x).max(self.ctrl.x);
+
+        let min_y = self.start.y.min(self.end.y).min(self.ctrl.y);
+        let max_y = self.start.y.max(self.end.y).max(self.ctrl.y);
+
+        let width = (max_x - min_x).abs();
+        let height = (max_y - min_y).abs();
+
+        SvgRect {
+            width,
+            height,
+            x: min_x,
+            y: min_y,
+            .. SvgRect::default()
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -66,6 +108,13 @@ impl SvgPathElement {
             SvgPathElement::Line(l) => l.end,
             SvgPathElement::QuadraticCurve(qc) => qc.end,
             SvgPathElement::CubicCurve(cc) => cc.end,
+        }
+    }
+    pub fn get_bounds(&self) -> SvgRect {
+        match self {
+            SvgPathElement::Line(l) => l.get_bounds(),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_bounds(),
+            SvgPathElement::CubicCurve(cc) => cc.get_bounds(),
         }
     }
 }
@@ -151,30 +200,6 @@ impl SvgCircle {
         let x_diff = libm::fabsf(x - self.center_x);
         let y_diff = libm::fabsf(y - self.center_y);
         (x_diff * x_diff) + (y_diff * y_diff) < (self.radius * self.radius)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct SvgRect {
-    pub width: f32,
-    pub height: f32,
-    pub x: f32,
-    pub y: f32,
-    pub radius_top_left: f32,
-    pub radius_top_right: f32,
-    pub radius_bottom_left: f32,
-    pub radius_bottom_right: f32,
-}
-
-impl SvgRect {
-    /// Note: does not incorporate rounded edges!
-    /// Origin of x and y is assumed to be the top left corner
-    pub fn contains_point(&self, x: f32, y: f32) -> bool {
-        x > self.x &&
-        x < self.x + self.width &&
-        y > self.y &&
-        y < self.y + self.height
     }
 }
 

@@ -30,7 +30,7 @@ use azul_core::window::{
 };
 
 use crate::widgets::{
-    button::Button,
+    file_input::{FileInput, FileInputState},
     text_input::{TextInput, TextInputState},
     number_input::{NumberInput, NumberInputState},
     color_input::{ColorInput, ColorInputState},
@@ -2241,18 +2241,8 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
                                         .dom()
                                     },
                                     NodeTypeFieldValue::FileInput(file_path) => {
-                                        Button::new(match file_path.as_ref() {
-                                            None => "Select file...".into(),
-                                            Some(path) => {
-                                                let path = std::path::Path::new(path.as_str());
-                                                // file name including extension
-                                                path.file_name()
-                                                .map(|s| s.to_string_lossy().to_string())
-                                                .unwrap_or(format!("Select file..."))
-                                                .into()
-                                            }
-                                        })
-                                        .with_on_click(field_local_dataset, nodegraph_on_fileinput_button_clicked)
+                                        FileInput::new(file_path.clone())
+                                        .with_on_path_change(field_local_dataset, nodegraph_on_fileinput_button_clicked)
                                         .dom()
                                     },
                                 }
@@ -3174,9 +3164,7 @@ extern "C" fn nodegraph_on_colorinput_value_changed(data: &mut RefAny, info: &mu
     result
 }
 
-extern "C" fn nodegraph_on_fileinput_button_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-
-    use azul_desktop::dialogs::open_file_dialog;
+extern "C" fn nodegraph_on_fileinput_button_clicked(data: &mut RefAny, info: &mut CallbackInfo, file: &FileInputState) -> Update {
 
     let mut data = match data.downcast_mut::<NodeFieldLocalDataset>() {
         Some(s) => s,
@@ -3201,19 +3189,11 @@ extern "C" fn nodegraph_on_fileinput_button_clicked(data: &mut RefAny, info: &mu
         None => return Update::DoNothing,
     };
 
-    // Open file input selector
-    let user_new_file_selected = match open_file_dialog("Select file".into(), None.into(), None.into()) {
-        Some(s) => OptionAzString::Some(s),
-        None => return Update::DoNothing,
-    };
-
     // If a new file was selected, invoke callback
     let mut result = match node_graph.callbacks.on_node_field_edited.as_mut() {
-        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::FileInput(user_new_file_selected)),
+        Some(OnNodeFieldEdited { data, callback }) => (callback.cb)(data, info, node_id, field_idx, node_type, NodeTypeFieldValue::FileInput(file.path.clone())),
         None => return Update::DoNothing,
     };
-
-    result.max_self(Update::RegenerateStyledDomForCurrentWindow);
 
     result
 }

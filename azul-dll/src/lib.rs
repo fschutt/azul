@@ -1835,6 +1835,43 @@ pub use AzButtonOnClickTT as AzButtonOnClick;
 /// Destructor: Takes ownership of the `ButtonOnClick` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzButtonOnClick_delete(object: &mut AzButtonOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `FileInput` struct
+pub type AzFileInputTT = crate::widgets::file_input::FileInput;
+pub use AzFileInputTT as AzFileInput;
+/// Creates a new file input button
+#[no_mangle] pub extern "C" fn AzFileInput_new(path: AzOptionString) -> AzFileInput { AzFileInput::new(path) }
+/// Equivalent to the Rust `FileInput::set_on_path_change()` function.
+#[no_mangle] pub extern "C" fn AzFileInput_setOnPathChange(fileinput: &mut AzFileInput, data: AzRefAny, callback: AzFileInputOnPathChangeCallbackType) { fileinput.set_on_path_change(data, callback); }
+/// Equivalent to the Rust `FileInput::with_on_path_change()` function.
+#[no_mangle] pub extern "C" fn AzFileInput_withOnPathChange(fileinput: &mut AzFileInput, data: AzRefAny, callback: AzFileInputOnPathChangeCallbackType) -> AzFileInput { let mut fileinput = fileinput.swap_with_default(); fileinput.set_on_path_change(data, callback); fileinput }
+/// Equivalent to the Rust `FileInput::dom()` function.
+#[no_mangle] pub extern "C" fn AzFileInput_dom(fileinput: &mut AzFileInput) -> AzDom { fileinput.swap_with_default().dom() }
+/// Destructor: Takes ownership of the `FileInput` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFileInput_delete(object: &mut AzFileInput) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
+pub type AzFileInputStateWrapperTT = crate::widgets::file_input::FileInputStateWrapper;
+pub use AzFileInputStateWrapperTT as AzFileInputStateWrapper;
+/// Destructor: Takes ownership of the `FileInputStateWrapper` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFileInputStateWrapper_delete(object: &mut AzFileInputStateWrapper) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `FileInputState` struct
+pub type AzFileInputStateTT = crate::widgets::file_input::FileInputState;
+pub use AzFileInputStateTT as AzFileInputState;
+/// Destructor: Takes ownership of the `FileInputState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFileInputState_delete(object: &mut AzFileInputState) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `FileInputOnPathChange` struct
+pub type AzFileInputOnPathChangeTT = crate::widgets::file_input::FileInputOnPathChange;
+pub use AzFileInputOnPathChangeTT as AzFileInputOnPathChange;
+/// Destructor: Takes ownership of the `FileInputOnPathChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzFileInputOnPathChange_delete(object: &mut AzFileInputOnPathChange) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
+pub type AzFileInputOnPathChangeCallbackTT = crate::widgets::file_input::FileInputOnPathChangeCallback;
+pub use AzFileInputOnPathChangeCallbackTT as AzFileInputOnPathChangeCallback;
+
+pub type AzFileInputOnPathChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzFileInputState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `CheckBox` struct
 pub type AzCheckBoxTT = crate::widgets::check_box::CheckBox;
 pub use AzCheckBoxTT as AzCheckBox;
@@ -3279,6 +3316,12 @@ pub use AzSvgPathTT as AzSvgPath;
 /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
 pub type AzSvgPathElementTT = azul_impl::svg::SvgPathElement;
 pub use AzSvgPathElementTT as AzSvgPathElement;
+/// Returns the starting point of this item
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getStart(svgpathelement: &AzSvgPathElement) -> AzSvgPoint { svgpathelement.get_start() }
+/// Returns the ending point of this item
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getEnd(svgpathelement: &AzSvgPathElement) -> AzSvgPoint { svgpathelement.get_end() }
+/// Returns the bounding box of this item
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getBounds(svgpathelement: &AzSvgPathElement) -> AzSvgRect { svgpathelement.get_bounds() }
 /// Equivalent to the Rust `SvgPathElement::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgPathElement_tessellateStroke(svgpathelement: &AzSvgPathElement, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_svgpathelement_stroke(svgpathelement, stroke_style) }
 
@@ -4492,6 +4535,12 @@ pub type AzOptionButtonOnClickTT = crate::widgets::button::OptionButtonOnClick;
 pub use AzOptionButtonOnClickTT as AzOptionButtonOnClick;
 /// Destructor: Takes ownership of the `OptionButtonOnClick` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzOptionButtonOnClick_delete(object: &mut AzOptionButtonOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
+pub type AzOptionFileInputOnPathChangeTT = crate::widgets::file_input::OptionFileInputOnPathChange;
+pub use AzOptionFileInputOnPathChangeTT as AzOptionFileInputOnPathChange;
+/// Destructor: Takes ownership of the `OptionFileInputOnPathChange` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionFileInputOnPathChange_delete(object: &mut AzOptionFileInputOnPathChange) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
 pub type AzOptionCheckBoxOnToggleTT = crate::widgets::check_box::OptionCheckBoxOnToggle;
@@ -6247,6 +6296,15 @@ mod test_sizes {
         Center,
         Right,
     }
+
+    /// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
+    #[repr(C)]
+    pub struct AzFileInputOnPathChangeCallback {
+        pub cb: AzFileInputOnPathChangeCallbackType,
+    }
+
+    /// `AzFileInputOnPathChangeCallbackType` struct
+    pub type AzFileInputOnPathChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzFileInputState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
     #[repr(C)]
@@ -9125,6 +9183,13 @@ mod test_sizes {
         pub callback: AzCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInputOnPathChange` struct
+    #[repr(C)]
+    pub struct AzFileInputOnPathChange {
+        pub data: AzRefAny,
+        pub callback: AzFileInputOnPathChangeCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
     #[repr(C)]
     pub struct AzCheckBoxOnToggle {
@@ -9783,6 +9848,13 @@ mod test_sizes {
     pub enum AzOptionButtonOnClick {
         None,
         Some(AzButtonOnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
+    #[repr(C, u8)]
+    pub enum AzOptionFileInputOnPathChange {
+        None,
+        Some(AzFileInputOnPathChange),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
@@ -10975,6 +11047,12 @@ mod test_sizes {
         Exact(AzStyleTransformVec),
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInputState` struct
+    #[repr(C)]
+    pub struct AzFileInputState {
+        pub path: AzOptionString,
+    }
+
     /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
     #[repr(C)]
     pub struct AzColorInputStateWrapper {
@@ -11465,6 +11543,16 @@ mod test_sizes {
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
+    #[repr(C)]
+    pub struct AzFileInputStateWrapper {
+        pub inner: AzFileInputState,
+        pub on_file_path_change: AzOptionFileInputOnPathChange,
+        pub file_dialog_title: AzString,
+        pub default_dir: AzOptionString,
+        pub file_types: AzOptionFileTypeList,
+    }
+
     /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
     #[repr(C)]
     pub struct AzTextInputStateWrapper {
@@ -11880,6 +11968,17 @@ mod test_sizes {
         pub on_click: AzOptionButtonOnClick,
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInput` struct
+    #[repr(C)]
+    pub struct AzFileInput {
+        pub state: AzFileInputStateWrapper,
+        pub default_text: AzString,
+        pub image: AzOptionImageRef,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub label_style: AzNodeDataInlineCssPropertyVec,
+        pub image_style: AzNodeDataInlineCssPropertyVec,
+    }
+
     /// Re-export of rust-allocated (stack based) `CheckBox` struct
     #[repr(C)]
     pub struct AzCheckBox {
@@ -12223,6 +12322,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleCursor>(), "AzStyleCursor"), (Layout::new::<AzStyleCursor>(), "AzStyleCursor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTextAlign>(), "AzStyleTextAlign"), (Layout::new::<AzStyleTextAlign>(), "AzStyleTextAlign"));
+        assert_eq!((Layout::new::<crate::widgets::file_input::FileInputOnPathChangeCallback>(), "AzFileInputOnPathChangeCallback"), (Layout::new::<AzFileInputOnPathChangeCallback>(), "AzFileInputOnPathChangeCallback"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxOnToggleCallback>(), "AzCheckBoxOnToggleCallback"), (Layout::new::<AzCheckBoxOnToggleCallback>(), "AzCheckBoxOnToggleCallback"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxState>(), "AzCheckBoxState"), (Layout::new::<AzCheckBoxState>(), "AzCheckBoxState"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputOnValueChangeCallback>(), "AzColorInputOnValueChangeCallback"), (Layout::new::<AzColorInputOnValueChangeCallback>(), "AzColorInputOnValueChangeCallback"));
@@ -12548,6 +12648,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
         assert_eq!((Layout::new::<crate::widgets::button::ButtonOnClick>(), "AzButtonOnClick"), (Layout::new::<AzButtonOnClick>(), "AzButtonOnClick"));
+        assert_eq!((Layout::new::<crate::widgets::file_input::FileInputOnPathChange>(), "AzFileInputOnPathChange"), (Layout::new::<AzFileInputOnPathChange>(), "AzFileInputOnPathChange"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxOnToggle>(), "AzCheckBoxOnToggle"), (Layout::new::<AzCheckBoxOnToggle>(), "AzCheckBoxOnToggle"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputState>(), "AzColorInputState"), (Layout::new::<AzColorInputState>(), "AzColorInputState"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputOnValueChange>(), "AzColorInputOnValueChange"), (Layout::new::<AzColorInputOnValueChange>(), "AzColorInputOnValueChange"));
@@ -12624,6 +12725,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeFieldEdited>(), "AzOptionNodeGraphOnNodeFieldEdited"), (Layout::new::<AzOptionNodeGraphOnNodeFieldEdited>(), "AzOptionNodeGraphOnNodeFieldEdited"));
         assert_eq!((Layout::new::<crate::widgets::color_input::OptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"), (Layout::new::<AzOptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"));
         assert_eq!((Layout::new::<crate::widgets::button::OptionButtonOnClick>(), "AzOptionButtonOnClick"), (Layout::new::<AzOptionButtonOnClick>(), "AzOptionButtonOnClick"));
+        assert_eq!((Layout::new::<crate::widgets::file_input::OptionFileInputOnPathChange>(), "AzOptionFileInputOnPathChange"), (Layout::new::<AzOptionFileInputOnPathChange>(), "AzOptionFileInputOnPathChange"));
         assert_eq!((Layout::new::<crate::widgets::check_box::OptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"), (Layout::new::<AzOptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"), (Layout::new::<AzOptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnVirtualKeyDown>(), "AzOptionTextInputOnVirtualKeyDown"), (Layout::new::<AzOptionTextInputOnVirtualKeyDown>(), "AzOptionTextInputOnVirtualKeyDown"));
@@ -12761,6 +12863,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyleValue>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecValue>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
+        assert_eq!((Layout::new::<crate::widgets::file_input::FileInputState>(), "AzFileInputState"), (Layout::new::<AzFileInputState>(), "AzFileInputState"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputStateWrapper>(), "AzColorInputStateWrapper"), (Layout::new::<AzColorInputStateWrapper>(), "AzColorInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputState>(), "AzTextInputState"), (Layout::new::<AzTextInputState>(), "AzTextInputState"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeFieldValue>(), "AzNodeTypeFieldValue"), (Layout::new::<AzNodeTypeFieldValue>(), "AzNodeTypeFieldValue"));
@@ -12807,6 +12910,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"), (Layout::new::<AzStyleBackgroundContentVecValue>(), "AzStyleBackgroundContentVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"), (Layout::new::<AzStyleFontFamilyVecValue>(), "AzStyleFontFamilyVecValue"));
         assert_eq!((Layout::new::<azul_impl::css::CssProperty>(), "AzCssProperty"), (Layout::new::<AzCssProperty>(), "AzCssProperty"));
+        assert_eq!((Layout::new::<crate::widgets::file_input::FileInputStateWrapper>(), "AzFileInputStateWrapper"), (Layout::new::<AzFileInputStateWrapper>(), "AzFileInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputStateWrapper>(), "AzTextInputStateWrapper"), (Layout::new::<AzTextInputStateWrapper>(), "AzTextInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBar>(), "AzProgressBar"), (Layout::new::<AzProgressBar>(), "AzProgressBar"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMap>(), "AzNodeTypeIdInfoMap"), (Layout::new::<AzNodeTypeIdInfoMap>(), "AzNodeTypeIdInfoMap"));
@@ -12848,6 +12952,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::NodeData>(), "AzNodeData"), (Layout::new::<AzNodeData>(), "AzNodeData"));
         assert_eq!((Layout::new::<azul_impl::css::CssDeclaration>(), "AzCssDeclaration"), (Layout::new::<AzCssDeclaration>(), "AzCssDeclaration"));
         assert_eq!((Layout::new::<crate::widgets::button::Button>(), "AzButton"), (Layout::new::<AzButton>(), "AzButton"));
+        assert_eq!((Layout::new::<crate::widgets::file_input::FileInput>(), "AzFileInput"), (Layout::new::<AzFileInput>(), "AzFileInput"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBox>(), "AzCheckBox"), (Layout::new::<AzCheckBox>(), "AzCheckBox"));
         assert_eq!((Layout::new::<crate::widgets::label::Label>(), "AzLabel"), (Layout::new::<AzLabel>(), "AzLabel"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInput>(), "AzColorInput"), (Layout::new::<AzColorInput>(), "AzColorInput"));

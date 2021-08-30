@@ -82,6 +82,8 @@ macro_rules! impl_callback {($callback_wrapper:ident, $option_callback_wrapper:i
 
 /// Button widget
 pub mod button;
+/// File input widget
+pub mod file_input;
 /// Checkbox widget
 pub mod check_box;
 /// Box displaying a color which opens a color picker dialog on being clicked

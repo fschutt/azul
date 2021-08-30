@@ -276,6 +276,7 @@ mod dll {
     impl ::core::fmt::Debug for AzInstantPtrCloneFn                 { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzThreadSendFn                      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
+    impl ::core::fmt::Debug for AzFileInputOnPathChangeCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzCheckBoxOnToggleCallback                  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzColorInputOnValueChangeCallback           { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::core::fmt::Debug for AzTextInputOnTextInputCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
@@ -313,6 +314,7 @@ mod dll {
     impl PartialEq for AzInstantPtrCloneFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzThreadSendFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
+    impl PartialEq for AzFileInputOnPathChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzCheckBoxOnToggleCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzColorInputOnValueChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     impl PartialEq for AzTextInputOnTextInputCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
@@ -350,6 +352,7 @@ mod dll {
     impl PartialOrd for AzInstantPtrCloneFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     impl PartialOrd for AzThreadSendFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
 
+    impl PartialOrd for AzFileInputOnPathChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
     impl PartialOrd for AzCheckBoxOnToggleCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
     impl PartialOrd for AzColorInputOnValueChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
     impl PartialOrd for AzTextInputOnTextInputCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
@@ -1905,6 +1908,17 @@ mod dll {
         Center,
         Right,
     }
+
+    /// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub struct AzFileInputOnPathChangeCallback {
+        pub cb: AzFileInputOnPathChangeCallbackType,
+    }
+
+    /// `AzFileInputOnPathChangeCallbackType` struct
+    pub type AzFileInputOnPathChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzFileInputState) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
     #[repr(C)]
@@ -5820,6 +5834,16 @@ mod dll {
         pub callback: AzCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInputOnPathChange` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzFileInputOnPathChange {
+        pub data: AzRefAny,
+        pub callback: AzFileInputOnPathChangeCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -6620,6 +6644,16 @@ mod dll {
     pub enum AzOptionButtonOnClick {
         None,
         Some(AzButtonOnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionFileInputOnPathChange {
+        None,
+        Some(AzFileInputOnPathChange),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
@@ -8230,6 +8264,15 @@ mod dll {
         Exact(AzStyleTransformVec),
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInputState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzFileInputState {
+        pub path: AzOptionString,
+    }
+
     /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8822,6 +8865,19 @@ mod dll {
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
 
+    /// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzFileInputStateWrapper {
+        pub inner: AzFileInputState,
+        pub on_file_path_change: AzOptionFileInputOnPathChange,
+        pub file_dialog_title: AzString,
+        pub default_dir: AzOptionString,
+        pub file_types: AzOptionFileTypeList,
+    }
+
     /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -9335,6 +9391,20 @@ mod dll {
         pub label_style: AzNodeDataInlineCssPropertyVec,
         pub image_style: AzNodeDataInlineCssPropertyVec,
         pub on_click: AzOptionButtonOnClick,
+    }
+
+    /// Re-export of rust-allocated (stack based) `FileInput` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzFileInput {
+        pub state: AzFileInputStateWrapper,
+        pub default_text: AzString,
+        pub image: AzOptionImageRef,
+        pub container_style: AzNodeDataInlineCssPropertyVec,
+        pub label_style: AzNodeDataInlineCssPropertyVec,
+        pub image_style: AzNodeDataInlineCssPropertyVec,
     }
 
     /// Re-export of rust-allocated (stack based) `CheckBox` struct
@@ -9867,6 +9937,10 @@ mod dll {
         pub(crate) fn AzButton_setOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType);
         pub(crate) fn AzButton_withOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType) -> AzButton;
         pub(crate) fn AzButton_dom(_:  &mut AzButton) -> AzDom;
+        pub(crate) fn AzFileInput_new(_:  AzOptionString) -> AzFileInput;
+        pub(crate) fn AzFileInput_setOnPathChange(_:  &mut AzFileInput, _:  AzRefAny, _:  AzFileInputOnPathChangeCallbackType);
+        pub(crate) fn AzFileInput_withOnPathChange(_:  &mut AzFileInput, _:  AzRefAny, _:  AzFileInputOnPathChangeCallbackType) -> AzFileInput;
+        pub(crate) fn AzFileInput_dom(_:  &mut AzFileInput) -> AzDom;
         pub(crate) fn AzCheckBox_new(_:  bool) -> AzCheckBox;
         pub(crate) fn AzCheckBox_setOnToggle(_:  &mut AzCheckBox, _:  AzRefAny, _:  AzCheckBoxOnToggleCallbackType);
         pub(crate) fn AzCheckBox_withOnToggle(_:  &mut AzCheckBox, _:  AzRefAny, _:  AzCheckBoxOnToggleCallbackType) -> AzCheckBox;
@@ -10239,6 +10313,9 @@ mod dll {
         pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_tessellateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPathElement_getStart(_:  &AzSvgPathElement) -> AzSvgPoint;
+        pub(crate) fn AzSvgPathElement_getEnd(_:  &AzSvgPathElement) -> AzSvgPoint;
+        pub(crate) fn AzSvgPathElement_getBounds(_:  &AzSvgPathElement) -> AzSvgRect;
         pub(crate) fn AzSvgPathElement_tessellateStroke(_:  &AzSvgPathElement, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgLine_tessellateStroke(_:  &AzSvgLine, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgQuadraticCurve_tessellateStroke(_:  &AzSvgQuadraticCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
@@ -12835,6 +12912,7 @@ pub mod widgets {
     use core::ffi::c_void;
     use crate::str::String;
     use crate::callbacks::{CallbackType, RefAny};
+    use crate::option::OptionString;
     use crate::css::{ColorU, PixelValue};
     use crate::vec::{NodeDataInlineCssPropertyVec, StringVec, StyleBackgroundContentVec, TabVec};
     use crate::dom::Dom;
@@ -12855,6 +12933,35 @@ pub mod widgets {
     /// `ButtonOnClick` struct
     
 #[doc(inline)] pub use crate::dll::AzButtonOnClick as ButtonOnClick;
+    /// `FileInput` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileInput as FileInput;
+    impl FileInput {
+        /// Creates a new file input button
+        pub fn new(path: OptionString) -> Self { unsafe { crate::dll::AzFileInput_new(path) } }
+        /// Calls the `FileInput::set_on_path_change` function.
+        pub fn set_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType)  { unsafe { crate::dll::AzFileInput_setOnPathChange(self, data, callback) } }
+        /// Calls the `FileInput::with_on_path_change` function.
+        pub fn with_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType)  -> crate::widgets::FileInput { unsafe { crate::dll::AzFileInput_withOnPathChange(self, data, callback) } }
+        /// Calls the `FileInput::dom` function.
+        pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzFileInput_dom(self) } }
+    }
+
+    /// `FileInputStateWrapper` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileInputStateWrapper as FileInputStateWrapper;
+    /// `FileInputState` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileInputState as FileInputState;
+    /// `FileInputOnPathChange` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileInputOnPathChange as FileInputOnPathChange;
+    /// `FileInputOnPathChangeCallback` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileInputOnPathChangeCallback as FileInputOnPathChangeCallback;
+    /// `FileInputOnPathChangeCallbackType` struct
+    
+#[doc(inline)] pub use crate::dll::AzFileInputOnPathChangeCallbackType as FileInputOnPathChangeCallbackType;
     /// `CheckBox` struct
     
 #[doc(inline)] pub use crate::dll::AzCheckBox as CheckBox;
@@ -15852,6 +15959,12 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
     impl SvgPathElement {
+        /// Returns the starting point of this item
+        pub fn get_start(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgPathElement_getStart(self) } }
+        /// Returns the ending point of this item
+        pub fn get_end(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgPathElement_getEnd(self) } }
+        /// Returns the bounding box of this item
+        pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgPathElement_getBounds(self) } }
         /// Calls the `SvgPathElement::tessellate_stroke` function.
         pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPathElement_tessellateStroke(self, stroke_style) } }
     }
@@ -17566,6 +17679,9 @@ pub mod option {
     /// `OptionButtonOnClick` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionButtonOnClick as OptionButtonOnClick;
+    /// `OptionFileInputOnPathChange` struct
+    
+#[doc(inline)] pub use crate::dll::AzOptionFileInputOnPathChange as OptionFileInputOnPathChange;
     /// `OptionCheckBoxOnToggle` struct
     
 #[doc(inline)] pub use crate::dll::AzOptionCheckBoxOnToggle as OptionCheckBoxOnToggle;

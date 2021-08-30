@@ -1900,6 +1900,15 @@ pub enum AzStyleTextAlign {
     Right,
 }
 
+/// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
+#[repr(C)]
+pub struct AzFileInputOnPathChangeCallback {
+    pub cb: AzFileInputOnPathChangeCallbackType,
+}
+
+/// `AzFileInputOnPathChangeCallbackType` struct
+pub type AzFileInputOnPathChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzFileInputState) -> AzUpdate;
+
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggleCallback` struct
 #[repr(C)]
 pub struct AzCheckBoxOnToggleCallback {
@@ -4739,6 +4748,13 @@ pub struct AzButtonOnClick {
     pub callback: AzCallback,
 }
 
+/// Re-export of rust-allocated (stack based) `FileInputOnPathChange` struct
+#[repr(C)]
+pub struct AzFileInputOnPathChange {
+    pub data: AzRefAny,
+    pub callback: AzFileInputOnPathChangeCallback,
+}
+
 /// Re-export of rust-allocated (stack based) `CheckBoxOnToggle` struct
 #[repr(C)]
 pub struct AzCheckBoxOnToggle {
@@ -5395,6 +5411,13 @@ pub enum AzOptionColorInputOnValueChange {
 pub enum AzOptionButtonOnClick {
     None,
     Some(AzButtonOnClick),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
+#[repr(C, u8)]
+pub enum AzOptionFileInputOnPathChange {
+    None,
+    Some(AzFileInputOnPathChange),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionCheckBoxOnToggle` struct
@@ -6581,6 +6604,12 @@ pub enum AzStyleTransformVecValue {
     Exact(AzStyleTransformVec),
 }
 
+/// Re-export of rust-allocated (stack based) `FileInputState` struct
+#[repr(C)]
+pub struct AzFileInputState {
+    pub path: AzOptionStringEnumWrapper,
+}
+
 /// Re-export of rust-allocated (stack based) `ColorInputStateWrapper` struct
 #[repr(C)]
 pub struct AzColorInputStateWrapper {
@@ -7068,6 +7097,16 @@ pub enum AzCssProperty {
     BackfaceVisibility(AzStyleBackfaceVisibilityValue),
 }
 
+/// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
+#[repr(C)]
+pub struct AzFileInputStateWrapper {
+    pub inner: AzFileInputState,
+    pub on_file_path_change: AzOptionFileInputOnPathChangeEnumWrapper,
+    pub file_dialog_title: AzString,
+    pub default_dir: AzOptionStringEnumWrapper,
+    pub file_types: AzOptionFileTypeListEnumWrapper,
+}
+
 /// Re-export of rust-allocated (stack based) `TextInputStateWrapper` struct
 #[repr(C)]
 pub struct AzTextInputStateWrapper {
@@ -7478,6 +7517,17 @@ pub struct AzButton {
     pub label_style: AzNodeDataInlineCssPropertyVec,
     pub image_style: AzNodeDataInlineCssPropertyVec,
     pub on_click: AzOptionButtonOnClickEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `FileInput` struct
+#[repr(C)]
+pub struct AzFileInput {
+    pub state: AzFileInputStateWrapper,
+    pub default_text: AzString,
+    pub image: AzOptionImageRefEnumWrapper,
+    pub container_style: AzNodeDataInlineCssPropertyVec,
+    pub label_style: AzNodeDataInlineCssPropertyVec,
+    pub image_style: AzNodeDataInlineCssPropertyVec,
 }
 
 /// Re-export of rust-allocated (stack based) `CheckBox` struct
@@ -9116,6 +9166,12 @@ pub struct AzOptionButtonOnClickEnumWrapper {
     pub inner: AzOptionButtonOnClick,
 }
 
+/// `AzOptionFileInputOnPathChangeEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionFileInputOnPathChangeEnumWrapper {
+    pub inner: AzOptionFileInputOnPathChange,
+}
+
 /// `AzOptionCheckBoxOnToggleEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionCheckBoxOnToggleEnumWrapper {
@@ -9942,6 +9998,7 @@ impl Clone for AzBorderStyleEnumWrapper { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzStyleCursorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleCursor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackfaceVisibilityEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackfaceVisibility = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTextAlignEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTextAlign = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFileInputOnPathChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputOnPathChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxOnToggleCallback { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxOnToggleCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxState { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputOnValueChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputOnValueChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10267,6 +10324,7 @@ impl Clone for AzStyleTransformOriginValueEnumWrapper { fn clone(&self) -> Self 
 impl Clone for AzStylePerspectiveOriginValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StylePerspectiveOriginValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackfaceVisibilityValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackfaceVisibilityValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzButtonOnClick { fn clone(&self) -> Self { let r: &crate::widgets::button::ButtonOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFileInputOnPathChange { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputOnPathChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxOnToggle { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxOnToggle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputState { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputOnValueChange { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10343,6 +10401,7 @@ impl Clone for AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { fn clone(&
 impl Clone for AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeFieldEdited = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionColorInputOnValueChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::OptionColorInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionButtonOnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::button::OptionButtonOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionFileInputOnPathChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::file_input::OptionFileInputOnPathChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCheckBoxOnToggleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::check_box::OptionCheckBoxOnToggle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputOnTextInputEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnTextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputOnVirtualKeyDownEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnVirtualKeyDown = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10480,6 +10539,7 @@ impl Clone for AzScrollbarStyle { fn clone(&self) -> Self { let r: &azul_impl::c
 impl Clone for AzStyleFontFamilyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamily = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzScrollbarStyleValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::ScrollbarStyleValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTransformVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFileInputState { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputState { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeFieldValueEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeFieldValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10526,6 +10586,7 @@ impl Clone for AzCssPath { fn clone(&self) -> Self { let r: &azul_impl::css::Css
 impl Clone for AzStyleBackgroundContentVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundContentVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFileInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzProgressBar { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBar = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeIdInfoMap { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMap = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10567,6 +10628,7 @@ impl Clone for AzFocusTargetEnumWrapper { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzNodeData { fn clone(&self) -> Self { let r: &azul_impl::dom::NodeData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssDeclarationEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssDeclaration = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzButton { fn clone(&self) -> Self { let r: &crate::widgets::button::Button = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzFileInput { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBox { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBox = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLabel { fn clone(&self) -> Self { let r: &crate::widgets::label::Label = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInput { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -21795,6 +21857,119 @@ impl PyObjectProtocol for AzButtonOnClick {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::button::ButtonOnClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzFileInput {
+    #[new]
+    fn new(path: AzOptionStringEnumWrapper) -> AzFileInput {
+        unsafe { mem::transmute(crate::AzFileInput_new(
+            mem::transmute(path),
+        )) }
+    }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzFileInput_dom(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzFileInput {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInput = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInput = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzFileInputStateWrapper {
+    #[new]
+    fn __new__(inner: AzFileInputState, on_file_path_change: AzOptionFileInputOnPathChangeEnumWrapper, file_dialog_title: AzString, default_dir: AzOptionStringEnumWrapper, file_types: AzOptionFileTypeListEnumWrapper) -> Self {
+        Self {
+            inner,
+            on_file_path_change,
+            file_dialog_title,
+            default_dir,
+            file_types,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzFileInputStateWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputStateWrapper = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputStateWrapper = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzFileInputState {
+    #[new]
+    fn __new__(path: AzOptionStringEnumWrapper) -> Self {
+        Self {
+            path,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzFileInputState {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzFileInputOnPathChange {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzFileInputOnPathChangeCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzFileInputOnPathChange {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputOnPathChange = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputOnPathChange = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzFileInputOnPathChangeCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzFileInputOnPathChangeCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputOnPathChangeCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::FileInputOnPathChangeCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -35570,6 +35745,35 @@ impl PyObjectProtocol for AzOptionButtonOnClickEnumWrapper {
 }
 
 #[pymethods]
+impl AzOptionFileInputOnPathChangeEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionFileInputOnPathChangeEnumWrapper { AzOptionFileInputOnPathChangeEnumWrapper { inner: AzOptionFileInputOnPathChange::None } }
+    #[staticmethod]
+    fn Some(v: AzFileInputOnPathChange) -> AzOptionFileInputOnPathChangeEnumWrapper { AzOptionFileInputOnPathChangeEnumWrapper { inner: AzOptionFileInputOnPathChange::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionFileInputOnPathChange;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionFileInputOnPathChange::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionFileInputOnPathChange::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionFileInputOnPathChangeEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::OptionFileInputOnPathChange = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::file_input::OptionFileInputOnPathChange = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzOptionCheckBoxOnToggleEnumWrapper {
     #[classattr]
     fn None() -> AzOptionCheckBoxOnToggleEnumWrapper { AzOptionCheckBoxOnToggleEnumWrapper { inner: AzOptionCheckBoxOnToggle::None } }
@@ -38562,6 +38766,11 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<AzButton>()?;
     m.add_class::<AzButtonOnClick>()?;
+    m.add_class::<AzFileInput>()?;
+    m.add_class::<AzFileInputStateWrapper>()?;
+    m.add_class::<AzFileInputState>()?;
+    m.add_class::<AzFileInputOnPathChange>()?;
+    m.add_class::<AzFileInputOnPathChangeCallback>()?;
     m.add_class::<AzCheckBox>()?;
     m.add_class::<AzCheckBoxStateWrapper>()?;
     m.add_class::<AzCheckBoxOnToggle>()?;
@@ -38918,6 +39127,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzOptionNodeGraphOnNodeFieldEditedEnumWrapper>()?;
     m.add_class::<AzOptionColorInputOnValueChangeEnumWrapper>()?;
     m.add_class::<AzOptionButtonOnClickEnumWrapper>()?;
+    m.add_class::<AzOptionFileInputOnPathChangeEnumWrapper>()?;
     m.add_class::<AzOptionCheckBoxOnToggleEnumWrapper>()?;
     m.add_class::<AzOptionTextInputOnTextInputEnumWrapper>()?;
     m.add_class::<AzOptionTextInputOnVirtualKeyDownEnumWrapper>()?;

@@ -80,6 +80,10 @@ typedef void (*AzThreadCallbackType)(AzRefAny A, AzThreadSender B, AzThreadRecei
 
 typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
+struct AzFileInputState;
+typedef struct AzFileInputState AzFileInputState;
+typedef AzUpdate (*AzFileInputOnPathChangeCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzFileInputState* const C);
+
 struct AzCheckBoxState;
 typedef struct AzCheckBoxState AzCheckBoxState;
 typedef AzUpdate (*AzCheckBoxOnToggleCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzCheckBoxState* const C);
@@ -1521,6 +1525,11 @@ enum AzStyleTextAlign {
    AzStyleTextAlign_Right,
 };
 typedef enum AzStyleTextAlign AzStyleTextAlign;
+
+struct AzFileInputOnPathChangeCallback {
+    AzFileInputOnPathChangeCallbackType cb;
+};
+typedef struct AzFileInputOnPathChangeCallback AzFileInputOnPathChangeCallback;
 
 struct AzCheckBoxOnToggleCallback {
     AzCheckBoxOnToggleCallbackType cb;
@@ -6006,6 +6015,12 @@ struct AzButtonOnClick {
 };
 typedef struct AzButtonOnClick AzButtonOnClick;
 
+struct AzFileInputOnPathChange {
+    AzRefAny data;
+    AzFileInputOnPathChangeCallback callback;
+};
+typedef struct AzFileInputOnPathChange AzFileInputOnPathChange;
+
 struct AzCheckBoxOnToggle {
     AzRefAny data;
     AzCheckBoxOnToggleCallback callback;
@@ -6736,6 +6751,22 @@ union AzOptionButtonOnClick {
     AzOptionButtonOnClickVariant_Some Some;
 };
 typedef union AzOptionButtonOnClick AzOptionButtonOnClick;
+
+enum AzOptionFileInputOnPathChangeTag {
+   AzOptionFileInputOnPathChangeTag_None,
+   AzOptionFileInputOnPathChangeTag_Some,
+};
+typedef enum AzOptionFileInputOnPathChangeTag AzOptionFileInputOnPathChangeTag;
+
+struct AzOptionFileInputOnPathChangeVariant_None { AzOptionFileInputOnPathChangeTag tag; };
+typedef struct AzOptionFileInputOnPathChangeVariant_None AzOptionFileInputOnPathChangeVariant_None;
+struct AzOptionFileInputOnPathChangeVariant_Some { AzOptionFileInputOnPathChangeTag tag; AzFileInputOnPathChange payload; };
+typedef struct AzOptionFileInputOnPathChangeVariant_Some AzOptionFileInputOnPathChangeVariant_Some;
+union AzOptionFileInputOnPathChange {
+    AzOptionFileInputOnPathChangeVariant_None None;
+    AzOptionFileInputOnPathChangeVariant_Some Some;
+};
+typedef union AzOptionFileInputOnPathChange AzOptionFileInputOnPathChange;
 
 enum AzOptionCheckBoxOnToggleTag {
    AzOptionCheckBoxOnToggleTag_None,
@@ -8735,6 +8766,11 @@ union AzStyleTransformVecValue {
 };
 typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
 
+struct AzFileInputState {
+    AzOptionString path;
+};
+typedef struct AzFileInputState AzFileInputState;
+
 struct AzColorInputStateWrapper {
     AzColorInputState inner;
     AzString title;
@@ -9612,6 +9648,15 @@ union AzCssProperty {
 };
 typedef union AzCssProperty AzCssProperty;
 
+struct AzFileInputStateWrapper {
+    AzFileInputState inner;
+    AzOptionFileInputOnPathChange on_file_path_change;
+    AzString file_dialog_title;
+    AzOptionString default_dir;
+    AzOptionFileTypeList file_types;
+};
+typedef struct AzFileInputStateWrapper AzFileInputStateWrapper;
+
 struct AzTextInputStateWrapper {
     AzTextInputState inner;
     AzOptionTextInputOnTextInput on_text_input;
@@ -10126,6 +10171,16 @@ struct AzButton {
     AzOptionButtonOnClick on_click;
 };
 typedef struct AzButton AzButton;
+
+struct AzFileInput {
+    AzFileInputStateWrapper state;
+    AzString default_text;
+    AzOptionImageRef image;
+    AzNodeDataInlineCssPropertyVec container_style;
+    AzNodeDataInlineCssPropertyVec label_style;
+    AzNodeDataInlineCssPropertyVec image_style;
+};
+typedef struct AzFileInput AzFileInput;
 
 struct AzCheckBox {
     AzCheckBoxStateWrapper state;
@@ -11057,6 +11112,8 @@ typedef struct AzCss AzCss;
 #define AzOptionColorInputOnValueChange_Some(v) { .Some = { .tag = AzOptionColorInputOnValueChangeTag_Some, .payload = v } }
 #define AzOptionButtonOnClick_None { .None = { .tag = AzOptionButtonOnClickTag_None } }
 #define AzOptionButtonOnClick_Some(v) { .Some = { .tag = AzOptionButtonOnClickTag_Some, .payload = v } }
+#define AzOptionFileInputOnPathChange_None { .None = { .tag = AzOptionFileInputOnPathChangeTag_None } }
+#define AzOptionFileInputOnPathChange_Some(v) { .Some = { .tag = AzOptionFileInputOnPathChangeTag_Some, .payload = v } }
 #define AzOptionCheckBoxOnToggle_None { .None = { .tag = AzOptionCheckBoxOnToggleTag_None } }
 #define AzOptionCheckBoxOnToggle_Some(v) { .Some = { .tag = AzOptionCheckBoxOnToggleTag_Some, .payload = v } }
 #define AzOptionTextInputOnTextInput_None { .None = { .tag = AzOptionTextInputOnTextInputTag_None } }
@@ -12001,6 +12058,14 @@ extern DLLIMPORT AzButton AzButton_withOnClick(AzButton* restrict button, AzRefA
 extern DLLIMPORT AzDom AzButton_dom(AzButton* restrict button);
 extern DLLIMPORT void AzButton_delete(AzButton* restrict instance);
 extern DLLIMPORT void AzButtonOnClick_delete(AzButtonOnClick* restrict instance);
+extern DLLIMPORT AzFileInput AzFileInput_new(AzOptionString  path);
+extern DLLIMPORT void AzFileInput_setOnPathChange(AzFileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
+extern DLLIMPORT AzFileInput AzFileInput_withOnPathChange(AzFileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
+extern DLLIMPORT AzDom AzFileInput_dom(AzFileInput* restrict fileinput);
+extern DLLIMPORT void AzFileInput_delete(AzFileInput* restrict instance);
+extern DLLIMPORT void AzFileInputStateWrapper_delete(AzFileInputStateWrapper* restrict instance);
+extern DLLIMPORT void AzFileInputState_delete(AzFileInputState* restrict instance);
+extern DLLIMPORT void AzFileInputOnPathChange_delete(AzFileInputOnPathChange* restrict instance);
 extern DLLIMPORT AzCheckBox AzCheckBox_new(bool  checked);
 extern DLLIMPORT void AzCheckBox_setOnToggle(AzCheckBox* restrict checkbox, AzRefAny  data, AzCheckBoxOnToggleCallbackType  callback);
 extern DLLIMPORT AzCheckBox AzCheckBox_withOnToggle(AzCheckBox* restrict checkbox, AzRefAny  data, AzCheckBoxOnToggleCallbackType  callback);
@@ -12435,6 +12500,9 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateStroke(const AzSvgCi
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateFill(const AzSvgPath* svgpath, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateStroke(const AzSvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgPath_delete(AzSvgPath* restrict instance);
+extern DLLIMPORT AzSvgPoint AzSvgPathElement_getStart(const AzSvgPathElement* svgpathelement);
+extern DLLIMPORT AzSvgPoint AzSvgPathElement_getEnd(const AzSvgPathElement* svgpathelement);
+extern DLLIMPORT AzSvgRect AzSvgPathElement_getBounds(const AzSvgPathElement* svgpathelement);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPathElement_tessellateStroke(const AzSvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgLine_tessellateStroke(const AzSvgLine* svgline, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgQuadraticCurve_tessellateStroke(const AzSvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
@@ -12589,6 +12657,7 @@ extern DLLIMPORT void AzOptionNodeGraphOnNodeOutputDisconnected_delete(AzOptionN
 extern DLLIMPORT void AzOptionNodeGraphOnNodeFieldEdited_delete(AzOptionNodeGraphOnNodeFieldEdited* restrict instance);
 extern DLLIMPORT void AzOptionColorInputOnValueChange_delete(AzOptionColorInputOnValueChange* restrict instance);
 extern DLLIMPORT void AzOptionButtonOnClick_delete(AzOptionButtonOnClick* restrict instance);
+extern DLLIMPORT void AzOptionFileInputOnPathChange_delete(AzOptionFileInputOnPathChange* restrict instance);
 extern DLLIMPORT void AzOptionCheckBoxOnToggle_delete(AzOptionCheckBoxOnToggle* restrict instance);
 extern DLLIMPORT void AzOptionTextInputOnTextInput_delete(AzOptionTextInputOnTextInput* restrict instance);
 extern DLLIMPORT void AzOptionTextInputOnVirtualKeyDown_delete(AzOptionTextInputOnVirtualKeyDown* restrict instance);
@@ -18933,6 +19002,20 @@ bool AzOptionButtonOnClick_matchRefSome(const AzOptionButtonOnClick* value, cons
 bool AzOptionButtonOnClick_matchMutSome(AzOptionButtonOnClick* restrict value, AzButtonOnClick* restrict * restrict out) {
     AzOptionButtonOnClickVariant_Some* restrict casted = (AzOptionButtonOnClickVariant_Some* restrict)value;
     bool valid = casted->tag == AzOptionButtonOnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFileInputOnPathChange_matchRefSome(const AzOptionFileInputOnPathChange* value, const AzFileInputOnPathChange** restrict out) {
+    const AzOptionFileInputOnPathChangeVariant_Some* casted = (const AzOptionFileInputOnPathChangeVariant_Some*)value;
+    bool valid = casted->tag == AzOptionFileInputOnPathChangeTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionFileInputOnPathChange_matchMutSome(AzOptionFileInputOnPathChange* restrict value, AzFileInputOnPathChange* restrict * restrict out) {
+    AzOptionFileInputOnPathChangeVariant_Some* restrict casted = (AzOptionFileInputOnPathChangeVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionFileInputOnPathChangeTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

@@ -1271,6 +1271,8 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("callbacks", "CallbackInfo", "get_node_id_of_root_dataset"),
         ("image", "ImageRef", "callback"),
 
+        ("widgets", "FileInput", "set_on_path_change"),
+        ("widgets", "FileInput", "with_on_path_change"),
         ("widgets", "CheckBox", "set_on_toggle"),
         ("widgets", "CheckBox", "with_on_toggle"),
         ("widgets", "ColorInput", "set_on_value_change"),

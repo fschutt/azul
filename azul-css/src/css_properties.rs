@@ -1375,6 +1375,30 @@ pub struct SvgPoint {
     pub y: f32,
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgRect {
+    pub width: f32,
+    pub height: f32,
+    pub x: f32,
+    pub y: f32,
+    pub radius_top_left: f32,
+    pub radius_top_right: f32,
+    pub radius_bottom_left: f32,
+    pub radius_bottom_right: f32,
+}
+
+impl SvgRect {
+    /// Note: does not incorporate rounded edges!
+    /// Origin of x and y is assumed to be the top left corner
+    pub fn contains_point(&self, x: f32, y: f32) -> bool {
+        x > self.x &&
+        x < self.x + self.width &&
+        y > self.y &&
+        y < self.y + self.height
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgCubicCurve {
@@ -1385,6 +1409,24 @@ pub struct SvgCubicCurve {
 }
 
 impl SvgCubicCurve {
+    pub fn get_bounds(&self) -> SvgRect {
+        let min_x = self.start.x.min(self.end.x).min(self.ctrl_1.x).min(self.ctrl_2.x);
+        let max_x = self.start.x.max(self.end.x).max(self.ctrl_1.x).max(self.ctrl_2.x);
+
+        let min_y = self.start.y.min(self.end.y).min(self.ctrl_1.y).min(self.ctrl_2.y);
+        let max_y = self.start.y.max(self.end.y).max(self.ctrl_1.y).max(self.ctrl_2.y);
+
+        let width = (max_x - min_x).abs();
+        let height = (max_y - min_y).abs();
+
+        SvgRect {
+            width,
+            height,
+            x: min_x,
+            y: min_y,
+            .. SvgRect::default()
+        }
+    }
 
     // evaluate the curve at t
     pub fn evaluate_x(&self, t: f32) -> f32 {

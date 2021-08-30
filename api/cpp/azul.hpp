@@ -37,6 +37,9 @@ namespace dll {
     
     using RefAnyDestructorType = void(*)(void* restrict);
     
+    struct FileInputState;
+    using FileInputOnPathChangeCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, FileInputState* const);
+    
     struct CheckBoxState;
     using CheckBoxOnToggleCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, CheckBoxState* const);
     
@@ -1378,6 +1381,12 @@ namespace dll {
        Left,
        Center,
        Right,
+    };
+    
+    struct FileInputOnPathChangeCallback {
+        FileInputOnPathChangeCallbackType cb;
+        FileInputOnPathChangeCallback& operator=(const FileInputOnPathChangeCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        FileInputOnPathChangeCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct CheckBoxOnToggleCallback {
@@ -5370,6 +5379,14 @@ namespace dll {
         ButtonOnClick() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct FileInputOnPathChange {
+        RefAny data;
+        FileInputOnPathChangeCallback callback;
+        FileInputOnPathChange& operator=(const FileInputOnPathChange&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        FileInputOnPathChange(const FileInputOnPathChange&) = delete; /* disable copy constructor, use explicit .clone() */
+        FileInputOnPathChange() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct CheckBoxOnToggle {
         RefAny data;
         CheckBoxOnToggleCallback callback;
@@ -6171,6 +6188,19 @@ namespace dll {
     union OptionButtonOnClick {
         OptionButtonOnClickVariant_None None;
         OptionButtonOnClickVariant_Some Some;
+    };
+    
+    
+    enum class OptionFileInputOnPathChangeTag {
+       None,
+       Some,
+    };
+    
+    struct OptionFileInputOnPathChangeVariant_None { OptionFileInputOnPathChangeTag tag; };
+    struct OptionFileInputOnPathChangeVariant_Some { OptionFileInputOnPathChangeTag tag; FileInputOnPathChange payload; };
+    union OptionFileInputOnPathChange {
+        OptionFileInputOnPathChangeVariant_None None;
+        OptionFileInputOnPathChangeVariant_Some Some;
     };
     
     
@@ -7997,6 +8027,13 @@ namespace dll {
     };
     
     
+    struct FileInputState {
+        OptionString path;
+        FileInputState& operator=(const FileInputState&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        FileInputState(const FileInputState&) = delete; /* disable copy constructor, use explicit .clone() */
+        FileInputState() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct ColorInputStateWrapper {
         ColorInputState inner;
         String title;
@@ -8799,6 +8836,17 @@ namespace dll {
     };
     
     
+    struct FileInputStateWrapper {
+        FileInputState inner;
+        OptionFileInputOnPathChange on_file_path_change;
+        String file_dialog_title;
+        OptionString default_dir;
+        OptionFileTypeList file_types;
+        FileInputStateWrapper& operator=(const FileInputStateWrapper&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        FileInputStateWrapper(const FileInputStateWrapper&) = delete; /* disable copy constructor, use explicit .clone() */
+        FileInputStateWrapper() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct TextInputStateWrapper {
         TextInputState inner;
         OptionTextInputOnTextInput on_text_input;
@@ -9331,6 +9379,18 @@ namespace dll {
         Button& operator=(const Button&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         Button(const Button&) = delete; /* disable copy constructor, use explicit .clone() */
         Button() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct FileInput {
+        FileInputStateWrapper state;
+        String default_text;
+        OptionImageRef image;
+        NodeDataInlineCssPropertyVec container_style;
+        NodeDataInlineCssPropertyVec label_style;
+        NodeDataInlineCssPropertyVec image_style;
+        FileInput& operator=(const FileInput&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        FileInput(const FileInput&) = delete; /* disable copy constructor, use explicit .clone() */
+        FileInput() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct CheckBox {
@@ -9961,6 +10021,14 @@ namespace dll {
         Dom Button_dom(Button* restrict button);
         void Button_delete(Button* restrict instance);
         void ButtonOnClick_delete(ButtonOnClick* restrict instance);
+        FileInput FileInput_new(AzOptionString  path);
+        void FileInput_setOnPathChange(FileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
+        FileInput FileInput_withOnPathChange(FileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
+        Dom FileInput_dom(FileInput* restrict fileinput);
+        void FileInput_delete(FileInput* restrict instance);
+        void FileInputStateWrapper_delete(FileInputStateWrapper* restrict instance);
+        void FileInputState_delete(FileInputState* restrict instance);
+        void FileInputOnPathChange_delete(FileInputOnPathChange* restrict instance);
         CheckBox CheckBox_new(bool  checked);
         void CheckBox_setOnToggle(CheckBox* restrict checkbox, AzRefAny  data, AzCheckBoxOnToggleCallbackType  callback);
         CheckBox CheckBox_withOnToggle(CheckBox* restrict checkbox, AzRefAny  data, AzCheckBoxOnToggleCallbackType  callback);
@@ -10395,6 +10463,9 @@ namespace dll {
         TessellatedSvgNode SvgPath_tessellateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgPath_tessellateStroke(const SvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
         void SvgPath_delete(SvgPath* restrict instance);
+        SvgPoint SvgPathElement_getStart(const SvgPathElement* svgpathelement);
+        SvgPoint SvgPathElement_getEnd(const SvgPathElement* svgpathelement);
+        SvgRect SvgPathElement_getBounds(const SvgPathElement* svgpathelement);
         TessellatedSvgNode SvgPathElement_tessellateStroke(const SvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode SvgLine_tessellateStroke(const SvgLine* svgline, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode SvgQuadraticCurve_tessellateStroke(const SvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
@@ -10549,6 +10620,7 @@ namespace dll {
         void OptionNodeGraphOnNodeFieldEdited_delete(OptionNodeGraphOnNodeFieldEdited* restrict instance);
         void OptionColorInputOnValueChange_delete(OptionColorInputOnValueChange* restrict instance);
         void OptionButtonOnClick_delete(OptionButtonOnClick* restrict instance);
+        void OptionFileInputOnPathChange_delete(OptionFileInputOnPathChange* restrict instance);
         void OptionCheckBoxOnToggle_delete(OptionCheckBoxOnToggle* restrict instance);
         void OptionTextInputOnTextInput_delete(OptionTextInputOnTextInput* restrict instance);
         void OptionTextInputOnVirtualKeyDown_delete(OptionTextInputOnVirtualKeyDown* restrict instance);
