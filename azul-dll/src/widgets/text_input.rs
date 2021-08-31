@@ -589,31 +589,28 @@ impl TextInputState {
                 self.selection = Some(TextInputSelection::All).into();
                 true
             },
+            // ctrl + v
+            VirtualKeyCode::V if keyboard_state.ctrl_down => {
+                use azul_desktop::app::Clipboard;
+
+                if let Some(clip) = Clipboard::new() {
+                    let clipboard_contents = clip.get_clipboard_string().unwrap_or_default();
+                    let clipboard_contents: Vec<u32> = clipboard_contents.as_str().chars().map(|c| c as u32).collect();
+
+                    // TODO: handle selection properly
+                    self.selection = None.into();
+                    cursor_pos = clipboard_contents.len();
+                    self.text = clipboard_contents.into();
+                }
+
+                true
+            },
             /*
             // ctrl + c
             VirtualKeyCode::C if keyboard_state.ctrl_down => {
                 Clipboard::new().set_string_contents(self.text[self.selection]);
             },
-            // ctrl + v
-            VirtualKeyCode::V if keyboard_state.ctrl_down => {
-                let clipboard_contents = Clipboard::new().get_string_contents(self.text[self.selection]).into_option().unwrap_or_default();
-                let clipboard_contents: Vec<char> = clipboard_contents.as_str().chars().collect();
-                match self.selection {
-                    None => {
 
-                    },
-                    Some(TextInputSelection::All) => {
-                        self.text = ;
-                    },
-                    Some(TextInputSelection::Range(r)) => {
-                        self.delete_selection(r);
-
-
-                    }
-                }
-                self.selection = None;
-                self.cursor = ...;
-            },
             // ctrl + x
             VirtualKeyCode::X if keyboard_state.ctrl_down => {
                 Clipboard::new().set_string_contents(self.text[self.selection.get_range(self.text.len())]);
