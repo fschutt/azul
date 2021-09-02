@@ -71,14 +71,12 @@ impl File {
         Some(Self::new(fs::File::create(path).ok()?, path.to_string().into()))
     }
     pub fn read_to_string(&mut self) -> Option<AzString> {
-        let mut contents = String::new();
-        self.ptr.lock().ok()?.read_to_string(&mut contents).ok()?;
-        Some(contents.into())
+        let file_string = std::fs::read_to_string(self.path.as_str()).ok()?;
+        Some(file_string.into())
     }
     pub fn read_to_bytes(&mut self) -> Option<U8Vec> {
-        let mut contents = Vec::new();
-        self.ptr.lock().ok()?.read(&mut contents).ok()?;
-        Some(contents.into())
+        let file_bytes = std::fs::read(self.path.as_str()).ok()?;
+        Some(file_bytes.into())
     }
     pub fn write_string(&mut self, string: &str) -> Option<()> {
         self.write_bytes(string.as_bytes())
