@@ -902,6 +902,8 @@ impl RendererResources {
                     }
                 };
 
+                let new_image_ref_hash = image_ref.get_hash();
+
                 let decoded_image = match image_ref.into_inner() {
                     Some(s) => s,
                     None => continue,
@@ -1210,17 +1212,11 @@ impl GlTextureCache {
         new_texture: Texture,
         callbacks: &RenderCallbacks,
     ) -> Option<ExternalImageId> {
-
-        // TODO: update self.hashes? - how?
-
-
         let new_descriptor = new_texture.get_descriptor();
         let di_map = self.solved_textures.get_mut(&dom_id)?;
         let i = di_map.get_mut(&node_id)?;
-        println!("updating texture: {:#?}", i);
         i.1 = new_descriptor;
         let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
-        println!("new external_image_id: {:?}", external_image_id);
         Some(external_image_id)
     }
 }

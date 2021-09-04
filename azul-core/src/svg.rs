@@ -371,10 +371,11 @@ impl TessellatedGPUSvgNode {
             RotationMode::ForWebRender
         );
 
-        let color: ColorF = color.into();
+        // NOTE: OpenGL draws are column-major, while ComputedTransform3D
+        // is row-major! Need to transpose the matrix!
+        let column_major = computed_transform.get_column_major();
 
-        println!("transforms: {:#?}", transforms.as_ref());
-        println!("transform: {:#?}", computed_transform);
+        let color: ColorF = color.into();
 
         // uniforms for the SVG shader
         let uniforms = [
@@ -390,7 +391,7 @@ impl TessellatedGPUSvgNode {
                 name: "vTransformMatrix".into(),
                 uniform_type: UniformType::Matrix4 {
                     transpose: false,
-                    matrix: unsafe { core::mem::transmute(computed_transform.m) }
+                    matrix: unsafe { core::mem::transmute(column_major.m) },
                 }
             },
         ];

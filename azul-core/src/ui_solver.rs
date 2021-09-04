@@ -1557,7 +1557,9 @@ pub enum RotationMode {
     ForHitTesting,
 }
 
-/// Computed transform of pixels in pixel space, optimized
+/// Computed transform of pixels in pixel space
+///
+/// NOTE: Matrix is row-major, not column-major
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ComputedTransform3D {
@@ -1728,7 +1730,6 @@ impl ComputedTransform3D {
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
 
-        /*
         if INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst) {
             for t in t_vec.iter() {
                 unsafe {
@@ -1754,7 +1755,6 @@ impl ComputedTransform3D {
                 }
             }
         } else {
-        */
             for t in t_vec.iter() {
                 matrix = matrix.then(&Self::from_style_transform(
                     t,
@@ -1764,9 +1764,7 @@ impl ComputedTransform3D {
                     rotation_mode,
                 ));
             }
-        /*
         }
-        */
 
         matrix
     }
@@ -1993,6 +1991,15 @@ impl ComputedTransform3D {
             sy,  1.0, 0.0, 0.0,
             0.0, 0.0, 1.0, 0.0,
             0.0, 0.0, 0.0, 1.0,
+        )
+    }
+
+    pub fn get_column_major(&self) -> Self {
+        ComputedTransform3D::new(
+            self.m[0][0], self.m[1][0], self.m[2][0], self.m[3][0],
+            self.m[0][1], self.m[1][1], self.m[2][1], self.m[3][1],
+            self.m[0][2], self.m[1][2], self.m[2][2], self.m[3][2],
+            self.m[0][3], self.m[1][3], self.m[2][3], self.m[3][3],
         )
     }
 

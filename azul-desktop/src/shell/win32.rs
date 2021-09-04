@@ -2783,8 +2783,6 @@ unsafe extern "system" fn WindowProc(
 
                 mem::drop(ab);
 
-                println!("ret = {:?}", ret);
-
                 match ret {
                     ProcessEventResult::DoNothing => { },
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
@@ -4100,10 +4098,9 @@ fn process_callback_results(
             let mut txn = WrTransaction::new();
             wr_synchronize_updated_images(updated_images, &window.internal.document_id, &mut txn);
             window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
-            window.render_api.flush_scene_builder();
         }
 
-        result = result.max_self(ProcessEventResult::UpdateHitTesterAndProcessAgain);
+        result = result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow);
     }
 
     window.start_stop_timers(

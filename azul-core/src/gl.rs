@@ -712,10 +712,10 @@ uniform mat4 vTransformMatrix;
 attribute vec2 vAttrXY;
 
 void main() {
-    vec4 vTransposed = vec4(vAttrXY, 0.0, 1.0) * vTransformMatrix;
-    vec4 vTransposedInScreen = vTransposed / vec4(vBboxSize, 1.0, 1.0);
-    vec4 vCalcFinal = (vTransposedInScreen * vec4(2.0, 2.0, 1.0, 1.0)) - vec4(1.0, 1.0, 0.0, 0.0); // vec4(1.0, 1.0, 0.0, 0.0)
-    gl_Position = vec4(vCalcFinal.xyz, 1.0);
+    vec4 vTransposed = vec4(vAttrXY, 1.0, 1.0) * vTransformMatrix;
+    vec2 vTransposedInScreen = vTransposed.xy / vBboxSize;
+    vec2 vCalcFinal = (vTransposedInScreen * vec2(2.0)) - vec2(1.0);
+    gl_Position = vec4(vCalcFinal, 1.0, 1.0);
 }";
 
 static SVG_FRAGMENT_SHADER: &[u8] = b"#version 150
