@@ -15,13 +15,17 @@ use azul_css::{
 use crate::{
     FastHashMap, FastBTreeSet,
     display_list::GlStoreImageFn,
-    callbacks::{RenderImageCallback, RenderImageCallbackType, RefAny, DomNodeId},
+    callbacks::{
+        RenderImageCallback, RenderImageCallbackType,
+        RefAny, DomNodeId, UpdateImageType,
+    },
     ui_solver::{InlineTextLine, ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::{GlyphInstance, RenderCallbacks},
     styled_dom::{
         StyledDom, StyleFontFamilyHash,
         NodeHierarchyItemId, DomId, StyleFontFamiliesHash
     },
+    dom::NodeType,
     gl::OptionGlContextPtr,
     callbacks::{DocumentId, InlineText},
     task::ExternalSystemCallbacks,
@@ -825,6 +829,166 @@ impl RendererResources {
             _ => None,
         }
     }
+
+    // Updates images and image mask resources
+    // NOTE: assumes the GL context is made current
+    #[must_use]
+    pub fn update_image_resources(
+        &mut self,
+        layout_results: &[LayoutResult],
+        images_to_update: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
+        image_masks_to_update: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
+        callbacks: &RenderCallbacks,
+        image_cache: &ImageCache,
+        gl_texture_cache: &mut GlTextureCache,
+        document_id: DocumentId,
+        epoch: Epoch,
+    ) -> Vec<UpdateImageResult> {
+
+        use crate::dom::NodeType;
+
+        let mut updated_images = Vec::new();
+        let mut renderer_resources: &mut RendererResources = self;
+
+        // update images
+        for (dom_id, image_map) in images_to_update {
+
+            let layout_result = match layout_results.get(dom_id.inner) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            for (node_id, (image_ref, image_type)) in image_map {
+
+                // get the existing key + extents of the image
+                let existing_image_ref_hash = match image_type {
+                    UpdateImageType::Content => {
+                        match layout_result.styled_dom.node_data.as_container().get(node_id).map(|n| n.get_node_type()) {
+                            Some(NodeType::Image(image_ref)) => image_ref.get_hash(),
+                            _ => continue,
+                        }
+                    },
+                    UpdateImageType::Background => {
+
+                        let node_data = layout_result.styled_dom.node_data.as_container();
+                        let node_data = match node_data.get(node_id) {
+                            Some(s) => s,
+                            None => continue,
+                        };
+
+                        let styled_node_states = layout_result.styled_dom.styled_nodes.as_container();
+                        let node_state = match styled_node_states.get(node_id) {
+                            Some(s) => s.state.clone(),
+                            None => continue,
+                        };
+
+                        let default = azul_css::StyleBackgroundContentVec::from_const_slice(&[]);
+
+                        // TODO: only updates the first image background - usually not a problem
+                        let bg_hash = layout_result.styled_dom.css_property_cache.ptr
+                        .get_background_content(node_data, &node_id, &node_state)
+                        .and_then(|bg| bg.get_property().unwrap_or(&default).as_ref().iter().find_map(|b| match b {
+                            azul_css::StyleBackgroundContent::Image(id) => {
+                                let image_ref = image_cache.get_css_image_id(id)?;
+                                Some(image_ref.get_hash())
+                            },
+                            _ => None,
+                        }));
+
+                        match bg_hash {
+                            Some(h) => h,
+                            None => continue,
+                        }
+                    }
+                };
+
+                let decoded_image = match image_ref.into_inner() {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                // Try getting the existing image key either
+                // from the textures or from the renderer resources
+                let existing_key = gl_texture_cache.solved_textures
+                    .get(&dom_id)
+                    .and_then(|map| map.get(&node_id))
+                    .map(|val| val.0);
+
+                let existing_key = match existing_key {
+                    Some(s) => Some(s),
+                    None => {
+                        renderer_resources
+                        .get_image(&existing_image_ref_hash)
+                        .map(|resolved_image| resolved_image.key)
+                    },
+                };
+
+                let key = match existing_key {
+                    Some(s) => s,
+                    None => continue, // updating an image requires at
+                                      // least one image to be present
+                };
+
+                let (descriptor, data) = match decoded_image {
+                    DecodedImage::Gl(texture) => {
+
+                        let descriptor = texture.get_descriptor();
+                        let new_external_image_id = match gl_texture_cache.update_texture(
+                            dom_id,
+                            node_id,
+                            document_id,
+                            epoch,
+                            texture,
+                            callbacks,
+                        ) {
+                            Some(s) => s,
+                            None => continue,
+                        };
+
+                        let data = ImageData::External(ExternalImageData {
+                            id: new_external_image_id,
+                            channel_index: 0,
+                            image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                        });
+
+                        (descriptor, data)
+                    },
+                    DecodedImage::Raw((descriptor, data)) => {
+                        // use the hash to get the existing image key
+                        // TODO: may lead to problems when the same ImageRef is used more than once?
+                        renderer_resources.update_image(&existing_image_ref_hash, descriptor);
+                        (descriptor, data)
+                    },
+                    DecodedImage::NullImage { .. } => continue, // TODO: NULL image descriptor?
+                    DecodedImage::Callback(callback) => {
+                        // TODO: re-render image callbacks?
+                        /*
+                        let (key, descriptor) = match gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&node_id)) {
+                            Some((k, d)) => (k, d),
+                            None => continue,
+                        };*/
+
+                        continue
+                    },
+                };
+
+                // update the image descriptor in the renderer resources
+
+                updated_images.push(UpdateImageResult {
+                    key_to_update: key,
+                    new_descriptor: descriptor,
+                    new_image_data: data,
+                });
+            }
+        }
+
+        // TODO: update image masks
+        for (dom_id, image_mask_map) in image_masks_to_update {
+
+        }
+
+        updated_images
+    }
 }
 
 // Result returned from rerender_image_callback() - should be used as:
@@ -1049,11 +1213,14 @@ impl GlTextureCache {
 
         // TODO: update self.hashes? - how?
 
+
         let new_descriptor = new_texture.get_descriptor();
         let di_map = self.solved_textures.get_mut(&dom_id)?;
         let i = di_map.get_mut(&node_id)?;
+        println!("updating texture: {:#?}", i);
         i.1 = new_descriptor;
         let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
+        println!("new external_image_id: {:?}", external_image_id);
         Some(external_image_id)
     }
 }

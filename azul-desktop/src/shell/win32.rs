@@ -2783,6 +2783,8 @@ unsafe extern "system" fn WindowProc(
 
                 mem::drop(ab);
 
+                println!("ret = {:?}", ret);
+
                 match ret {
                     ProcessEventResult::DoNothing => { },
                     ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
@@ -3847,17 +3849,49 @@ mod event {
     include!("./win32-event.rs");
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum ProcessEventResult {
-    DoNothing,
-    ShouldRegenerateDomCurrentWindow,
-    ShouldRegenerateDomAllWindows,
-    ShouldUpdateDisplayListCurrentWindow,
+    DoNothing = 0,
+    ShouldReRenderCurrentWindow = 1,
+    ShouldUpdateDisplayListCurrentWindow = 2,
     // GPU transforms changed: do another hit-test and recurse
     // until nothing has changed anymore
-    UpdateHitTesterAndProcessAgain,
+    UpdateHitTesterAndProcessAgain = 3,
     // Only refresh the display (in case of pure scroll or GPU-only events)
-    ShouldReRenderCurrentWindow,
+    ShouldRegenerateDomCurrentWindow = 4,
+    ShouldRegenerateDomAllWindows = 5,
+}
+
+impl ProcessEventResult {
+    fn order(&self) -> usize {
+        use self::ProcessEventResult::*;
+        match self {
+           DoNothing => 0,
+           ShouldReRenderCurrentWindow => 1,
+           ShouldUpdateDisplayListCurrentWindow => 2,
+           UpdateHitTesterAndProcessAgain => 3,
+           ShouldRegenerateDomCurrentWindow => 4,
+           ShouldRegenerateDomAllWindows => 5,
+        }
+    }
+}
+
+impl PartialOrd for ProcessEventResult {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.order().partial_cmp(&other.order())
+    }
+}
+
+impl Ord for ProcessEventResult {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.order().cmp(&other.order())
+    }
+}
+
+impl ProcessEventResult {
+    fn max_self(self, other: Self) -> Self {
+        self.max(other)
+    }
 }
 
 // Assuming that current_window_state and the previous_window_state of the window
@@ -4044,21 +4078,32 @@ fn process_callback_results(
 
     use azul_core::callbacks::Update;
     use azul_core::window_state::{StyleAndLayoutChanges, NodesToCheck};
+    use crate::wr_translate::wr_translate_document_id;
+
+    let mut result = ProcessEventResult::DoNothing;
 
     if callback_results.images_changed.is_some() ||
        callback_results.image_masks_changed.is_some() {
-        update_image_resources(
-            &mut window.render_api,
+
+        let updated_images = window.internal.renderer_resources.update_image_resources(
             &window.internal.layout_results,
             callback_results.images_changed.unwrap_or_default(),
             callback_results.image_masks_changed.unwrap_or_default(),
             &crate::app::CALLBACKS,
             &*image_cache,
             &mut window.internal.gl_texture_cache,
-            &mut window.internal.renderer_resources,
             window.internal.document_id,
             window.internal.epoch,
         );
+
+        if !updated_images.is_empty() {
+            let mut txn = WrTransaction::new();
+            wr_synchronize_updated_images(updated_images, &window.internal.document_id, &mut txn);
+            window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+            window.render_api.flush_scene_builder();
+        }
+
+        result = result.max_self(ProcessEventResult::UpdateHitTesterAndProcessAgain);
     }
 
     window.start_stop_timers(
@@ -4074,7 +4119,6 @@ fn process_callback_results(
         new_windows.push(w);
     }
 
-    let mut result = ProcessEventResult::DoNothing;
 
     let scroll = window.internal.current_window_state.process_system_scroll(&window.internal.scroll_states);
     let need_scroll_render = scroll.is_some();
@@ -4091,9 +4135,9 @@ fn process_callback_results(
             window.internal.current_window_state.last_hit_test.clone(),
         );
         if modified.size.get_layout_size() != window.internal.current_window_state.size.get_layout_size() {
-            result = ProcessEventResult::UpdateHitTesterAndProcessAgain;
+            result = result.max_self(ProcessEventResult::UpdateHitTesterAndProcessAgain);
         } else if !need_scroll_render {
-            result = ProcessEventResult::ShouldReRenderCurrentWindow;
+            result = result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
     }
 
@@ -4137,8 +4181,6 @@ fn process_callback_results(
 
 
     if let Some(rsn) = style_layout_changes.nodes_that_changed_size.as_ref() {
-
-        use crate::wr_translate::wr_translate_document_id;
 
         let updated_images = fc_cache.apply_closure(|fc_cache| {
             LayoutResult::resize_images(
@@ -4185,213 +4227,14 @@ fn process_callback_results(
 
     if style_layout_changes.did_resize_nodes() {
         // at least update the hit-tester
-        ProcessEventResult::UpdateHitTesterAndProcessAgain
+        result.max_self(ProcessEventResult::UpdateHitTesterAndProcessAgain)
     } else if style_layout_changes.need_regenerate_display_list() {
-        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+        result.max_self(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow)
     } else if need_scroll_render || style_layout_changes.need_redraw() {
-        ProcessEventResult::ShouldReRenderCurrentWindow
+        result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow)
     } else {
         result
     }
-}
-
-// Updates images and image mask resources
-// NOTE: assumes the GL context is made current
-fn update_image_resources(
-    render_api: &mut WrRenderApi,
-    layout_results: &[LayoutResult],
-    images_to_update: BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
-    image_masks_to_update: BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-    callbacks: &RenderCallbacks,
-    image_cache: &ImageCache,
-    gl_texture_cache: &mut GlTextureCache,
-    renderer_resources: &mut RendererResources,
-    document_id: DocumentId,
-    epoch: Epoch,
-) {
-
-    use webrender::api::units::ImageDirtyRect as WrImageDirtyRect;
-    use crate::wr_translate::{
-        wr_translate_image_key,
-        wr_translate_image_descriptor,
-        wr_translate_image_data,
-        wr_translate_document_id,
-    };
-    use azul_core::dom::NodeType;
-    use azul_core::app_resources::{
-        ImageData, ExternalImageType,
-        ExternalImageData, DecodedImage,
-        ImageBufferKind
-    };
-
-    let mut txn = WrTransaction::new();
-
-    // update images
-    for (dom_id, image_map) in images_to_update {
-
-        let layout_result = match layout_results.get(dom_id.inner) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        for (node_id, (image_ref, image_type)) in image_map {
-
-            // get the existing key + extents of the image
-            let existing_image_ref_hash = match image_type {
-                UpdateImageType::Content => {
-                    match layout_result.styled_dom.node_data.as_container().get(node_id).map(|n| n.get_node_type()) {
-                        Some(NodeType::Image(image_ref)) => image_ref.get_hash(),
-                        _ => continue,
-                    }
-                },
-                UpdateImageType::Background => {
-
-                    let node_data = layout_result.styled_dom.node_data.as_container();
-                    let node_data = match node_data.get(node_id) {
-                        Some(s) => s,
-                        None => continue,
-                    };
-
-                    let styled_node_states = layout_result.styled_dom.styled_nodes.as_container();
-                    let node_state = match styled_node_states.get(node_id) {
-                        Some(s) => s.state.clone(),
-                        None => continue,
-                    };
-
-                    let default = azul_css::StyleBackgroundContentVec::from_const_slice(&[]);
-
-                    // TODO: only updates the first image background - usually not a problem
-                    let bg_hash = layout_result.styled_dom.css_property_cache.ptr
-                    .get_background_content(node_data, &node_id, &node_state)
-                    .and_then(|bg| bg.get_property().unwrap_or(&default).as_ref().iter().find_map(|b| match b {
-                        azul_css::StyleBackgroundContent::Image(id) => {
-                            let image_ref = image_cache.get_css_image_id(id)?;
-                            Some(image_ref.get_hash())
-                        },
-                        _ => None,
-                    }));
-
-                    match bg_hash {
-                        Some(h) => h,
-                        None => continue,
-                    }
-                }
-            };
-
-            let decoded_image = match image_ref.into_inner() {
-                Some(s) => s,
-                None => continue,
-            };
-
-            // Try getting the existing image key either
-            // from the textures or from the renderer resources
-            let existing_key = gl_texture_cache.solved_textures
-                .get(&dom_id)
-                .and_then(|map| map.get(&node_id))
-                .map(|val| val.0);
-
-            let existing_key = match existing_key {
-                Some(s) => Some(s),
-                None => {
-                    renderer_resources
-                    .get_image(&existing_image_ref_hash)
-                    .map(|resolved_image| resolved_image.key)
-                },
-            };
-
-            let key = match existing_key {
-                Some(s) => s,
-                None => continue, // updating an image requires at
-                                  // least one image to be present
-            };
-
-            let (descriptor, data) = match decoded_image {
-                DecodedImage::Gl(texture) => {
-
-                    let descriptor = texture.get_descriptor();
-                    let new_external_image_id = match gl_texture_cache.update_texture(
-                        dom_id,
-                        node_id,
-                        document_id,
-                        epoch,
-                        texture,
-                        &crate::app::CALLBACKS,
-                    ) {
-                        Some(s) => s,
-                        None => continue,
-                    };
-
-                    let data = ImageData::External(ExternalImageData {
-                        id: new_external_image_id,
-                        channel_index: 0,
-                        image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
-                    });
-
-                    (descriptor, data)
-                },
-                DecodedImage::Raw((descriptor, data)) => {
-                    // use the hash to get the existing image key
-                    // TODO: may lead to problems when the same ImageRef is used more than once?
-                    renderer_resources.update_image(&existing_image_ref_hash, descriptor);
-                    (descriptor, data)
-                },
-                DecodedImage::NullImage { .. } => continue, // TODO: NULL image descriptor?
-                DecodedImage::Callback(callback) => {
-                    // TODO: re-render image callbacks?
-                    /*
-                    let (key, descriptor) = match gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&node_id)) {
-                        Some((k, d)) => (k, d),
-                        None => continue,
-                    };*/
-
-                    continue
-                },
-            };
-
-            // update the image descriptor in the renderer resources
-
-            txn.update_image(
-                wr_translate_image_key(key),
-                wr_translate_image_descriptor(descriptor),
-                wr_translate_image_data(data),
-                &WrImageDirtyRect::All,
-            );
-        }
-    }
-
-    // update image masks
-    for (dom_id, image_mask_map) in image_masks_to_update {
-
-        let layout_result = match layout_results.get(dom_id.inner) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        /*
-
-        for (node_id, image_ref) in image_mask_map {
-                let key = match existing_key {
-                    Some(s) => s,
-                    None => continue, // updating an image requires at
-                                      // least one image to be present
-                };
-            let decoded_image = match image_ref.into_inner() {
-                Some(s) => s,
-                None => continue,
-            };
-
-            txn.update_image(
-                wr_translate_image_key(key),
-                wr_translate_image_descriptor(descriptor),
-                wr_translate_image_data(data),
-                &WrImageDirtyRect::All,
-            );
-        }
-        */
-
-    }
-
-    render_api.send_transaction(wr_translate_document_id(document_id), txn);
 }
 
 fn create_windows(hinstance: HINSTANCE, app: &mut SharedApplicationData, new: Vec<WindowCreateOptions>) {

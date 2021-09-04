@@ -1728,6 +1728,7 @@ impl ComputedTransform3D {
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
 
+        /*
         if INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst) {
             for t in t_vec.iter() {
                 unsafe {
@@ -1753,6 +1754,7 @@ impl ComputedTransform3D {
                 }
             }
         } else {
+        */
             for t in t_vec.iter() {
                 matrix = matrix.then(&Self::from_style_transform(
                     t,
@@ -1762,7 +1764,9 @@ impl ComputedTransform3D {
                     rotation_mode,
                 ));
             }
+        /*
         }
+        */
 
         matrix
     }
@@ -1897,16 +1901,16 @@ impl ComputedTransform3D {
             Scale(scale2d) => Self::new_scale(
                 scale2d.x.normalized(),
                 scale2d.y.normalized(),
-                0.0,
+                1.0,
             ),
             Scale3D(scale3d) => Self::new_scale(
                 scale3d.x.normalized(),
                 scale3d.y.normalized(),
                 scale3d.z.normalized(),
             ),
-            ScaleX(scale_x) => Self::new_scale(scale_x.normalized(), 0.0, 0.0),
-            ScaleY(scale_y) => Self::new_scale(0.0, scale_y.normalized(), 0.0),
-            ScaleZ(scale_z) => Self::new_scale(0.0, 0.0, scale_z.normalized()),
+            ScaleX(scale_x) => Self::new_scale(scale_x.normalized(), 1.0, 1.0),
+            ScaleY(scale_y) => Self::new_scale(1.0, scale_y.normalized(), 1.0),
+            ScaleZ(scale_z) => Self::new_scale(1.0, 1.0, scale_z.normalized()),
             Skew(skew2d) => Self::new_skew(skew2d.x.normalized(), skew2d.y.normalized()),
             SkewX(skew_x) => Self::new_skew(skew_x.normalized(), 0.0),
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.normalized()),

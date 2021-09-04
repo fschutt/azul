@@ -373,6 +373,9 @@ impl TessellatedGPUSvgNode {
 
         let color: ColorF = color.into();
 
+        println!("transforms: {:#?}", transforms.as_ref());
+        println!("transform: {:#?}", computed_transform);
+
         // uniforms for the SVG shader
         let uniforms = [
             Uniform {
