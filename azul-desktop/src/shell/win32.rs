@@ -2209,6 +2209,17 @@ impl Window {
         }
     }
 
+    // Stop all timers that have a NodeId attached to them because in the next
+    // frame the NodeId would be invalid, leading to crashes / panics
+    fn stop_timers_with_node_ids(&mut self) {
+        let timers_to_remove = self.internal.timers
+        .iter()
+        .filter_map(|(id, timer)| timer.node_id.as_ref().map(|_| *id))
+        .collect();
+
+        self.start_stop_timers(FastHashMap::default(), timers_to_remove);
+    }
+
     // ScrollResult contains information about what nodes need to be scrolled,
     // whether they were scrolled by the system or by the user and how far they
     // need to be scrolled
@@ -2622,6 +2633,9 @@ unsafe extern "system" fn WindowProc(
                             }
                         );
                     });
+
+                    // stop timers that have a DomNodeId attached to them
+                    current_window.stop_timers_with_node_ids();
 
                     let mut gl = &mut current_window.gl_functions.functions;
                     gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);

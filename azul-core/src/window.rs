@@ -252,14 +252,6 @@ pub type ScanCode = u32;
 #[derive(Default, Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct KeyboardState {
-    /// Tracks, if the `Shift` key is currently pressed - (READONLY)
-    pub shift_down: bool,
-    /// Tracks, if the `Ctrl` key is currently pressed - (READONLY)
-    pub ctrl_down: bool,
-    /// Tracks, if the `Alt` key is currently pressed - (READONLY)
-    pub alt_down: bool,
-    /// Tracks, if the `Super / Windows / Command` key is currently pressed - (READONLY)
-    pub super_down: bool,
     /// Currently pressed key, already converted to a `char` - (READONLY)
     pub current_char: OptionChar,
     /// Same as `current_char`, but .
@@ -281,6 +273,14 @@ pub struct KeyboardState {
     /// Use when the physical location of the key is more important than the key's host GUI semantics,
     /// such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)
     pub pressed_scancodes: ScanCodeVec,
+}
+
+impl KeyboardState {
+    pub fn shift_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LShift) || self.is_key_down(VirtualKeyCode::RShift) }
+    pub fn ctrl_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LControl) || self.is_key_down(VirtualKeyCode::RControl) }
+    pub fn alt_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LAlt) || self.is_key_down(VirtualKeyCode::RAlt) }
+    pub fn super_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin) }
+    pub fn is_key_down(&self, key: VirtualKeyCode) -> bool { self.pressed_virtual_keycodes.iter().any(|k| *k == key) }
 }
 
 impl_option!(KeyboardState, OptionKeyboardState, copy = false, [Debug, Clone, PartialEq]);
@@ -2839,10 +2839,10 @@ impl AcceleratorKey {
     pub fn matches(&self, keyboard_state: &KeyboardState) -> bool {
         use self::AcceleratorKey::*;
         match self {
-            Ctrl => keyboard_state.ctrl_down,
-            Alt => keyboard_state.alt_down,
-            Shift => keyboard_state.shift_down,
-            Key(k) => keyboard_state.pressed_virtual_keycodes.iter().any(|key| key == k),
+            Ctrl => keyboard_state.ctrl_down(),
+            Alt => keyboard_state.alt_down(),
+            Shift => keyboard_state.shift_down(),
+            Key(k) => keyboard_state.is_key_down(*k),
         }
     }
 }

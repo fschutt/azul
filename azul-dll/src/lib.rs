@@ -210,6 +210,16 @@ pub use AzDebugStateTT as AzDebugState;
 /// Current keyboard state, stores what keys / characters have been pressed
 pub type AzKeyboardStateTT = azul_core::window::KeyboardState;
 pub use AzKeyboardStateTT as AzKeyboardState;
+/// Returns if the `SHIFT` key is held down (left OR right shift)
+#[no_mangle] pub extern "C" fn AzKeyboardState_shiftDown(keyboardstate: &AzKeyboardState) -> bool { keyboardstate.shift_down() }
+/// Returns if the `CTRL` key is held down
+#[no_mangle] pub extern "C" fn AzKeyboardState_ctrlDown(keyboardstate: &AzKeyboardState) -> bool { keyboardstate.ctrl_down() }
+/// Returns if the `ALT` key is held down
+#[no_mangle] pub extern "C" fn AzKeyboardState_altDown(keyboardstate: &AzKeyboardState) -> bool { keyboardstate.alt_down() }
+/// Returns if the `SUPER` ("Windows") key is held down
+#[no_mangle] pub extern "C" fn AzKeyboardState_superDown(keyboardstate: &AzKeyboardState) -> bool { keyboardstate.super_down() }
+/// Returns if a key is held down
+#[no_mangle] pub extern "C" fn AzKeyboardState_isKeyDown(keyboardstate: &AzKeyboardState, key: AzVirtualKeyCode) -> bool { keyboardstate.is_key_down(key) }
 /// Destructor: Takes ownership of the `KeyboardState` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzKeyboardState_delete(object: &mut AzKeyboardState) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -220,6 +230,8 @@ pub use AzMouseCursorTypeTT as AzMouseCursorType;
 /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
 pub type AzCursorPositionTT = azul_core::window::CursorPosition;
 pub use AzCursorPositionTT as AzCursorPosition;
+/// Equivalent to the Rust `CursorPosition::get_position()` function.
+#[no_mangle] pub extern "C" fn AzCursorPosition_getPosition(cursorposition: &AzCursorPosition) -> AzOptionLogicalPosition { cursorposition.get_position().into() }
 
 /// Current mouse / cursor state
 pub type AzMouseStateTT = azul_core::window::MouseState;
@@ -3211,6 +3223,54 @@ pub type AzParsedFontDestructorFnType = extern "C" fn(&mut c_void);
 /// Re-export of rust-allocated (stack based) `FontMetrics` struct
 pub type AzFontMetricsTT = azul_impl::css::FontMetrics;
 pub use AzFontMetricsTT as AzFontMetrics;
+/// Returns a FontMetrics struct with all fields set to 0
+#[no_mangle] pub extern "C" fn AzFontMetrics_zero() -> AzFontMetrics { AzFontMetrics::zero() }
+/// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height.
+#[no_mangle] pub extern "C" fn AzFontMetrics_useTypoMetrics(fontmetrics: &AzFontMetrics) -> bool { fontmetrics.use_typo_metrics() }
+/// Equivalent to the Rust `FontMetrics::get_ascender()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getAscender(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_ascender(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_descender()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getDescender(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_descender(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_line_gap()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getLineGap(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_line_gap(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_x_min()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getXMin(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_x_min(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_min()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYMin(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_min(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_x_max()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getXMax(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_x_max(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_max()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYMax(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_max(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_advance_width_max()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getAdvanceWidthMax(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_advance_width_max(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_min_left_side_bearing()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getMinLeftSideBearing(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_min_left_side_bearing(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_min_right_side_bearing()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getMinRightSideBearing(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_min_right_side_bearing(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_x_max_extent()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getXMaxExtent(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_x_max_extent(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_x_avg_char_width()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getXAvgCharWidth(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_x_avg_char_width(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_subscript_x_size()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSubscriptXSize(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_subscript_x_size(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_subscript_y_size()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSubscriptYSize(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_subscript_y_size(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_subscript_x_offset()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSubscriptXOffset(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_subscript_x_offset(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_subscript_y_offset()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSubscriptYOffset(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_subscript_y_offset(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_superscript_x_size()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSuperscriptXSize(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_superscript_x_size(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_superscript_y_size()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSuperscriptYSize(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_superscript_y_size(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_superscript_x_offset()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSuperscriptXOffset(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_superscript_x_offset(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_superscript_y_offset()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYSuperscriptYOffset(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_superscript_y_offset(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_strikeout_size()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYStrikeoutSize(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_strikeout_size(target_font_size) }
+/// Equivalent to the Rust `FontMetrics::get_y_strikeout_position()` function.
+#[no_mangle] pub extern "C" fn AzFontMetrics_getYStrikeoutPosition(fontmetrics: &AzFontMetrics, target_font_size: f32) -> f32 { fontmetrics.get_y_strikeout_position(target_font_size) }
 
 /// Source data of a font file (bytes)
 pub type AzFontSourceTT = azul_impl::resources::LoadedFontSource;
@@ -10244,10 +10304,6 @@ mod test_sizes {
     /// Current keyboard state, stores what keys / characters have been pressed
     #[repr(C)]
     pub struct AzKeyboardState {
-        pub shift_down: bool,
-        pub ctrl_down: bool,
-        pub alt_down: bool,
-        pub super_down: bool,
         pub current_char: AzOptionChar,
         pub current_virtual_keycode: AzOptionVirtualKeyCode,
         pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,

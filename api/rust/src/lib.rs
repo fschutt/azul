@@ -7230,10 +7230,6 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     pub struct AzKeyboardState {
-        pub shift_down: bool,
-        pub ctrl_down: bool,
-        pub alt_down: bool,
-        pub super_down: bool,
         pub current_char: AzOptionChar,
         pub current_virtual_keycode: AzOptionVirtualKeyCode,
         pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
@@ -9736,6 +9732,12 @@ mod dll {
         pub(crate) fn AzAppConfig_new(_:  AzLayoutSolver) -> AzAppConfig;
         pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
         pub(crate) fn AzWindowCreateOptions_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
+        pub(crate) fn AzKeyboardState_shiftDown(_:  &AzKeyboardState) -> bool;
+        pub(crate) fn AzKeyboardState_ctrlDown(_:  &AzKeyboardState) -> bool;
+        pub(crate) fn AzKeyboardState_altDown(_:  &AzKeyboardState) -> bool;
+        pub(crate) fn AzKeyboardState_superDown(_:  &AzKeyboardState) -> bool;
+        pub(crate) fn AzKeyboardState_isKeyDown(_:  &AzKeyboardState, _:  AzVirtualKeyCode) -> bool;
+        pub(crate) fn AzCursorPosition_getPosition(_:  &AzCursorPosition) -> AzOptionLogicalPosition;
         pub(crate) fn AzWindowState_new(_:  AzLayoutCallbackType) -> AzWindowState;
         pub(crate) fn AzWindowState_default() -> AzWindowState;
         pub(crate) fn AzCallbackInfo_getHitNode(_:  &AzCallbackInfo) -> AzDomNodeId;
@@ -10287,6 +10289,30 @@ mod dll {
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTiff(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzFontMetrics_zero() -> AzFontMetrics;
+        pub(crate) fn AzFontMetrics_useTypoMetrics(_:  &AzFontMetrics) -> bool;
+        pub(crate) fn AzFontMetrics_getAscender(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getDescender(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getLineGap(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getXMin(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYMin(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getXMax(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYMax(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getAdvanceWidthMax(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getMinLeftSideBearing(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getMinRightSideBearing(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getXMaxExtent(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getXAvgCharWidth(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSubscriptXSize(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSubscriptYSize(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSubscriptXOffset(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSubscriptYOffset(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSuperscriptXSize(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSuperscriptYSize(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSuperscriptXOffset(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYSuperscriptYOffset(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYStrikeoutSize(_:  &AzFontMetrics, _:  f32) -> f32;
+        pub(crate) fn AzFontMetrics_getYStrikeoutPosition(_:  &AzFontMetrics, _:  f32) -> f32;
         pub(crate) fn AzFontRef_parse(_:  AzFontSource) -> AzOptionFontRef;
         pub(crate) fn AzFontRef_getFontMetrics(_:  &AzFontRef) -> AzFontMetrics;
         pub(crate) fn AzFontRef_shapeText(_:  &AzFontRef, _:  AzRefstr, _:  AzResolvedTextLayoutOptions) -> AzInlineText;
@@ -10710,12 +10736,30 @@ pub mod window {
     /// Current keyboard state, stores what keys / characters have been pressed
     
 #[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;
+    impl KeyboardState {
+        /// Returns if the `SHIFT` key is held down (left OR right shift)
+        pub fn shift_down(&self)  -> bool { unsafe { crate::dll::AzKeyboardState_shiftDown(self) } }
+        /// Returns if the `CTRL` key is held down
+        pub fn ctrl_down(&self)  -> bool { unsafe { crate::dll::AzKeyboardState_ctrlDown(self) } }
+        /// Returns if the `ALT` key is held down
+        pub fn alt_down(&self)  -> bool { unsafe { crate::dll::AzKeyboardState_altDown(self) } }
+        /// Returns if the `SUPER` ("Windows") key is held down
+        pub fn super_down(&self)  -> bool { unsafe { crate::dll::AzKeyboardState_superDown(self) } }
+        /// Returns if a key is held down
+        pub fn is_key_down(&self, key: VirtualKeyCode)  -> bool { unsafe { crate::dll::AzKeyboardState_isKeyDown(self, key) } }
+    }
+
     /// Current icon of the mouse cursor
     
 #[doc(inline)] pub use crate::dll::AzMouseCursorType as MouseCursorType;
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
     
 #[doc(inline)] pub use crate::dll::AzCursorPosition as CursorPosition;
+    impl CursorPosition {
+        /// Calls the `CursorPosition::get_position` function.
+        pub fn get_position(&self)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCursorPosition_getPosition(self) } }
+    }
+
     /// Current mouse / cursor state
     
 #[doc(inline)] pub use crate::dll::AzMouseState as MouseState;
@@ -15849,6 +15893,57 @@ pub mod font {
     /// `FontMetrics` struct
     
 #[doc(inline)] pub use crate::dll::AzFontMetrics as FontMetrics;
+    impl FontMetrics {
+        /// Returns a FontMetrics struct with all fields set to 0
+        pub fn zero() -> Self { unsafe { crate::dll::AzFontMetrics_zero() } }
+        /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height.
+        pub fn use_typo_metrics(&self)  -> bool { unsafe { crate::dll::AzFontMetrics_useTypoMetrics(self) } }
+        /// Calls the `FontMetrics::get_ascender` function.
+        pub fn get_ascender(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getAscender(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_descender` function.
+        pub fn get_descender(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getDescender(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_line_gap` function.
+        pub fn get_line_gap(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getLineGap(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_x_min` function.
+        pub fn get_x_min(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getXMin(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_min` function.
+        pub fn get_y_min(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYMin(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_x_max` function.
+        pub fn get_x_max(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getXMax(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_max` function.
+        pub fn get_y_max(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYMax(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_advance_width_max` function.
+        pub fn get_advance_width_max(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getAdvanceWidthMax(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_min_left_side_bearing` function.
+        pub fn get_min_left_side_bearing(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getMinLeftSideBearing(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_min_right_side_bearing` function.
+        pub fn get_min_right_side_bearing(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getMinRightSideBearing(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_x_max_extent` function.
+        pub fn get_x_max_extent(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getXMaxExtent(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_x_avg_char_width` function.
+        pub fn get_x_avg_char_width(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getXAvgCharWidth(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_subscript_x_size` function.
+        pub fn get_y_subscript_x_size(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSubscriptXSize(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_subscript_y_size` function.
+        pub fn get_y_subscript_y_size(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSubscriptYSize(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_subscript_x_offset` function.
+        pub fn get_y_subscript_x_offset(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSubscriptXOffset(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_subscript_y_offset` function.
+        pub fn get_y_subscript_y_offset(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSubscriptYOffset(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_superscript_x_size` function.
+        pub fn get_y_superscript_x_size(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSuperscriptXSize(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_superscript_y_size` function.
+        pub fn get_y_superscript_y_size(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSuperscriptYSize(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_superscript_x_offset` function.
+        pub fn get_y_superscript_x_offset(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSuperscriptXOffset(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_superscript_y_offset` function.
+        pub fn get_y_superscript_y_offset(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYSuperscriptYOffset(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_strikeout_size` function.
+        pub fn get_y_strikeout_size(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYStrikeoutSize(self, target_font_size) } }
+        /// Calls the `FontMetrics::get_y_strikeout_position` function.
+        pub fn get_y_strikeout_position(&self, target_font_size: f32)  -> f32 { unsafe { crate::dll::AzFontMetrics_getYStrikeoutPosition(self, target_font_size) } }
+    }
+
     /// Source data of a font file (bytes)
     
 #[doc(inline)] pub use crate::dll::AzFontSource as FontSource;

@@ -654,15 +654,54 @@
                     "doc": "Current keyboard state, stores what keys / characters have been pressed",
                     "external": "azul_core::window::KeyboardState",
                     "struct_fields": [
-                        {"shift_down": {"type": "bool", "doc": "Tracks if the `Shift` key is currently pressed - (READONLY)"}},
-                        {"ctrl_down": {"type": "bool", "doc": "Tracks if the `Ctrl` key is currently pressed - (READONLY)"}},
-                        {"alt_down": {"type": "bool", "doc": "Tracks if the `Alt` key is currently pressed - (READONLY)"}},
-                        {"super_down": {"type": "bool", "doc": "Tracks if the `Super / Windows / Command` key is currently pressed - (READONLY)"}},
                         {"current_char": {"type": "OptionChar", "doc": "Currently pressed `char` - (READONLY)"}},
                         {"current_virtual_keycode": {"type": "OptionVirtualKeyCode", "doc": "Currently pressed `VirtualKeyCode` - (READONLY). **DO NOT USE THIS FOR TEXT INPUT, USE `current_char` and `On::TextInput` instead.**"}},
                         {"pressed_virtual_keycodes": {"type": "VirtualKeyCodeVec", "doc": "List of currently held-down `VirtualKeyCodes` - useful to implement combinated shortcuts (ex. `Ctrl + Shift + Right`)"}},
                         {"pressed_scancodes": {"type": "ScanCodeVec", "doc": "List of currently held-down `ScanCode`s (typedef for `u32`). Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed, independent of the keyboard layout. The scancode does not change if the user adjusts the host's keyboard map. Use when the physical location of the key is more important than the key's host GUI semantics, such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)"}}
-                    ]
+                    ],
+                    "functions": {
+                        "shift_down": {
+                            "doc": "Returns if the `SHIFT` key is held down (left OR right shift)",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "keyboardstate.shift_down()"
+                        },
+                        "ctrl_down": {
+                            "doc": "Returns if the `CTRL` key is held down",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "keyboardstate.ctrl_down()"
+                        },
+                        "alt_down": {
+                            "doc": "Returns if the `ALT` key is held down",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "keyboardstate.alt_down()"
+                        },
+                        "super_down": {
+                            "doc": "Returns if the `SUPER` (\"Windows\") key is held down",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "keyboardstate.super_down()"
+                        },
+                        "is_key_down": {
+                            "doc": "Returns if a key is held down",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"key": "VirtualKeyCode"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "keyboardstate.is_key_down(key)"
+                        }
+                    }
                 },
                 "MouseCursorType": {
                     "doc": "Current icon of the mouse cursor",
@@ -714,7 +753,16 @@
                         {"OutOfWindow": {"doc": "The cursor is out of bound of the window. For security reasons, tracking the cursor is not permitted by the library"}},
                         {"Uninitialized": {"doc": "The cursor position is unknown because the app hasn't yet been started. This is the default value and should generally only be set on startup."}},
                         {"InWindow": {"type": "LogicalPosition", "doc": "Cursor position relative to the top left corner of the window"}}
-                    ]
+                    ],
+                    "functions": {
+                        "get_position": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionLogicalPosition"},
+                            "fn_body": "cursorposition.get_position().into()"
+                        }
+                    }
                 },
                 "MouseState": {
                     "doc": "Current mouse / cursor state",
@@ -11107,7 +11155,200 @@
                         {"us_max_context": {"type": "OptionU16"}},
                         {"us_lower_optical_point_size": {"type": "OptionU16"}},
                         {"us_upper_optical_point_size": {"type": "OptionU16"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "zero": {
+                            "doc": "Returns a FontMetrics struct with all fields set to 0",
+                            "fn_args": [],
+                            "fn_body": "AzFontMetrics::zero()"
+                        }
+                    },
+                    "functions": {
+                        "use_typo_metrics": {
+                            "doc": "If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height.",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "fontmetrics.use_typo_metrics()"
+                        },
+                        "get_ascender": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_ascender(target_font_size)"
+                        },
+                        "get_descender": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_descender(target_font_size)"
+                        },
+                        "get_line_gap": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_line_gap(target_font_size)"
+                        },
+                        "get_x_min": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_x_min(target_font_size)"
+                        },
+                        "get_y_min": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_min(target_font_size)"
+                        },
+                        "get_x_max": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_x_max(target_font_size)"
+                        },
+                        "get_y_max": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_max(target_font_size)"
+                        },
+                        "get_advance_width_max": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_advance_width_max(target_font_size)"
+                        },
+                        "get_min_left_side_bearing": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_min_left_side_bearing(target_font_size)"
+                        },
+                        "get_min_right_side_bearing": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_min_right_side_bearing(target_font_size)"
+                        },
+                        "get_x_max_extent": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_x_max_extent(target_font_size)"
+                        },
+                        "get_x_avg_char_width": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_x_avg_char_width(target_font_size)"
+                        },
+                        "get_y_subscript_x_size": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_subscript_x_size(target_font_size)"
+                        },
+                        "get_y_subscript_y_size": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_subscript_y_size(target_font_size)"
+                        },
+                        "get_y_subscript_x_offset": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_subscript_x_offset(target_font_size)"
+                        },
+                        "get_y_subscript_y_offset": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_subscript_y_offset(target_font_size)"
+                        },
+                        "get_y_superscript_x_size": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_superscript_x_size(target_font_size)"
+                        },
+                        "get_y_superscript_y_size": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_superscript_y_size(target_font_size)"
+                        },
+                        "get_y_superscript_x_offset": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_superscript_x_offset(target_font_size)"
+                        },
+                        "get_y_superscript_y_offset": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_superscript_y_offset(target_font_size)"
+                        },
+                        "get_y_strikeout_size": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_strikeout_size(target_font_size)"
+                        },
+                        "get_y_strikeout_position": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"target_font_size": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "fontmetrics.get_y_strikeout_position(target_font_size)"
+                        }
+                    }
                 },
                 "FontSource": {
                     "doc": "Source data of a font file (bytes)",

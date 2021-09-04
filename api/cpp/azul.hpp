@@ -6849,10 +6849,6 @@ namespace dll {
     };
     
     struct KeyboardState {
-        bool  shift_down;
-        bool  ctrl_down;
-        bool  alt_down;
-        bool  super_down;
         OptionChar current_char;
         OptionVirtualKeyCode current_virtual_keycode;
         VirtualKeyCodeVec pressed_virtual_keycodes;
@@ -9759,7 +9755,13 @@ namespace dll {
         void LargeWindowIconBytes_delete(LargeWindowIconBytes* restrict instance);
         void WindowIcon_delete(WindowIcon* restrict instance);
         void TaskBarIcon_delete(TaskBarIcon* restrict instance);
+        bool  KeyboardState_shiftDown(const KeyboardState* keyboardstate);
+        bool  KeyboardState_ctrlDown(const KeyboardState* keyboardstate);
+        bool  KeyboardState_altDown(const KeyboardState* keyboardstate);
+        bool  KeyboardState_superDown(const KeyboardState* keyboardstate);
+        bool  KeyboardState_isKeyDown(const KeyboardState* keyboardstate, AzVirtualKeyCode  key);
         void KeyboardState_delete(KeyboardState* restrict instance);
+        OptionLogicalPosition CursorPosition_getPosition(const CursorPosition* cursorposition);
         void PlatformSpecificOptions_delete(PlatformSpecificOptions* restrict instance);
         void WindowsWindowOptions_delete(WindowsWindowOptions* restrict instance);
         void WaylandTheme_delete(WaylandTheme* restrict instance);
@@ -10432,6 +10434,30 @@ namespace dll {
         void RawImage_delete(RawImage* restrict instance);
         void ImageMask_delete(ImageMask* restrict instance);
         void RawImageData_delete(RawImageData* restrict instance);
+        FontMetrics FontMetrics_zero();
+        bool  FontMetrics_useTypoMetrics(const FontMetrics* fontmetrics);
+        float FontMetrics_getAscender(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getDescender(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getLineGap(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getXMin(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYMin(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getXMax(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYMax(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getAdvanceWidthMax(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getMinLeftSideBearing(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getMinRightSideBearing(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getXMaxExtent(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getXAvgCharWidth(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSubscriptXSize(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSubscriptYSize(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSubscriptXOffset(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSubscriptYOffset(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSuperscriptXSize(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSuperscriptYSize(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSuperscriptXOffset(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYSuperscriptYOffset(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYStrikeoutSize(const FontMetrics* fontmetrics, float target_font_size);
+        float FontMetrics_getYStrikeoutPosition(const FontMetrics* fontmetrics, float target_font_size);
         void FontSource_delete(FontSource* restrict instance);
         FontRef FontRef_parse(AzFontSource  source);
         FontMetrics FontRef_getFontMetrics(const FontRef* fontref);

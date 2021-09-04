@@ -7527,10 +7527,6 @@ struct AzWindowSize {
 typedef struct AzWindowSize AzWindowSize;
 
 struct AzKeyboardState {
-    bool  shift_down;
-    bool  ctrl_down;
-    bool  alt_down;
-    bool  super_down;
     AzOptionChar current_char;
     AzOptionVirtualKeyCode current_virtual_keycode;
     AzVirtualKeyCodeVec pressed_virtual_keycodes;
@@ -11796,7 +11792,13 @@ extern DLLIMPORT void AzSmallWindowIconBytes_delete(AzSmallWindowIconBytes* rest
 extern DLLIMPORT void AzLargeWindowIconBytes_delete(AzLargeWindowIconBytes* restrict instance);
 extern DLLIMPORT void AzWindowIcon_delete(AzWindowIcon* restrict instance);
 extern DLLIMPORT void AzTaskBarIcon_delete(AzTaskBarIcon* restrict instance);
+extern DLLIMPORT bool  AzKeyboardState_shiftDown(const AzKeyboardState* keyboardstate);
+extern DLLIMPORT bool  AzKeyboardState_ctrlDown(const AzKeyboardState* keyboardstate);
+extern DLLIMPORT bool  AzKeyboardState_altDown(const AzKeyboardState* keyboardstate);
+extern DLLIMPORT bool  AzKeyboardState_superDown(const AzKeyboardState* keyboardstate);
+extern DLLIMPORT bool  AzKeyboardState_isKeyDown(const AzKeyboardState* keyboardstate, AzVirtualKeyCode  key);
 extern DLLIMPORT void AzKeyboardState_delete(AzKeyboardState* restrict instance);
+extern DLLIMPORT AzOptionLogicalPosition AzCursorPosition_getPosition(const AzCursorPosition* cursorposition);
 extern DLLIMPORT void AzPlatformSpecificOptions_delete(AzPlatformSpecificOptions* restrict instance);
 extern DLLIMPORT void AzWindowsWindowOptions_delete(AzWindowsWindowOptions* restrict instance);
 extern DLLIMPORT void AzWaylandTheme_delete(AzWaylandTheme* restrict instance);
@@ -12469,6 +12471,30 @@ extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTiff(const AzRaw
 extern DLLIMPORT void AzRawImage_delete(AzRawImage* restrict instance);
 extern DLLIMPORT void AzImageMask_delete(AzImageMask* restrict instance);
 extern DLLIMPORT void AzRawImageData_delete(AzRawImageData* restrict instance);
+extern DLLIMPORT AzFontMetrics AzFontMetrics_zero();
+extern DLLIMPORT bool  AzFontMetrics_useTypoMetrics(const AzFontMetrics* fontmetrics);
+extern DLLIMPORT float AzFontMetrics_getAscender(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getDescender(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getLineGap(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getXMin(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYMin(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getXMax(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYMax(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getAdvanceWidthMax(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getMinLeftSideBearing(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getMinRightSideBearing(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getXMaxExtent(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getXAvgCharWidth(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSubscriptXSize(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSubscriptYSize(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSubscriptXOffset(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSubscriptYOffset(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSuperscriptXSize(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSuperscriptYSize(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSuperscriptXOffset(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYSuperscriptYOffset(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYStrikeoutSize(const AzFontMetrics* fontmetrics, float target_font_size);
+extern DLLIMPORT float AzFontMetrics_getYStrikeoutPosition(const AzFontMetrics* fontmetrics, float target_font_size);
 extern DLLIMPORT void AzFontSource_delete(AzFontSource* restrict instance);
 extern DLLIMPORT AzFontRef AzFontRef_parse(AzFontSource  source);
 extern DLLIMPORT AzFontMetrics AzFontRef_getFontMetrics(const AzFontRef* fontref);

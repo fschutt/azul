@@ -4415,6 +4415,10 @@ impl FontMetrics {
         }
     }
 
+    pub fn get_ascender(&self, target_font_size: f32) -> f32 { self.get_ascender_unscaled() as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_descender(&self, target_font_size: f32) -> f32 { self.get_descender_unscaled() as f32 / self.units_per_em as f32 * target_font_size }
+    pub fn get_line_gap(&self, target_font_size: f32) -> f32 { self.get_line_gap_unscaled() as f32 / self.units_per_em as f32 * target_font_size }
+
     pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em as f32 * target_font_size }
     pub fn get_y_min(&self, target_font_size: f32) -> f32 { self.y_min as f32 / self.units_per_em as f32 * target_font_size }
     pub fn get_x_max(&self, target_font_size: f32) -> f32 { self.x_max as f32 / self.units_per_em as f32 * target_font_size }
@@ -4434,6 +4438,7 @@ impl FontMetrics {
     pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_y_offset as f32 / self.units_per_em as f32 * target_font_size }
     pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 { self.y_strikeout_size as f32 / self.units_per_em as f32 * target_font_size }
     pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 { self.y_strikeout_position as f32 / self.units_per_em as f32 * target_font_size }
+
     pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_ascender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
     pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_descender.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }
     pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> { self.s_typo_line_gap.map(|s| s as f32 / self.units_per_em as f32 * target_font_size) }

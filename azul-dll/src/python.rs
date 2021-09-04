@@ -5804,10 +5804,6 @@ pub struct AzWindowSize {
 /// Current keyboard state, stores what keys / characters have been pressed
 #[repr(C)]
 pub struct AzKeyboardState {
-    pub shift_down: bool,
-    pub ctrl_down: bool,
-    pub alt_down: bool,
-    pub super_down: bool,
     pub current_char: AzOptionCharEnumWrapper,
     pub current_virtual_keycode: AzOptionVirtualKeyCodeEnumWrapper,
     pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
@@ -12068,12 +12064,8 @@ impl PyObjectProtocol for AzDebugState {
 #[pymethods]
 impl AzKeyboardState {
     #[new]
-    fn __new__(shift_down: bool, ctrl_down: bool, alt_down: bool, super_down: bool, current_char: AzOptionCharEnumWrapper, current_virtual_keycode: AzOptionVirtualKeyCodeEnumWrapper, pressed_virtual_keycodes: AzVirtualKeyCodeVec, pressed_scancodes: AzScanCodeVec) -> Self {
+    fn __new__(current_char: AzOptionCharEnumWrapper, current_virtual_keycode: AzOptionVirtualKeyCodeEnumWrapper, pressed_virtual_keycodes: AzVirtualKeyCodeVec, pressed_scancodes: AzScanCodeVec) -> Self {
         Self {
-            shift_down,
-            ctrl_down,
-            alt_down,
-            super_down,
             current_char,
             current_virtual_keycode,
             pressed_virtual_keycodes,
@@ -12081,6 +12073,32 @@ impl AzKeyboardState {
         }
     }
 
+    fn shift_down(&self) -> bool {
+        unsafe { mem::transmute(crate::AzKeyboardState_shiftDown(
+            mem::transmute(self),
+        )) }
+    }
+    fn ctrl_down(&self) -> bool {
+        unsafe { mem::transmute(crate::AzKeyboardState_ctrlDown(
+            mem::transmute(self),
+        )) }
+    }
+    fn alt_down(&self) -> bool {
+        unsafe { mem::transmute(crate::AzKeyboardState_altDown(
+            mem::transmute(self),
+        )) }
+    }
+    fn super_down(&self) -> bool {
+        unsafe { mem::transmute(crate::AzKeyboardState_superDown(
+            mem::transmute(self),
+        )) }
+    }
+    fn is_key_down(&self, key: AzVirtualKeyCodeEnumWrapper) -> bool {
+        unsafe { mem::transmute(crate::AzKeyboardState_isKeyDown(
+            mem::transmute(self),
+            mem::transmute(key),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -29777,6 +29795,147 @@ impl PyObjectProtocol for AzRawImageDataEnumWrapper {
 
 #[pymethods]
 impl AzFontMetrics {
+    #[staticmethod]
+    fn zero() -> AzFontMetrics {
+        unsafe { mem::transmute(crate::AzFontMetrics_zero()) }
+    }
+    fn use_typo_metrics(&self) -> bool {
+        unsafe { mem::transmute(crate::AzFontMetrics_useTypoMetrics(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_ascender(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getAscender(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_descender(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getDescender(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_line_gap(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getLineGap(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_x_min(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getXMin(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_min(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYMin(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_x_max(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getXMax(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_max(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYMax(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_advance_width_max(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getAdvanceWidthMax(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getMinLeftSideBearing(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getMinRightSideBearing(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_x_max_extent(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getXMaxExtent(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getXAvgCharWidth(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSubscriptXSize(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSubscriptYSize(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSubscriptXOffset(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSubscriptYOffset(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSuperscriptXSize(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSuperscriptYSize(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSuperscriptXOffset(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYSuperscriptYOffset(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYStrikeoutSize(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
+    fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzFontMetrics_getYStrikeoutPosition(
+            mem::transmute(self),
+            mem::transmute(target_font_size),
+        )) }
+    }
 }
 
 #[pyproto]

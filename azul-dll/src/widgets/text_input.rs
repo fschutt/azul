@@ -565,7 +565,7 @@ impl TextInputState {
             },
             VirtualKeyCode::Tab => {
                 use azul_desktop::callbacks::FocusTarget;
-                if keyboard_state.shift_down {
+                if keyboard_state.shift_down() {
                     info.set_focus(FocusTarget::Previous);
                 } else {
                     info.set_focus(FocusTarget::Next);
@@ -584,38 +584,36 @@ impl TextInputState {
                 cursor_pos = self.cursor_pos.saturating_sub(1).min(self.text.len());
                 true
             },
-            // ctrl + a
-            VirtualKeyCode::A if keyboard_state.ctrl_down => {
-                self.selection = Some(TextInputSelection::All).into();
-                true
-            },
-            // ctrl + v
-            VirtualKeyCode::V if keyboard_state.ctrl_down => {
-                use azul_desktop::app::Clipboard;
+            vk => {
+                if keyboard_state.ctrl_down() {
+                    match vk {
+                        VirtualKeyCode::A => {
+                            self.selection = Some(TextInputSelection::All).into();
+                            true
+                        },
+                        VirtualKeyCode::V => {
+                            use azul_desktop::app::Clipboard;
 
-                if let Some(clip) = Clipboard::new() {
-                    let clipboard_contents = clip.get_clipboard_string().unwrap_or_default();
-                    let clipboard_contents: Vec<u32> = clipboard_contents.as_str().chars().map(|c| c as u32).collect();
+                            if let Some(clip) = Clipboard::new() {
+                                let clipboard_contents = clip.get_clipboard_string().unwrap_or_default();
+                                let clipboard_contents: Vec<u32> = clipboard_contents.as_str().chars().map(|c| c as u32).collect();
 
-                    // TODO: handle selection properly
-                    self.selection = None.into();
-                    cursor_pos = clipboard_contents.len();
-                    self.text = clipboard_contents.into();
+                                // TODO: handle selection properly
+                                self.selection = None.into();
+                                cursor_pos = clipboard_contents.len();
+                                self.text = clipboard_contents.into();
+                            }
+
+                            true
+                        },
+                        _ => false,
+                        // C = copy
+                        // X = cut
+                    }
+                } else {
+                    false
                 }
-
-                true
             },
-            /*
-            // ctrl + c
-            VirtualKeyCode::C if keyboard_state.ctrl_down => {
-                Clipboard::new().set_string_contents(self.text[self.selection]);
-            },
-
-            // ctrl + x
-            VirtualKeyCode::X if keyboard_state.ctrl_down => {
-                Clipboard::new().set_string_contents(self.text[self.selection.get_range(self.text.len())]);
-            }
-            */
             _ => false,
         };
 
