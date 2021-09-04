@@ -17,7 +17,7 @@ use azul_css::{
 use core::fmt;
 use crate::xml::XmlError;
 use azul_css::{AzString, OptionAzString, StringVec, OptionLayoutSize, OptionColorU};
-pub use azul_css::{SvgCubicCurve, SvgPoint, SvgRect};
+pub use azul_css::{SvgCubicCurve, SvgQuadraticCurve, SvgVector, SvgPoint, SvgRect};
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
@@ -38,41 +38,39 @@ pub struct SvgLine {
 }
 
 impl SvgLine {
+    pub fn get_start(&self) -> SvgPoint { self.start }
+    pub fn get_end(&self) -> SvgPoint { self.end }
+
+    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+        offset / self.get_length()
+    }
+
+    pub fn get_tangent_vector_at_t(&self, _: f32) -> SvgVector {
+        let dx = self.end.x - self.start.x;
+        let dy = self.end.y - self.start.y;
+        SvgVector { x: dx, y: dy }.normalize()
+    }
+
+    pub fn get_x_at_t(&self, t: f32) -> f32 {
+        (self.end.x - self.start.x) * t
+    }
+
+    pub fn get_y_at_t(&self, t: f32) -> f32 {
+        (self.end.y - self.start.y) * t
+    }
+
+    pub fn get_length(&self) -> f32 {
+        let dx = self.end.x - self.start.x;
+        let dy = self.end.y - self.start.y;
+        libm::hypotf(dx, dy) as f32
+    }
+
     pub fn get_bounds(&self) -> SvgRect {
         let min_x = self.start.x.min(self.end.x);
         let max_x = self.start.x.max(self.end.x);
 
         let min_y = self.start.y.min(self.end.y);
         let max_y = self.start.y.max(self.end.y);
-
-        let width = (max_x - min_x).abs();
-        let height = (max_y - min_y).abs();
-
-        SvgRect {
-            width,
-            height,
-            x: min_x,
-            y: min_y,
-            .. SvgRect::default()
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
-pub struct SvgQuadraticCurve {
-    pub start: SvgPoint,
-    pub ctrl: SvgPoint,
-    pub end: SvgPoint,
-}
-
-impl SvgQuadraticCurve {
-    pub fn get_bounds(&self) -> SvgRect {
-        let min_x = self.start.x.min(self.end.x).min(self.ctrl.x);
-        let max_x = self.start.x.max(self.end.x).max(self.ctrl.x);
-
-        let min_y = self.start.y.min(self.end.y).min(self.ctrl.y);
-        let max_y = self.start.y.max(self.end.y).max(self.ctrl.y);
 
         let width = (max_x - min_x).abs();
         let height = (max_y - min_y).abs();
@@ -98,16 +96,16 @@ pub enum SvgPathElement {
 impl SvgPathElement {
     pub fn get_start(&self) -> SvgPoint {
         match self {
-            SvgPathElement::Line(l) => l.start,
-            SvgPathElement::QuadraticCurve(qc) => qc.start,
-            SvgPathElement::CubicCurve(cc) => cc.start,
+            SvgPathElement::Line(l) => l.get_start(),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_start(),
+            SvgPathElement::CubicCurve(cc) => cc.get_start(),
         }
     }
     pub fn get_end(&self) -> SvgPoint {
         match self {
-            SvgPathElement::Line(l) => l.end,
-            SvgPathElement::QuadraticCurve(qc) => qc.end,
-            SvgPathElement::CubicCurve(cc) => cc.end,
+            SvgPathElement::Line(l) => l.get_end(),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_end(),
+            SvgPathElement::CubicCurve(cc) => cc.get_end(),
         }
     }
     pub fn get_bounds(&self) -> SvgRect {
@@ -115,6 +113,41 @@ impl SvgPathElement {
             SvgPathElement::Line(l) => l.get_bounds(),
             SvgPathElement::QuadraticCurve(qc) => qc.get_bounds(),
             SvgPathElement::CubicCurve(cc) => cc.get_bounds(),
+        }
+    }
+    pub fn get_length(&self) -> f32 {
+        match self {
+            SvgPathElement::Line(l) => l.get_length(),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_length(),
+            SvgPathElement::CubicCurve(cc) => cc.get_length(),
+        }
+    }
+    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+        match self {
+            SvgPathElement::Line(l) => l.get_t_at_offset(offset),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_t_at_offset(offset),
+            SvgPathElement::CubicCurve(cc) => cc.get_t_at_offset(offset),
+        }
+    }
+    pub fn get_tangent_vector_at_t(&self, t: f32) -> SvgVector {
+        match self {
+            SvgPathElement::Line(l) => l.get_tangent_vector_at_t(t),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_tangent_vector_at_t(t),
+            SvgPathElement::CubicCurve(cc) => cc.get_tangent_vector_at_t(t),
+        }
+    }
+    pub fn get_x_at_t(&self, t: f32) -> f32 {
+        match self {
+            SvgPathElement::Line(l) => l.get_x_at_t(t),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_x_at_t(t),
+            SvgPathElement::CubicCurve(cc) => cc.get_x_at_t(t),
+        }
+    }
+    pub fn get_y_at_t(&self, t: f32) -> f32 {
+        match self {
+            SvgPathElement::Line(l) => l.get_y_at_t(t),
+            SvgPathElement::QuadraticCurve(qc) => qc.get_y_at_t(t),
+            SvgPathElement::CubicCurve(cc) => cc.get_y_at_t(t),
         }
     }
 }

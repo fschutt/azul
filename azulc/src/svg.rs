@@ -36,7 +36,7 @@ pub use azul_core::svg::{
     SvgParseOptions, SvgXmlOptions, SvgPathElement, SvgNode,
     SvgStyle, SvgFillRule, SvgLineCap, SvgLineJoin, c_void,
     ShapeRendering, ImageRendering, TextRendering, FontDatabase,
-    SvgFitTo, SvgParseError, Indent,
+    SvgFitTo, SvgParseError, Indent, SvgVector,
 
     SvgPoint, SvgCubicCurve, TessellatedSvgNodeVec,
     SvgMultiPolygonVec, SvgPathVec,

@@ -1375,6 +1375,15 @@ pub struct SvgPoint {
     pub y: f32,
 }
 
+impl SvgPoint {
+    #[inline]
+    pub fn distance(&self, other: &Self) -> f32 {
+        let dx = other.x - self.x;
+        let dy = other.y - self.y;
+        libm::hypotf(dx, dy) as f32
+    }
+}
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgRect {
@@ -1408,8 +1417,178 @@ pub struct SvgCubicCurve {
     pub end: SvgPoint,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgVector {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl SvgVector {
+
+    /// Returns the angle of the vector in degrees
+    #[inline]
+    pub fn angle_degrees(&self) -> f32 {
+
+        //  y
+        //  |  /
+        //  | /
+        //   / a)
+        //   ___ x
+
+        (-self.x).atan2(self.y).to_degrees()
+    }
+
+    #[inline]
+    #[must_use = "returns a new vector"]
+    pub fn normalize(&self) -> Self {
+
+        let tangent_length = libm::hypotf(self.x, self.y) as f32;
+
+        Self {
+            x: self.x / tangent_length,
+            y: self.y / tangent_length,
+        }
+    }
+
+    /// Rotate the vector 90 degrees counter-clockwise
+    #[must_use = "returns a new vector"]
+    #[inline]
+    pub fn rotate_90deg_ccw(&self) -> Self {
+        Self { x: -self.y, y: self.x }
+    }
+}
+
+const STEP_SIZE: usize = 20;
+const STEP_SIZE_F32: f32 = 0.05;
+
 impl SvgCubicCurve {
+
+    pub fn get_start(&self) -> SvgPoint { self.start }
+    pub fn get_end(&self) -> SvgPoint { self.end }
+
+    // evaluate the curve at t
+    pub fn get_x_at_t(&self, t: f32) -> f32 {
+        let c_x = 3.0 * (self.ctrl_1.x - self.start.x);
+        let b_x = 3.0 * (self.ctrl_2.x - self.ctrl_1.x) - c_x;
+        let a_x = self.end.x - self.start.x - c_x - b_x;
+
+        (a_x * t * t * t) +
+        (b_x * t * t) +
+        (c_x * t) +
+        self.start.x
+    }
+
+    pub fn get_y_at_t(&self, t: f32) -> f32 {
+        let c_x = 3.0 * (self.ctrl_1.y - self.start.y);
+        let b_x = 3.0 * (self.ctrl_2.y - self.ctrl_1.y) - c_x;
+        let a_x = self.end.y - self.start.y - c_x - b_x;
+
+        (a_x * t * t * t) +
+        (b_x * t * t) +
+        (c_x * t) +
+        self.start.y
+    }
+
+    pub fn get_length(&self) -> f32 {
+
+        // NOTE: this arc length parametrization is not very precise, but fast
+        let mut arc_length = 0.0;
+        let mut prev_point = self.get_start();
+
+        for i in 0..STEP_SIZE {
+            let t_next = (i + 1) as f32 * STEP_SIZE_F32;
+            let next_point = SvgPoint {
+                x: self.get_x_at_t(t_next),
+                y: self.get_y_at_t(t_next),
+            };
+            arc_length += prev_point.distance(&next_point);
+            prev_point = next_point;
+        }
+
+        arc_length
+    }
+
+    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+
+        // step through the line until the offset is reached,
+        // then interpolate linearly between the
+        // current at the last sampled point
+        let mut arc_length = 0.0;
+        let mut t_current = 0.0;
+        let mut prev_point = self.get_start();
+
+        for i in 0..STEP_SIZE {
+
+            let t_next = (i + 1) as f32 * STEP_SIZE_F32;
+            let next_point = SvgPoint {
+                x: self.get_x_at_t(t_next),
+                y: self.get_y_at_t(t_next),
+            };
+
+            let distance = prev_point.distance(&next_point);
+
+            arc_length += distance;
+
+            // linearly interpolate between last t and current t
+            if arc_length > offset {
+                let remaining = arc_length - offset;
+                return t_current + (remaining / distance) * STEP_SIZE_F32;
+            }
+
+            prev_point = next_point;
+            t_current = t_next;
+        }
+
+        t_current
+    }
+
+    pub fn get_tangent_vector_at_t(&self, t: f32) -> SvgVector {
+
+        // 1. Calculate the derivative of the bezier curve.
+        //
+        // This means that we go from 4 points to 3 points and redistribute
+        // the weights of the control points according to the formula:
+        //
+        // w'0 = 3 * (w1-w0)
+        // w'1 = 3 * (w2-w1)
+        // w'2 = 3 * (w3-w2)
+
+        let w0 = SvgPoint {
+            x: self.ctrl_1.x - self.start.x,
+            y: self.ctrl_1.y - self.start.y,
+        };
+
+        let w1 = SvgPoint {
+            x: self.ctrl_2.x - self.ctrl_1.x,
+            y: self.ctrl_2.y - self.ctrl_1.y,
+        };
+
+        let w2 = SvgPoint {
+            x: self.end.x - self.ctrl_2.x,
+            y: self.end.y - self.ctrl_2.y,
+        };
+
+        let quadratic_curve = SvgQuadraticCurve {
+            start: w0,
+            ctrl: w1,
+            end: w2,
+        };
+
+        // The first derivative of a cubic bezier curve is a quadratic
+        // bezier curve. Luckily, the first derivative is also the tangent
+        // vector (slope) of the curve. So all we need to do is to sample the
+        // quadratic curve at t
+        let tangent_vector = SvgVector {
+            x: quadratic_curve.get_x_at_t(t),
+            y: quadratic_curve.get_y_at_t(t),
+        };
+
+        tangent_vector.normalize()
+    }
+
     pub fn get_bounds(&self) -> SvgRect {
+
         let min_x = self.start.x.min(self.end.x).min(self.ctrl_1.x).min(self.ctrl_2.x);
         let max_x = self.start.x.max(self.end.x).max(self.ctrl_1.x).max(self.ctrl_2.x);
 
@@ -1427,29 +1606,83 @@ impl SvgCubicCurve {
             .. SvgRect::default()
         }
     }
+}
 
-    // evaluate the curve at t
-    pub fn evaluate_x(&self, t: f32) -> f32 {
-        let c_x = 3.0 * (self.ctrl_1.x - self.start.x);
-        let b_x = 3.0 * (self.ctrl_2.x - self.ctrl_1.x) - c_x;
-        let a_x = self.end.x - self.start.x - c_x - b_x;
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgQuadraticCurve {
+    pub start: SvgPoint,
+    pub ctrl: SvgPoint,
+    pub end: SvgPoint,
+}
 
-        (a_x * t * t * t) +
-        (b_x * t * t) +
-        (c_x * t) +
-        self.start.x
+impl SvgQuadraticCurve {
+    pub fn get_start(&self) -> SvgPoint { self.start }
+    pub fn get_end(&self) -> SvgPoint { self.end }
+    pub fn get_bounds(&self) -> SvgRect {
+        let min_x = self.start.x.min(self.end.x).min(self.ctrl.x);
+        let max_x = self.start.x.max(self.end.x).max(self.ctrl.x);
+
+        let min_y = self.start.y.min(self.end.y).min(self.ctrl.y);
+        let max_y = self.start.y.max(self.end.y).max(self.ctrl.y);
+
+        let width = (max_x - min_x).abs();
+        let height = (max_y - min_y).abs();
+
+        SvgRect {
+            width,
+            height,
+            x: min_x,
+            y: min_y,
+            .. SvgRect::default()
+        }
     }
 
-    // evaluate the curve at t
-    pub fn evaluate_y(&self, t: f32) -> f32 {
-        let c_x = 3.0 * (self.ctrl_1.y - self.start.y);
-        let b_x = 3.0 * (self.ctrl_2.y - self.ctrl_1.y) - c_x;
-        let a_x = self.end.y - self.start.y - c_x - b_x;
+    pub fn get_x_at_t(&self, t: f32) -> f32 {
+        let one_minus = 1.0 - t;
+        let one_minus_squared = one_minus * one_minus;
+        let t_squared = t * t;
 
-        (a_x * t * t * t) +
-        (b_x * t * t) +
-        (c_x * t) +
-        self.start.y
+          1.0 * one_minus_squared * 1.0 * self.start.x
+        + 2.0 * one_minus         * t   * self.ctrl.x
+        + 3.0 * 1.0               * t_squared * self.end.x
+    }
+
+    pub fn get_y_at_t(&self, t: f32) -> f32 {
+        let one_minus = 1.0 - t;
+        let one_minus_squared = one_minus * one_minus;
+        let t_squared = t * t;
+
+          1.0 * one_minus_squared * 1.0 * self.start.y
+        + 2.0 * one_minus         * t   * self.ctrl.y
+        + 3.0 * 1.0               * t_squared * self.end.y
+    }
+
+    pub fn get_length(&self) -> f32 {
+        self.to_cubic().get_length()
+    }
+
+    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+        self.to_cubic().get_t_at_offset(offset)
+    }
+
+    pub fn get_tangent_vector_at_t(&self, t: f32) -> SvgVector {
+        self.to_cubic().get_tangent_vector_at_t(t)
+    }
+
+    fn to_cubic(&self) -> SvgCubicCurve {
+        SvgCubicCurve {
+            start: self.start,
+            ctrl_1: SvgPoint {
+                x: self.start.x + (0.75 * self.ctrl.x - self.start.x),
+                y: self.start.y + (0.75 * self.ctrl.y - self.start.y),
+            },
+            ctrl_2: SvgPoint {
+                x: self.start.x + (0.75 * self.end.x - self.ctrl.x),
+                y: self.start.y + (0.75 * self.end.y - self.ctrl.y),
+            },
+            end: self.end,
+        }
     }
 }
 
@@ -1491,7 +1724,7 @@ impl AnimationInterpolationFunction {
     }
 
     pub fn evaluate(self, t: f32) -> f32 {
-        self.get_curve().evaluate_y(t)
+        self.get_curve().get_y_at_t(t)
     }
 }
 

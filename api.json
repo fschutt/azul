@@ -351,7 +351,17 @@
                     "struct_fields": [
                         {"width": {"type": "f32"}},
                         {"height": {"type": "f32"}}
-                    ]
+                    ],
+                    "functions": {
+                        "to_physical": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"hidpi_factor": "f32"}
+                            ],
+                            "returns": {"type": "PhysicalSizeU32"},
+                            "fn_body": "logicalsize.to_physical(hidpi_factor)"
+                        }
+                    }
                 },
                 "IconKey": {
                     "doc": "Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.",
@@ -11643,6 +11653,50 @@
                             "returns": {"type": "SvgRect"},
                             "fn_body": "svgpathelement.get_bounds()"
                         },
+                        "get_length": {
+                            "doc": "Returns the length of the line or curve",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgpathelement.get_length()"
+                        },
+                        "get_t_at_offset": {
+                            "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"offset": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgpathelement.get_t_at_offset(offset)"
+                        },
+                        "get_x_at_t": {
+                            "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgpathelement.get_x_at_t(t)"
+                        },
+                        "get_y_at_t": {
+                            "doc": "Returns the y position of the line or curve at t",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgpathelement.get_y_at_t(t)"
+                        },
+                        "get_tangent_vector_at_t": {
+                            "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "SvgVector"},
+                            "fn_body": "svgpathelement.get_tangent_vector_at_t(t)"
+                        },
                         "tessellate_stroke": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -11661,6 +11715,40 @@
                         {"y": {"type": "f32"}}
                     ]
                 },
+                "SvgVector": {
+                    "external": "azul_impl::svg::SvgVector",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
+                    "struct_fields": [
+                        {"x": {"type": "f32"}},
+                        {"y": {"type": "f32"}}
+                    ],
+                    "functions": {
+                        "angle_degrees": {
+                            "doc": "Returns the angle of this vector in degrees",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgvector.angle_degrees()"
+                        },
+                        "normalize": {
+                            "doc": "Normalizes the vector, returning the normalized vector",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgVector"},
+                            "fn_body": "svgvector.normalize()"
+                        },
+                        "rotate_90deg_ccw": {
+                            "doc": "Rotates the vector 90 degrees counter clockwise, returning the rotated vector",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgVector"},
+                            "fn_body": "svgvector.rotate_90deg_ccw()"
+                        }
+                    }
+                },
                 "SvgLine": {
                     "external": "azul_impl::svg::SvgLine",
                     "derive": ["Copy"],
@@ -11669,6 +11757,74 @@
                         {"end": {"type": "SvgPoint"}}
                     ],
                     "functions": {
+                        "get_start": {
+                            "doc": "Returns the starting point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgline.get_start()"
+                        },
+                        "get_end": {
+                            "doc": "Returns the ending point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgline.get_end()"
+                        },
+                        "get_bounds": {
+                            "doc": "Returns the bounding box of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgline.get_bounds()"
+                        },
+                        "get_length": {
+                            "doc": "Returns the length of the line or curve",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgline.get_length()"
+                        },
+                        "get_t_at_offset": {
+                            "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"offset": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgline.get_t_at_offset(offset)"
+                        },
+                        "get_x_at_t": {
+                            "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgline.get_x_at_t(t)"
+                        },
+                        "get_y_at_t": {
+                            "doc": "Returns the y position of the line or curve at t",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgline.get_y_at_t(t)"
+                        },
+                        "get_tangent_vector_at_t": {
+                            "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "SvgVector"},
+                            "fn_body": "svgline.get_tangent_vector_at_t(t)"
+                        },
                         "tessellate_stroke": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -11688,6 +11844,74 @@
                         {"end": {"type": "SvgPoint"}}
                     ],
                     "functions": {
+                        "get_start": {
+                            "doc": "Returns the starting point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgquadraticcurve.get_start()"
+                        },
+                        "get_end": {
+                            "doc": "Returns the ending point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgquadraticcurve.get_end()"
+                        },
+                        "get_bounds": {
+                            "doc": "Returns the bounding box of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgquadraticcurve.get_bounds()"
+                        },
+                        "get_length": {
+                            "doc": "Returns the length of the line or curve",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgquadraticcurve.get_length()"
+                        },
+                        "get_t_at_offset": {
+                            "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"offset": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgquadraticcurve.get_t_at_offset(offset)"
+                        },
+                        "get_x_at_t": {
+                            "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgquadraticcurve.get_x_at_t(t)"
+                        },
+                        "get_y_at_t": {
+                            "doc": "Returns the y position of the line or curve at t",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgquadraticcurve.get_y_at_t(t)"
+                        },
+                        "get_tangent_vector_at_t": {
+                            "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "SvgVector"},
+                            "fn_body": "svgquadraticcurve.get_tangent_vector_at_t(t)"
+                        },
                         "tessellate_stroke": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -11708,6 +11932,74 @@
                         {"end": {"type": "SvgPoint"}}
                     ],
                     "functions": {
+                        "get_start": {
+                            "doc": "Returns the starting point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgcubiccurve.get_start()"
+                        },
+                        "get_end": {
+                            "doc": "Returns the ending point of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgcubiccurve.get_end()"
+                        },
+                        "get_bounds": {
+                            "doc": "Returns the bounding box of this item",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgcubiccurve.get_bounds()"
+                        },
+                        "get_length": {
+                            "doc": "Returns the length of the line or curve",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgcubiccurve.get_length()"
+                        },
+                        "get_t_at_offset": {
+                            "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"offset": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgcubiccurve.get_t_at_offset(offset)"
+                        },
+                        "get_x_at_t": {
+                            "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgcubiccurve.get_x_at_t(t)"
+                        },
+                        "get_y_at_t": {
+                            "doc": "Returns the y position of the line or curve at t",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "svgcubiccurve.get_y_at_t(t)"
+                        },
+                        "get_tangent_vector_at_t": {
+                            "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"t": "f32"}
+                            ],
+                            "returns": {"type": "SvgVector"},
+                            "fn_body": "svgcubiccurve.get_tangent_vector_at_t(t)"
+                        },
                         "tessellate_stroke": {
                             "fn_args": [
                                 {"self": "ref"},

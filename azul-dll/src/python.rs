@@ -2394,6 +2394,13 @@ pub struct AzSvgPoint {
     pub y: f32,
 }
 
+/// Re-export of rust-allocated (stack based) `SvgVector` struct
+#[repr(C)]
+pub struct AzSvgVector {
+    pub x: f32,
+    pub y: f32,
+}
+
 /// Re-export of rust-allocated (stack based) `SvgRect` struct
 #[repr(C)]
 pub struct AzSvgRect {
@@ -10056,6 +10063,7 @@ impl Clone for AzSvg { fn clone(&self) -> Self { let r: &azul_impl::svg::Svg = u
 impl Clone for AzSvgXmlNode { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgXmlNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgCircle { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgCircle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPoint { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPoint = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgVector { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgRect { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVertex { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVertex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzShapeRenderingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::ShapeRendering = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11412,6 +11420,12 @@ impl AzLogicalSize {
         }
     }
 
+    fn to_physical(&self, hidpi_factor: f32) -> AzPhysicalSizeU32 {
+        unsafe { mem::transmute(crate::AzLogicalSize_toPhysical(
+            mem::transmute(self),
+            mem::transmute(hidpi_factor),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -30336,6 +30350,43 @@ impl PyObjectProtocol for AzSvgPoint {
 }
 
 #[pymethods]
+impl AzSvgVector {
+    #[new]
+    fn __new__(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+        }
+    }
+
+    fn angle_degrees(&self) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgVector_angleDegrees(
+            mem::transmute(self),
+        )) }
+    }
+    fn normalize(&self) -> AzSvgVector {
+        unsafe { mem::transmute(crate::AzSvgVector_normalize(
+            mem::transmute(self),
+        )) }
+    }
+    fn rotate_90deg_ccw(&self) -> AzSvgVector {
+        unsafe { mem::transmute(crate::AzSvgVector_rotate90DegCcw(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzSvgVector {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgVector = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgVector = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzSvgLine {
     #[new]
     fn __new__(start: AzSvgPoint, end: AzSvgPoint) -> Self {
@@ -30345,6 +30396,50 @@ impl AzSvgLine {
         }
     }
 
+    fn get_start(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgLine_getStart(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_end(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgLine_getEnd(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_bounds(&self) -> AzSvgRect {
+        unsafe { mem::transmute(crate::AzSvgLine_getBounds(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_length(&self) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgLine_getLength(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_t_at_offset(&self, offset: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgLine_getTAtOffset(
+            mem::transmute(self),
+            mem::transmute(offset),
+        )) }
+    }
+    fn get_x_at_t(&self, t: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgLine_getXAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
+    fn get_y_at_t(&self, t: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgLine_getYAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
+    fn get_tangent_vector_at_t(&self, t: f32) -> AzSvgVector {
+        unsafe { mem::transmute(crate::AzSvgLine_getTangentVectorAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
     fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgLine_tessellateStroke(
             mem::transmute(self),
@@ -30374,6 +30469,50 @@ impl AzSvgQuadraticCurve {
         }
     }
 
+    fn get_start(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getStart(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_end(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getEnd(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_bounds(&self) -> AzSvgRect {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getBounds(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_length(&self) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getLength(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_t_at_offset(&self, offset: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getTAtOffset(
+            mem::transmute(self),
+            mem::transmute(offset),
+        )) }
+    }
+    fn get_x_at_t(&self, t: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getXAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
+    fn get_y_at_t(&self, t: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getYAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
+    fn get_tangent_vector_at_t(&self, t: f32) -> AzSvgVector {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getTangentVectorAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
     fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_tessellateStroke(
             mem::transmute(self),
@@ -30404,6 +30543,50 @@ impl AzSvgCubicCurve {
         }
     }
 
+    fn get_start(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getStart(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_end(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getEnd(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_bounds(&self) -> AzSvgRect {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getBounds(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_length(&self) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getLength(
+            mem::transmute(self),
+        )) }
+    }
+    fn get_t_at_offset(&self, offset: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getTAtOffset(
+            mem::transmute(self),
+            mem::transmute(offset),
+        )) }
+    }
+    fn get_x_at_t(&self, t: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getXAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
+    fn get_y_at_t(&self, t: f32) -> f32 {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getYAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
+    fn get_tangent_vector_at_t(&self, t: f32) -> AzSvgVector {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_getTangentVectorAtT(
+            mem::transmute(self),
+            mem::transmute(t),
+        )) }
+    }
     fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_tessellateStroke(
             mem::transmute(self),
@@ -39072,6 +39255,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzSvgPath>()?;
     m.add_class::<AzSvgPathElementEnumWrapper>()?;
     m.add_class::<AzSvgPoint>()?;
+    m.add_class::<AzSvgVector>()?;
     m.add_class::<AzSvgLine>()?;
     m.add_class::<AzSvgQuadraticCurve>()?;
     m.add_class::<AzSvgCubicCurve>()?;

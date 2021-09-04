@@ -1846,6 +1846,13 @@ namespace dll {
         SvgPoint() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct SvgVector {
+        float x;
+        float y;
+        SvgVector& operator=(const SvgVector&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        SvgVector() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct SvgRect {
         float width;
         float height;
@@ -9751,6 +9758,7 @@ namespace dll {
         SystemCallbacks SystemCallbacks_libraryInternal();
         WindowCreateOptions WindowCreateOptions_new(AzLayoutCallbackType  layout_callback);
         void WindowCreateOptions_delete(WindowCreateOptions* restrict instance);
+        PhysicalSizeU32 LogicalSize_toPhysical(const LogicalSize* logicalsize, float hidpi_factor);
         void SmallWindowIconBytes_delete(SmallWindowIconBytes* restrict instance);
         void LargeWindowIconBytes_delete(LargeWindowIconBytes* restrict instance);
         void WindowIcon_delete(WindowIcon* restrict instance);
@@ -10492,9 +10500,41 @@ namespace dll {
         SvgPoint SvgPathElement_getStart(const SvgPathElement* svgpathelement);
         SvgPoint SvgPathElement_getEnd(const SvgPathElement* svgpathelement);
         SvgRect SvgPathElement_getBounds(const SvgPathElement* svgpathelement);
+        float SvgPathElement_getLength(const SvgPathElement* svgpathelement);
+        float SvgPathElement_getTAtOffset(const SvgPathElement* svgpathelement, float offset);
+        float SvgPathElement_getXAtT(const SvgPathElement* svgpathelement, float t);
+        float SvgPathElement_getYAtT(const SvgPathElement* svgpathelement, float t);
+        SvgVector SvgPathElement_getTangentVectorAtT(const SvgPathElement* svgpathelement, float t);
         TessellatedSvgNode SvgPathElement_tessellateStroke(const SvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
+        float SvgVector_angleDegrees(const SvgVector* svgvector);
+        SvgVector SvgVector_normalize(const SvgVector* svgvector);
+        SvgVector SvgVector_rotate90DegCcw(const SvgVector* svgvector);
+        SvgPoint SvgLine_getStart(const SvgLine* svgline);
+        SvgPoint SvgLine_getEnd(const SvgLine* svgline);
+        SvgRect SvgLine_getBounds(const SvgLine* svgline);
+        float SvgLine_getLength(const SvgLine* svgline);
+        float SvgLine_getTAtOffset(const SvgLine* svgline, float offset);
+        float SvgLine_getXAtT(const SvgLine* svgline, float t);
+        float SvgLine_getYAtT(const SvgLine* svgline, float t);
+        SvgVector SvgLine_getTangentVectorAtT(const SvgLine* svgline, float t);
         TessellatedSvgNode SvgLine_tessellateStroke(const SvgLine* svgline, AzSvgStrokeStyle  stroke_style);
+        SvgPoint SvgQuadraticCurve_getStart(const SvgQuadraticCurve* svgquadraticcurve);
+        SvgPoint SvgQuadraticCurve_getEnd(const SvgQuadraticCurve* svgquadraticcurve);
+        SvgRect SvgQuadraticCurve_getBounds(const SvgQuadraticCurve* svgquadraticcurve);
+        float SvgQuadraticCurve_getLength(const SvgQuadraticCurve* svgquadraticcurve);
+        float SvgQuadraticCurve_getTAtOffset(const SvgQuadraticCurve* svgquadraticcurve, float offset);
+        float SvgQuadraticCurve_getXAtT(const SvgQuadraticCurve* svgquadraticcurve, float t);
+        float SvgQuadraticCurve_getYAtT(const SvgQuadraticCurve* svgquadraticcurve, float t);
+        SvgVector SvgQuadraticCurve_getTangentVectorAtT(const SvgQuadraticCurve* svgquadraticcurve, float t);
         TessellatedSvgNode SvgQuadraticCurve_tessellateStroke(const SvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
+        SvgPoint SvgCubicCurve_getStart(const SvgCubicCurve* svgcubiccurve);
+        SvgPoint SvgCubicCurve_getEnd(const SvgCubicCurve* svgcubiccurve);
+        SvgRect SvgCubicCurve_getBounds(const SvgCubicCurve* svgcubiccurve);
+        float SvgCubicCurve_getLength(const SvgCubicCurve* svgcubiccurve);
+        float SvgCubicCurve_getTAtOffset(const SvgCubicCurve* svgcubiccurve, float offset);
+        float SvgCubicCurve_getXAtT(const SvgCubicCurve* svgcubiccurve, float t);
+        float SvgCubicCurve_getYAtT(const SvgCubicCurve* svgcubiccurve, float t);
+        SvgVector SvgCubicCurve_getTangentVectorAtT(const SvgCubicCurve* svgcubiccurve, float t);
         TessellatedSvgNode SvgCubicCurve_tessellateStroke(const SvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode SvgRect_tessellateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgRect_tessellateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);

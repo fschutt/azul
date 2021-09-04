@@ -154,6 +154,8 @@ pub use AzLogicalPositionTT as AzLogicalPosition;
 /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
 pub type AzLogicalSizeTT = azul_core::window::LogicalSize;
 pub use AzLogicalSizeTT as AzLogicalSize;
+/// Equivalent to the Rust `LogicalSize::to_physical()` function.
+#[no_mangle] pub extern "C" fn AzLogicalSize_toPhysical(logicalsize: &AzLogicalSize, hidpi_factor: f32) -> AzPhysicalSizeU32 { logicalsize.to_physical(hidpi_factor) }
 
 /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
 pub type AzIconKeyTT = azul_core::window::IconKey;
@@ -3382,6 +3384,16 @@ pub use AzSvgPathElementTT as AzSvgPathElement;
 #[no_mangle] pub extern "C" fn AzSvgPathElement_getEnd(svgpathelement: &AzSvgPathElement) -> AzSvgPoint { svgpathelement.get_end() }
 /// Returns the bounding box of this item
 #[no_mangle] pub extern "C" fn AzSvgPathElement_getBounds(svgpathelement: &AzSvgPathElement) -> AzSvgRect { svgpathelement.get_bounds() }
+/// Returns the length of the line or curve
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getLength(svgpathelement: &AzSvgPathElement) -> f32 { svgpathelement.get_length() }
+/// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getTAtOffset(svgpathelement: &AzSvgPathElement, offset: f32) -> f32 { svgpathelement.get_t_at_offset(offset) }
+/// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getXAtT(svgpathelement: &AzSvgPathElement, t: f32) -> f32 { svgpathelement.get_x_at_t(t) }
+/// Returns the y position of the line or curve at t
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getYAtT(svgpathelement: &AzSvgPathElement, t: f32) -> f32 { svgpathelement.get_y_at_t(t) }
+/// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getTangentVectorAtT(svgpathelement: &AzSvgPathElement, t: f32) -> AzSvgVector { svgpathelement.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgPathElement::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgPathElement_tessellateStroke(svgpathelement: &AzSvgPathElement, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_svgpathelement_stroke(svgpathelement, stroke_style) }
 
@@ -3389,21 +3401,79 @@ pub use AzSvgPathElementTT as AzSvgPathElement;
 pub type AzSvgPointTT = azul_impl::svg::SvgPoint;
 pub use AzSvgPointTT as AzSvgPoint;
 
+/// Re-export of rust-allocated (stack based) `SvgVector` struct
+pub type AzSvgVectorTT = azul_impl::svg::SvgVector;
+pub use AzSvgVectorTT as AzSvgVector;
+/// Returns the angle of this vector in degrees
+#[no_mangle] pub extern "C" fn AzSvgVector_angleDegrees(svgvector: &AzSvgVector) -> f32 { svgvector.angle_degrees() }
+/// Normalizes the vector, returning the normalized vector
+#[no_mangle] pub extern "C" fn AzSvgVector_normalize(svgvector: &AzSvgVector) -> AzSvgVector { svgvector.normalize() }
+/// Rotates the vector 90 degrees counter clockwise, returning the rotated vector
+#[no_mangle] pub extern "C" fn AzSvgVector_rotate90DegCcw(svgvector: &AzSvgVector) -> AzSvgVector { svgvector.rotate_90deg_ccw() }
+
 /// Re-export of rust-allocated (stack based) `SvgLine` struct
 pub type AzSvgLineTT = azul_impl::svg::SvgLine;
 pub use AzSvgLineTT as AzSvgLine;
+/// Returns the starting point of this item
+#[no_mangle] pub extern "C" fn AzSvgLine_getStart(svgline: &AzSvgLine) -> AzSvgPoint { svgline.get_start() }
+/// Returns the ending point of this item
+#[no_mangle] pub extern "C" fn AzSvgLine_getEnd(svgline: &AzSvgLine) -> AzSvgPoint { svgline.get_end() }
+/// Returns the bounding box of this item
+#[no_mangle] pub extern "C" fn AzSvgLine_getBounds(svgline: &AzSvgLine) -> AzSvgRect { svgline.get_bounds() }
+/// Returns the length of the line or curve
+#[no_mangle] pub extern "C" fn AzSvgLine_getLength(svgline: &AzSvgLine) -> f32 { svgline.get_length() }
+/// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
+#[no_mangle] pub extern "C" fn AzSvgLine_getTAtOffset(svgline: &AzSvgLine, offset: f32) -> f32 { svgline.get_t_at_offset(offset) }
+/// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgLine_getXAtT(svgline: &AzSvgLine, t: f32) -> f32 { svgline.get_x_at_t(t) }
+/// Returns the y position of the line or curve at t
+#[no_mangle] pub extern "C" fn AzSvgLine_getYAtT(svgline: &AzSvgLine, t: f32) -> f32 { svgline.get_y_at_t(t) }
+/// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgLine_getTangentVectorAtT(svgline: &AzSvgLine, t: f32) -> AzSvgVector { svgline.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgLine::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgLine_tessellateStroke(svgline: &AzSvgLine, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_line_stroke(svgline, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
 pub type AzSvgQuadraticCurveTT = azul_impl::svg::SvgQuadraticCurve;
 pub use AzSvgQuadraticCurveTT as AzSvgQuadraticCurve;
+/// Returns the starting point of this item
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getStart(svgquadraticcurve: &AzSvgQuadraticCurve) -> AzSvgPoint { svgquadraticcurve.get_start() }
+/// Returns the ending point of this item
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getEnd(svgquadraticcurve: &AzSvgQuadraticCurve) -> AzSvgPoint { svgquadraticcurve.get_end() }
+/// Returns the bounding box of this item
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getBounds(svgquadraticcurve: &AzSvgQuadraticCurve) -> AzSvgRect { svgquadraticcurve.get_bounds() }
+/// Returns the length of the line or curve
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getLength(svgquadraticcurve: &AzSvgQuadraticCurve) -> f32 { svgquadraticcurve.get_length() }
+/// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getTAtOffset(svgquadraticcurve: &AzSvgQuadraticCurve, offset: f32) -> f32 { svgquadraticcurve.get_t_at_offset(offset) }
+/// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getXAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f32) -> f32 { svgquadraticcurve.get_x_at_t(t) }
+/// Returns the y position of the line or curve at t
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getYAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f32) -> f32 { svgquadraticcurve.get_y_at_t(t) }
+/// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getTangentVectorAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f32) -> AzSvgVector { svgquadraticcurve.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgQuadraticCurve::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_tessellateStroke(svgquadraticcurve: &AzSvgQuadraticCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_quadraticcurve_stroke(svgquadraticcurve, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
 pub type AzSvgCubicCurveTT = azul_impl::svg::SvgCubicCurve;
 pub use AzSvgCubicCurveTT as AzSvgCubicCurve;
+/// Returns the starting point of this item
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getStart(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgPoint { svgcubiccurve.get_start() }
+/// Returns the ending point of this item
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getEnd(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgPoint { svgcubiccurve.get_end() }
+/// Returns the bounding box of this item
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getBounds(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgRect { svgcubiccurve.get_bounds() }
+/// Returns the length of the line or curve
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getLength(svgcubiccurve: &AzSvgCubicCurve) -> f32 { svgcubiccurve.get_length() }
+/// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getTAtOffset(svgcubiccurve: &AzSvgCubicCurve, offset: f32) -> f32 { svgcubiccurve.get_t_at_offset(offset) }
+/// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getXAtT(svgcubiccurve: &AzSvgCubicCurve, t: f32) -> f32 { svgcubiccurve.get_x_at_t(t) }
+/// Returns the y position of the line or curve at t
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getYAtT(svgcubiccurve: &AzSvgCubicCurve, t: f32) -> f32 { svgcubiccurve.get_y_at_t(t) }
+/// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getTangentVectorAtT(svgcubiccurve: &AzSvgCubicCurve, t: f32) -> AzSvgVector { svgcubiccurve.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgCubicCurve::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgCubicCurve_tessellateStroke(svgcubiccurve: &AzSvgCubicCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_cubiccurve_stroke(svgcubiccurve, stroke_style) }
 
@@ -6858,6 +6928,14 @@ mod test_sizes {
     #[repr(C)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgPoint {
+        pub x: f32,
+        pub y: f32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `SvgVector` struct
+    #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+    pub struct AzSvgVector {
         pub x: f32,
         pub y: f32,
     }
@@ -12440,6 +12518,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgXmlNode>(), "AzSvgXmlNode"), (Layout::new::<AzSvgXmlNode>(), "AzSvgXmlNode"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgCircle>(), "AzSvgCircle"), (Layout::new::<AzSvgCircle>(), "AzSvgCircle"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPoint>(), "AzSvgPoint"), (Layout::new::<AzSvgPoint>(), "AzSvgPoint"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgVector>(), "AzSvgVector"), (Layout::new::<AzSvgVector>(), "AzSvgVector"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgRect>(), "AzSvgRect"), (Layout::new::<AzSvgRect>(), "AzSvgRect"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertex>(), "AzSvgVertex"), (Layout::new::<AzSvgVertex>(), "AzSvgVertex"));
         assert_eq!((Layout::new::<azul_impl::svg::ShapeRendering>(), "AzShapeRendering"), (Layout::new::<AzShapeRendering>(), "AzShapeRendering"));
