@@ -10495,9 +10495,11 @@ namespace dll {
         void SvgStyledNode_delete(SvgStyledNode* restrict instance);
         TessellatedSvgNode SvgCircle_tessellateFill(const SvgCircle* svgcircle, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgCircle_tessellateStroke(const SvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
+        void SvgPath_reverse(SvgPath* restrict svgpath);
         TessellatedSvgNode SvgPath_tessellateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgPath_tessellateStroke(const SvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
         void SvgPath_delete(SvgPath* restrict instance);
+        void SvgPathElement_reverse(SvgPathElement* restrict svgpathelement);
         SvgPoint SvgPathElement_getStart(const SvgPathElement* svgpathelement);
         SvgPoint SvgPathElement_getEnd(const SvgPathElement* svgpathelement);
         SvgRect SvgPathElement_getBounds(const SvgPathElement* svgpathelement);
@@ -10510,6 +10512,7 @@ namespace dll {
         float SvgVector_angleDegrees(const SvgVector* svgvector);
         SvgVector SvgVector_normalize(const SvgVector* svgvector);
         SvgVector SvgVector_rotate90DegCcw(const SvgVector* svgvector);
+        void SvgLine_reverse(SvgLine* restrict svgline);
         SvgPoint SvgLine_getStart(const SvgLine* svgline);
         SvgPoint SvgLine_getEnd(const SvgLine* svgline);
         SvgRect SvgLine_getBounds(const SvgLine* svgline);
@@ -10519,6 +10522,7 @@ namespace dll {
         float SvgLine_getYAtT(const SvgLine* svgline, float t);
         SvgVector SvgLine_getTangentVectorAtT(const SvgLine* svgline, float t);
         TessellatedSvgNode SvgLine_tessellateStroke(const SvgLine* svgline, AzSvgStrokeStyle  stroke_style);
+        void SvgQuadraticCurve_reverse(SvgQuadraticCurve* restrict svgquadraticcurve);
         SvgPoint SvgQuadraticCurve_getStart(const SvgQuadraticCurve* svgquadraticcurve);
         SvgPoint SvgQuadraticCurve_getEnd(const SvgQuadraticCurve* svgquadraticcurve);
         SvgRect SvgQuadraticCurve_getBounds(const SvgQuadraticCurve* svgquadraticcurve);
@@ -10528,6 +10532,7 @@ namespace dll {
         float SvgQuadraticCurve_getYAtT(const SvgQuadraticCurve* svgquadraticcurve, float t);
         SvgVector SvgQuadraticCurve_getTangentVectorAtT(const SvgQuadraticCurve* svgquadraticcurve, float t);
         TessellatedSvgNode SvgQuadraticCurve_tessellateStroke(const SvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
+        void SvgCubicCurve_reverse(SvgCubicCurve* restrict svgcubiccurve);
         SvgPoint SvgCubicCurve_getStart(const SvgCubicCurve* svgcubiccurve);
         SvgPoint SvgCubicCurve_getEnd(const SvgCubicCurve* svgcubiccurve);
         SvgRect SvgCubicCurve_getBounds(const SvgCubicCurve* svgcubiccurve);

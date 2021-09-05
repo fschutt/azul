@@ -176,9 +176,13 @@ macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
         }
 
         pub fn remove_hm_item(&mut self, remove_key: &$struct_type) {
-            let mut vec = self.clone().into_library_owned_vec();
-            vec.retain(|v| v == remove_key);
-            *self = Self::from_vec(vec);
+            *self = Self::from_vec(
+                self
+                .as_ref()
+                .iter()
+                .filter_map(|r| if *r == *remove_key { None } else { Some(*r) })
+                .collect::<Vec<_>>()
+            );
         }
 
         pub fn contains_hm_item(&self, searched: &$struct_type) -> bool {

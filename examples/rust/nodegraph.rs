@@ -388,7 +388,16 @@ fn userfunc_on_node_input_disconnected(
         None => return Update::DoNothing,
     };
 
-    nodegraph.nodes.get_mut(&input_node_id).unwrap().connect_in.remove(&input_index);
+    let outputs = nodegraph.nodes
+    .get_mut(&input_node_id)
+    .unwrap()
+    .connect_in
+    .remove(&input_index)
+    .unwrap_or_default();
+
+    for (output_node_id, output_index) in outputs {
+        nodegraph.nodes.get_mut(&output_node_id).unwrap().connect_out.remove(&output_index);
+    }
 
     Update::RefreshDom
 }
@@ -400,12 +409,22 @@ fn userfunc_on_node_output_disconnected(
     output_node_id: NodeGraphNodeId,
     output_index: usize,
 ) -> Update {
+
     let mut nodegraph = match data.downcast_mut::<MyNodeGraph>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    nodegraph.nodes.get_mut(&output_node_id).unwrap().connect_out.remove(&output_index);
+    let inputs = nodegraph.nodes
+    .get_mut(&output_node_id)
+    .unwrap()
+    .connect_out
+    .remove(&output_index)
+    .unwrap_or_default();
+
+    for (input_node_id, input_index) in inputs {
+        nodegraph.nodes.get_mut(&input_node_id).unwrap().connect_in.remove(&input_index);
+    }
 
     Update::RefreshDom
 }

@@ -1464,6 +1464,15 @@ const STEP_SIZE_F32: f32 = 0.05;
 
 impl SvgCubicCurve {
 
+    pub fn reverse(&mut self) {
+        let mut temp = self.start;
+        self.start = self.end;
+        self.end = temp;
+        temp = self.ctrl_1;
+        self.ctrl_1 = self.ctrl_2;
+        self.ctrl_2 = temp;
+    }
+
     pub fn get_start(&self) -> SvgPoint { self.start }
     pub fn get_end(&self) -> SvgPoint { self.end }
 
@@ -1617,6 +1626,11 @@ pub struct SvgQuadraticCurve {
 }
 
 impl SvgQuadraticCurve {
+    pub fn reverse(&mut self) {
+        let mut temp = self.start;
+        self.start = self.end;
+        self.end = temp;
+    }
     pub fn get_start(&self) -> SvgPoint { self.start }
     pub fn get_end(&self) -> SvgPoint { self.end }
     pub fn get_bounds(&self) -> SvgRect {

@@ -38,6 +38,11 @@ pub struct SvgLine {
 }
 
 impl SvgLine {
+    pub fn reverse(&mut self) {
+        let temp = self.start;
+        self.start = self.end;
+        self.end = temp;
+    }
     pub fn get_start(&self) -> SvgPoint { self.start }
     pub fn get_end(&self) -> SvgPoint { self.end }
 
@@ -94,6 +99,13 @@ pub enum SvgPathElement {
 }
 
 impl SvgPathElement {
+    pub fn reverse(&mut self) {
+        match self {
+            SvgPathElement::Line(l) => l.reverse(),
+            SvgPathElement::QuadraticCurve(qc) => qc.reverse(),
+            SvgPathElement::CubicCurve(cc) => cc.reverse(),
+        }
+    }
     pub fn get_start(&self) -> SvgPoint {
         match self {
             SvgPathElement::Line(l) => l.get_start(),
@@ -164,6 +176,38 @@ pub struct SvgPath {
     pub items: SvgPathElementVec,
 }
 
+impl SvgPath {
+    pub fn is_closed(&self) -> bool {
+        let first = self.items.as_ref().first();
+        let last = self.items.as_ref().last();
+        match (first, last) {
+            (Some(f), Some(l)) => (f.get_start() == l.get_end()),
+            _ => false,
+        }
+    }
+
+    // reverses the order of elements in the path
+    pub fn reverse(&mut self) {
+        // swap self.items with a default vec
+        let mut vec = SvgPathElementVec::from_const_slice(&[]);
+        core::mem::swap(&mut vec, &mut self.items);
+        let mut vec = vec.into_library_owned_vec();
+
+        // reverse the order of items in the vec
+        vec.reverse();
+
+        // reverse the order inside the item itself
+        // i.e. swap line.start and line.end
+        for item in vec.iter_mut() {
+            item.reverse();
+        }
+
+        // swap back
+        let mut vec = SvgPathElementVec::from_vec(vec);
+        core::mem::swap(&mut vec, &mut self.items);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgMultiPolygon {
@@ -182,17 +226,6 @@ impl_vec_debug!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_clone!(SvgMultiPolygon, SvgMultiPolygonVec, SvgMultiPolygonVecDestructor);
 impl_vec_partialeq!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_partialord!(SvgMultiPolygon, SvgMultiPolygonVec);
-
-impl SvgPath {
-    pub fn is_closed(&self) -> bool {
-        let first = self.items.as_ref().first();
-        let last = self.items.as_ref().last();
-        match (first, last) {
-            (Some(f), Some(l)) => (f.get_start() == l.get_end()),
-            _ => false,
-        }
-    }
-}
 
 /// One `SvgNode` corresponds to one SVG `<path></path>` element
 #[derive(Debug, Clone, PartialOrd, PartialEq)]

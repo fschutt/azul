@@ -10351,8 +10351,10 @@ mod dll {
         pub(crate) fn AzSvgStyledNode_tessellate(_:  &AzSvgStyledNode) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPath_reverse(_:  &mut AzSvgPath);
         pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_tessellateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPathElement_reverse(_:  &mut AzSvgPathElement);
         pub(crate) fn AzSvgPathElement_getStart(_:  &AzSvgPathElement) -> AzSvgPoint;
         pub(crate) fn AzSvgPathElement_getEnd(_:  &AzSvgPathElement) -> AzSvgPoint;
         pub(crate) fn AzSvgPathElement_getBounds(_:  &AzSvgPathElement) -> AzSvgRect;
@@ -10365,6 +10367,7 @@ mod dll {
         pub(crate) fn AzSvgVector_angleDegrees(_:  &AzSvgVector) -> f32;
         pub(crate) fn AzSvgVector_normalize(_:  &AzSvgVector) -> AzSvgVector;
         pub(crate) fn AzSvgVector_rotate90DegCcw(_:  &AzSvgVector) -> AzSvgVector;
+        pub(crate) fn AzSvgLine_reverse(_:  &mut AzSvgLine);
         pub(crate) fn AzSvgLine_getStart(_:  &AzSvgLine) -> AzSvgPoint;
         pub(crate) fn AzSvgLine_getEnd(_:  &AzSvgLine) -> AzSvgPoint;
         pub(crate) fn AzSvgLine_getBounds(_:  &AzSvgLine) -> AzSvgRect;
@@ -10374,6 +10377,7 @@ mod dll {
         pub(crate) fn AzSvgLine_getYAtT(_:  &AzSvgLine, _:  f32) -> f32;
         pub(crate) fn AzSvgLine_getTangentVectorAtT(_:  &AzSvgLine, _:  f32) -> AzSvgVector;
         pub(crate) fn AzSvgLine_tessellateStroke(_:  &AzSvgLine, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgQuadraticCurve_reverse(_:  &mut AzSvgQuadraticCurve);
         pub(crate) fn AzSvgQuadraticCurve_getStart(_:  &AzSvgQuadraticCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgQuadraticCurve_getEnd(_:  &AzSvgQuadraticCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgQuadraticCurve_getBounds(_:  &AzSvgQuadraticCurve) -> AzSvgRect;
@@ -10383,6 +10387,7 @@ mod dll {
         pub(crate) fn AzSvgQuadraticCurve_getYAtT(_:  &AzSvgQuadraticCurve, _:  f32) -> f32;
         pub(crate) fn AzSvgQuadraticCurve_getTangentVectorAtT(_:  &AzSvgQuadraticCurve, _:  f32) -> AzSvgVector;
         pub(crate) fn AzSvgQuadraticCurve_tessellateStroke(_:  &AzSvgQuadraticCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgCubicCurve_reverse(_:  &mut AzSvgCubicCurve);
         pub(crate) fn AzSvgCubicCurve_getStart(_:  &AzSvgCubicCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgCubicCurve_getEnd(_:  &AzSvgCubicCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgCubicCurve_getBounds(_:  &AzSvgCubicCurve) -> AzSvgRect;
@@ -16100,6 +16105,8 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
     impl SvgPath {
+        /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
+        pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPath_reverse(self) } }
         /// Calls the `SvgPath::tessellate_fill` function.
         pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateFill(self, fill_style) } }
         /// Calls the `SvgPath::tessellate_stroke` function.
@@ -16110,6 +16117,8 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
     impl SvgPathElement {
+        /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
+        pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPathElement_reverse(self) } }
         /// Returns the starting point of this item
         pub fn get_start(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgPathElement_getStart(self) } }
         /// Returns the ending point of this item
@@ -16149,6 +16158,8 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
     impl SvgLine {
+        /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
+        pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgLine_reverse(self) } }
         /// Returns the starting point of this item
         pub fn get_start(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgLine_getStart(self) } }
         /// Returns the ending point of this item
@@ -16173,6 +16184,8 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
     impl SvgQuadraticCurve {
+        /// Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards
+        pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgQuadraticCurve_reverse(self) } }
         /// Returns the starting point of this item
         pub fn get_start(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgQuadraticCurve_getStart(self) } }
         /// Returns the ending point of this item
@@ -16197,6 +16210,8 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
     impl SvgCubicCurve {
+        /// Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards
+        pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgCubicCurve_reverse(self) } }
         /// Returns the starting point of this item
         pub fn get_start(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgCubicCurve_getStart(self) } }
         /// Returns the ending point of this item

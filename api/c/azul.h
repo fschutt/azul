@@ -12531,9 +12531,11 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgStyledNode_tessellate(const AzSvgStyl
 extern DLLIMPORT void AzSvgStyledNode_delete(AzSvgStyledNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateFill(const AzSvgCircle* svgcircle, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateStroke(const AzSvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT void AzSvgPath_reverse(AzSvgPath* restrict svgpath);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateFill(const AzSvgPath* svgpath, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateStroke(const AzSvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgPath_delete(AzSvgPath* restrict instance);
+extern DLLIMPORT void AzSvgPathElement_reverse(AzSvgPathElement* restrict svgpathelement);
 extern DLLIMPORT AzSvgPoint AzSvgPathElement_getStart(const AzSvgPathElement* svgpathelement);
 extern DLLIMPORT AzSvgPoint AzSvgPathElement_getEnd(const AzSvgPathElement* svgpathelement);
 extern DLLIMPORT AzSvgRect AzSvgPathElement_getBounds(const AzSvgPathElement* svgpathelement);
@@ -12546,6 +12548,7 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgPathElement_tessellateStroke(const Az
 extern DLLIMPORT float AzSvgVector_angleDegrees(const AzSvgVector* svgvector);
 extern DLLIMPORT AzSvgVector AzSvgVector_normalize(const AzSvgVector* svgvector);
 extern DLLIMPORT AzSvgVector AzSvgVector_rotate90DegCcw(const AzSvgVector* svgvector);
+extern DLLIMPORT void AzSvgLine_reverse(AzSvgLine* restrict svgline);
 extern DLLIMPORT AzSvgPoint AzSvgLine_getStart(const AzSvgLine* svgline);
 extern DLLIMPORT AzSvgPoint AzSvgLine_getEnd(const AzSvgLine* svgline);
 extern DLLIMPORT AzSvgRect AzSvgLine_getBounds(const AzSvgLine* svgline);
@@ -12555,6 +12558,7 @@ extern DLLIMPORT float AzSvgLine_getXAtT(const AzSvgLine* svgline, float t);
 extern DLLIMPORT float AzSvgLine_getYAtT(const AzSvgLine* svgline, float t);
 extern DLLIMPORT AzSvgVector AzSvgLine_getTangentVectorAtT(const AzSvgLine* svgline, float t);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgLine_tessellateStroke(const AzSvgLine* svgline, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT void AzSvgQuadraticCurve_reverse(AzSvgQuadraticCurve* restrict svgquadraticcurve);
 extern DLLIMPORT AzSvgPoint AzSvgQuadraticCurve_getStart(const AzSvgQuadraticCurve* svgquadraticcurve);
 extern DLLIMPORT AzSvgPoint AzSvgQuadraticCurve_getEnd(const AzSvgQuadraticCurve* svgquadraticcurve);
 extern DLLIMPORT AzSvgRect AzSvgQuadraticCurve_getBounds(const AzSvgQuadraticCurve* svgquadraticcurve);
@@ -12564,6 +12568,7 @@ extern DLLIMPORT float AzSvgQuadraticCurve_getXAtT(const AzSvgQuadraticCurve* sv
 extern DLLIMPORT float AzSvgQuadraticCurve_getYAtT(const AzSvgQuadraticCurve* svgquadraticcurve, float t);
 extern DLLIMPORT AzSvgVector AzSvgQuadraticCurve_getTangentVectorAtT(const AzSvgQuadraticCurve* svgquadraticcurve, float t);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgQuadraticCurve_tessellateStroke(const AzSvgQuadraticCurve* svgquadraticcurve, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT void AzSvgCubicCurve_reverse(AzSvgCubicCurve* restrict svgcubiccurve);
 extern DLLIMPORT AzSvgPoint AzSvgCubicCurve_getStart(const AzSvgCubicCurve* svgcubiccurve);
 extern DLLIMPORT AzSvgPoint AzSvgCubicCurve_getEnd(const AzSvgCubicCurve* svgcubiccurve);
 extern DLLIMPORT AzSvgRect AzSvgCubicCurve_getBounds(const AzSvgCubicCurve* svgcubiccurve);

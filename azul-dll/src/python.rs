@@ -30276,6 +30276,11 @@ impl AzSvgPath {
         }
     }
 
+    fn reverse(&mut self) -> () {
+        unsafe { mem::transmute(crate::AzSvgPath_reverse(
+            mem::transmute(self),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgPath_tessellateFill(
             mem::transmute(self),
@@ -30401,6 +30406,11 @@ impl AzSvgLine {
         }
     }
 
+    fn reverse(&mut self) -> () {
+        unsafe { mem::transmute(crate::AzSvgLine_reverse(
+            mem::transmute(self),
+        )) }
+    }
     fn get_start(&self) -> AzSvgPoint {
         unsafe { mem::transmute(crate::AzSvgLine_getStart(
             mem::transmute(self),
@@ -30474,6 +30484,11 @@ impl AzSvgQuadraticCurve {
         }
     }
 
+    fn reverse(&mut self) -> () {
+        unsafe { mem::transmute(crate::AzSvgQuadraticCurve_reverse(
+            mem::transmute(self),
+        )) }
+    }
     fn get_start(&self) -> AzSvgPoint {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getStart(
             mem::transmute(self),
@@ -30548,6 +30563,11 @@ impl AzSvgCubicCurve {
         }
     }
 
+    fn reverse(&mut self) -> () {
+        unsafe { mem::transmute(crate::AzSvgCubicCurve_reverse(
+            mem::transmute(self),
+        )) }
+    }
     fn get_start(&self) -> AzSvgPoint {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_getStart(
             mem::transmute(self),

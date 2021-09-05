@@ -11611,6 +11611,13 @@
                         {"items": {"type": "SvgPathElementVec"}}
                     ],
                     "functions": {
+                        "reverse": {
+                            "doc": "Reverses the order of points in the path so that the path runs in the opposite direction afterwards",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "svgpath.reverse()"
+                        },
                         "tessellate_fill": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -11638,6 +11645,13 @@
                         {"CubicCurve": {"type": "SvgCubicCurve"}}
                     ],
                     "functions": {
+                        "reverse": {
+                            "doc": "Reverses the order of points in the path so that the path runs in the opposite direction afterwards",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "svgpathelement.reverse()"
+                        },
                         "get_start": {
                             "doc": "Returns the starting point of this item",
                             "fn_args": [
@@ -11766,6 +11780,13 @@
                         {"end": {"type": "SvgPoint"}}
                     ],
                     "functions": {
+                        "reverse": {
+                            "doc": "Reverses the order of points in the path so that the path runs in the opposite direction afterwards",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "svgline.reverse()"
+                        },
                         "get_start": {
                             "doc": "Returns the starting point of this item",
                             "fn_args": [
@@ -11853,6 +11874,13 @@
                         {"end": {"type": "SvgPoint"}}
                     ],
                     "functions": {
+                        "reverse": {
+                            "doc": "Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "svgquadraticcurve.reverse()"
+                        },
                         "get_start": {
                             "doc": "Returns the starting point of this item",
                             "fn_args": [
@@ -11941,6 +11969,13 @@
                         {"end": {"type": "SvgPoint"}}
                     ],
                     "functions": {
+                        "reverse": {
+                            "doc": "Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "svgcubiccurve.reverse()"
+                        },
                         "get_start": {
                             "doc": "Returns the starting point of this item",
                             "fn_args": [

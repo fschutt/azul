@@ -3370,6 +3370,8 @@ pub use AzSvgCircleTT as AzSvgCircle;
 /// Re-export of rust-allocated (stack based) `SvgPath` struct
 pub type AzSvgPathTT = azul_impl::svg::SvgPath;
 pub use AzSvgPathTT as AzSvgPath;
+/// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
+#[no_mangle] pub extern "C" fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { svgpath.reverse() }
 /// Equivalent to the Rust `SvgPath::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgPath_tessellateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_fill(svgpath, fill_style) }
 /// Equivalent to the Rust `SvgPath::tessellate_stroke()` function.
@@ -3380,6 +3382,8 @@ pub use AzSvgPathTT as AzSvgPath;
 /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
 pub type AzSvgPathElementTT = azul_impl::svg::SvgPathElement;
 pub use AzSvgPathElementTT as AzSvgPathElement;
+/// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
+#[no_mangle] pub extern "C" fn AzSvgPathElement_reverse(svgpathelement: &mut AzSvgPathElement) { svgpathelement.reverse() }
 /// Returns the starting point of this item
 #[no_mangle] pub extern "C" fn AzSvgPathElement_getStart(svgpathelement: &AzSvgPathElement) -> AzSvgPoint { svgpathelement.get_start() }
 /// Returns the ending point of this item
@@ -3416,6 +3420,8 @@ pub use AzSvgVectorTT as AzSvgVector;
 /// Re-export of rust-allocated (stack based) `SvgLine` struct
 pub type AzSvgLineTT = azul_impl::svg::SvgLine;
 pub use AzSvgLineTT as AzSvgLine;
+/// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
+#[no_mangle] pub extern "C" fn AzSvgLine_reverse(svgline: &mut AzSvgLine) { svgline.reverse() }
 /// Returns the starting point of this item
 #[no_mangle] pub extern "C" fn AzSvgLine_getStart(svgline: &AzSvgLine) -> AzSvgPoint { svgline.get_start() }
 /// Returns the ending point of this item
@@ -3438,6 +3444,8 @@ pub use AzSvgLineTT as AzSvgLine;
 /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
 pub type AzSvgQuadraticCurveTT = azul_impl::svg::SvgQuadraticCurve;
 pub use AzSvgQuadraticCurveTT as AzSvgQuadraticCurve;
+/// Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_reverse(svgquadraticcurve: &mut AzSvgQuadraticCurve) { svgquadraticcurve.reverse() }
 /// Returns the starting point of this item
 #[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getStart(svgquadraticcurve: &AzSvgQuadraticCurve) -> AzSvgPoint { svgquadraticcurve.get_start() }
 /// Returns the ending point of this item
@@ -3460,6 +3468,8 @@ pub use AzSvgQuadraticCurveTT as AzSvgQuadraticCurve;
 /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
 pub type AzSvgCubicCurveTT = azul_impl::svg::SvgCubicCurve;
 pub use AzSvgCubicCurveTT as AzSvgCubicCurve;
+/// Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_reverse(svgcubiccurve: &mut AzSvgCubicCurve) { svgcubiccurve.reverse() }
 /// Returns the starting point of this item
 #[no_mangle] pub extern "C" fn AzSvgCubicCurve_getStart(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgPoint { svgcubiccurve.get_start() }
 /// Returns the ending point of this item

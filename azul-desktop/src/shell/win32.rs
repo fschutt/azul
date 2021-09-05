@@ -2533,9 +2533,9 @@ unsafe extern "system" fn WindowProc(
         WM_MOUSEMOVE, WM_DESTROY, WM_PAINT, WM_ACTIVATE,
         WM_MOUSEWHEEL, WM_SIZE, WM_NCHITTEST,
         WM_LBUTTONDOWN, WM_DPICHANGED, WM_RBUTTONDOWN,
-        WM_LBUTTONUP, WM_RBUTTONUP, WM_MOUSELEAVE,
-        WM_DISPLAYCHANGE, WM_SIZING, WM_WINDOWPOSCHANGED,
-        WM_QUIT, WM_HSCROLL, WM_VSCROLL,
+        WM_LBUTTONUP, WM_RBUTTONUP, WM_MBUTTONUP, WM_MBUTTONDOWN,
+        WM_MOUSELEAVE, WM_DISPLAYCHANGE, WM_SIZING,
+        WM_QUIT, WM_HSCROLL, WM_VSCROLL, WM_WINDOWPOSCHANGED,
         WM_KEYUP, WM_KEYDOWN, WM_SYSKEYUP, WM_SYSKEYDOWN,
         WM_CHAR, WM_SYSCHAR, WHEEL_DELTA, WM_SETFOCUS, WM_KILLFOCUS,
 
@@ -2988,8 +2988,10 @@ unsafe extern "system" fn WindowProc(
                             current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                             current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
                             if let Some(vk) = vk {
+                                println!("SYSKEYDOWN {:?}", vk);
                                 current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
                                 current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+                                println!("current keyboard_state: {:#?}", current_window.internal.current_window_state.keyboard_state);
                             }
                             mem::drop(app_borrow);
 
@@ -3056,6 +3058,7 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                         current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
                         if let Some(vk) = vk {
+                            println!("SYSKEYUP {:?}", vk);
                             current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
                             current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
                         }
@@ -3158,6 +3161,26 @@ unsafe extern "system" fn WindowProc(
                     }
 
                     current_window.internal.current_window_state.mouse_state.right_down = false;
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_MBUTTONDOWN => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let previous_state = current_window.internal.current_window_state.clone();
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.middle_down = true;
+                    PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
+                }
+                mem::drop(app_borrow);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            },
+            WM_MBUTTONUP => {
+                if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
+                    let previous_state = current_window.internal.current_window_state.clone();
+                    current_window.internal.previous_window_state = Some(previous_state);
+                    current_window.internal.current_window_state.mouse_state.middle_down = false;
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                 }
                 mem::drop(app_borrow);

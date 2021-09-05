@@ -732,7 +732,7 @@ struct NodeLocalDataset {
     backref: RefAny, // RefAny<NodeGraphLocalDataset>
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 enum InputOrOutput {
     Input(usize),
     Output(usize),
@@ -1317,7 +1317,7 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
     const CSS_MATCH_2639191696846875011_PROPERTIES: &[NodeDataInlineCssProperty] = &[
         // .node_configuration_field_container
         NodeDataInlineCssProperty::Normal(CssProperty::FlexDirection(
-            LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
+            LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Column),
         )),
         NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
             LayoutPaddingTop {
@@ -1774,606 +1774,613 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
     let node_local_dataset = RefAny::new(node_local_dataset);
 
     Dom::div()
-    .with_callbacks(vec![
-        CallbackData {
-            event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
-            data: node_local_dataset.clone(),
-            callback: Callback { cb: nodegraph_set_active_node },
-        },
-    ].into())
     .with_inline_css_props(vec![
-        // .node_graph_node
-        NodeDataInlineCssProperty::Normal(CssProperty::OverflowX(
-            LayoutOverflowValue::Exact(LayoutOverflow::Visible)
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::OverflowY(
-            LayoutOverflowValue::Exact(LayoutOverflow::Visible)
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
-            StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-                STYLE_BACKGROUND_CONTENT_11535310356736632656_ITEMS,
-            )),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
-            StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                inner: ColorU {
-                    r: 0,
-                    g: 180,
-                    b: 219,
-                    a: 255,
-                },
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
-            StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                inner: ColorU {
-                    r: 0,
-                    g: 180,
-                    b: 219,
-                    a: 255,
-                },
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
-            StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                inner: ColorU {
-                    r: 0,
-                    g: 180,
-                    b: 219,
-                    a: 255,
-                },
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
-            StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                inner: ColorU {
-                    r: 0,
-                    g: 180,
-                    b: 219,
-                    a: 255,
-                },
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
-            StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-                inner: BorderStyle::Solid,
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
-            StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-                inner: BorderStyle::Solid,
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
-            StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-                inner: BorderStyle::Solid,
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
-            StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-                inner: BorderStyle::Solid,
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
-            LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-                inner: PixelValue::const_px(1),
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
-            LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-                inner: PixelValue::const_px(1),
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
-            LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-                inner: PixelValue::const_px(1),
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
-            LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-                inner: PixelValue::const_px(1),
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
-            StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
-                color: ColorU {
-                    r: 0,
-                    g: 131,
-                    b: 176,
-                    a: 119,
-                },
-                blur_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                spread_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                clip_mode: BoxShadowClipMode::Outset,
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
-            StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
-                color: ColorU {
-                    r: 0,
-                    g: 131,
-                    b: 176,
-                    a: 119,
-                },
-                blur_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                spread_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                clip_mode: BoxShadowClipMode::Outset,
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
-            StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
-                color: ColorU {
-                    r: 0,
-                    g: 131,
-                    b: 176,
-                    a: 119,
-                },
-                blur_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                spread_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                clip_mode: BoxShadowClipMode::Outset,
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
-            StyleBoxShadowValue::Exact(StyleBoxShadow {
-                offset: [
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                    PixelValueNoPercent {
-                        inner: PixelValue::const_px(0),
-                    },
-                ],
-                color: ColorU {
-                    r: 0,
-                    g: 131,
-                    b: 176,
-                    a: 119,
-                },
-                blur_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(3),
-                },
-                spread_radius: PixelValueNoPercent {
-                    inner: PixelValue::const_px(0),
-                },
-                clip_mode: BoxShadowClipMode::Outset,
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(
-            StyleTextColor {
-                inner: ColorU {
-                    r: 255,
-                    g: 255,
-                    b: 255,
-                    a: 255,
-                },
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-            StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-            LayoutHeight {
-                inner: PixelValue::const_px(300),
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-            LayoutPaddingTop {
-                inner: PixelValue::const_px(10),
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(
-            LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
-                inner: PixelValue::const_px(10),
-            }),
-        )),
-        NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-            LayoutPaddingLeft {
-                inner: PixelValue::const_px(10),
-            },
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(
-            LayoutPaddingRightValue::Exact(LayoutPaddingRight {
-                inner: PixelValue::const_px(10),
-            }),
-        )),
         NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
             LayoutPosition::Absolute,
         ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::Transform(StyleTransformVecValue::Exact(
-            vec![StyleTransform::Translate(node_transform)].into(),
-        ))),
-        NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-            LayoutWidth {
-                inner: PixelValue::const_px(250),
-            },
-        ))),
     ].into())
-    .with_ids_and_classes({
-        const IDS_AND_CLASSES_4480169002427296613: &[IdOrClass] =
-            &[Class(AzString::from_const_str("node_graph_node"))];
-        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4480169002427296613)
-    })
-    .with_children(DomVec::from_vec(vec![
-        Dom::text(AzString::from_const_str("X"))
-            .with_inline_css_props(CSS_MATCH_7395766480280098891)
-            .with_callbacks(vec![
-                CallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    data: node_local_dataset.clone(),
-                    callback: Callback { cb: nodegraph_delete_node },
-                },
-            ].into())
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_7122017923389407516: &[IdOrClass] =
-                    &[Class(AzString::from_const_str("node_close_button"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7122017923389407516)
-            }),
-        Dom::text(node_info.name.clone())
-            .with_inline_css_props(CSS_MATCH_1739273067404038547)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_15777790571346582635: &[IdOrClass] =
-                    &[Class(AzString::from_const_str("node_label"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15777790571346582635)
-            }),
+    .with_children(vec![
         Dom::div()
-            .with_inline_css_props(CSS_MATCH_3354247437065914166)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_5590500152394859708: &[IdOrClass] =
-                    &[Class(AzString::from_const_str("node_body"))];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5590500152394859708)
-            })
-            .with_children(DomVec::from_vec(vec![
-                Dom::div()
-                    .with_inline_css_props(CSS_MATCH_16946967739775705757)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3626404106673061698: &[IdOrClass] =
-                            &[Class(AzString::from_const_str("inputs"))];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3626404106673061698)
-                    })
-                    .with_children(DomVec::from_vec(vec![Dom::div()
-                        .with_inline_css_props(CSS_MATCH_705881630351954657)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_12825690349660780627: &[IdOrClass] =
-                                &[Class(AzString::from_const_str("node_input_wrapper"))];
-                            IdOrClassVec::from_const_slice(
-                                IDS_AND_CLASSES_12825690349660780627,
-                            )
-                        })
-                        .with_children(DomVec::from_vec(
-                            inputs
-                            .into_iter()
-                            .enumerate()
-                            .map(|(io_id, (input_label, input_color))| {
-                                use self::InputOrOutput::*;
+        .with_callbacks(vec![
+           CallbackData {
+               event: EventFilter::Hover(HoverEventFilter::LeftMouseDown),
+               data: node_local_dataset.clone(),
+               callback: Callback { cb: nodegraph_set_active_node },
+           },
+        ].into())
+        .with_inline_css_props(vec![
+           // .node_graph_node
+           NodeDataInlineCssProperty::Normal(CssProperty::OverflowX(
+               LayoutOverflowValue::Exact(LayoutOverflow::Visible)
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::Position(LayoutPositionValue::Exact(
+               LayoutPosition::Relative,
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::OverflowY(
+               LayoutOverflowValue::Exact(LayoutOverflow::Visible)
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+               StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+                   STYLE_BACKGROUND_CONTENT_11535310356736632656_ITEMS,
+               )),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderTopColor(
+               StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+                   inner: ColorU {
+                       r: 0,
+                       g: 180,
+                       b: 219,
+                       a: 255,
+                   },
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderRightColor(
+               StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+                   inner: ColorU {
+                       r: 0,
+                       g: 180,
+                       b: 219,
+                       a: 255,
+                   },
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftColor(
+               StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+                   inner: ColorU {
+                       r: 0,
+                       g: 180,
+                       b: 219,
+                       a: 255,
+                   },
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomColor(
+               StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+                   inner: ColorU {
+                       r: 0,
+                       g: 180,
+                       b: 219,
+                       a: 255,
+                   },
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderTopStyle(
+               StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+                   inner: BorderStyle::Solid,
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderRightStyle(
+               StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+                   inner: BorderStyle::Solid,
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftStyle(
+               StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+                   inner: BorderStyle::Solid,
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomStyle(
+               StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+                   inner: BorderStyle::Solid,
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderTopWidth(
+               LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+                   inner: PixelValue::const_px(1),
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderRightWidth(
+               LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+                   inner: PixelValue::const_px(1),
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderLeftWidth(
+               LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+                   inner: PixelValue::const_px(1),
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BorderBottomWidth(
+               LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+                   inner: PixelValue::const_px(1),
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+               StyleBoxShadow {
+                   offset: [
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                   ],
+                   color: ColorU {
+                       r: 0,
+                       g: 131,
+                       b: 176,
+                       a: 119,
+                   },
+                   blur_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(3),
+                   },
+                   spread_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(0),
+                   },
+                   clip_mode: BoxShadowClipMode::Outset,
+               },
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+               StyleBoxShadow {
+                   offset: [
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                   ],
+                   color: ColorU {
+                       r: 0,
+                       g: 131,
+                       b: 176,
+                       a: 119,
+                   },
+                   blur_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(3),
+                   },
+                   spread_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(0),
+                   },
+                   clip_mode: BoxShadowClipMode::Outset,
+               },
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+               StyleBoxShadow {
+                   offset: [
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                   ],
+                   color: ColorU {
+                       r: 0,
+                       g: 131,
+                       b: 176,
+                       a: 119,
+                   },
+                   blur_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(3),
+                   },
+                   spread_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(0),
+                   },
+                   clip_mode: BoxShadowClipMode::Outset,
+               },
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::BoxShadowBottom(
+               StyleBoxShadowValue::Exact(StyleBoxShadow {
+                   offset: [
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                       PixelValueNoPercent {
+                           inner: PixelValue::const_px(0),
+                       },
+                   ],
+                   color: ColorU {
+                       r: 0,
+                       g: 131,
+                       b: 176,
+                       a: 119,
+                   },
+                   blur_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(3),
+                   },
+                   spread_radius: PixelValueNoPercent {
+                       inner: PixelValue::const_px(0),
+                   },
+                   clip_mode: BoxShadowClipMode::Outset,
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::TextColor(StyleTextColorValue::Exact(
+               StyleTextColor {
+                   inner: ColorU {
+                       r: 255,
+                       g: 255,
+                       b: 255,
+                       a: 255,
+                   },
+               },
+           ))),
 
-                                Dom::div()
-                                    .with_inline_css_props(CSS_MATCH_9863994880298313101)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_5020681879750641508:
-                                            &[IdOrClass] = &[Class(AzString::from_const_str(
-                                            "node_input_container",
-                                        ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_5020681879750641508,
-                                        )
-                                    })
-                                    .with_children(DomVec::from_vec(vec![
-                                        Dom::div()
-                                            .with_inline_css_props(
-                                                CSS_MATCH_4700400755767504372,
-                                            )
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_9154857442066749879:
-                                                    &[IdOrClass] =
-                                                    &[Class(AzString::from_const_str(
-                                                        "node_input_connection_label_wrapper",
-                                                    ))];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_9154857442066749879,
-                                                )
-                                            })
-                                            .with_children(DomVec::from_vec(vec![Dom::text(
-                                                input_label.clone(),
-                                            )
-                                            .with_inline_css_props(
-                                                CSS_MATCH_11452431279102104133,
-                                            )
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_16291496011772407931:
-                                                    &[IdOrClass] =
-                                                    &[Class(AzString::from_const_str(
-                                                        "node_input_connection_label",
-                                                    ))];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_16291496011772407931,
-                                                )
-                                            })])),
-                                        Dom::div()
-                                            .with_callbacks(vec![
-                                                CallbackData {
-                                                    event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                                                    data: RefAny::new(NodeInputOutputLocalDataset {
-                                                        io_id: Input(io_id),
-                                                        backref: node_local_dataset.clone(),
-                                                    }),
-                                                    callback: Callback { cb: nodegraph_input_output_connect },
-                                                },
-                                                CallbackData {
-                                                    event: EventFilter::Hover(HoverEventFilter::RightMouseUp),
-                                                    data: RefAny::new(NodeInputOutputLocalDataset {
-                                                        io_id: Input(io_id),
-                                                        backref: node_local_dataset.clone(),
-                                                    }),
-                                                    callback: Callback { cb: nodegraph_input_output_disconnect },
-                                                },
-                                            ].into())
-                                            .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
-                                                    // .node_input
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
-                                                        StyleBackgroundContentVecValue::Exact(vec![StyleBackgroundContent::Color(input_color)].into()),
-                                                    )),
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::Cursor(StyleCursorValue::Exact(
-                                                        StyleCursor::Pointer,
-                                                    ))),
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-                                                        LayoutHeight {
-                                                            inner: PixelValue::const_px(15),
-                                                        },
-                                                    ))),
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-                                                        LayoutWidth {
-                                                            inner: PixelValue::const_px(15),
-                                                        },
-                                                    ))),
-                                                ])
-                                            )
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_2128818677168244823:
-                                                    &[IdOrClass] = &[Class(
-                                                    AzString::from_const_str("node_input"),
-                                                )];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_2128818677168244823,
-                                                )
-                                            }),
-                                    ]))
-                            }).collect()
-                        ))
-                    ])),
-                Dom::div()
-                    .with_inline_css_props(CSS_MATCH_7432473243011547380)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_746059979773622802: &[IdOrClass] =
-                            &[Class(AzString::from_const_str("node_content_wrapper"))];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_746059979773622802)
-                    })
-                    .with_children({
+           NodeDataInlineCssProperty::Normal(CssProperty::Display(LayoutDisplayValue::Exact(
+               LayoutDisplay::Block
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
+               StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+               LayoutPaddingTop {
+                   inner: PixelValue::const_px(10),
+               },
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::PaddingBottom(
+               LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
+                   inner: PixelValue::const_px(10),
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+               LayoutPaddingLeft {
+                   inner: PixelValue::const_px(10),
+               },
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::PaddingRight(
+               LayoutPaddingRightValue::Exact(LayoutPaddingRight {
+                   inner: PixelValue::const_px(10),
+               }),
+           )),
+           NodeDataInlineCssProperty::Normal(CssProperty::Transform(StyleTransformVecValue::Exact(
+               vec![StyleTransform::Translate(node_transform)].into(),
+           ))),
+           NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+               LayoutWidth {
+                   inner: PixelValue::const_px(250),
+               },
+           ))),
+        ].into())
+        .with_ids_and_classes({
+           const IDS_AND_CLASSES_4480169002427296613: &[IdOrClass] =
+               &[Class(AzString::from_const_str("node_graph_node"))];
+           IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4480169002427296613)
+        })
+        .with_children(DomVec::from_vec(vec![
+           Dom::text(AzString::from_const_str("X"))
+               .with_inline_css_props(CSS_MATCH_7395766480280098891)
+               .with_callbacks(vec![
+                   CallbackData {
+                       event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                       data: node_local_dataset.clone(),
+                       callback: Callback { cb: nodegraph_delete_node },
+                   },
+               ].into())
+               .with_ids_and_classes({
+                   const IDS_AND_CLASSES_7122017923389407516: &[IdOrClass] =
+                       &[Class(AzString::from_const_str("node_close_button"))];
+                   IdOrClassVec::from_const_slice(IDS_AND_CLASSES_7122017923389407516)
+               }),
+           Dom::text(node_info.name.clone())
+               .with_inline_css_props(CSS_MATCH_1739273067404038547)
+               .with_ids_and_classes({
+                   const IDS_AND_CLASSES_15777790571346582635: &[IdOrClass] =
+                       &[Class(AzString::from_const_str("node_label"))];
+                   IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15777790571346582635)
+               }),
+           Dom::div()
+               .with_inline_css_props(CSS_MATCH_3354247437065914166)
+               .with_ids_and_classes({
+                   const IDS_AND_CLASSES_5590500152394859708: &[IdOrClass] =
+                       &[Class(AzString::from_const_str("node_body"))];
+                   IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5590500152394859708)
+               })
+               .with_children(DomVec::from_vec(vec![
+                   Dom::div()
+                       .with_inline_css_props(CSS_MATCH_16946967739775705757)
+                       .with_ids_and_classes({
+                           const IDS_AND_CLASSES_3626404106673061698: &[IdOrClass] =
+                               &[Class(AzString::from_const_str("inputs"))];
+                           IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3626404106673061698)
+                       })
+                       .with_children(DomVec::from_vec(vec![Dom::div()
+                           .with_inline_css_props(CSS_MATCH_705881630351954657)
+                           .with_ids_and_classes({
+                               const IDS_AND_CLASSES_12825690349660780627: &[IdOrClass] =
+                                   &[Class(AzString::from_const_str("node_input_wrapper"))];
+                               IdOrClassVec::from_const_slice(
+                                   IDS_AND_CLASSES_12825690349660780627,
+                               )
+                           })
+                           .with_children(DomVec::from_vec(
+                               inputs
+                               .into_iter()
+                               .enumerate()
+                               .map(|(io_id, (input_label, input_color))| {
+                                   use self::InputOrOutput::*;
 
-                        let mut fields = Vec::new();
+                                   Dom::div()
+                                       .with_inline_css_props(CSS_MATCH_9863994880298313101)
+                                       .with_ids_and_classes({
+                                           const IDS_AND_CLASSES_5020681879750641508:
+                                               &[IdOrClass] = &[Class(AzString::from_const_str(
+                                               "node_input_container",
+                                           ))];
+                                           IdOrClassVec::from_const_slice(
+                                               IDS_AND_CLASSES_5020681879750641508,
+                                           )
+                                       })
+                                       .with_children(DomVec::from_vec(vec![
+                                           Dom::div()
+                                               .with_inline_css_props(
+                                                   CSS_MATCH_4700400755767504372,
+                                               )
+                                               .with_ids_and_classes({
+                                                   const IDS_AND_CLASSES_9154857442066749879:
+                                                       &[IdOrClass] =
+                                                       &[Class(AzString::from_const_str(
+                                                           "node_input_connection_label_wrapper",
+                                                       ))];
+                                                   IdOrClassVec::from_const_slice(
+                                                       IDS_AND_CLASSES_9154857442066749879,
+                                                   )
+                                               })
+                                               .with_children(DomVec::from_vec(vec![Dom::text(
+                                                   input_label.clone(),
+                                               )
+                                               .with_inline_css_props(
+                                                   CSS_MATCH_11452431279102104133,
+                                               )
+                                               .with_ids_and_classes({
+                                                   const IDS_AND_CLASSES_16291496011772407931:
+                                                       &[IdOrClass] =
+                                                       &[Class(AzString::from_const_str(
+                                                           "node_input_connection_label",
+                                                       ))];
+                                                   IdOrClassVec::from_const_slice(
+                                                       IDS_AND_CLASSES_16291496011772407931,
+                                                   )
+                                               })])),
+                                           Dom::div()
+                                               .with_callbacks(vec![
+                                                   CallbackData {
+                                                       event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                           io_id: Input(io_id),
+                                                           backref: node_local_dataset.clone(),
+                                                       }),
+                                                       callback: Callback { cb: nodegraph_input_output_connect },
+                                                   },
+                                                   CallbackData {
+                                                       event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
+                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                           io_id: Input(io_id),
+                                                           backref: node_local_dataset.clone(),
+                                                       }),
+                                                       callback: Callback { cb: nodegraph_input_output_disconnect },
+                                                   },
+                                               ].into())
+                                               .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
+                                                       // .node_input
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                                                           StyleBackgroundContentVecValue::Exact(vec![StyleBackgroundContent::Color(input_color)].into()),
+                                                       )),
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::Cursor(StyleCursorValue::Exact(
+                                                           StyleCursor::Pointer,
+                                                       ))),
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+                                                           LayoutHeight {
+                                                               inner: PixelValue::const_px(15),
+                                                           },
+                                                       ))),
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+                                                           LayoutWidth {
+                                                               inner: PixelValue::const_px(15),
+                                                           },
+                                                       ))),
+                                                   ])
+                                               )
+                                               .with_ids_and_classes({
+                                                   const IDS_AND_CLASSES_2128818677168244823:
+                                                       &[IdOrClass] = &[Class(
+                                                       AzString::from_const_str("node_input"),
+                                                   )];
+                                                   IdOrClassVec::from_const_slice(
+                                                       IDS_AND_CLASSES_2128818677168244823,
+                                                   )
+                                               }),
+                                       ]))
+                               }).collect()
+                           ))
+                       ])),
+                   Dom::div()
+                       .with_inline_css_props(CSS_MATCH_7432473243011547380)
+                       .with_ids_and_classes({
+                           const IDS_AND_CLASSES_746059979773622802: &[IdOrClass] =
+                               &[Class(AzString::from_const_str("node_content_wrapper"))];
+                           IdOrClassVec::from_const_slice(IDS_AND_CLASSES_746059979773622802)
+                       })
+                       .with_children({
 
-                        for (field_idx, field) in node.fields.iter().enumerate() {
+                           let mut fields = Vec::new();
 
-                            let field_local_dataset = RefAny::new(NodeFieldLocalDataset {
-                                field_idx,
-                                backref: node_local_dataset.clone(),
-                            });
+                           for (field_idx, field) in node.fields.iter().enumerate() {
 
-                            let div = Dom::div()
-                            .with_inline_css_props(CSS_MATCH_2639191696846875011)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
-                                    &[Class(AzString::from_const_str(
-                                        "node_configuration_field_container",
-                                    ))];
-                                IdOrClassVec::from_const_slice(
-                                    IDS_AND_CLASSES_4413230059125905311,
-                                )
-                            })
-                            .with_children(DomVec::from_vec(vec![
-                                Dom::text(field.key.clone())
-                                .with_inline_css_props(CSS_MATCH_1198521124955124418)
-                                .with_ids_and_classes({
-                                    const IDS_AND_CLASSES_12334207996395559585:
-                                        &[IdOrClass] =
-                                        &[Class(AzString::from_const_str(
-                                            "node_configuration_field_label",
-                                        ))];
-                                    IdOrClassVec::from_const_slice(
-                                        IDS_AND_CLASSES_12334207996395559585,
-                                    )
-                                }),
+                               let field_local_dataset = RefAny::new(NodeFieldLocalDataset {
+                                   field_idx,
+                                   backref: node_local_dataset.clone(),
+                               });
 
-                                match &field.value {
-                                    NodeTypeFieldValue::TextInput(initial_text) => {
-                                        TextInput::new(initial_text.clone())
-                                        .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost)
-                                        .dom()
-                                    },
-                                    NodeTypeFieldValue::NumberInput(initial_value) => {
-                                        NumberInput::new(*initial_value)
-                                        .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost)
-                                        .dom()
-                                    },
-                                    NodeTypeFieldValue::CheckBox(initial_checked) => {
-                                        CheckBox::new(*initial_checked)
-                                        .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed)
-                                        .dom()
-                                    },
-                                    NodeTypeFieldValue::ColorInput(initial_color) => {
-                                        ColorInput::new(*initial_color)
-                                        .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed)
-                                        .dom()
-                                    },
-                                    NodeTypeFieldValue::FileInput(file_path) => {
-                                        FileInput::new(file_path.clone())
-                                        .with_on_path_change(field_local_dataset, nodegraph_on_fileinput_button_clicked)
-                                        .dom()
-                                    },
-                                }
-                            ]));
+                               let div = Dom::div()
+                               .with_inline_css_props(CSS_MATCH_2639191696846875011)
+                               .with_ids_and_classes({
+                                   const IDS_AND_CLASSES_4413230059125905311: &[IdOrClass] =
+                                       &[Class(AzString::from_const_str(
+                                           "node_configuration_field_container",
+                                       ))];
+                                   IdOrClassVec::from_const_slice(
+                                       IDS_AND_CLASSES_4413230059125905311,
+                                   )
+                               })
+                               .with_children(DomVec::from_vec(vec![
+                                   Dom::text(field.key.clone())
+                                   .with_inline_css_props(CSS_MATCH_1198521124955124418)
+                                   .with_ids_and_classes({
+                                       const IDS_AND_CLASSES_12334207996395559585:
+                                           &[IdOrClass] =
+                                           &[Class(AzString::from_const_str(
+                                               "node_configuration_field_label",
+                                           ))];
+                                       IdOrClassVec::from_const_slice(
+                                           IDS_AND_CLASSES_12334207996395559585,
+                                       )
+                                   }),
 
-                            fields.push(div);
-                        }
+                                   match &field.value {
+                                       NodeTypeFieldValue::TextInput(initial_text) => {
+                                           TextInput::new(initial_text.clone())
+                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost)
+                                           .dom()
+                                       },
+                                       NodeTypeFieldValue::NumberInput(initial_value) => {
+                                           NumberInput::new(*initial_value)
+                                           .with_on_focus_lost(field_local_dataset, nodegraph_on_numberinput_focus_lost)
+                                           .dom()
+                                       },
+                                       NodeTypeFieldValue::CheckBox(initial_checked) => {
+                                           CheckBox::new(*initial_checked)
+                                           .with_on_toggle(field_local_dataset, nodegraph_on_checkbox_value_changed)
+                                           .dom()
+                                       },
+                                       NodeTypeFieldValue::ColorInput(initial_color) => {
+                                           ColorInput::new(*initial_color)
+                                           .with_on_value_change(field_local_dataset, nodegraph_on_colorinput_value_changed)
+                                           .dom()
+                                       },
+                                       NodeTypeFieldValue::FileInput(file_path) => {
+                                           FileInput::new(file_path.clone())
+                                           .with_on_path_change(field_local_dataset, nodegraph_on_fileinput_button_clicked)
+                                           .dom()
+                                       },
+                                   }
+                               ]));
 
-                        DomVec::from_vec(fields)
-                    }),
-                Dom::div()
-                    .with_inline_css_props(CSS_MATCH_14906563417280941890)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_4737474624251936466: &[IdOrClass] =
-                            &[Class(AzString::from_const_str("outputs"))];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4737474624251936466)
-                    })
-                    .with_children(DomVec::from_vec(vec![Dom::div()
-                        .with_inline_css_props(CSS_MATCH_10339190304804100510)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_12883576328110161157: &[IdOrClass] =
-                                &[Class(AzString::from_const_str("node_output_wrapper"))];
-                            IdOrClassVec::from_const_slice(
-                                IDS_AND_CLASSES_12883576328110161157,
-                            )
-                        })
-                        .with_children(DomVec::from_vec(
-                            outputs
-                            .into_iter()
-                            .enumerate()
-                            .map(|(io_id, (output_label, output_color))| {
-                                use self::InputOrOutput::*;
-                                Dom::div()
-                                    .with_inline_css_props(CSS_MATCH_12400244273289328300)
-                                    .with_ids_and_classes({
-                                        const IDS_AND_CLASSES_10917819668096233812:
-                                            &[IdOrClass] = &[Class(AzString::from_const_str(
-                                            "node_output_container",
-                                        ))];
-                                        IdOrClassVec::from_const_slice(
-                                            IDS_AND_CLASSES_10917819668096233812,
-                                        )
-                                    })
-                                    .with_children(DomVec::from_vec(vec![
-                                        Dom::div()
-                                            .with_callbacks(vec![
-                                                CallbackData {
-                                                    event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
-                                                    data: RefAny::new(NodeInputOutputLocalDataset {
-                                                        io_id: Output(io_id),
-                                                        backref: node_local_dataset.clone(),
-                                                    }),
-                                                    callback: Callback { cb: nodegraph_input_output_connect },
-                                                },
-                                                CallbackData {
-                                                    event: EventFilter::Hover(HoverEventFilter::RightMouseUp),
-                                                    data: RefAny::new(NodeInputOutputLocalDataset {
-                                                        io_id: Output(io_id),
-                                                        backref: node_local_dataset.clone(),
-                                                    }),
-                                                    callback: Callback { cb: nodegraph_input_output_disconnect },
-                                                },
-                                            ].into())
-                                            .with_inline_css_props(
-                                                NodeDataInlineCssPropertyVec::from_vec(vec![
-                                                    // .node_output
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
-                                                        StyleBackgroundContentVecValue::Exact(vec![
-                                                            StyleBackgroundContent::Color(output_color)
-                                                        ].into()),
-                                                    )),
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::Cursor(StyleCursorValue::Exact(
-                                                        StyleCursor::Pointer,
-                                                    ))),
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
-                                                        LayoutHeight {
-                                                            inner: PixelValue::const_px(15),
-                                                        },
-                                                    ))),
-                                                    NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
-                                                        LayoutWidth {
-                                                            inner: PixelValue::const_px(15),
-                                                        },
-                                                    ))),
-                                                ])
-                                            )
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_17632471664405317563:
-                                                    &[IdOrClass] = &[Class(
-                                                    AzString::from_const_str("node_output"),
-                                                )];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_17632471664405317563,
-                                                )
-                                            }),
-                                        Dom::div()
-                                            .with_inline_css_props(
-                                                CSS_MATCH_12038890904436132038,
-                                            )
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_1667960214206134147:
-                                                    &[IdOrClass] =
-                                                    &[Class(AzString::from_const_str(
-                                                        "node_output_connection_label_wrapper",
-                                                    ))];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_1667960214206134147,
-                                                )
-                                            })
-                                            .with_children(DomVec::from_vec(vec![Dom::text(
-                                                output_label.clone(),
-                                            )
-                                            .with_inline_css_props(
-                                                CSS_MATCH_2008162367868363199,
-                                            )
-                                            .with_ids_and_classes({
-                                                const IDS_AND_CLASSES_2974914452796301884:
-                                                    &[IdOrClass] =
-                                                    &[Class(AzString::from_const_str(
-                                                        "node_output_connection_label",
-                                                    ))];
-                                                IdOrClassVec::from_const_slice(
-                                                    IDS_AND_CLASSES_2974914452796301884,
-                                                )
-                                            })])),
-                                    ]))
-                            }).collect()
-                        ))])),
-            ])),
-    ]))
-    .with_dataset(Some(node_local_dataset).into())
+                               fields.push(div);
+                           }
+
+                           DomVec::from_vec(fields)
+                       }),
+                   Dom::div()
+                       .with_inline_css_props(CSS_MATCH_14906563417280941890)
+                       .with_ids_and_classes({
+                           const IDS_AND_CLASSES_4737474624251936466: &[IdOrClass] =
+                               &[Class(AzString::from_const_str("outputs"))];
+                           IdOrClassVec::from_const_slice(IDS_AND_CLASSES_4737474624251936466)
+                       })
+                       .with_children(DomVec::from_vec(vec![Dom::div()
+                           .with_inline_css_props(CSS_MATCH_10339190304804100510)
+                           .with_ids_and_classes({
+                               const IDS_AND_CLASSES_12883576328110161157: &[IdOrClass] =
+                                   &[Class(AzString::from_const_str("node_output_wrapper"))];
+                               IdOrClassVec::from_const_slice(
+                                   IDS_AND_CLASSES_12883576328110161157,
+                               )
+                           })
+                           .with_children(DomVec::from_vec(
+                               outputs
+                               .into_iter()
+                               .enumerate()
+                               .map(|(io_id, (output_label, output_color))| {
+                                   use self::InputOrOutput::*;
+                                   Dom::div()
+                                       .with_inline_css_props(CSS_MATCH_12400244273289328300)
+                                       .with_ids_and_classes({
+                                           const IDS_AND_CLASSES_10917819668096233812:
+                                               &[IdOrClass] = &[Class(AzString::from_const_str(
+                                               "node_output_container",
+                                           ))];
+                                           IdOrClassVec::from_const_slice(
+                                               IDS_AND_CLASSES_10917819668096233812,
+                                           )
+                                       })
+                                       .with_children(DomVec::from_vec(vec![
+                                           Dom::div()
+                                               .with_callbacks(vec![
+                                                   CallbackData {
+                                                       event: EventFilter::Hover(HoverEventFilter::LeftMouseUp),
+                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                           io_id: Output(io_id),
+                                                           backref: node_local_dataset.clone(),
+                                                       }),
+                                                       callback: Callback { cb: nodegraph_input_output_connect },
+                                                   },
+                                                   CallbackData {
+                                                       event: EventFilter::Hover(HoverEventFilter::MiddleMouseUp),
+                                                       data: RefAny::new(NodeInputOutputLocalDataset {
+                                                           io_id: Output(io_id),
+                                                           backref: node_local_dataset.clone(),
+                                                       }),
+                                                       callback: Callback { cb: nodegraph_input_output_disconnect },
+                                                   },
+                                               ].into())
+                                               .with_inline_css_props(
+                                                   NodeDataInlineCssPropertyVec::from_vec(vec![
+                                                       // .node_output
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::BackgroundContent(
+                                                           StyleBackgroundContentVecValue::Exact(vec![
+                                                               StyleBackgroundContent::Color(output_color)
+                                                           ].into()),
+                                                       )),
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::Cursor(StyleCursorValue::Exact(
+                                                           StyleCursor::Pointer,
+                                                       ))),
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::Height(LayoutHeightValue::Exact(
+                                                           LayoutHeight {
+                                                               inner: PixelValue::const_px(15),
+                                                           },
+                                                       ))),
+                                                       NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
+                                                           LayoutWidth {
+                                                               inner: PixelValue::const_px(15),
+                                                           },
+                                                       ))),
+                                                   ])
+                                               )
+                                               .with_ids_and_classes({
+                                                   const IDS_AND_CLASSES_17632471664405317563:
+                                                       &[IdOrClass] = &[Class(
+                                                       AzString::from_const_str("node_output"),
+                                                   )];
+                                                   IdOrClassVec::from_const_slice(
+                                                       IDS_AND_CLASSES_17632471664405317563,
+                                                   )
+                                               }),
+                                           Dom::div()
+                                               .with_inline_css_props(
+                                                   CSS_MATCH_12038890904436132038,
+                                               )
+                                               .with_ids_and_classes({
+                                                   const IDS_AND_CLASSES_1667960214206134147:
+                                                       &[IdOrClass] =
+                                                       &[Class(AzString::from_const_str(
+                                                           "node_output_connection_label_wrapper",
+                                                       ))];
+                                                   IdOrClassVec::from_const_slice(
+                                                       IDS_AND_CLASSES_1667960214206134147,
+                                                   )
+                                               })
+                                               .with_children(DomVec::from_vec(vec![Dom::text(
+                                                   output_label.clone(),
+                                               )
+                                               .with_inline_css_props(
+                                                   CSS_MATCH_2008162367868363199,
+                                               )
+                                               .with_ids_and_classes({
+                                                   const IDS_AND_CLASSES_2974914452796301884:
+                                                       &[IdOrClass] =
+                                                       &[Class(AzString::from_const_str(
+                                                           "node_output_connection_label",
+                                                       ))];
+                                                   IdOrClassVec::from_const_slice(
+                                                       IDS_AND_CLASSES_2974914452796301884,
+                                                   )
+                                               })])),
+                                       ]))
+                               }).collect()
+                           ))])),
+               ])),
+        ]))
+        .with_dataset(Some(node_local_dataset).into())
+    ].into())
 }
 
 fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> Dom {
@@ -2783,7 +2790,12 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
 
             loop {
 
-                let mut node_local_dataset = match info.get_dataset(node) {
+                let mut node_first_child = match info.get_first_child(node) {
+                    Some(s) => s,
+                    None => return Update::DoNothing,
+                };
+
+                let mut node_local_dataset = match info.get_dataset(node_first_child) {
                     None => return Update::DoNothing,
                     Some(s) => s,
                 };
@@ -2807,7 +2819,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     })
                 ].into());
 
-                info.set_css_property(node, node_transform);
+                info.set_css_property(node_first_child, node_transform);
 
                 node = match info.get_next_sibling(node) {
                     Some(s) => s,
@@ -3011,18 +3023,19 @@ extern "C" fn nodegraph_input_output_disconnect(data: &mut RefAny, info: &mut Ca
         None => return Update::DoNothing,
     };
 
-    let result = match io_id {
+    let mut result = Update::DoNothing;
+    match io_id {
         Input(i) => {
-            match backref.callbacks.on_node_input_disconnected.as_mut() {
+            result.max_self(match backref.callbacks.on_node_input_disconnected.as_mut() {
                 Some(OnNodeInputDisconnected { callback, data }) => (callback.cb)(data, info, node_id, i),
                 None => Update::DoNothing,
-            }
+            });
         },
         Output(o) => {
-            match backref.callbacks.on_node_output_disconnected.as_mut() {
+            result.max_self(match backref.callbacks.on_node_output_disconnected.as_mut() {
                 Some(OnNodeOutputDisconnected { callback, data }) => (callback.cb)(data, info, node_id, o),
                 None => Update::DoNothing,
-            }
+            });
         }
     };
 
