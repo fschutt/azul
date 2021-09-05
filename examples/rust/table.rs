@@ -1,7 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use azul::prelude::*;
-use azul_widgets::table_view::*;
+use azul::widgets::{
+    TableView, TableViewState,
+    TableCellIndex, TableCellSelection
+};
 
 struct TableDemo {
     // cells: BTreeMap<TableCell, String>,

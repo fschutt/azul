@@ -2,6 +2,7 @@
 
 use azul::prelude::*;
 use azul::prelude::String as AzString;
+use std::time::Duration;
 
 const CSS: &str = "
 #svg-container {
@@ -14,7 +15,17 @@ const SVG_STRING: AzString = AzString::from_const_str(SVG);
 
 #[derive(Debug)]
 struct MyAppData {
+    // Timing / performance data
+    timing: TimingData,
+    // SVG rendered to a CPU-backed image buffer
     svg: ImageRef,
+}
+
+#[derive(Debug)]
+struct TimingData {
+    time_to_parse: Duration,
+    time_to_render: Duration,
+    time_to_convert: Duration,
 }
 
 extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
@@ -24,50 +35,87 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
     };
 
     Dom::body()
-    .with_child(Dom::image(rendered_svg))
-    .style(Css::from_string(CSS.into()))
+    .with_menu_bar(Menu::new(vec![
+        MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
+            MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), open_svg_file))
+        ].into()))
+    ].into()))
+    .with_child(
+        Dom::image(rendered_svg)
+        .with_inline_style("display: block;".into())
+    ).style(Css::empty())
 }
 
-fn main() {
+// ask user for file path to new file to render
+extern "C" fn open_svg_file(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+
+    let mut data = match data.downcast_mut::<MyAppData>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    // note: runs on main thread, blocks UI - TODO: offload to background!
+    let new_file = FileDialog::select_file("Select SVG".into(), None.into(), None.into())
+    .and_then(|file_path| match File::open(file_path) { OptionFile::Some(s) => Some(s), _ => None })
+    .and_then(|mut file| file.read_to_string().into_option())
+    .and_then(|svg_string| load_svg(svg_string.into()));
+
+    match new_file {
+        Some((new_image, new_timing_data)) => {
+            data.svg = new_image;
+            data.timing = new_timing_data;
+            Update::RefreshDom
+        },
+        None => Update::DoNothing
+    }
+}
+
+fn load_svg(svg: AzString) -> Option<(ImageRef, TimingData)> {
 
     let mut start = std::time::Instant::now();
 
-    // parse the SVG
-    let svg = match Svg::from_string(SVG_STRING.clone(), SvgParseOptions::default()) {
+    let svg = match Svg::from_string(svg.clone(), SvgParseOptions::default()) {
         ResultSvgSvgParseError::Ok(o) => o,
-        ResultSvgSvgParseError::Err(e) => { return; },
+        _ => return None,
     };
 
     let end = std::time::Instant::now();
     let parse_time = end - start;
     start = end;
 
-    // render the SVG
     let rendered_svg = match svg.render(SvgRenderOptions::default()) {
         OptionRawImage::Some(s) => s,
-        OptionRawImage::None => { return; },
+        OptionRawImage::None => { return None; },
     };
 
     let end = std::time::Instant::now();
     let render_time = end - start;
     start = end;
 
-    // ---- convert the rendered image to a webrender-compatible format
     let image_ref = match ImageRef::raw_image(rendered_svg) {
         OptionImageRef::Some(s) => s,
-        OptionImageRef::None => { return; },
+        OptionImageRef::None => { return None; },
     };
 
     let end = std::time::Instant::now();
     let recode_time = end - start;
     start = end;
 
-    MsgBox::info(format!(
-        "Ok - Svg file rendered!\r\n\r\nparsing took: {:?}\r\nrendering took: {:?}\r\nencoding took: {:?}\r\n",
-        parse_time, render_time, recode_time).into()
-    );
+    return Some((image_ref, TimingData {
+        time_to_parse: parse_time,
+        time_to_render: render_time,
+        time_to_convert: recode_time,
+    }));
+}
 
-    let data = RefAny::new(MyAppData { svg: image_ref });
+fn main() {
+
+    let (svg, timing) = match load_svg(SVG_STRING) {
+        Some(s) => s,
+        None => return,
+    };
+
+    let data = RefAny::new(MyAppData { svg, timing });
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     app.run(WindowCreateOptions::new(layout));
 }
