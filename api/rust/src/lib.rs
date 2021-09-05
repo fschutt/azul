@@ -9944,6 +9944,7 @@ mod dll {
         pub(crate) fn AzColorU_white() -> AzColorU;
         pub(crate) fn AzColorU_black() -> AzColorU;
         pub(crate) fn AzColorU_toHash(_:  &AzColorU) -> AzString;
+        pub(crate) fn AzAngleValue_getDegrees(_:  &AzAngleValue) -> f32;
         pub(crate) fn AzCssProperty_getKeyString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getValueString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getKeyValueString(_:  &AzCssProperty) -> AzString;
@@ -12611,6 +12612,11 @@ pub mod css {
     /// `AngleValue` struct
     
 #[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;
+    impl AngleValue {
+        /// Calls the `AngleValue::get_degrees` function.
+        pub fn get_degrees(&self)  -> f32 { unsafe { crate::dll::AzAngleValue_getDegrees(self) } }
+    }
+
     /// `NormalizedLinearColorStop` struct
     
 #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStop as NormalizedLinearColorStop;

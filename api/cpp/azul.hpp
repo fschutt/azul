@@ -10006,6 +10006,7 @@ namespace dll {
         ColorU ColorU_white();
         ColorU ColorU_black();
         String ColorU_toHash(const ColorU* coloru);
+        float AngleValue_getDegrees(const AngleValue* anglevalue);
         void LinearGradient_delete(LinearGradient* restrict instance);
         void RadialGradient_delete(RadialGradient* restrict instance);
         void ConicGradient_delete(ConicGradient* restrict instance);

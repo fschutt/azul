@@ -17489,6 +17489,11 @@ impl AzAngleValue {
         }
     }
 
+    fn get_degrees(&self) -> f32 {
+        unsafe { mem::transmute(crate::AzAngleValue_getDegrees(
+            mem::transmute(self),
+        )) }
+    }
 }
 
 #[pyproto]

@@ -705,6 +705,14 @@ impl CssPropertyCache {
         self.get_overflow_y(node_data, node_id, node_state).and_then(|p| p.get_property_or_default()).unwrap_or_default().is_overflow_visible()
     }
 
+    pub fn is_horizontal_overflow_hidden(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> bool {
+        self.get_overflow_x(node_data, node_id, node_state).and_then(|p| p.get_property_or_default()).unwrap_or_default().is_overflow_hidden()
+    }
+
+    pub fn is_vertical_overflow_hidden(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> bool {
+        self.get_overflow_y(node_data, node_id, node_state).and_then(|p| p.get_property_or_default()).unwrap_or_default().is_overflow_hidden()
+    }
+
     pub fn get_text_color_or_default(&self, node_data: &NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> StyleTextColor {
         use crate::ui_solver::DEFAULT_TEXT_COLOR;
         self.get_text_color(node_data, node_id, node_state).and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_TEXT_COLOR)

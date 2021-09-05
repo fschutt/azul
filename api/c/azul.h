@@ -12042,6 +12042,7 @@ extern DLLIMPORT AzColorU AzColorU_transparent();
 extern DLLIMPORT AzColorU AzColorU_white();
 extern DLLIMPORT AzColorU AzColorU_black();
 extern DLLIMPORT AzString AzColorU_toHash(const AzColorU* coloru);
+extern DLLIMPORT float AzAngleValue_getDegrees(const AzAngleValue* anglevalue);
 extern DLLIMPORT void AzLinearGradient_delete(AzLinearGradient* restrict instance);
 extern DLLIMPORT void AzRadialGradient_delete(AzRadialGradient* restrict instance);
 extern DLLIMPORT void AzConicGradient_delete(AzConicGradient* restrict instance);

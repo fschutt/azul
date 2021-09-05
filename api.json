@@ -4016,7 +4016,16 @@
                     "struct_fields": [
                         { "metric": {"type": "AngleMetric" }},
                         { "number": {"type": "FloatValue" }}
-                    ]
+                    ],
+                    "functions": {
+                        "get_degrees": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type":"f32"},
+                            "fn_body": "anglevalue.to_degrees()"
+                        }
+                    }
                 },
                 "NormalizedLinearColorStop": {
                     "external": "azul_impl::css::NormalizedLinearColorStop",

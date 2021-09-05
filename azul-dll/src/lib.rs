@@ -1290,6 +1290,8 @@ pub use AzAngleMetricTT as AzAngleMetric;
 /// Re-export of rust-allocated (stack based) `AngleValue` struct
 pub type AzAngleValueTT = azul_impl::css::AngleValue;
 pub use AzAngleValueTT as AzAngleValue;
+/// Equivalent to the Rust `AngleValue::get_degrees()` function.
+#[no_mangle] pub extern "C" fn AzAngleValue_getDegrees(anglevalue: &AzAngleValue) -> f32 { anglevalue.to_degrees() }
 
 /// Re-export of rust-allocated (stack based) `NormalizedLinearColorStop` struct
 pub type AzNormalizedLinearColorStopTT = azul_impl::css::NormalizedLinearColorStop;

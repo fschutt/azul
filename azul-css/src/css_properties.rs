@@ -4085,6 +4085,10 @@ impl LayoutOverflow {
     pub fn is_overflow_visible(&self) -> bool {
         *self == LayoutOverflow::Visible
     }
+
+    pub fn is_overflow_hidden(&self) -> bool {
+        *self == LayoutOverflow::Hidden
+    }
 }
 
 /// Horizontal text alignment enum (left, center, right) - default: `Center`
