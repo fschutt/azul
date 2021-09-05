@@ -99,6 +99,22 @@ pub enum SvgPathElement {
 }
 
 impl SvgPathElement {
+    pub fn set_last(&mut self, point: SvgPoint) {
+        match self {
+            SvgPathElement::Line(l) => l.end = point,
+            SvgPathElement::QuadraticCurve(qc) => qc.end = point,
+            SvgPathElement::CubicCurve(cc) => cc.end = point,
+        }
+    }
+
+    pub fn set_first(&mut self, point: SvgPoint) {
+        match self {
+            SvgPathElement::Line(l) => l.start = point,
+            SvgPathElement::QuadraticCurve(qc) => qc.start = point,
+            SvgPathElement::CubicCurve(cc) => cc.start = point,
+        }
+    }
+
     pub fn reverse(&mut self) {
         match self {
             SvgPathElement::Line(l) => l.reverse(),
@@ -205,6 +221,36 @@ impl SvgPath {
         // swap back
         let mut vec = SvgPathElementVec::from_vec(vec);
         core::mem::swap(&mut vec, &mut self.items);
+    }
+
+    pub fn join_with(&mut self, mut path: Self) -> Option<()> {
+
+        let self_last_point = self.items.as_ref().last()?.get_end();
+        let other_start_point = path.items.as_ref().first()?.get_start();
+        let interpolated_join_point = SvgPoint {
+            x: (self_last_point.x + other_start_point.x) / 2.0,
+            y: (self_last_point.y + other_start_point.y) / 2.0,
+        };
+
+        // swap self.items with a default vec
+        let mut vec = SvgPathElementVec::from_const_slice(&[]);
+        core::mem::swap(&mut vec, &mut self.items);
+        let mut vec = vec.into_library_owned_vec();
+
+        let mut other = SvgPathElementVec::from_const_slice(&[]);
+        core::mem::swap(&mut other, &mut path.items);
+        let mut other = other.into_library_owned_vec();
+
+        let vec_len = vec.len() - 1;
+        vec.get_mut(vec_len)?.set_last(interpolated_join_point);
+        other.get_mut(0)?.set_first(interpolated_join_point);
+        vec.append(&mut other);
+
+        // swap back
+        let mut vec = SvgPathElementVec::from_vec(vec);
+        core::mem::swap(&mut vec, &mut self.items);
+
+        Some(())
     }
 }
 

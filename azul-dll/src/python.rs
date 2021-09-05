@@ -30281,6 +30281,12 @@ impl AzSvgPath {
             mem::transmute(self),
         )) }
     }
+    fn join_with(&mut self, path: AzSvgPath) -> () {
+        unsafe { mem::transmute(crate::AzSvgPath_joinWith(
+            mem::transmute(self),
+            mem::transmute(path),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgPath_tessellateFill(
             mem::transmute(self),

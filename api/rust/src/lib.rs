@@ -10352,6 +10352,7 @@ mod dll {
         pub(crate) fn AzSvgCircle_tessellateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_reverse(_:  &mut AzSvgPath);
+        pub(crate) fn AzSvgPath_joinWith(_:  &mut AzSvgPath, _:  AzSvgPath);
         pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPath_tessellateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgPathElement_reverse(_:  &mut AzSvgPathElement);
@@ -16107,6 +16108,8 @@ pub mod svg {
     impl SvgPath {
         /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
         pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPath_reverse(self) } }
+        /// Adds a path to the end of the current path
+        pub fn join_with(&mut self, path: SvgPath)  { unsafe { crate::dll::AzSvgPath_joinWith(self, path) } }
         /// Calls the `SvgPath::tessellate_fill` function.
         pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateFill(self, fill_style) } }
         /// Calls the `SvgPath::tessellate_stroke` function.

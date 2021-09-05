@@ -2988,10 +2988,8 @@ unsafe extern "system" fn WindowProc(
                             current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                             current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
                             if let Some(vk) = vk {
-                                println!("SYSKEYDOWN {:?}", vk);
                                 current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
                                 current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
-                                println!("current keyboard_state: {:#?}", current_window.internal.current_window_state.keyboard_state);
                             }
                             mem::drop(app_borrow);
 
@@ -3058,7 +3056,6 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.current_window_state.keyboard_state.current_char = None.into();
                         current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
                         if let Some(vk) = vk {
-                            println!("SYSKEYUP {:?}", vk);
                             current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
                             current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
                         }

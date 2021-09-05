@@ -11618,6 +11618,14 @@
                             ],
                             "fn_body": "svgpath.reverse()"
                         },
+                        "join_with": {
+                            "doc": "Adds a path to the end of the current path",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"path": "SvgPath"}
+                            ],
+                            "fn_body": "svgpath.join_with(path);"
+                        },
                         "tessellate_fill": {
                             "fn_args": [
                                 {"self": "ref"},

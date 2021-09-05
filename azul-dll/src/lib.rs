@@ -3372,6 +3372,8 @@ pub type AzSvgPathTT = azul_impl::svg::SvgPath;
 pub use AzSvgPathTT as AzSvgPath;
 /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
 #[no_mangle] pub extern "C" fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { svgpath.reverse() }
+/// Adds a path to the end of the current path
+#[no_mangle] pub extern "C" fn AzSvgPath_joinWith(svgpath: &mut AzSvgPath, path: AzSvgPath) { svgpath.join_with(path); }
 /// Equivalent to the Rust `SvgPath::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgPath_tessellateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_fill(svgpath, fill_style) }
 /// Equivalent to the Rust `SvgPath::tessellate_stroke()` function.
