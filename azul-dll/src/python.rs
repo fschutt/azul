@@ -30276,6 +30276,11 @@ impl AzSvgPath {
         }
     }
 
+    fn is_closed(&self) -> bool {
+        unsafe { mem::transmute(crate::AzSvgPath_isClosed(
+            mem::transmute(self),
+        )) }
+    }
     fn reverse(&mut self) -> () {
         unsafe { mem::transmute(crate::AzSvgPath_reverse(
             mem::transmute(self),

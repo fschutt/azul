@@ -10495,6 +10495,7 @@ namespace dll {
         void SvgStyledNode_delete(SvgStyledNode* restrict instance);
         TessellatedSvgNode SvgCircle_tessellateFill(const SvgCircle* svgcircle, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgCircle_tessellateStroke(const SvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
+        bool  SvgPath_isClosed(const SvgPath* svgpath);
         void SvgPath_reverse(SvgPath* restrict svgpath);
         void SvgPath_joinWith(SvgPath* restrict svgpath, AzSvgPath  path);
         TessellatedSvgNode SvgPath_tessellateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);

@@ -11611,6 +11611,14 @@
                         {"items": {"type": "SvgPathElementVec"}}
                     ],
                     "functions": {
+                        "is_closed": {
+                            "doc": "Returns whether the path is closed",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "svgpath.is_closed()"
+                        },
                         "reverse": {
                             "doc": "Reverses the order of points in the path so that the path runs in the opposite direction afterwards",
                             "fn_args": [

@@ -3370,6 +3370,8 @@ pub use AzSvgCircleTT as AzSvgCircle;
 /// Re-export of rust-allocated (stack based) `SvgPath` struct
 pub type AzSvgPathTT = azul_impl::svg::SvgPath;
 pub use AzSvgPathTT as AzSvgPath;
+/// Returns whether the path is closed
+#[no_mangle] pub extern "C" fn AzSvgPath_isClosed(svgpath: &AzSvgPath) -> bool { svgpath.is_closed() }
 /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
 #[no_mangle] pub extern "C" fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { svgpath.reverse() }
 /// Adds a path to the end of the current path

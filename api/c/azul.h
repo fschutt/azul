@@ -12531,6 +12531,7 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgStyledNode_tessellate(const AzSvgStyl
 extern DLLIMPORT void AzSvgStyledNode_delete(AzSvgStyledNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateFill(const AzSvgCircle* svgcircle, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateStroke(const AzSvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT bool  AzSvgPath_isClosed(const AzSvgPath* svgpath);
 extern DLLIMPORT void AzSvgPath_reverse(AzSvgPath* restrict svgpath);
 extern DLLIMPORT void AzSvgPath_joinWith(AzSvgPath* restrict svgpath, AzSvgPath  path);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateFill(const AzSvgPath* svgpath, AzSvgFillStyle  fill_style);

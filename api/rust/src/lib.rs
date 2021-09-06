@@ -10351,6 +10351,7 @@ mod dll {
         pub(crate) fn AzSvgStyledNode_tessellate(_:  &AzSvgStyledNode) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPath_isClosed(_:  &AzSvgPath) -> bool;
         pub(crate) fn AzSvgPath_reverse(_:  &mut AzSvgPath);
         pub(crate) fn AzSvgPath_joinWith(_:  &mut AzSvgPath, _:  AzSvgPath);
         pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
@@ -16106,6 +16107,8 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
     impl SvgPath {
+        /// Returns whether the path is closed
+        pub fn is_closed(&self)  -> bool { unsafe { crate::dll::AzSvgPath_isClosed(self) } }
         /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
         pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPath_reverse(self) } }
         /// Adds a path to the end of the current path
