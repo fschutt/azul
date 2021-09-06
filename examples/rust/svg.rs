@@ -21,7 +21,7 @@ struct MyAppData {
     svg: ImageRef,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TimingData {
     time_to_parse: Duration,
     time_to_render: Duration,
@@ -29,8 +29,8 @@ struct TimingData {
 }
 
 extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
-    let rendered_svg = match data.downcast_ref::<MyAppData>() {
-        Some(s) => s.svg.clone(),
+    let (rendered_svg, timing) = match data.downcast_ref::<MyAppData>() {
+        Some(s) => (s.svg.clone(), s.timing.clone()),
         None => return StyledDom::default(),
     };
 
@@ -40,10 +40,15 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
             MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), open_svg_file))
         ].into()))
     ].into()))
-    .with_child(
+    .with_children(vec![
         Dom::image(rendered_svg)
-        .with_inline_style("display: block;".into())
-    ).style(Css::empty())
+        .with_inline_style("display: block;".into()),
+        Dom::text(format!("Parsing took {:?}", timing.time_to_parse).into()),
+        Dom::text(format!("Rendering took {:?}", timing.time_to_render).into()),
+        Dom::text(format!("Converting to ImageRef took {:?}", timing.time_to_convert).into()),
+    ].into())
+    .style(Css::from_string("p { font-family: sans-serif; }".into()))
+
 }
 
 // ask user for file path to new file to render
