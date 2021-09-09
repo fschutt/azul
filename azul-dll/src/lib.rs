@@ -3334,6 +3334,10 @@ pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
 pub type AzSvgMultiPolygonTT = azul_impl::svg::SvgMultiPolygon;
 pub use AzSvgMultiPolygonTT as AzSvgMultiPolygon;
+/// Returns the bounds of the polygon
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_getBounds(svgmultipolygon: &AzSvgMultiPolygon) -> AzSvgRect { svgmultipolygon.get_bounds() }
+/// Returns the bounds of the polygon
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_containsPoint(svgmultipolygon: &AzSvgMultiPolygon, point: AzSvgPoint, fill_rule: AzSvgFillRule, tolerance: f32) -> bool { azul_impl::svg::polygon_contains_point(svgmultipolygon, point, fill_rule, tolerance) }
 /// Equivalent to the Rust `SvgMultiPolygon::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_fill(svgmultipolygon, fill_style) }
 /// Equivalent to the Rust `SvgMultiPolygon::tessellate_stroke()` function.
@@ -3496,6 +3500,10 @@ pub use AzSvgCubicCurveTT as AzSvgCubicCurve;
 /// Re-export of rust-allocated (stack based) `SvgRect` struct
 pub type AzSvgRectTT = azul_impl::svg::SvgRect;
 pub use AzSvgRectTT as AzSvgRect;
+/// Equivalent to the Rust `SvgRect::get_center()` function.
+#[no_mangle] pub extern "C" fn AzSvgRect_getCenter(svgrect: &AzSvgRect) -> AzSvgPoint { svgrect.get_center() }
+/// Equivalent to the Rust `SvgRect::contains_point()` function.
+#[no_mangle] pub extern "C" fn AzSvgRect_containsPoint(svgrect: &AzSvgRect, point: AzSvgPoint) -> bool { svgrect.contains_point(point.x, point.y) }
 /// Equivalent to the Rust `SvgRect::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgRect_tessellateFill(svgrect: &AzSvgRect, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_rect_fill(svgrect, fill_style) }
 /// Equivalent to the Rust `SvgRect::tessellate_stroke()` function.

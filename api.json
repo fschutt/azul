@@ -11516,6 +11516,25 @@
                         {"rings": {"type": "SvgPathVec"}}
                     ],
                     "functions": {
+                        "get_bounds": {
+                            "doc": "Returns the bounds of the polygon",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgmultipolygon.get_bounds()"
+                        },
+                        "contains_point": {
+                            "doc": "Returns the bounds of the polygon",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"point": "SvgPoint"},
+                                {"fill_rule": "SvgFillRule"},
+                                {"tolerance": "f32"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "azul_impl::svg::polygon_contains_point(svgmultipolygon, point, fill_rule, tolerance)"
+                        },
                         "tessellate_fill": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -12084,6 +12103,21 @@
                         {"radius_bottom_right": {"type": "f32"}}
                     ],
                     "functions": {
+                        "get_center": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgPoint"},
+                            "fn_body": "svgrect.get_center()"
+                        },
+                        "contains_point": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"point": "SvgPoint"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "svgrect.contains_point(point.x, point.y)"
+                        },
                         "tessellate_fill": {
                             "fn_args": [
                                 {"self": "ref"},

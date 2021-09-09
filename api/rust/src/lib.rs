@@ -10344,6 +10344,8 @@ mod dll {
         pub(crate) fn AzSvgXmlNode_toString(_:  &AzSvgXmlNode, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvgXmlNode_delete(_:  &mut AzSvgXmlNode);
         pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
+        pub(crate) fn AzSvgMultiPolygon_getBounds(_:  &AzSvgMultiPolygon) -> AzSvgRect;
+        pub(crate) fn AzSvgMultiPolygon_containsPoint(_:  &AzSvgMultiPolygon, _:  AzSvgPoint, _:  AzSvgFillRule, _:  f32) -> bool;
         pub(crate) fn AzSvgMultiPolygon_tessellateFill(_:  &AzSvgMultiPolygon, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgMultiPolygon_tessellateStroke(_:  &AzSvgMultiPolygon, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgNode_tessellateFill(_:  &AzSvgNode, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
@@ -10399,6 +10401,8 @@ mod dll {
         pub(crate) fn AzSvgCubicCurve_getYAtT(_:  &AzSvgCubicCurve, _:  f32) -> f32;
         pub(crate) fn AzSvgCubicCurve_getTangentVectorAtT(_:  &AzSvgCubicCurve, _:  f32) -> AzSvgVector;
         pub(crate) fn AzSvgCubicCurve_tessellateStroke(_:  &AzSvgCubicCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgRect_getCenter(_:  &AzSvgRect) -> AzSvgPoint;
+        pub(crate) fn AzSvgRect_containsPoint(_:  &AzSvgRect, _:  AzSvgPoint) -> bool;
         pub(crate) fn AzSvgRect_tessellateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgRect_tessellateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode;
@@ -16069,6 +16073,10 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
     impl SvgMultiPolygon {
+        /// Returns the bounds of the polygon
+        pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgMultiPolygon_getBounds(self) } }
+        /// Returns the bounds of the polygon
+        pub fn contains_point(&self, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgMultiPolygon_containsPoint(self, point, fill_rule, tolerance) } }
         /// Calls the `SvgMultiPolygon::tessellate_fill` function.
         pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateFill(self, fill_style) } }
         /// Calls the `SvgMultiPolygon::tessellate_stroke` function.
@@ -16242,6 +16250,10 @@ pub mod svg {
     
 #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
     impl SvgRect {
+        /// Calls the `SvgRect::get_center` function.
+        pub fn get_center(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgRect_getCenter(self) } }
+        /// Calls the `SvgRect::contains_point` function.
+        pub fn contains_point(&self, point: SvgPoint)  -> bool { unsafe { crate::dll::AzSvgRect_containsPoint(self, point) } }
         /// Calls the `SvgRect::tessellate_fill` function.
         pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateFill(self, fill_style) } }
         /// Calls the `SvgRect::tessellate_stroke` function.

@@ -12521,6 +12521,8 @@ extern DLLIMPORT AzOptionRawImage AzSvgXmlNode_render(const AzSvgXmlNode* svgxml
 extern DLLIMPORT AzString AzSvgXmlNode_toString(const AzSvgXmlNode* svgxmlnode, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvgXmlNode_delete(AzSvgXmlNode* restrict instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_deepCopy(AzSvgXmlNode* const instance);
+extern DLLIMPORT AzSvgRect AzSvgMultiPolygon_getBounds(const AzSvgMultiPolygon* svgmultipolygon);
+extern DLLIMPORT bool  AzSvgMultiPolygon_containsPoint(const AzSvgMultiPolygon* svgmultipolygon, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgMultiPolygon_tessellateFill(const AzSvgMultiPolygon* svgmultipolygon, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgMultiPolygon_tessellateStroke(const AzSvgMultiPolygon* svgmultipolygon, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgMultiPolygon_delete(AzSvgMultiPolygon* restrict instance);
@@ -12580,6 +12582,8 @@ extern DLLIMPORT float AzSvgCubicCurve_getXAtT(const AzSvgCubicCurve* svgcubiccu
 extern DLLIMPORT float AzSvgCubicCurve_getYAtT(const AzSvgCubicCurve* svgcubiccurve, float t);
 extern DLLIMPORT AzSvgVector AzSvgCubicCurve_getTangentVectorAtT(const AzSvgCubicCurve* svgcubiccurve, float t);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCubicCurve_tessellateStroke(const AzSvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzSvgPoint AzSvgRect_getCenter(const AzSvgRect* svgrect);
+extern DLLIMPORT bool  AzSvgRect_containsPoint(const AzSvgRect* svgrect, AzSvgPoint  point);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateFill(const AzSvgRect* svgrect, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateStroke(const AzSvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_empty();

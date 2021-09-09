@@ -261,6 +261,23 @@ pub struct SvgMultiPolygon {
     pub rings: SvgPathVec,
 }
 
+impl SvgMultiPolygon {
+    pub fn get_bounds(&self) -> SvgRect {
+        let mut first_bounds = match self.rings.get(0).and_then(|b| b.items.get(0).map(|i| i.get_bounds())) {
+            Some(s) => s,
+            None => return SvgRect::default(), // TODO: error?
+        };
+
+        for ring in self.rings.iter() {
+            for item in ring.items.iter() {
+                first_bounds.union_with(&item.get_bounds());
+            }
+        }
+
+        first_bounds
+    }
+}
+
 impl_vec!(SvgPath, SvgPathVec, SvgPathVecDestructor);
 impl_vec_debug!(SvgPath, SvgPathVec);
 impl_vec_clone!(SvgPath, SvgPathVec, SvgPathVecDestructor);

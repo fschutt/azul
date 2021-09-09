@@ -1398,6 +1398,29 @@ pub struct SvgRect {
 }
 
 impl SvgRect {
+    pub fn union_with(&mut self, other: &Self) {
+
+        let self_max_x = self.x + other.width;
+        let self_max_y = self.y + other.height;
+        let self_min_x = self.x;
+        let self_min_y = self.y;
+
+        let other_max_x = other.x + other.width;
+        let other_max_y = other.y + other.height;
+        let other_min_x = other.x;
+        let other_min_y = other.y;
+
+        let max_x = self_max_x.max(other_max_x);
+        let max_y = self_max_y.max(other_max_y);
+        let min_x = self_min_x.min(other_min_x);
+        let min_y = self_min_y.min(other_min_y);
+
+        self.x = min_x;
+        self.y = min_y;
+        self.width = max_x - min_x;
+        self.height = max_y - min_y;
+    }
+
     /// Note: does not incorporate rounded edges!
     /// Origin of x and y is assumed to be the top left corner
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
@@ -1405,6 +1428,13 @@ impl SvgRect {
         x < self.x + self.width &&
         y > self.y &&
         y < self.y + self.height
+    }
+
+    pub fn get_center(&self) -> SvgPoint {
+        SvgPoint {
+            x: self.x + (self.width / 2.0),
+            y: self.y + (self.height / 2.0),
+        }
     }
 }
 

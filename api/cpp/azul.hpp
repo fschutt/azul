@@ -10485,6 +10485,8 @@ namespace dll {
         String SvgXmlNode_toString(const SvgXmlNode* svgxmlnode, AzSvgStringFormatOptions  options);
         void SvgXmlNode_delete(SvgXmlNode* restrict instance);
         SvgXmlNode SvgXmlNode_deepCopy(SvgXmlNode* const instance);
+        SvgRect SvgMultiPolygon_getBounds(const SvgMultiPolygon* svgmultipolygon);
+        bool  SvgMultiPolygon_containsPoint(const SvgMultiPolygon* svgmultipolygon, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
         TessellatedSvgNode SvgMultiPolygon_tessellateFill(const SvgMultiPolygon* svgmultipolygon, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgMultiPolygon_tessellateStroke(const SvgMultiPolygon* svgmultipolygon, AzSvgStrokeStyle  stroke_style);
         void SvgMultiPolygon_delete(SvgMultiPolygon* restrict instance);
@@ -10544,6 +10546,8 @@ namespace dll {
         float SvgCubicCurve_getYAtT(const SvgCubicCurve* svgcubiccurve, float t);
         SvgVector SvgCubicCurve_getTangentVectorAtT(const SvgCubicCurve* svgcubiccurve, float t);
         TessellatedSvgNode SvgCubicCurve_tessellateStroke(const SvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
+        SvgPoint SvgRect_getCenter(const SvgRect* svgrect);
+        bool  SvgRect_containsPoint(const SvgRect* svgrect, AzSvgPoint  point);
         TessellatedSvgNode SvgRect_tessellateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgRect_tessellateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode TessellatedSvgNode_empty();

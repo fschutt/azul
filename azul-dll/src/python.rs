@@ -30143,6 +30143,19 @@ impl AzSvgMultiPolygon {
         }
     }
 
+    fn get_bounds(&self) -> AzSvgRect {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_getBounds(
+            mem::transmute(self),
+        )) }
+    }
+    fn contains_point(&self, point: AzSvgPoint, fill_rule: AzSvgFillRuleEnumWrapper, tolerance: f32) -> bool {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_containsPoint(
+            mem::transmute(self),
+            mem::transmute(point),
+            mem::transmute(fill_rule),
+            mem::transmute(tolerance),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgMultiPolygon_tessellateFill(
             mem::transmute(self),
@@ -30657,6 +30670,17 @@ impl AzSvgRect {
         }
     }
 
+    fn get_center(&self) -> AzSvgPoint {
+        unsafe { mem::transmute(crate::AzSvgRect_getCenter(
+            mem::transmute(self),
+        )) }
+    }
+    fn contains_point(&self, point: AzSvgPoint) -> bool {
+        unsafe { mem::transmute(crate::AzSvgRect_containsPoint(
+            mem::transmute(self),
+            mem::transmute(point),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgRect_tessellateFill(
             mem::transmute(self),

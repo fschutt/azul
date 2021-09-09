@@ -208,6 +208,26 @@ pub fn tessellate_multi_polygon_fill(polygon: &SvgMultiPolygon, fill_style: SvgF
 }
 
 #[cfg(feature = "svg")]
+pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
+    use lyon::{math::Point as LyonPoint, path::FillRule as LyonFillRule};
+    use lyon::algorithms::hit_test::hit_test_path;
+    polygon.rings.iter().any(|path| {
+        let path = svg_path_to_lyon_path_events(&path);
+        let fill_rule = match fill_rule {
+            SvgFillRule::Winding => LyonFillRule::NonZero,
+            SvgFillRule::EvenOdd => LyonFillRule::EvenOdd,
+        };
+        let point = LyonPoint::new(point.x, point.y);
+        hit_test_path(&point, path.iter(), fill_rule, tolerance)
+    })
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, tolerance: f32, fill_rule: SvgFillRule) -> bool {
+    false
+}
+
+#[cfg(feature = "svg")]
 pub fn tessellate_multi_polygon_stroke(polygon: &SvgMultiPolygon, stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
 
     let stroke_options: StrokeOptions = translate_svg_stroke_style(stroke_style);
