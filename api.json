@@ -1772,7 +1772,13 @@
                         {"max_horizontal_width": {"type": "OptionF32"}},
                         {"leading": {"type": "OptionF32"}},
                         {"holes": {"type": "LogicalRectVec"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "default": {
+                            "fn_args": [],
+                            "fn_body": "AzResolvedTextLayoutOptions::default()"
+                        }
+                    }
                 },
                 "Animation": {
                     "doc": "Animation struct to start a new animation",

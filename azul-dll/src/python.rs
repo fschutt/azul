@@ -13662,20 +13662,10 @@ impl PyObjectProtocol for AzFocusTargetPath {
 
 #[pymethods]
 impl AzResolvedTextLayoutOptions {
-    #[new]
-    fn __new__(font_size_px: f32, line_height: AzOptionF32EnumWrapper, letter_spacing: AzOptionF32EnumWrapper, word_spacing: AzOptionF32EnumWrapper, tab_width: AzOptionF32EnumWrapper, max_horizontal_width: AzOptionF32EnumWrapper, leading: AzOptionF32EnumWrapper, holes: AzLogicalRectVec) -> Self {
-        Self {
-            font_size_px,
-            line_height,
-            letter_spacing,
-            word_spacing,
-            tab_width,
-            max_horizontal_width,
-            leading,
-            holes,
-        }
+    #[staticmethod]
+    fn default() -> AzResolvedTextLayoutOptions {
+        unsafe { mem::transmute(crate::AzResolvedTextLayoutOptions_default()) }
     }
-
 }
 
 #[pyproto]

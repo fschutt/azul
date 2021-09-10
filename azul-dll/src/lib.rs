@@ -543,6 +543,9 @@ pub use AzFocusTargetPathTT as AzFocusTargetPath;
 /// Re-export of rust-allocated (stack based) `ResolvedTextLayoutOptions` struct
 pub type AzResolvedTextLayoutOptionsTT = azul_impl::ui_solver::ResolvedTextLayoutOptions;
 pub use AzResolvedTextLayoutOptionsTT as AzResolvedTextLayoutOptions;
+/// Creates a new `ResolvedTextLayoutOptions` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `ResolvedTextLayoutOptions::default()` constructor.
+#[no_mangle] pub extern "C" fn AzResolvedTextLayoutOptions_default() -> AzResolvedTextLayoutOptions { AzResolvedTextLayoutOptions::default() }
 /// Destructor: Takes ownership of the `ResolvedTextLayoutOptions` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzResolvedTextLayoutOptions_delete(object: &mut AzResolvedTextLayoutOptions) {  unsafe { core::ptr::drop_in_place(object); } }
 

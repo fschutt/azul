@@ -11879,6 +11879,7 @@ extern DLLIMPORT void AzInlineWord_delete(AzInlineWord* restrict instance);
 extern DLLIMPORT void AzInlineTextContents_delete(AzInlineTextContents* restrict instance);
 extern DLLIMPORT void AzFocusTarget_delete(AzFocusTarget* restrict instance);
 extern DLLIMPORT void AzFocusTargetPath_delete(AzFocusTargetPath* restrict instance);
+extern DLLIMPORT AzResolvedTextLayoutOptions AzResolvedTextLayoutOptions_default();
 extern DLLIMPORT void AzResolvedTextLayoutOptions_delete(AzResolvedTextLayoutOptions* restrict instance);
 extern DLLIMPORT void AzAnimation_delete(AzAnimation* restrict instance);
 extern DLLIMPORT void AzIFrameCallbackReturn_delete(AzIFrameCallbackReturn* restrict instance);

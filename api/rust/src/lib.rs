@@ -9808,6 +9808,7 @@ mod dll {
         pub(crate) fn AzHidpiAdjustedBounds_getPhysicalSize(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32;
         pub(crate) fn AzHidpiAdjustedBounds_getHidpiFactor(_:  &AzHidpiAdjustedBounds) -> f32;
         pub(crate) fn AzInlineText_hitTest(_:  &AzInlineText, _:  AzLogicalPosition) -> AzInlineTextHitVec;
+        pub(crate) fn AzResolvedTextLayoutOptions_default() -> AzResolvedTextLayoutOptions;
         pub(crate) fn AzRenderImageCallbackInfo_getGlContext(_:  &AzRenderImageCallbackInfo) -> AzOptionGl;
         pub(crate) fn AzRenderImageCallbackInfo_getBounds(_:  &AzRenderImageCallbackInfo) -> AzHidpiAdjustedBounds;
         pub(crate) fn AzRenderImageCallbackInfo_getCallbackNodeId(_:  &AzRenderImageCallbackInfo) -> AzDomNodeId;
@@ -11219,6 +11220,11 @@ pub mod callbacks {
     /// `ResolvedTextLayoutOptions` struct
     
 #[doc(inline)] pub use crate::dll::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
+    impl ResolvedTextLayoutOptions {
+        /// Creates a new `ResolvedTextLayoutOptions` instance.
+        pub fn default() -> Self { unsafe { crate::dll::AzResolvedTextLayoutOptions_default() } }
+    }
+
     /// Animation struct to start a new animation
     
 #[doc(inline)] pub use crate::dll::AzAnimation as Animation;

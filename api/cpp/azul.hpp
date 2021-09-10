@@ -9843,6 +9843,7 @@ namespace dll {
         void InlineTextContents_delete(InlineTextContents* restrict instance);
         void FocusTarget_delete(FocusTarget* restrict instance);
         void FocusTargetPath_delete(FocusTargetPath* restrict instance);
+        ResolvedTextLayoutOptions ResolvedTextLayoutOptions_default();
         void ResolvedTextLayoutOptions_delete(ResolvedTextLayoutOptions* restrict instance);
         void Animation_delete(Animation* restrict instance);
         void IFrameCallbackReturn_delete(IFrameCallbackReturn* restrict instance);
