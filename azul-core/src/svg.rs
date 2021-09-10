@@ -57,11 +57,11 @@ impl SvgLine {
     }
 
     pub fn get_x_at_t(&self, t: f32) -> f32 {
-        (self.end.x - self.start.x) * t
+        self.start.x + (self.end.x - self.start.x) * t
     }
 
     pub fn get_y_at_t(&self, t: f32) -> f32 {
-        (self.end.y - self.start.y) * t
+        self.start.y + (self.end.y - self.start.y) * t
     }
 
     pub fn get_length(&self) -> f32 {
