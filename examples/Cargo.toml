@@ -54,6 +54,10 @@ path = "rust/svg.rs"
 name = "xml"
 path = "rust/xml.rs"
 
+[[bin]]
+name = "udp-chat"
+path = "rust/udp-chat.rs"
+
 [dependencies]
 azul = { path = "../api/rust", features = ["serde"] }
 serde = "1"

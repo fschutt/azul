@@ -829,6 +829,9 @@ impl InlineText {
         // NOTE: this function cannot exit early, since it has to
         // iterate through all lines
 
+        let font_size_px = self.font_size_px;
+        let descender_px = self.baseline_descender_px;
+
         self.lines
         .iter() // TODO: par_iter
         .enumerate()
@@ -843,7 +846,10 @@ impl InlineText {
             line_bounds.origin.y -= line.bounds.size.height;
 
             line_bounds.hit_test(&hit_relative_to_inline_text)
-            .map(|hit_relative_to_line| {
+            .map(|mut hit_relative_to_line| {
+
+                // shift the hit by baseline offset
+                hit_relative_to_line.y += descender_px;
 
                 line.words
                 .iter() // TODO: par_iter
