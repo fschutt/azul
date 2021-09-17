@@ -3637,7 +3637,11 @@
                         {"Transform": {}},
                         {"TransformOrigin": {}},
                         {"PerspectiveOrigin": {}},
-                        {"BackfaceVisibility": {}}
+                        {"BackfaceVisibility": {}},
+                        {"BlendMode": {}},
+                        {"Filter": {}},
+                        {"BackdropFilter": {}},
+                        {"TextShadow": {}}
                     ]
                 },
                 "AnimationInterpolationFunction": {
@@ -3751,6 +3755,79 @@
                         { "blur_radius": {"type": "PixelValueNoPercent" }},
                         { "spread_radius": {"type": "PixelValueNoPercent" }},
                         { "clip_mode": {"type": "BoxShadowClipMode" }}
+                    ]
+                },
+                "StyleMixBlendMode": {
+                    "external": "azul_impl::css::StyleMixBlendMode",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"Normal": {}},
+                        {"Multiply": {}},
+                        {"Screen": {}},
+                        {"Overlay": {}},
+                        {"Darken": {}},
+                        {"Lighten": {}},
+                        {"ColorDodge": {}},
+                        {"ColorBurn": {}},
+                        {"HardLight": {}},
+                        {"SoftLight": {}},
+                        {"Difference": {}},
+                        {"Exclusion": {}},
+                        {"Hue": {}},
+                        {"Saturation": {}},
+                        {"Color": {}},
+                        {"Luminosity": {}}
+                    ]
+                },
+                "StyleFilter": {
+                    "external": "azul_impl::css::StyleFilter",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"Blend": {"type": "StyleMixBlendMode"}},
+                        {"Flood": {"type": "ColorU"}},
+                        {"Blur": {"type": "StyleBlur"}},
+                        {"Opacity": {"type": "PercentageValue"}},
+                        {"ColorMatrix": {"type": "StyleColorMatrix"}},
+                        {"DropShadow": {"type": "StyleBoxShadow"}},
+                        {"ComponentTransfer": {}},
+                        {"Offset": {"type": "StyleFilterOffset"}},
+                        {"Composite": {"type": "StyleCompositeFilter"}}
+                    ]
+                },
+                "StyleBlur": {
+                    "external": "azul_impl::css::StyleBlur",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"width": {"type": "PixelValue"}},
+                        {"height": {"type": "PixelValue"}}
+                    ]
+                },
+                "StyleColorMatrix": {
+                    "external": "azul_impl::css::StyleColorMatrix",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"matrix": {"type": "[FloatValue;20]"}}
+                    ]
+                },
+                "StyleFilterOffset": {
+                    "external": "azul_impl::css::StyleFilterOffset",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"x": {"type": "PixelValue"}},
+                        {"y": {"type": "PixelValue"}}
+                    ]
+                },
+                "StyleCompositeFilter": {
+                    "external": "azul_impl::css::StyleCompositeFilter",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"Over": {}},
+                        {"In": {}},
+                        {"Atop": {}},
+                        {"Out": {}},
+                        {"Xor": {}},
+                        {"Lighter": {}},
+                        {"Arithmetic": {"type": "[FloatValue;4]"}}
                     ]
                 },
                 "LayoutAlignContent": {
@@ -13196,6 +13273,17 @@
         "vec": {
             "doc": "Definition of azuls internal `Vec<*>` wrappers",
             "classes": {
+                "StyleFilterVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<StyleFilter>`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::css::StyleFilterVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const StyleFilter" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "StyleFilterVecDestructor" } }
+                    ]
+                },
                 "LogicalRectVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<LogicalRect>`",
                     "custom_destructor": true,
@@ -13933,6 +14021,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "StyleFilterVecDestructor": {
+                    "external": "azul_impl::css::StyleFilterVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "StyleFilterVecDestructorType"}}
+                    ]
+                },
+                "StyleFilterVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "StyleFilterVec", "ref": "refmut"}
                         ]
                     }
                 },

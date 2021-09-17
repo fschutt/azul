@@ -1162,6 +1162,30 @@ pub use AzBoxShadowClipModeTT as AzBoxShadowClipMode;
 pub type AzStyleBoxShadowTT = azul_impl::css::StyleBoxShadow;
 pub use AzStyleBoxShadowTT as AzStyleBoxShadow;
 
+/// Re-export of rust-allocated (stack based) `StyleMixBlendMode` struct
+pub type AzStyleMixBlendModeTT = azul_impl::css::StyleMixBlendMode;
+pub use AzStyleMixBlendModeTT as AzStyleMixBlendMode;
+
+/// Re-export of rust-allocated (stack based) `StyleFilter` struct
+pub type AzStyleFilterTT = azul_impl::css::StyleFilter;
+pub use AzStyleFilterTT as AzStyleFilter;
+
+/// Re-export of rust-allocated (stack based) `StyleBlur` struct
+pub type AzStyleBlurTT = azul_impl::css::StyleBlur;
+pub use AzStyleBlurTT as AzStyleBlur;
+
+/// Re-export of rust-allocated (stack based) `StyleColorMatrix` struct
+pub type AzStyleColorMatrixTT = azul_impl::css::StyleColorMatrix;
+pub use AzStyleColorMatrixTT as AzStyleColorMatrix;
+
+/// Re-export of rust-allocated (stack based) `StyleFilterOffset` struct
+pub type AzStyleFilterOffsetTT = azul_impl::css::StyleFilterOffset;
+pub use AzStyleFilterOffsetTT as AzStyleFilterOffset;
+
+/// Re-export of rust-allocated (stack based) `StyleCompositeFilter` struct
+pub type AzStyleCompositeFilterTT = azul_impl::css::StyleCompositeFilter;
+pub use AzStyleCompositeFilterTT as AzStyleCompositeFilter;
+
 /// Re-export of rust-allocated (stack based) `LayoutAlignContent` struct
 pub type AzLayoutAlignContentTT = azul_impl::css::LayoutAlignContent;
 pub use AzLayoutAlignContentTT as AzLayoutAlignContent;
@@ -3922,6 +3946,12 @@ pub use AzStringTT as AzString;
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzString_delete(object: &mut AzString) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<StyleFilter>`
+pub type AzStyleFilterVecTT = azul_impl::css::StyleFilterVec;
+pub use AzStyleFilterVecTT as AzStyleFilterVec;
+/// Destructor: Takes ownership of the `StyleFilterVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleFilterVec_delete(object: &mut AzStyleFilterVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
 pub type AzLogicalRectVecTT = azul_core::window::LogicalRectVec;
 pub use AzLogicalRectVecTT as AzLogicalRectVec;
@@ -4311,6 +4341,11 @@ pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDe
 pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
 
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+/// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
+pub type AzStyleFilterVecDestructorTT = azul_impl::css::StyleFilterVecDestructor;
+pub use AzStyleFilterVecDestructorTT as AzStyleFilterVecDestructor;
+
+pub type AzStyleFilterVecDestructorType = extern "C" fn(&mut AzStyleFilterVec);
 /// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
 pub type AzLogicalRectVecDestructorTT = azul_core::window::LogicalRectVecDestructor;
 pub use AzLogicalRectVecDestructorTT as AzLogicalRectVecDestructor;
@@ -6203,6 +6238,10 @@ mod test_sizes {
         TransformOrigin,
         PerspectiveOrigin,
         BackfaceVisibility,
+        BlendMode,
+        Filter,
+        BackdropFilter,
+        TextShadow,
     }
 
     /// Re-export of rust-allocated (stack based) `ColorU` struct
@@ -6238,6 +6277,27 @@ mod test_sizes {
     pub enum AzBoxShadowClipMode {
         Outset,
         Inset,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleMixBlendMode` struct
+    #[repr(C)]
+    pub enum AzStyleMixBlendMode {
+        Normal,
+        Multiply,
+        Screen,
+        Overlay,
+        Darken,
+        Lighten,
+        ColorDodge,
+        ColorBurn,
+        HardLight,
+        SoftLight,
+        Difference,
+        Exclusion,
+        Hue,
+        Saturation,
+        Color,
+        Luminosity,
     }
 
     /// Re-export of rust-allocated (stack based) `LayoutAlignContent` struct
@@ -7309,6 +7369,17 @@ mod test_sizes {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzStyleFilterVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleFilterVecDestructorType),
+    }
+
+    /// `AzStyleFilterVecDestructorType` struct
+    pub type AzStyleFilterVecDestructorType = extern "C" fn(&mut AzStyleFilterVec);
+
     /// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
     #[repr(C, u8)]
     pub enum AzLogicalRectVecDestructor {
@@ -8312,6 +8383,38 @@ mod test_sizes {
         pub blur_radius: AzPixelValueNoPercent,
         pub spread_radius: AzPixelValueNoPercent,
         pub clip_mode: AzBoxShadowClipMode,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleBlur` struct
+    #[repr(C)]
+    pub struct AzStyleBlur {
+        pub width: AzPixelValue,
+        pub height: AzPixelValue,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleColorMatrix` struct
+    #[repr(C)]
+    pub struct AzStyleColorMatrix {
+        pub matrix: [AzFloatValue;20],
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleFilterOffset` struct
+    #[repr(C)]
+    pub struct AzStyleFilterOffset {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleCompositeFilter` struct
+    #[repr(C, u8)]
+    pub enum AzStyleCompositeFilter {
+        Over,
+        In,
+        Atop,
+        Out,
+        Xor,
+        Lighter,
+        Arithmetic([AzFloatValue;4]),
     }
 
     /// Re-export of rust-allocated (stack based) `LayoutBottom` struct
@@ -10553,6 +10656,20 @@ mod test_sizes {
         pub current_rect_height: f32,
     }
 
+    /// Re-export of rust-allocated (stack based) `StyleFilter` struct
+    #[repr(C, u8)]
+    pub enum AzStyleFilter {
+        Blend(AzStyleMixBlendMode),
+        Flood(AzColorU),
+        Blur(AzStyleBlur),
+        Opacity(AzPercentageValue),
+        ColorMatrix(AzStyleColorMatrix),
+        DropShadow(AzStyleBoxShadow),
+        ComponentTransfer,
+        Offset(AzStyleFilterOffset),
+        Composite(AzStyleCompositeFilter),
+    }
+
     /// Re-export of rust-allocated (stack based) `LinearGradient` struct
     #[repr(C)]
     pub struct AzLinearGradient {
@@ -10800,6 +10917,15 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzString {
         pub vec: AzU8Vec,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
+    #[repr(C)]
+    pub struct AzStyleFilterVec {
+        pub(crate) ptr: *const AzStyleFilter,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleFilterVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<InputConnection>`
@@ -12463,6 +12589,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::SizeMetric>(), "AzSizeMetric"), (Layout::new::<AzSizeMetric>(), "AzSizeMetric"));
         assert_eq!((Layout::new::<azul_impl::css::FloatValue>(), "AzFloatValue"), (Layout::new::<AzFloatValue>(), "AzFloatValue"));
         assert_eq!((Layout::new::<azul_impl::css::BoxShadowClipMode>(), "AzBoxShadowClipMode"), (Layout::new::<AzBoxShadowClipMode>(), "AzBoxShadowClipMode"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleMixBlendMode>(), "AzStyleMixBlendMode"), (Layout::new::<AzStyleMixBlendMode>(), "AzStyleMixBlendMode"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutAlignContent>(), "AzLayoutAlignContent"), (Layout::new::<AzLayoutAlignContent>(), "AzLayoutAlignContent"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutAlignItems>(), "AzLayoutAlignItems"), (Layout::new::<AzLayoutAlignItems>(), "AzLayoutAlignItems"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutBoxSizing>(), "AzLayoutBoxSizing"), (Layout::new::<AzLayoutBoxSizing>(), "AzLayoutBoxSizing"));
@@ -12588,6 +12715,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFilterVecDestructor>(), "AzStyleFilterVecDestructor"), (Layout::new::<AzStyleFilterVecDestructor>(), "AzStyleFilterVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::LogicalRectVecDestructor>(), "AzLogicalRectVecDestructor"), (Layout::new::<AzLogicalRectVecDestructor>(), "AzLogicalRectVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"), (Layout::new::<AzNodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputTypeIdInfoMapVecDestructor>(), "AzInputOutputTypeIdInfoMapVecDestructor"), (Layout::new::<AzInputOutputTypeIdInfoMapVecDestructor>(), "AzInputOutputTypeIdInfoMapVecDestructor"));
@@ -12687,6 +12815,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::PixelValue>(), "AzPixelValue"), (Layout::new::<AzPixelValue>(), "AzPixelValue"));
         assert_eq!((Layout::new::<azul_impl::css::PixelValueNoPercent>(), "AzPixelValueNoPercent"), (Layout::new::<AzPixelValueNoPercent>(), "AzPixelValueNoPercent"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBoxShadow>(), "AzStyleBoxShadow"), (Layout::new::<AzStyleBoxShadow>(), "AzStyleBoxShadow"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleBlur>(), "AzStyleBlur"), (Layout::new::<AzStyleBlur>(), "AzStyleBlur"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleColorMatrix>(), "AzStyleColorMatrix"), (Layout::new::<AzStyleColorMatrix>(), "AzStyleColorMatrix"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFilterOffset>(), "AzStyleFilterOffset"), (Layout::new::<AzStyleFilterOffset>(), "AzStyleFilterOffset"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleCompositeFilter>(), "AzStyleCompositeFilter"), (Layout::new::<AzStyleCompositeFilter>(), "AzStyleCompositeFilter"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutBottom>(), "AzLayoutBottom"), (Layout::new::<AzLayoutBottom>(), "AzLayoutBottom"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutFlexGrow>(), "AzLayoutFlexGrow"), (Layout::new::<AzLayoutFlexGrow>(), "AzLayoutFlexGrow"));
         assert_eq!((Layout::new::<azul_impl::css::LayoutFlexShrink>(), "AzLayoutFlexShrink"), (Layout::new::<AzLayoutFlexShrink>(), "AzLayoutFlexShrink"));
@@ -12955,6 +13087,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::CssPathPseudoSelector>(), "AzCssPathPseudoSelector"), (Layout::new::<AzCssPathPseudoSelector>(), "AzCssPathPseudoSelector"));
         assert_eq!((Layout::new::<azul_impl::css::AnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"), (Layout::new::<AzAnimationInterpolationFunction>(), "AzAnimationInterpolationFunction"));
         assert_eq!((Layout::new::<azul_impl::css::InterpolateResolver>(), "AzInterpolateContext"), (Layout::new::<AzInterpolateContext>(), "AzInterpolateContext"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFilter>(), "AzStyleFilter"), (Layout::new::<AzStyleFilter>(), "AzStyleFilter"));
         assert_eq!((Layout::new::<azul_impl::css::LinearGradient>(), "AzLinearGradient"), (Layout::new::<AzLinearGradient>(), "AzLinearGradient"));
         assert_eq!((Layout::new::<azul_impl::css::RadialGradient>(), "AzRadialGradient"), (Layout::new::<AzRadialGradient>(), "AzRadialGradient"));
         assert_eq!((Layout::new::<azul_impl::css::ConicGradient>(), "AzConicGradient"), (Layout::new::<AzConicGradient>(), "AzConicGradient"));
@@ -12982,6 +13115,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFilterVec>(), "AzStyleFilterVec"), (Layout::new::<AzStyleFilterVec>(), "AzStyleFilterVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnectionVec>(), "AzInputConnectionVec"), (Layout::new::<AzInputConnectionVec>(), "AzInputConnectionVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnectionVec>(), "AzOutputConnectionVec"), (Layout::new::<AzOutputConnectionVec>(), "AzOutputConnectionVec"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"), (Layout::new::<AzTessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"));

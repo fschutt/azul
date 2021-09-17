@@ -35,7 +35,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
 ];
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);70] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);74] = [
 
     (CssPropertyType::Display,              "display"),
     (CssPropertyType::Float,                "float"),
@@ -123,6 +123,11 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);70] = [
     (CssPropertyType::PerspectiveOrigin, "perspective-origin"),
     (CssPropertyType::TransformOrigin, "transform-origin"),
     (CssPropertyType::BackfaceVisibility, "backface-visibility"),
+
+    (CssPropertyType::MixBlendMode, "mix-blend-mode"),
+    (CssPropertyType::Filter, "filter"),
+    (CssPropertyType::BackdropFilter, "backdrop-filter"),
+    (CssPropertyType::TextShadow, "text-shadow"),
 ];
 
 // The following types are present in webrender, however, azul-css should not
@@ -881,6 +886,10 @@ pub enum CssPropertyType {
     TransformOrigin,
     PerspectiveOrigin,
     BackfaceVisibility,
+    MixBlendMode,
+    Filter,
+    BackdropFilter,
+    TextShadow,
 }
 
 impl CssPropertyType {
@@ -974,6 +983,10 @@ impl CssPropertyType {
             CssPropertyType::TransformOrigin => "transform-origin",
             CssPropertyType::PerspectiveOrigin => "perspective-origin",
             CssPropertyType::BackfaceVisibility => "backface-visibility",
+            CssPropertyType::MixBlendMode => "mix-blend-mode",
+            CssPropertyType::Filter => "filter",
+            CssPropertyType::BackdropFilter => "backdrop-filter",
+            CssPropertyType::TextShadow => "text-shadow",
         }
     }
 
@@ -1024,6 +1037,16 @@ impl CssPropertyType {
             | BoxShadowRight
             | BoxShadowTop
             | BoxShadowBottom
+            | ScrollbarStyle
+            | Opacity
+            | Transform
+            | TransformOrigin
+            | PerspectiveOrigin
+            | BackfaceVisibility
+            | MixBlendMode
+            | Filter
+            | BackdropFilter
+            | TextShadow
             => false,
             _ => true,
         }
@@ -1125,6 +1148,10 @@ pub enum CssProperty {
     TransformOrigin(StyleTransformOriginValue),
     PerspectiveOrigin(StylePerspectiveOriginValue),
     BackfaceVisibility(StyleBackfaceVisibilityValue),
+    MixBlendMode(StyleMixBlendModeValue),
+    Filter(StyleFilterVecValue),
+    BackdropFilter(StyleFilterVecValue),
+    TextShadow(StyleBoxShadowValue),
 }
 
 impl_option!(CssProperty, OptionCssProperty, copy = false, [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]);
@@ -1201,6 +1228,10 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
         CssPropertyType::TransformOrigin => CssProperty::TransformOrigin(StyleTransformOriginValue::$content_type),
         CssPropertyType::BackfaceVisibility => CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::$content_type),
+        CssPropertyType::MixBlendMode => CssProperty::MixBlendMode(StyleMixBlendModeValue::$content_type),
+        CssPropertyType::Filter => CssProperty::Filter(StyleFilterVecValue::$content_type),
+        CssPropertyType::BackdropFilter => CssProperty::BackdropFilter(StyleFilterVecValue::$content_type),
+        CssPropertyType::TextShadow => CssProperty::TextShadow(StyleBoxShadowValue::$content_type),
     }
 })}
 
@@ -1278,6 +1309,10 @@ impl CssProperty {
             TransformOrigin(c) => c.is_initial(),
             PerspectiveOrigin(c) => c.is_initial(),
             BackfaceVisibility(c) => c.is_initial(),
+            MixBlendMode(c) => c.is_initial(),
+            Filter(c) => c.is_initial(),
+            BackdropFilter(c) => c.is_initial(),
+            TextShadow(c) => c.is_initial(),
         }
     }
 
@@ -1860,6 +1895,10 @@ impl CssProperty {
             CssProperty::TransformOrigin(v) => v.get_css_value_fmt(),
             CssProperty::PerspectiveOrigin(v) => v.get_css_value_fmt(),
             CssProperty::BackfaceVisibility(v) => v.get_css_value_fmt(),
+            CssProperty::MixBlendMode(v) => v.get_css_value_fmt(),
+            CssProperty::Filter(v) => v.get_css_value_fmt(),
+            CssProperty::BackdropFilter(v) => v.get_css_value_fmt(),
+            CssProperty::TextShadow(v) => v.get_css_value_fmt(),
         }
     }
 
@@ -2201,6 +2240,10 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(CssPropertyValue::$content_type),
         CssPropertyType::TransformOrigin => CssProperty::TransformOrigin(CssPropertyValue::$content_type),
         CssPropertyType::BackfaceVisibility => CssProperty::BackfaceVisibility(CssPropertyValue::$content_type),
+        CssPropertyType::MixBlendMode => CssProperty::MixBlendMode(CssPropertyValue::$content_type),
+        CssPropertyType::Filter => CssProperty::Filter(CssPropertyValue::$content_type),
+        CssPropertyType::BackdropFilter => CssProperty::BackdropFilter(CssPropertyValue::$content_type),
+        CssPropertyType::TextShadow => CssProperty::TextShadow(CssPropertyValue::$content_type),
     }
 })}
 
@@ -2279,6 +2322,10 @@ impl CssProperty {
             CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
             CssProperty::TransformOrigin(_) => CssPropertyType::TransformOrigin,
             CssProperty::BackfaceVisibility(_) => CssPropertyType::BackfaceVisibility,
+            CssProperty::MixBlendMode(_) => CssPropertyType::MixBlendMode,
+            CssProperty::Filter(_) => CssPropertyType::Filter,
+            CssProperty::BackdropFilter(_) => CssPropertyType::BackdropFilter,
+            CssProperty::TextShadow(_) => CssPropertyType::TextShadow,
         }
     }
 
@@ -2509,6 +2556,7 @@ impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
 impl_from_css_prop!(StyleTransformOrigin, CssProperty::TransformOrigin);
 impl_from_css_prop!(StylePerspectiveOrigin, CssProperty::PerspectiveOrigin);
 impl_from_css_prop!(StyleBackfaceVisibility, CssProperty::BackfaceVisibility);
+impl_from_css_prop!(StyleMixBlendMode, CssProperty::MixBlendMode);
 
 /// Multiplier for floating point accuracy. Elements such as px or %
 /// are only accurate until a certain number of decimal points, therefore
@@ -3642,6 +3690,7 @@ impl fmt::Display for DirectionCorner {
         })
     }
 }
+
 impl DirectionCorner {
 
     pub const fn opposite(&self) -> Self {
@@ -4385,6 +4434,8 @@ pub type StyleTransformVecValue = CssPropertyValue<StyleTransformVec>;
 pub type StyleTransformOriginValue = CssPropertyValue<StyleTransformOrigin>;
 pub type StylePerspectiveOriginValue = CssPropertyValue<StylePerspectiveOrigin>;
 pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility>;
+pub type StyleMixBlendModeValue = CssPropertyValue<StyleMixBlendMode>;
+pub type StyleFilterVecValue = CssPropertyValue<StyleFilterVec>;
 pub type ScrollbarStyleValue = CssPropertyValue<ScrollbarStyle>;
 pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
 impl_option!(LayoutDisplayValue, OptionLayoutDisplayValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -4884,3 +4935,101 @@ impl_vec_ord!(StyleFontFamily, StyleFontFamilyVec);
 impl_vec_hash!(StyleFontFamily, StyleFontFamilyVec);
 impl_vec_partialeq!(StyleFontFamily, StyleFontFamilyVec);
 impl_vec_partialord!(StyleFontFamily, StyleFontFamilyVec);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleMixBlendMode {
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+}
+
+impl fmt::Display for StyleMixBlendMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", match self {
+            Normal => "normal",
+            Multiply => "multiply",
+            Screen => "screen",
+            Overlay => "overlay",
+            Darken => "darken",
+            Lighten => "lighten",
+            ColorDodge => "color-dodge",
+            ColorBurn => "color-burn",
+            HardLight => "hard-light",
+            SoftLight => "soft-light",
+            Difference => "difference",
+            Exclusion => "exclusion",
+            Hue => "hue",
+            Saturation => "saturation",
+            Color => "color",
+            Luminosity => "luminosity",
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum StyleFilter {
+    Blend(StyleMixBlendMode),
+    Flood(ColorU),
+    Blur(StyleBlur),
+    Opacity(PercentageValue),
+    ColorMatrix(StyleColorMatrix),
+    DropShadow(StyleBoxShadow),
+    ComponentTransfer,
+    Offset(StyleFilterOffset),
+    Composite(StyleCompositeFilter),
+}
+
+impl_vec!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor);
+impl_vec_clone!(StyleFilter, StyleFilterVec, StyleFilterVecDestructor);
+impl_vec_debug!(StyleFilter, StyleFilterVec);
+impl_vec_eq!(StyleFilter, StyleFilterVec);
+impl_vec_ord!(StyleFilter, StyleFilterVec);
+impl_vec_hash!(StyleFilter, StyleFilterVec);
+impl_vec_partialeq!(StyleFilter, StyleFilterVec);
+impl_vec_partialord!(StyleFilter, StyleFilterVec);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleBlur {
+    pub width: PixelValue,
+    pub height: PixelValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleColorMatrix {
+    pub matrix: [FloatValue; 20],
+}
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleFilterOffset {
+    pub x: PixelValue,
+    pub y: PixelValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum StyleCompositeFilter {
+    Over,
+    In,
+    Atop,
+    Out,
+    Xor,
+    Lighter,
+    Arithmetic([FloatValue; 4]),
+}

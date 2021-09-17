@@ -1563,6 +1563,10 @@ mod dll {
         TransformOrigin,
         PerspectiveOrigin,
         BackfaceVisibility,
+        BlendMode,
+        Filter,
+        BackdropFilter,
+        TextShadow,
     }
 
     /// Re-export of rust-allocated (stack based) `ColorU` struct
@@ -1614,6 +1618,31 @@ mod dll {
     pub enum AzBoxShadowClipMode {
         Outset,
         Inset,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleMixBlendMode` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleMixBlendMode {
+        Normal,
+        Multiply,
+        Screen,
+        Overlay,
+        Darken,
+        Lighten,
+        ColorDodge,
+        ColorBurn,
+        HardLight,
+        SoftLight,
+        Difference,
+        Exclusion,
+        Hue,
+        Saturation,
+        Color,
+        Luminosity,
     }
 
     /// Re-export of rust-allocated (stack based) `LayoutAlignContent` struct
@@ -3058,6 +3087,19 @@ mod dll {
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
 
+    /// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzStyleFilterVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzStyleFilterVecDestructorType),
+    }
+
+    /// `AzStyleFilterVecDestructorType` struct
+    pub type AzStyleFilterVecDestructorType = extern "C" fn(&mut AzStyleFilterVec);
+
     /// Re-export of rust-allocated (stack based) `LogicalRectVecDestructor` struct
     #[repr(C, u8)]
     #[derive(Clone)]
@@ -4319,6 +4361,54 @@ mod dll {
         pub blur_radius: AzPixelValueNoPercent,
         pub spread_radius: AzPixelValueNoPercent,
         pub clip_mode: AzBoxShadowClipMode,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleBlur` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub struct AzStyleBlur {
+        pub width: AzPixelValue,
+        pub height: AzPixelValue,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleColorMatrix` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub struct AzStyleColorMatrix {
+        pub matrix: [AzFloatValue;20],
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleFilterOffset` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub struct AzStyleFilterOffset {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+    }
+
+    /// Re-export of rust-allocated (stack based) `StyleCompositeFilter` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleCompositeFilter {
+        Over,
+        In,
+        Atop,
+        Out,
+        Xor,
+        Lighter,
+        Arithmetic([AzFloatValue;4]),
     }
 
     /// Re-export of rust-allocated (stack based) `LayoutBottom` struct
@@ -7430,6 +7520,24 @@ mod dll {
         pub current_rect_height: f32,
     }
 
+    /// Re-export of rust-allocated (stack based) `StyleFilter` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleFilter {
+        Blend(AzStyleMixBlendMode),
+        Flood(AzColorU),
+        Blur(AzStyleBlur),
+        Opacity(AzPercentageValue),
+        ColorMatrix(AzStyleColorMatrix),
+        DropShadow(AzStyleBoxShadow),
+        ComponentTransfer,
+        Offset(AzStyleFilterOffset),
+        Composite(AzStyleCompositeFilter),
+    }
+
     /// Re-export of rust-allocated (stack based) `LinearGradient` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -7759,6 +7867,15 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzString {
         pub vec: AzU8Vec,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
+    #[repr(C)]
+    pub struct AzStyleFilterVec {
+        pub(crate) ptr: *const AzStyleFilter,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzStyleFilterVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<InputConnection>`
@@ -10461,6 +10578,7 @@ mod dll {
         pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzStyleFilterVec_delete(_:  &mut AzStyleFilterVec);
         pub(crate) fn AzLogicalRectVec_delete(_:  &mut AzLogicalRectVec);
         pub(crate) fn AzNodeTypeIdInfoMapVec_delete(_:  &mut AzNodeTypeIdInfoMapVec);
         pub(crate) fn AzInputOutputTypeIdInfoMapVec_delete(_:  &mut AzInputOutputTypeIdInfoMapVec);
@@ -12530,6 +12648,24 @@ pub mod css {
     /// `StyleBoxShadow` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleBoxShadow as StyleBoxShadow;
+    /// `StyleMixBlendMode` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleMixBlendMode as StyleMixBlendMode;
+    /// `StyleFilter` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFilter as StyleFilter;
+    /// `StyleBlur` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleBlur as StyleBlur;
+    /// `StyleColorMatrix` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleColorMatrix as StyleColorMatrix;
+    /// `StyleFilterOffset` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFilterOffset as StyleFilterOffset;
+    /// `StyleCompositeFilter` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleCompositeFilter as StyleCompositeFilter;
     /// `LayoutAlignContent` struct
     
 #[doc(inline)] pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
@@ -17142,7 +17278,10 @@ pub mod vec {
             vec.into()
             // v dropped here
         }
-    }    /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
+    }    /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
+    
+#[doc(inline)] pub use crate::dll::AzStyleFilterVec as StyleFilterVec;
+    /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
     
 #[doc(inline)] pub use crate::dll::AzLogicalRectVec as LogicalRectVec;
     /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
@@ -17349,6 +17488,12 @@ pub mod vec {
     /// `StyleFontFamilyVecDestructorType` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    /// `StyleFilterVecDestructor` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructor as StyleFilterVecDestructor;
+    /// `StyleFilterVecDestructorType` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructorType as StyleFilterVecDestructorType;
     /// `LogicalRectVecDestructor` struct
     
 #[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructor as LogicalRectVecDestructor;

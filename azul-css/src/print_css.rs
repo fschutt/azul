@@ -4,6 +4,42 @@ use alloc::vec::Vec;
 use crate::css_properties::*;
 use crate::css::PrintAsCssValue;
 
+impl PrintAsCssValue for StyleFilter {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            StyleFilter::Blend(mode) => format!("blend({})", mode.print_as_css_value()),
+            StyleFilter::Flood(c) => format!("flood({})", c),
+            StyleFilter::Blur(c) => format!("blur({} {})", c.width, c.height),
+            StyleFilter::Opacity(c) => format!("opacity({})", c),
+            StyleFilter::ColorMatrix(c) => format!("color-matrix({})", c.matrix.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join(", ")),
+            StyleFilter::DropShadow(shadow) => format!("drop-shadow({})", shadow.print_as_css_value()),
+            StyleFilter::ComponentTransfer => format!("component-transfer"),
+            StyleFilter::Offset(o) => format!("offset({}, {})", o.x, o.y),
+            StyleFilter::Composite(c) => format!("composite({})", c.print_as_css_value()),
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleCompositeFilter {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            StyleCompositeFilter::Over => format!("over"),
+            StyleCompositeFilter::In => format!("in"),
+            StyleCompositeFilter::Atop => format!("atop"),
+            StyleCompositeFilter::Out => format!("out"),
+            StyleCompositeFilter::Xor => format!("xor"),
+            StyleCompositeFilter::Lighter => format!("lighter"),
+            StyleCompositeFilter::Arithmetic(fv) => format!("arithmetic({})", fv.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join(", ")),
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleMixBlendMode {
+    fn print_as_css_value(&self) -> String {
+        format!("{}", self)
+    }
+}
+
 impl PrintAsCssValue for StyleTextColor {
     fn print_as_css_value(&self) -> String {
         self.inner.to_hash()
@@ -259,6 +295,12 @@ impl PrintAsCssValue for LayoutAlignContent {
             LayoutAlignContent::SpaceBetween => "space-between",
             LayoutAlignContent::SpaceAround => "space-around",
         })
+    }
+}
+
+impl PrintAsCssValue for StyleFilterVec {
+    fn print_as_css_value(&self) -> String {
+        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
     }
 }
 

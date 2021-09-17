@@ -16,6 +16,7 @@ use azul_css::{
     BackgroundPositionHorizontal, BackgroundPositionVertical, ScrollbarStyle,
     RadialGradientSize, AzString, NormalizedLinearColorStop, NormalizedRadialColorStop,
 
+    StyleFilter, StyleMixBlendMode,
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlign,
     StyleLetterSpacing, StyleLineHeight, StyleWordSpacing, StyleTabWidth,
     StyleCursor, StyleBackgroundContent, StyleBackgroundPosition, StyleBackgroundSize,
@@ -27,7 +28,7 @@ use azul_css::{
     LayoutBorderLeftWidth, LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin,
     StylePerspectiveOrigin, StyleBackfaceVisibility, StyleOpacity, StyleTransformVec,
     StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundSizeVec,
-    StyleBackgroundRepeatVec, StyleFontFamilyVec,
+    StyleBackgroundRepeatVec, StyleFontFamilyVec, StyleFilterVec,
 
     LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
     LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
@@ -288,6 +289,11 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             TransformOrigin             => parse_style_transform_origin(value)?.into(),
             PerspectiveOrigin           => parse_style_perspective_origin(value)?.into(),
             BackfaceVisibility          => parse_style_backface_visibility(value)?.into(),
+
+            MixBlendMode                => parse_style_mix_blend_mode(value)?.into(),
+            Filter                      => CssProperty::Filter(CssPropertyValue::Exact(parse_style_filter_vec(value)?)).into(),
+            BackdropFilter              => CssProperty::BackdropFilter(CssPropertyValue::Exact(parse_style_filter_vec(value)?)).into(),
+            TextShadow                  => CssProperty::TextShadow(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
         }
     })
 }
@@ -564,6 +570,7 @@ pub enum CssParsingError<'a> {
     PerspectiveOriginParseError(CssStylePerspectiveOriginParseError<'a>),
     Opacity(OpacityParseError<'a>),
     Scrollbar(CssScrollbarStyleParseError<'a>),
+    Filter(CssStyleFilterParseError<'a>),
 }
 
 impl_debug_as_display!(CssParsingError<'a>);
@@ -588,6 +595,7 @@ impl_display!{ CssParsingError<'a>, {
     PerspectiveOriginParseError(e) => format!("{}", e),
     Opacity(e) => format!("{}", e),
     Scrollbar(e) => format!("{}", e),
+    Filter(e) => format!("{}", e),
 }}
 
 impl_from!(CssBorderParseError<'a>, CssParsingError::CssBorderParseError);
@@ -609,6 +617,7 @@ impl_from!(CssStyleTransformOriginParseError<'a>, CssParsingError::TransformOrig
 impl_from!(CssStylePerspectiveOriginParseError<'a>, CssParsingError::PerspectiveOriginParseError);
 impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
 impl_from!(CssScrollbarStyleParseError<'a>, CssParsingError::Scrollbar);
+impl_from!(CssStyleFilterParseError<'a>, CssParsingError::Filter);
 
 impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     fn from(e: PercentageParseError) -> Self {
@@ -1884,6 +1893,233 @@ pub fn parse_scrollbar_style<'a>(input: &'a str) -> Result<ScrollbarStyle, CssSc
 }
 
 #[derive(Clone, PartialEq)]
+pub enum CssStyleFilterParseError<'a> {
+    InvalidFilter(&'a str),
+    InvalidParenthesis(ParenthesisParseError<'a>),
+    Shadow(CssShadowParseError<'a>),
+    BlendMode(InvalidValueErr<'a>),
+    Color(CssColorParseError<'a>),
+    Opacity(PercentageParseError),
+    BlurError(CssStyleBlurParseError<'a>),
+    ColorMatrixError(CssStyleColorMatrixParseError<'a>),
+    FilterOffsetError(CssStyleFilterOffsetParseError<'a>),
+    CompositeFilterError(CssStyleCompositeFilterParseError<'a>),
+}
+
+impl_debug_as_display!(CssStyleFilterParseError<'a>);
+impl_display!{ CssStyleFilterParseError<'a>, {
+    InvalidFilter(e) => format!("Invalid filter property: \"{}\"", e),
+    InvalidParenthesis(e) => format!("Invalid filter property - parenthesis error: {}", e),
+    Shadow(e) => format!("Error parsing drop-shadow() contents: {}", e),
+    BlendMode(e) => format!("Error parsing blend() contents: invalid value \"{}\"", e.0),
+    Color(e) => format!("Error parsing flood() contents: {}", e),
+    Opacity(e) => format!("Error parsing opacity() contents: {}", e),
+    BlurError(e) => format!("Error parsing blur() contents: {}", e),
+    ColorMatrixError(e) => format!("Error parsing color-matrix() contents: {}", e),
+    FilterOffsetError(e) => format!("Error parsing offset() contents: {}", e),
+    CompositeFilterError(e) => format!("Error parsing composite() contents: {}", e),
+}}
+
+impl_from!(ParenthesisParseError<'a>, CssStyleFilterParseError::InvalidParenthesis);
+impl_from!(InvalidValueErr<'a>, CssStyleFilterParseError::BlendMode);
+impl_from!(CssStyleBlurParseError<'a>, CssStyleFilterParseError::BlurError);
+impl_from!(CssColorParseError<'a>, CssStyleFilterParseError::Color);
+impl_from!(CssStyleColorMatrixParseError<'a>, CssStyleFilterParseError::ColorMatrixError);
+impl_from!(CssStyleFilterOffsetParseError<'a>, CssStyleFilterParseError::FilterOffsetError);
+impl_from!(CssStyleCompositeFilterParseError<'a>, CssStyleFilterParseError::CompositeFilterError);
+impl_from!(CssShadowParseError<'a>, CssStyleFilterParseError::Shadow);
+
+impl<'a> From<PercentageParseError> for CssStyleFilterParseError<'a> {
+    fn from(p: PercentageParseError) -> CssStyleFilterParseError<'a> {
+        CssStyleFilterParseError::Opacity(p)
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum CssStyleBlurParseError<'a> {
+    Invalid(&'a str),
+    Pixel(CssPixelValueParseError<'a>),
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+}
+
+impl_debug_as_display!(CssStyleBlurParseError<'a>);
+impl_display!{ CssStyleBlurParseError<'a>, {
+    Invalid(s) => format!("Invalid: {}", s),
+    Pixel(e) => format!("Error parsing pixel value: {}", e),
+    WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
+}}
+impl_from!(CssPixelValueParseError<'a>, CssStyleBlurParseError::Pixel);
+
+#[derive(Clone, PartialEq)]
+pub enum CssStyleColorMatrixParseError<'a> {
+    Invalid(&'a str),
+    Float(ParseFloatError),
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+}
+
+impl_debug_as_display!(CssStyleColorMatrixParseError<'a>);
+impl_display!{ CssStyleColorMatrixParseError<'a>, {
+    Invalid(s) => format!("Invalid: {}", s),
+    Float(e) => format!("Error parsing floating-point value: {}", e),
+    WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
+}}
+
+impl<'a> From<ParseFloatError> for CssStyleColorMatrixParseError<'a> {
+    fn from(p: ParseFloatError) -> CssStyleColorMatrixParseError<'a> {
+        CssStyleColorMatrixParseError::Float(p)
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum CssStyleFilterOffsetParseError<'a> {
+    Invalid(&'a str),
+    Pixel(CssPixelValueParseError<'a>),
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+}
+
+impl_debug_as_display!(CssStyleFilterOffsetParseError<'a>);
+impl_display!{ CssStyleFilterOffsetParseError<'a>, {
+    Invalid(s) => format!("Invalid: {}", s),
+    Pixel(e) => format!("Error parsing pixel value: {}", e),
+    WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
+}}
+impl_from!(CssPixelValueParseError<'a>, CssStyleFilterOffsetParseError::Pixel);
+
+#[derive(Clone, PartialEq)]
+pub enum CssStyleCompositeFilterParseError<'a> {
+    Invalid(&'a str),
+    Float(ParseFloatError),
+    InvalidParenthesis(ParenthesisParseError<'a>),
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+}
+
+impl_debug_as_display!(CssStyleCompositeFilterParseError<'a>);
+impl_display!{ CssStyleCompositeFilterParseError<'a>, {
+    Invalid(s) => format!("Invalid: {}", s),
+    Float(e) => format!("Error parsing floating-point value: {}", e),
+    InvalidParenthesis(e) => format!("Invalid arithmetic() property - parenthesis error: {}", e),
+    WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
+}}
+impl_from!(ParenthesisParseError<'a>, CssStyleCompositeFilterParseError::InvalidParenthesis);
+
+impl<'a> From<ParseFloatError> for CssStyleCompositeFilterParseError<'a> {
+    fn from(p: ParseFloatError) -> CssStyleCompositeFilterParseError<'a> {
+        CssStyleCompositeFilterParseError::Float(p)
+    }
+}
+
+// parses multiple transform values
+pub fn parse_style_filter_vec<'a>(input: &'a str)
+-> Result<StyleFilterVec, CssStyleFilterParseError<'a>>
+{
+    let comma_separated_items = split_string_respect_comma(input);
+    let vec = split_string_respect_comma(input).iter().map(|i| parse_style_filter(i)).collect::<Result<Vec<_>, _>>()?;
+    Ok(vec.into())
+}
+
+pub fn parse_style_filter<'a>(input: &'a str)
+-> Result<StyleFilter, CssStyleFilterParseError<'a>>
+{
+
+    use azul_css::{StyleBlur, StyleColorMatrix, StyleFilterOffset, StyleCompositeFilter};
+
+    let (filter_type, filter_values) = parse_parentheses(input, &[
+        "blend",
+        "flood",
+        "blur",
+        "opacity",
+        "color-matrix",
+        "drop-shadow",
+        "component-transfer",
+        "offset",
+        "composite",
+    ])?;
+
+    fn parse_style_blur<'a>(input: &'a str) -> Result<StyleBlur, CssStyleBlurParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let width = parse_pixel_value(iter.next().ok_or(CssStyleBlurParseError::WrongNumberOfComponents { expected: 2, got: 0, input })?)?;
+        let height = parse_pixel_value(iter.next().ok_or(CssStyleBlurParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+
+        Ok(StyleBlur { width, height })
+    }
+
+    fn parse_color_matrix<'a>(input: &'a str) -> Result<StyleColorMatrix, CssStyleColorMatrixParseError<'a>> {
+
+        let input = input.trim();
+        let mut iter = input.split(",");
+        let mut array = [FloatValue::const_new(0);20];
+
+        for (val_idx, val) in array.iter_mut().enumerate() {
+            *val = parse_float_value(iter.next().ok_or(CssStyleColorMatrixParseError::WrongNumberOfComponents { expected: 20, got: val_idx, input })?)?;
+        }
+
+        Ok(StyleColorMatrix { matrix: array })
+
+    }
+
+    fn parse_filter_offset<'a>(input: &'a str) -> Result<StyleFilterOffset, CssStyleFilterOffsetParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x = parse_pixel_value(iter.next().ok_or(CssStyleFilterOffsetParseError::WrongNumberOfComponents { expected: 2, got: 0, input })?)?;
+        let y = parse_pixel_value(iter.next().ok_or(CssStyleFilterOffsetParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+
+        Ok(StyleFilterOffset { x, y })
+    }
+
+    fn parse_filter_composite<'a>(input: &'a str) -> Result<StyleCompositeFilter, CssStyleCompositeFilterParseError<'a>> {
+
+        fn parse_arithmetic_composite_filter<'a>(input: &'a str) -> Result<[FloatValue;4], CssStyleCompositeFilterParseError<'a>> {
+            let input = input.trim();
+            let mut iter = input.split(",");
+            let mut array = [FloatValue::const_new(0);4];
+
+            for (val_idx, val) in array.iter_mut().enumerate() {
+                *val = parse_float_value(iter.next().ok_or(CssStyleCompositeFilterParseError::WrongNumberOfComponents { expected: 4, got: val_idx, input })?)?;
+            }
+
+            Ok(array)
+        }
+
+        let (filter_composite_type, filter_composite_values) = parse_parentheses(input, &[
+            "over",
+            "in",
+            "atop",
+            "out",
+            "xor",
+            "lighter",
+            "arithmetic",
+        ])?;
+
+        match filter_composite_type {
+            "over" => Ok(StyleCompositeFilter::Over),
+            "in" => Ok(StyleCompositeFilter::In),
+            "atop" => Ok(StyleCompositeFilter::Atop),
+            "out" => Ok(StyleCompositeFilter::Out),
+            "xor" => Ok(StyleCompositeFilter::Xor),
+            "lighter" => Ok(StyleCompositeFilter::Lighter),
+            "arithmetic" => Ok(StyleCompositeFilter::Arithmetic(parse_arithmetic_composite_filter(filter_composite_values)?)),
+            _ => unreachable!(),
+        }
+    }
+
+    match filter_type {
+        "blend" => Ok(StyleFilter::Blend(parse_style_mix_blend_mode(filter_values)?)),
+        "flood" => Ok(StyleFilter::Flood(parse_css_color(filter_values)?)),
+        "blur" => Ok(StyleFilter::Blur(parse_style_blur(filter_values)?)),
+        "opacity" => Ok(StyleFilter::Opacity(parse_percentage_value(filter_values)?)),
+        "color-matrix" => Ok(StyleFilter::ColorMatrix(parse_color_matrix(filter_values)?)),
+        "drop-shadow" => Ok(StyleFilter::DropShadow(parse_style_box_shadow(filter_values)?)),
+        "component-transfer" => Ok(StyleFilter::ComponentTransfer),
+        "offset" => Ok(StyleFilter::Offset(parse_filter_offset(filter_values)?)),
+        "composite" => Ok(StyleFilter::Composite(parse_filter_composite(filter_values)?)),
+        _ => unreachable!(),
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub enum CssStyleTransformParseError<'a> {
     InvalidTransform(&'a str),
     InvalidParenthesis(ParenthesisParseError<'a>),
@@ -2864,6 +3100,24 @@ pub fn parse_parentheses<'a>(
 
     Ok((validated_stopword, &input[(first_open_brace + 1)..last_closing_brace]))
 }
+
+multi_type_parser!(parse_style_mix_blend_mode, StyleMixBlendMode,
+    ["normal", Normal],
+    ["multiply", Multiply],
+    ["screen", Screen],
+    ["overlay", Overlay],
+    ["darken", Darken],
+    ["lighten", Lighten],
+    ["color-dodge", ColorDodge],
+    ["color-burn", ColorBurn],
+    ["hard-light", HardLight],
+    ["soft-light", SoftLight],
+    ["difference", Difference],
+    ["exclusion", Exclusion],
+    ["hue", Hue],
+    ["saturation", Saturation],
+    ["color", Color],
+    ["luminosity", Luminosity]);
 
 multi_type_parser!(parse_style_border_style, BorderStyle,
     ["none", None],

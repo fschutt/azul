@@ -1136,15 +1136,19 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
                         code += indent_str + "    " + variant_name + "(" + variant_type + "),\r\n"
                     else:
                         analyzed_arg_type = analyze_type(variant_type)
-                        field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
-                        if field_type_class_path is None:
-                            print("variant_type not found: " + variant_type + " in " + struct_name)
-                        found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
-                        found_c_is_enum = "enum" in found_c.keys()
-                        variant_postfix = wrapper_postfix
-                        if not(found_c_is_enum):
-                            variant_postfix = ""
-                        code += indent_str + "    "  + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + variant_postfix + analyzed_arg_type[2] + "),\r\n"
+                        if is_primitive_arg(analyzed_arg_type[1]):
+                            # array of [f32;x]
+                            code += indent_str + "    "  + variant_name + "(" + analyzed_arg_type[0] + analyzed_arg_type[1] + analyzed_arg_type[2] + "),\r\n"
+                        else:
+                            field_type_class_path = search_for_class_by_class_name(api_data, analyzed_arg_type[1])
+                            if field_type_class_path is None:
+                                print("variant_type not found: " + variant_type + " in " + struct_name)
+                            found_c = get_class(api_data, field_type_class_path[0], field_type_class_path[1])
+                            found_c_is_enum = "enum" in found_c.keys()
+                            variant_postfix = wrapper_postfix
+                            if not(found_c_is_enum):
+                                variant_postfix = ""
+                            code += indent_str + "    "  + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + variant_postfix + analyzed_arg_type[2] + "),\r\n"
                 else:
                     code += indent_str + "    "  + variant_name + ",\r\n"
             code += indent_str + "}\r\n\r\n"

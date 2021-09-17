@@ -184,6 +184,10 @@ struct AzStyleFontFamilyVec;
 typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
 
+struct AzStyleFilterVec;
+typedef struct AzStyleFilterVec AzStyleFilterVec;
+typedef void (*AzStyleFilterVecDestructorType)(AzStyleFilterVec* restrict A);
+
 struct AzLogicalRectVec;
 typedef struct AzLogicalRectVec AzLogicalRectVec;
 typedef void (*AzLogicalRectVecDestructorType)(AzLogicalRectVec* restrict A);
@@ -1308,6 +1312,10 @@ enum AzCssPropertyType {
    AzCssPropertyType_TransformOrigin,
    AzCssPropertyType_PerspectiveOrigin,
    AzCssPropertyType_BackfaceVisibility,
+   AzCssPropertyType_BlendMode,
+   AzCssPropertyType_Filter,
+   AzCssPropertyType_BackdropFilter,
+   AzCssPropertyType_TextShadow,
 };
 typedef enum AzCssPropertyType AzCssPropertyType;
 
@@ -1337,6 +1345,26 @@ enum AzBoxShadowClipMode {
    AzBoxShadowClipMode_Inset,
 };
 typedef enum AzBoxShadowClipMode AzBoxShadowClipMode;
+
+enum AzStyleMixBlendMode {
+   AzStyleMixBlendMode_Normal,
+   AzStyleMixBlendMode_Multiply,
+   AzStyleMixBlendMode_Screen,
+   AzStyleMixBlendMode_Overlay,
+   AzStyleMixBlendMode_Darken,
+   AzStyleMixBlendMode_Lighten,
+   AzStyleMixBlendMode_ColorDodge,
+   AzStyleMixBlendMode_ColorBurn,
+   AzStyleMixBlendMode_HardLight,
+   AzStyleMixBlendMode_SoftLight,
+   AzStyleMixBlendMode_Difference,
+   AzStyleMixBlendMode_Exclusion,
+   AzStyleMixBlendMode_Hue,
+   AzStyleMixBlendMode_Saturation,
+   AzStyleMixBlendMode_Color,
+   AzStyleMixBlendMode_Luminosity,
+};
+typedef enum AzStyleMixBlendMode AzStyleMixBlendMode;
 
 enum AzLayoutAlignContent {
    AzLayoutAlignContent_Stretch,
@@ -2210,6 +2238,26 @@ union AzStyleFontFamilyVecDestructor {
     AzStyleFontFamilyVecDestructorVariant_External External;
 };
 typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
+
+enum AzStyleFilterVecDestructorTag {
+   AzStyleFilterVecDestructorTag_DefaultRust,
+   AzStyleFilterVecDestructorTag_NoDestructor,
+   AzStyleFilterVecDestructorTag_External,
+};
+typedef enum AzStyleFilterVecDestructorTag AzStyleFilterVecDestructorTag;
+
+struct AzStyleFilterVecDestructorVariant_DefaultRust { AzStyleFilterVecDestructorTag tag; };
+typedef struct AzStyleFilterVecDestructorVariant_DefaultRust AzStyleFilterVecDestructorVariant_DefaultRust;
+struct AzStyleFilterVecDestructorVariant_NoDestructor { AzStyleFilterVecDestructorTag tag; };
+typedef struct AzStyleFilterVecDestructorVariant_NoDestructor AzStyleFilterVecDestructorVariant_NoDestructor;
+struct AzStyleFilterVecDestructorVariant_External { AzStyleFilterVecDestructorTag tag; AzStyleFilterVecDestructorType payload; };
+typedef struct AzStyleFilterVecDestructorVariant_External AzStyleFilterVecDestructorVariant_External;
+union AzStyleFilterVecDestructor {
+    AzStyleFilterVecDestructorVariant_DefaultRust DefaultRust;
+    AzStyleFilterVecDestructorVariant_NoDestructor NoDestructor;
+    AzStyleFilterVecDestructorVariant_External External;
+};
+typedef union AzStyleFilterVecDestructor AzStyleFilterVecDestructor;
 
 enum AzLogicalRectVecDestructorTag {
    AzLogicalRectVecDestructorTag_DefaultRust,
@@ -3946,6 +3994,59 @@ struct AzStyleBoxShadow {
     AzBoxShadowClipMode clip_mode;
 };
 typedef struct AzStyleBoxShadow AzStyleBoxShadow;
+
+struct AzStyleBlur {
+    AzPixelValue width;
+    AzPixelValue height;
+};
+typedef struct AzStyleBlur AzStyleBlur;
+
+struct AzStyleColorMatrix {
+    AzFloatValue[;20] matrix;
+};
+typedef struct AzStyleColorMatrix AzStyleColorMatrix;
+
+struct AzStyleFilterOffset {
+    AzPixelValue x;
+    AzPixelValue y;
+};
+typedef struct AzStyleFilterOffset AzStyleFilterOffset;
+
+enum AzStyleCompositeFilterTag {
+   AzStyleCompositeFilterTag_Over,
+   AzStyleCompositeFilterTag_In,
+   AzStyleCompositeFilterTag_Atop,
+   AzStyleCompositeFilterTag_Out,
+   AzStyleCompositeFilterTag_Xor,
+   AzStyleCompositeFilterTag_Lighter,
+   AzStyleCompositeFilterTag_Arithmetic,
+};
+typedef enum AzStyleCompositeFilterTag AzStyleCompositeFilterTag;
+
+struct AzStyleCompositeFilterVariant_Over { AzStyleCompositeFilterTag tag; };
+typedef struct AzStyleCompositeFilterVariant_Over AzStyleCompositeFilterVariant_Over;
+struct AzStyleCompositeFilterVariant_In { AzStyleCompositeFilterTag tag; };
+typedef struct AzStyleCompositeFilterVariant_In AzStyleCompositeFilterVariant_In;
+struct AzStyleCompositeFilterVariant_Atop { AzStyleCompositeFilterTag tag; };
+typedef struct AzStyleCompositeFilterVariant_Atop AzStyleCompositeFilterVariant_Atop;
+struct AzStyleCompositeFilterVariant_Out { AzStyleCompositeFilterTag tag; };
+typedef struct AzStyleCompositeFilterVariant_Out AzStyleCompositeFilterVariant_Out;
+struct AzStyleCompositeFilterVariant_Xor { AzStyleCompositeFilterTag tag; };
+typedef struct AzStyleCompositeFilterVariant_Xor AzStyleCompositeFilterVariant_Xor;
+struct AzStyleCompositeFilterVariant_Lighter { AzStyleCompositeFilterTag tag; };
+typedef struct AzStyleCompositeFilterVariant_Lighter AzStyleCompositeFilterVariant_Lighter;
+struct AzStyleCompositeFilterVariant_Arithmetic { AzStyleCompositeFilterTag tag; AzFloatValue payload[4]; };
+typedef struct AzStyleCompositeFilterVariant_Arithmetic AzStyleCompositeFilterVariant_Arithmetic;
+union AzStyleCompositeFilter {
+    AzStyleCompositeFilterVariant_Over Over;
+    AzStyleCompositeFilterVariant_In In;
+    AzStyleCompositeFilterVariant_Atop Atop;
+    AzStyleCompositeFilterVariant_Out Out;
+    AzStyleCompositeFilterVariant_Xor Xor;
+    AzStyleCompositeFilterVariant_Lighter Lighter;
+    AzStyleCompositeFilterVariant_Arithmetic Arithmetic;
+};
+typedef union AzStyleCompositeFilter AzStyleCompositeFilter;
 
 struct AzLayoutBottom {
     AzPixelValue inner;
@@ -7752,6 +7853,50 @@ struct AzInterpolateContext {
 };
 typedef struct AzInterpolateContext AzInterpolateContext;
 
+enum AzStyleFilterTag {
+   AzStyleFilterTag_Blend,
+   AzStyleFilterTag_Flood,
+   AzStyleFilterTag_Blur,
+   AzStyleFilterTag_Opacity,
+   AzStyleFilterTag_ColorMatrix,
+   AzStyleFilterTag_DropShadow,
+   AzStyleFilterTag_ComponentTransfer,
+   AzStyleFilterTag_Offset,
+   AzStyleFilterTag_Composite,
+};
+typedef enum AzStyleFilterTag AzStyleFilterTag;
+
+struct AzStyleFilterVariant_Blend { AzStyleFilterTag tag; AzStyleMixBlendMode payload; };
+typedef struct AzStyleFilterVariant_Blend AzStyleFilterVariant_Blend;
+struct AzStyleFilterVariant_Flood { AzStyleFilterTag tag; AzColorU payload; };
+typedef struct AzStyleFilterVariant_Flood AzStyleFilterVariant_Flood;
+struct AzStyleFilterVariant_Blur { AzStyleFilterTag tag; AzStyleBlur payload; };
+typedef struct AzStyleFilterVariant_Blur AzStyleFilterVariant_Blur;
+struct AzStyleFilterVariant_Opacity { AzStyleFilterTag tag; AzPercentageValue payload; };
+typedef struct AzStyleFilterVariant_Opacity AzStyleFilterVariant_Opacity;
+struct AzStyleFilterVariant_ColorMatrix { AzStyleFilterTag tag; AzStyleColorMatrix payload; };
+typedef struct AzStyleFilterVariant_ColorMatrix AzStyleFilterVariant_ColorMatrix;
+struct AzStyleFilterVariant_DropShadow { AzStyleFilterTag tag; AzStyleBoxShadow payload; };
+typedef struct AzStyleFilterVariant_DropShadow AzStyleFilterVariant_DropShadow;
+struct AzStyleFilterVariant_ComponentTransfer { AzStyleFilterTag tag; };
+typedef struct AzStyleFilterVariant_ComponentTransfer AzStyleFilterVariant_ComponentTransfer;
+struct AzStyleFilterVariant_Offset { AzStyleFilterTag tag; AzStyleFilterOffset payload; };
+typedef struct AzStyleFilterVariant_Offset AzStyleFilterVariant_Offset;
+struct AzStyleFilterVariant_Composite { AzStyleFilterTag tag; AzStyleCompositeFilter payload; };
+typedef struct AzStyleFilterVariant_Composite AzStyleFilterVariant_Composite;
+union AzStyleFilter {
+    AzStyleFilterVariant_Blend Blend;
+    AzStyleFilterVariant_Flood Flood;
+    AzStyleFilterVariant_Blur Blur;
+    AzStyleFilterVariant_Opacity Opacity;
+    AzStyleFilterVariant_ColorMatrix ColorMatrix;
+    AzStyleFilterVariant_DropShadow DropShadow;
+    AzStyleFilterVariant_ComponentTransfer ComponentTransfer;
+    AzStyleFilterVariant_Offset Offset;
+    AzStyleFilterVariant_Composite Composite;
+};
+typedef union AzStyleFilter AzStyleFilter;
+
 struct AzLinearGradient {
     AzDirection direction;
     AzExtendMode extend_mode;
@@ -8143,6 +8288,14 @@ struct AzString {
     AzU8Vec vec;
 };
 typedef struct AzString AzString;
+
+struct AzStyleFilterVec {
+    AzStyleFilter* ptr;
+    size_t len;
+    size_t cap;
+    AzStyleFilterVecDestructor destructor;
+};
+typedef struct AzStyleFilterVec AzStyleFilterVec;
 
 struct AzInputConnectionVec {
     AzInputConnection* ptr;
@@ -10541,6 +10694,9 @@ typedef struct AzCss AzCss;
 #define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
 #define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
 #define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+#define AzStyleFilterVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFilterVecDestructorTag_DefaultRust } }
+#define AzStyleFilterVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFilterVecDestructorTag_NoDestructor } }
+#define AzStyleFilterVecDestructor_External(v) { .External = { .tag = AzStyleFilterVecDestructorTag_External, .payload = v } }
 #define AzLogicalRectVecDestructor_DefaultRust { .DefaultRust = { .tag = AzLogicalRectVecDestructorTag_DefaultRust } }
 #define AzLogicalRectVecDestructor_NoDestructor { .NoDestructor = { .tag = AzLogicalRectVecDestructorTag_NoDestructor } }
 #define AzLogicalRectVecDestructor_External(v) { .External = { .tag = AzLogicalRectVecDestructorTag_External, .payload = v } }
@@ -10777,6 +10933,13 @@ typedef struct AzCss AzCss;
 #define AzCssNthChildSelector_Even { .Even = { .tag = AzCssNthChildSelectorTag_Even } }
 #define AzCssNthChildSelector_Odd { .Odd = { .tag = AzCssNthChildSelectorTag_Odd } }
 #define AzCssNthChildSelector_Pattern(v) { .Pattern = { .tag = AzCssNthChildSelectorTag_Pattern, .payload = v } }
+#define AzStyleCompositeFilter_Over { .Over = { .tag = AzStyleCompositeFilterTag_Over } }
+#define AzStyleCompositeFilter_In { .In = { .tag = AzStyleCompositeFilterTag_In } }
+#define AzStyleCompositeFilter_Atop { .Atop = { .tag = AzStyleCompositeFilterTag_Atop } }
+#define AzStyleCompositeFilter_Out { .Out = { .tag = AzStyleCompositeFilterTag_Out } }
+#define AzStyleCompositeFilter_Xor { .Xor = { .tag = AzStyleCompositeFilterTag_Xor } }
+#define AzStyleCompositeFilter_Lighter { .Lighter = { .tag = AzStyleCompositeFilterTag_Lighter } }
+#define AzStyleCompositeFilter_Arithmetic(v) { .Arithmetic = { .tag = AzStyleCompositeFilterTag_Arithmetic, .payload = v } }
 #define AzDirection_Angle(v) { .Angle = { .tag = AzDirectionTag_Angle, .payload = v } }
 #define AzDirection_FromTo(v) { .FromTo = { .tag = AzDirectionTag_FromTo, .payload = v } }
 #define AzBackgroundPositionHorizontal_Left { .Left = { .tag = AzBackgroundPositionHorizontalTag_Left } }
@@ -11226,6 +11389,15 @@ typedef struct AzCss AzCss;
 #define AzAnimationInterpolationFunction_EaseOut { .EaseOut = { .tag = AzAnimationInterpolationFunctionTag_EaseOut } }
 #define AzAnimationInterpolationFunction_EaseInOut { .EaseInOut = { .tag = AzAnimationInterpolationFunctionTag_EaseInOut } }
 #define AzAnimationInterpolationFunction_CubicBezier(v) { .CubicBezier = { .tag = AzAnimationInterpolationFunctionTag_CubicBezier, .payload = v } }
+#define AzStyleFilter_Blend(v) { .Blend = { .tag = AzStyleFilterTag_Blend, .payload = v } }
+#define AzStyleFilter_Flood(v) { .Flood = { .tag = AzStyleFilterTag_Flood, .payload = v } }
+#define AzStyleFilter_Blur(v) { .Blur = { .tag = AzStyleFilterTag_Blur, .payload = v } }
+#define AzStyleFilter_Opacity(v) { .Opacity = { .tag = AzStyleFilterTag_Opacity, .payload = v } }
+#define AzStyleFilter_ColorMatrix(v) { .ColorMatrix = { .tag = AzStyleFilterTag_ColorMatrix, .payload = v } }
+#define AzStyleFilter_DropShadow(v) { .DropShadow = { .tag = AzStyleFilterTag_DropShadow, .payload = v } }
+#define AzStyleFilter_ComponentTransfer { .ComponentTransfer = { .tag = AzStyleFilterTag_ComponentTransfer } }
+#define AzStyleFilter_Offset(v) { .Offset = { .tag = AzStyleFilterTag_Offset, .payload = v } }
+#define AzStyleFilter_Composite(v) { .Composite = { .tag = AzStyleFilterTag_Composite, .payload = v } }
 #define AzStyleTransform_Matrix(v) { .Matrix = { .tag = AzStyleTransformTag_Matrix, .payload = v } }
 #define AzStyleTransform_Matrix3D(v) { .Matrix3D = { .tag = AzStyleTransformTag_Matrix3D, .payload = v } }
 #define AzStyleTransform_Translate(v) { .Translate = { .tag = AzStyleTransformTag_Translate, .payload = v } }
@@ -11529,6 +11701,10 @@ typedef struct AzCss AzCss;
 #define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
 #define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
 #define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
+AzStyleFilter AzStyleFilterVecArray[] = {};
+#define AzStyleFilterVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleFilter), .cap = sizeof(v) / sizeof(AzStyleFilter), .destructor = { .NoDestructor = { .tag = AzStyleFilterVecDestructorTag_NoDestructor, }, }, }
+#define AzStyleFilterVec_empty { .ptr = &AzStyleFilterVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleFilterVecDestructorTag_NoDestructor, }, }, }
+
 AzLogicalRect AzLogicalRectVecArray[] = {};
 #define AzLogicalRectVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzLogicalRect), .cap = sizeof(v) / sizeof(AzLogicalRect), .destructor = { .NoDestructor = { .tag = AzLogicalRectVecDestructorTag_NoDestructor, }, }, }
 #define AzLogicalRectVec_empty { .ptr = &AzLogicalRectVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzLogicalRectVecDestructorTag_NoDestructor, }, }, }
@@ -12657,6 +12833,7 @@ extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t ptr, size_t start, size
 extern DLLIMPORT AzString AzString_trim(const AzString* string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(const AzString* string);
 extern DLLIMPORT void AzString_delete(AzString* restrict instance);
+extern DLLIMPORT void AzStyleFilterVec_delete(AzStyleFilterVec* restrict instance);
 extern DLLIMPORT void AzLogicalRectVec_delete(AzLogicalRectVec* restrict instance);
 extern DLLIMPORT void AzNodeTypeIdInfoMapVec_delete(AzNodeTypeIdInfoMapVec* restrict instance);
 extern DLLIMPORT void AzInputOutputTypeIdInfoMapVec_delete(AzInputOutputTypeIdInfoMapVec* restrict instance);
@@ -15006,6 +15183,132 @@ bool AzAnimationInterpolationFunction_matchRefCubicBezier(const AzAnimationInter
 bool AzAnimationInterpolationFunction_matchMutCubicBezier(AzAnimationInterpolationFunction* restrict value, AzSvgCubicCurve* restrict * restrict out) {
     AzAnimationInterpolationFunctionVariant_CubicBezier* restrict casted = (AzAnimationInterpolationFunctionVariant_CubicBezier* restrict)value;
     bool valid = casted->tag == AzAnimationInterpolationFunctionTag_CubicBezier;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefBlend(const AzStyleFilter* value, const AzStyleMixBlendMode** restrict out) {
+    const AzStyleFilterVariant_Blend* casted = (const AzStyleFilterVariant_Blend*)value;
+    bool valid = casted->tag == AzStyleFilterTag_Blend;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutBlend(AzStyleFilter* restrict value, AzStyleMixBlendMode* restrict * restrict out) {
+    AzStyleFilterVariant_Blend* restrict casted = (AzStyleFilterVariant_Blend* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_Blend;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefFlood(const AzStyleFilter* value, const AzColorU** restrict out) {
+    const AzStyleFilterVariant_Flood* casted = (const AzStyleFilterVariant_Flood*)value;
+    bool valid = casted->tag == AzStyleFilterTag_Flood;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutFlood(AzStyleFilter* restrict value, AzColorU* restrict * restrict out) {
+    AzStyleFilterVariant_Flood* restrict casted = (AzStyleFilterVariant_Flood* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_Flood;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefBlur(const AzStyleFilter* value, const AzStyleBlur** restrict out) {
+    const AzStyleFilterVariant_Blur* casted = (const AzStyleFilterVariant_Blur*)value;
+    bool valid = casted->tag == AzStyleFilterTag_Blur;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutBlur(AzStyleFilter* restrict value, AzStyleBlur* restrict * restrict out) {
+    AzStyleFilterVariant_Blur* restrict casted = (AzStyleFilterVariant_Blur* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_Blur;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefOpacity(const AzStyleFilter* value, const AzPercentageValue** restrict out) {
+    const AzStyleFilterVariant_Opacity* casted = (const AzStyleFilterVariant_Opacity*)value;
+    bool valid = casted->tag == AzStyleFilterTag_Opacity;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutOpacity(AzStyleFilter* restrict value, AzPercentageValue* restrict * restrict out) {
+    AzStyleFilterVariant_Opacity* restrict casted = (AzStyleFilterVariant_Opacity* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_Opacity;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefColorMatrix(const AzStyleFilter* value, const AzStyleColorMatrix** restrict out) {
+    const AzStyleFilterVariant_ColorMatrix* casted = (const AzStyleFilterVariant_ColorMatrix*)value;
+    bool valid = casted->tag == AzStyleFilterTag_ColorMatrix;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutColorMatrix(AzStyleFilter* restrict value, AzStyleColorMatrix* restrict * restrict out) {
+    AzStyleFilterVariant_ColorMatrix* restrict casted = (AzStyleFilterVariant_ColorMatrix* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_ColorMatrix;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefDropShadow(const AzStyleFilter* value, const AzStyleBoxShadow** restrict out) {
+    const AzStyleFilterVariant_DropShadow* casted = (const AzStyleFilterVariant_DropShadow*)value;
+    bool valid = casted->tag == AzStyleFilterTag_DropShadow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutDropShadow(AzStyleFilter* restrict value, AzStyleBoxShadow* restrict * restrict out) {
+    AzStyleFilterVariant_DropShadow* restrict casted = (AzStyleFilterVariant_DropShadow* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_DropShadow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefOffset(const AzStyleFilter* value, const AzStyleFilterOffset** restrict out) {
+    const AzStyleFilterVariant_Offset* casted = (const AzStyleFilterVariant_Offset*)value;
+    bool valid = casted->tag == AzStyleFilterTag_Offset;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutOffset(AzStyleFilter* restrict value, AzStyleFilterOffset* restrict * restrict out) {
+    AzStyleFilterVariant_Offset* restrict casted = (AzStyleFilterVariant_Offset* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_Offset;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchRefComposite(const AzStyleFilter* value, const AzStyleCompositeFilter** restrict out) {
+    const AzStyleFilterVariant_Composite* casted = (const AzStyleFilterVariant_Composite*)value;
+    bool valid = casted->tag == AzStyleFilterTag_Composite;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilter_matchMutComposite(AzStyleFilter* restrict value, AzStyleCompositeFilter* restrict * restrict out) {
+    AzStyleFilterVariant_Composite* restrict casted = (AzStyleFilterVariant_Composite* restrict)value;
+    bool valid = casted->tag == AzStyleFilterTag_Composite;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleCompositeFilter_matchRefArithmetic(const AzStyleCompositeFilter* value, const Az[FloatValue;4]** restrict out) {
+    const AzStyleCompositeFilterVariant_Arithmetic* casted = (const AzStyleCompositeFilterVariant_Arithmetic*)value;
+    bool valid = casted->tag == AzStyleCompositeFilterTag_Arithmetic;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleCompositeFilter_matchMutArithmetic(AzStyleCompositeFilter* restrict value, Az[FloatValue;4]* restrict * restrict out) {
+    AzStyleCompositeFilterVariant_Arithmetic* restrict casted = (AzStyleCompositeFilterVariant_Arithmetic* restrict)value;
+    bool valid = casted->tag == AzStyleCompositeFilterTag_Arithmetic;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }
@@ -18044,6 +18347,20 @@ bool AzStyleFontFamilyVecDestructor_matchRefExternal(const AzStyleFontFamilyVecD
 bool AzStyleFontFamilyVecDestructor_matchMutExternal(AzStyleFontFamilyVecDestructor* restrict value, AzStyleFontFamilyVecDestructorType* restrict * restrict out) {
     AzStyleFontFamilyVecDestructorVariant_External* restrict casted = (AzStyleFontFamilyVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzStyleFontFamilyVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilterVecDestructor_matchRefExternal(const AzStyleFilterVecDestructor* value, const AzStyleFilterVecDestructorType** restrict out) {
+    const AzStyleFilterVecDestructorVariant_External* casted = (const AzStyleFilterVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzStyleFilterVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilterVecDestructor_matchMutExternal(AzStyleFilterVecDestructor* restrict value, AzStyleFilterVecDestructorType* restrict * restrict out) {
+    AzStyleFilterVecDestructorVariant_External* restrict casted = (AzStyleFilterVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzStyleFilterVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

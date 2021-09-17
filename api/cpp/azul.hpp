@@ -120,6 +120,9 @@ namespace dll {
     struct StyleFontFamilyVec;
     using StyleFontFamilyVecDestructorType = void(*)(StyleFontFamilyVec* restrict);
     
+    struct StyleFilterVec;
+    using StyleFilterVecDestructorType = void(*)(StyleFilterVec* restrict);
+    
     struct LogicalRectVec;
     using LogicalRectVecDestructorType = void(*)(LogicalRectVec* restrict);
     
@@ -1186,6 +1189,10 @@ namespace dll {
        TransformOrigin,
        PerspectiveOrigin,
        BackfaceVisibility,
+       BlendMode,
+       Filter,
+       BackdropFilter,
+       TextShadow,
     };
     
     struct ColorU {
@@ -1213,6 +1220,25 @@ namespace dll {
     enum class BoxShadowClipMode {
        Outset,
        Inset,
+    };
+    
+    enum class StyleMixBlendMode {
+       Normal,
+       Multiply,
+       Screen,
+       Overlay,
+       Darken,
+       Lighten,
+       ColorDodge,
+       ColorBurn,
+       HardLight,
+       SoftLight,
+       Difference,
+       Exclusion,
+       Hue,
+       Saturation,
+       Color,
+       Luminosity,
     };
     
     enum class LayoutAlignContent {
@@ -2172,6 +2198,22 @@ namespace dll {
         StyleFontFamilyVecDestructorVariant_DefaultRust DefaultRust;
         StyleFontFamilyVecDestructorVariant_NoDestructor NoDestructor;
         StyleFontFamilyVecDestructorVariant_External External;
+    };
+    
+    
+    enum class StyleFilterVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct StyleFilterVecDestructorVariant_DefaultRust { StyleFilterVecDestructorTag tag; };
+    struct StyleFilterVecDestructorVariant_NoDestructor { StyleFilterVecDestructorTag tag; };
+    struct StyleFilterVecDestructorVariant_External { StyleFilterVecDestructorTag tag; StyleFilterVecDestructorType payload; };
+    union StyleFilterVecDestructor {
+        StyleFilterVecDestructorVariant_DefaultRust DefaultRust;
+        StyleFilterVecDestructorVariant_NoDestructor NoDestructor;
+        StyleFilterVecDestructorVariant_External External;
     };
     
     
@@ -3621,6 +3663,54 @@ namespace dll {
         StyleBoxShadow& operator=(const StyleBoxShadow&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         StyleBoxShadow() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
+    
+    struct StyleBlur {
+        PixelValue width;
+        PixelValue height;
+        StyleBlur& operator=(const StyleBlur&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        StyleBlur() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct StyleColorMatrix {
+        FloatValue[;20] matrix;
+        StyleColorMatrix& operator=(const StyleColorMatrix&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        StyleColorMatrix() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct StyleFilterOffset {
+        PixelValue x;
+        PixelValue y;
+        StyleFilterOffset& operator=(const StyleFilterOffset&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        StyleFilterOffset() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    enum class StyleCompositeFilterTag {
+       Over,
+       In,
+       Atop,
+       Out,
+       Xor,
+       Lighter,
+       Arithmetic,
+    };
+    
+    struct StyleCompositeFilterVariant_Over { StyleCompositeFilterTag tag; };
+    struct StyleCompositeFilterVariant_In { StyleCompositeFilterTag tag; };
+    struct StyleCompositeFilterVariant_Atop { StyleCompositeFilterTag tag; };
+    struct StyleCompositeFilterVariant_Out { StyleCompositeFilterTag tag; };
+    struct StyleCompositeFilterVariant_Xor { StyleCompositeFilterTag tag; };
+    struct StyleCompositeFilterVariant_Lighter { StyleCompositeFilterTag tag; };
+    struct StyleCompositeFilterVariant_Arithmetic { StyleCompositeFilterTag tag; FloatValue payload[4]; };
+    union StyleCompositeFilter {
+        StyleCompositeFilterVariant_Over Over;
+        StyleCompositeFilterVariant_In In;
+        StyleCompositeFilterVariant_Atop Atop;
+        StyleCompositeFilterVariant_Out Out;
+        StyleCompositeFilterVariant_Xor Xor;
+        StyleCompositeFilterVariant_Lighter Lighter;
+        StyleCompositeFilterVariant_Arithmetic Arithmetic;
+    };
+    
     
     struct LayoutBottom {
         PixelValue inner;
@@ -7066,6 +7156,40 @@ namespace dll {
         InterpolateContext() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    enum class StyleFilterTag {
+       Blend,
+       Flood,
+       Blur,
+       Opacity,
+       ColorMatrix,
+       DropShadow,
+       ComponentTransfer,
+       Offset,
+       Composite,
+    };
+    
+    struct StyleFilterVariant_Blend { StyleFilterTag tag; StyleMixBlendMode payload; };
+    struct StyleFilterVariant_Flood { StyleFilterTag tag; ColorU payload; };
+    struct StyleFilterVariant_Blur { StyleFilterTag tag; StyleBlur payload; };
+    struct StyleFilterVariant_Opacity { StyleFilterTag tag; PercentageValue payload; };
+    struct StyleFilterVariant_ColorMatrix { StyleFilterTag tag; StyleColorMatrix payload; };
+    struct StyleFilterVariant_DropShadow { StyleFilterTag tag; StyleBoxShadow payload; };
+    struct StyleFilterVariant_ComponentTransfer { StyleFilterTag tag; };
+    struct StyleFilterVariant_Offset { StyleFilterTag tag; StyleFilterOffset payload; };
+    struct StyleFilterVariant_Composite { StyleFilterTag tag; StyleCompositeFilter payload; };
+    union StyleFilter {
+        StyleFilterVariant_Blend Blend;
+        StyleFilterVariant_Flood Flood;
+        StyleFilterVariant_Blur Blur;
+        StyleFilterVariant_Opacity Opacity;
+        StyleFilterVariant_ColorMatrix ColorMatrix;
+        StyleFilterVariant_DropShadow DropShadow;
+        StyleFilterVariant_ComponentTransfer ComponentTransfer;
+        StyleFilterVariant_Offset Offset;
+        StyleFilterVariant_Composite Composite;
+    };
+    
+    
     struct LinearGradient {
         Direction direction;
         ExtendMode extend_mode;
@@ -7439,6 +7563,16 @@ namespace dll {
         String& operator=(const String&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         String(const String&) = delete; /* disable copy constructor, use explicit .clone() */
         String() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct StyleFilterVec {
+        StyleFilter* ptr;
+        size_t len;
+        size_t cap;
+        StyleFilterVecDestructor destructor;
+        StyleFilterVec& operator=(const StyleFilterVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        StyleFilterVec(const StyleFilterVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        StyleFilterVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct InputConnectionVec {
@@ -10621,6 +10755,7 @@ namespace dll {
         String String_trim(const String* string);
         Refstr String_asRefstr(const String* string);
         void String_delete(String* restrict instance);
+        void StyleFilterVec_delete(StyleFilterVec* restrict instance);
         void LogicalRectVec_delete(LogicalRectVec* restrict instance);
         void NodeTypeIdInfoMapVec_delete(NodeTypeIdInfoMapVec* restrict instance);
         void InputOutputTypeIdInfoMapVec_delete(InputOutputTypeIdInfoMapVec* restrict instance);
