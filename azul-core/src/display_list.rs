@@ -7,7 +7,7 @@ use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU,
     LinearGradient, RadialGradient, ConicGradient, StyleBoxShadow, StyleBackgroundSize,
-    CssPropertyValue, BoxShadowClipMode,
+    CssPropertyValue, BoxShadowClipMode, StyleMixBlendMode,
 
     LayoutBorderTopWidth, LayoutBorderRightWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
     StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
@@ -77,6 +77,15 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.transform.as_ref(),
             ScrollFrame(sf) => sf.frame.transform.as_ref(),
+            IFrame(_, _, _, _) => None,
+        }
+    }
+
+    pub fn get_mix_blend_mode(&self) -> Option<&StyleMixBlendMode> {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.mix_blend_mode.as_ref(),
+            ScrollFrame(sf) => sf.frame.mix_blend_mode.as_ref(),
             IFrame(_, _, _, _) => None,
         }
     }
@@ -200,6 +209,7 @@ pub struct DisplayListFrame {
     pub size: LogicalSize,
     pub position: PositionInfo,
     pub flags: PrimitiveFlags,
+    pub mix_blend_mode: Option<StyleMixBlendMode>,
     pub clip_children: Option<LogicalSize>,
     pub clip_mask: Option<DisplayListImageMask>,
     /// Border radius, set to none only if overflow: visible is set!
@@ -247,6 +257,7 @@ impl DisplayListFrame {
             tag: None,
             size: LogicalSize::new(dimensions.width as f32, dimensions.height as f32),
             clip_children: None,
+            mix_blend_mode: None,
             position: PositionInfo::Static(PositionInfoInner {
                 x_offset: root_origin.x as f32,
                 y_offset: root_origin.y as f32,
@@ -704,6 +715,7 @@ pub fn displaylist_handle_rect<'a>(
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
         size: positioned_rect.size,
+        mix_blend_mode: layout_result.styled_dom.get_css_property_cache().get_mix_blend_mode(&html_node, &rect_idx, &styled_node.state).and_then(|p| p.get_property()).cloned(),
         clip_children: match layout_result.scrollable_nodes.clip_nodes.get(&rect_idx).copied() {
             Some(s) => {
                 // never clip children if overflow:visible is set!

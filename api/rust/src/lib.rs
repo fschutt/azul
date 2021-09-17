@@ -1563,7 +1563,7 @@ mod dll {
         TransformOrigin,
         PerspectiveOrigin,
         BackfaceVisibility,
-        BlendMode,
+        MixBlendMode,
         Filter,
         BackdropFilter,
         TextShadow,
@@ -5926,6 +5926,20 @@ mod dll {
         Exact(AzStyleBackfaceVisibility),
     }
 
+    /// Re-export of rust-allocated (stack based) `StyleMixBlendModeValue` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub enum AzStyleMixBlendModeValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleMixBlendMode),
+    }
+
     /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8389,6 +8403,19 @@ mod dll {
         Exact(AzStyleTransformVec),
     }
 
+    /// Re-export of rust-allocated (stack based) `StyleFilterVecValue` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzStyleFilterVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleFilterVec),
+    }
+
     /// Re-export of rust-allocated (stack based) `FileInputState` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8988,6 +9015,10 @@ mod dll {
         TransformOrigin(AzStyleTransformOriginValue),
         PerspectiveOrigin(AzStylePerspectiveOriginValue),
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
+        MixBlendMode(AzStyleMixBlendModeValue),
+        Filter(AzStyleFilterVecValue),
+        BackdropFilter(AzStyleFilterVecValue),
+        TextShadow(AzStyleBoxShadowValue),
     }
 
     /// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
@@ -11933,6 +11964,7 @@ pub mod css {
         StyleBackgroundRepeatVec,
         StyleTransformVec,
         StyleFontFamilyVec,
+        StyleFilterVec,
     };
 
     macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
@@ -12007,6 +12039,10 @@ pub mod css {
             CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
             CssPropertyType::TransformOrigin => CssProperty::TransformOrigin(StyleTransformOriginValue::$content_type),
             CssPropertyType::BackfaceVisibility => CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::$content_type),
+            CssPropertyType::MixBlendMode => CssProperty::MixBlendMode(StyleMixBlendModeValue::$content_type),
+            CssPropertyType::Filter => CssProperty::Filter(StyleFilterVecValue::$content_type),
+            CssPropertyType::BackdropFilter => CssProperty::BackdropFilter(StyleFilterVecValue::$content_type),
+            CssPropertyType::TextShadow => CssProperty::TextShadow(StyleBoxShadowValue::$content_type),
         }
     })}
 
@@ -12085,6 +12121,10 @@ pub mod css {
                 CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
                 CssProperty::TransformOrigin(_) => CssPropertyType::TransformOrigin,
                 CssProperty::BackfaceVisibility(_) => CssPropertyType::BackfaceVisibility,
+                CssProperty::MixBlendMode(_) => CssPropertyType::MixBlendMode,
+                CssProperty::Filter(_) => CssPropertyType::Filter,
+                CssProperty::BackdropFilter(_) => CssPropertyType::BackdropFilter,
+                CssProperty::TextShadow(_) => CssPropertyType::TextShadow,
             }
         }
 
@@ -12164,7 +12204,10 @@ pub mod css {
         pub const fn transform_origin(input: StyleTransformOrigin) -> Self { CssProperty::TransformOrigin(StyleTransformOriginValue::Exact(input)) }
         pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self { CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::Exact(input)) }
         pub const fn backface_visiblity(input: StyleBackfaceVisibility) -> Self { CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input)) }
-
+        pub const fn mix_blend_mode(input: StyleMixBlendMode) -> Self { CssProperty::MixBlendMode(StyleMixBlendModeValue::Exact(input)) }
+        pub const fn filter(input: StyleFilterVec) -> Self { CssProperty::Filter(StyleFilterVecValue::Exact(input)) }
+        pub const fn backdrop_filter(input: StyleFilterVec) -> Self { CssProperty::BackdropFilter(StyleFilterVecValue::Exact(input)) }
+        pub const fn text_shadow(input: StyleBoxShadow) -> Self { CssProperty::TextShadow(StyleBoxShadowValue::Exact(input)) }
     }
 
     const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
@@ -13142,6 +13185,12 @@ pub mod css {
     /// `StyleBackfaceVisibilityValue` struct
     
 #[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;
+    /// `StyleMixBlendModeValue` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleMixBlendModeValue as StyleMixBlendModeValue;
+    /// `StyleFilterVecValue` struct
+    
+#[doc(inline)] pub use crate::dll::AzStyleFilterVecValue as StyleFilterVecValue;
     /// Parsed CSS key-value pair
     
 #[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;
@@ -17264,7 +17313,8 @@ pub mod vec {
     impl_vec_clone!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor);
     impl_vec!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor, az_logical_rect_vec_destructor, AzLogicalRectVec_delete);
     impl_vec_clone!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor);
-
+    impl_vec!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor, az_style_filter_vec_destructor, AzStyleFilterVec_delete);
+    impl_vec_clone!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);

@@ -26,6 +26,7 @@ use webrender::api::{
         DeviceIntSize as WrDeviceIntSize,
         DeviceIntRect as WrDeviceIntRect,
     },
+    MixBlendMode as WrMixBlendMode,
     ApiHitTester as WrApiHitTester,
     DebugFlags as WrDebugFlags,
     TransformStyle as WrTransformStyle,
@@ -123,6 +124,7 @@ use azul_css::{
     ExtendMode as CssExtendMode,
     BorderStyle as CssBorderStyle,
     LayoutSideOffsets as CssLayoutSideOffsets,
+    StyleMixBlendMode as CssMixBlendMode,
     U8Vec,
 };
 use webrender::Renderer;
@@ -1029,6 +1031,28 @@ fn wr_translate_layouted_glyphs(input: &[GlyphInstance]) -> Vec<WrGlyphInstance>
 }
 
 #[inline(always)]
+pub(crate) const fn wr_translate_mix_blend_mode(mix_blend_mode: CssMixBlendMode) -> WrMixBlendMode {
+    match mix_blend_mode {
+        CssMixBlendMode::Normal => WrMixBlendMode::Normal,
+        CssMixBlendMode::Multiply => WrMixBlendMode::Multiply,
+        CssMixBlendMode::Screen => WrMixBlendMode::Screen,
+        CssMixBlendMode::Overlay => WrMixBlendMode::Overlay,
+        CssMixBlendMode::Darken => WrMixBlendMode::Darken,
+        CssMixBlendMode::Lighten => WrMixBlendMode::Lighten,
+        CssMixBlendMode::ColorDodge => WrMixBlendMode::ColorDodge,
+        CssMixBlendMode::ColorBurn => WrMixBlendMode::ColorBurn,
+        CssMixBlendMode::HardLight => WrMixBlendMode::HardLight,
+        CssMixBlendMode::SoftLight => WrMixBlendMode::SoftLight,
+        CssMixBlendMode::Difference => WrMixBlendMode::Difference,
+        CssMixBlendMode::Exclusion => WrMixBlendMode::Exclusion,
+        CssMixBlendMode::Hue => WrMixBlendMode::Hue,
+        CssMixBlendMode::Saturation => WrMixBlendMode::Saturation,
+        CssMixBlendMode::Color => WrMixBlendMode::Color,
+        CssMixBlendMode::Luminosity => WrMixBlendMode::Luminosity,
+    }
+}
+
+#[inline(always)]
 pub(crate) const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
     WrEpoch(epoch.into_u32())
 }
@@ -1710,7 +1734,8 @@ fn push_display_list_msg(
     // adding an (animatable) transformation on top
     let transform = msg.get_transform_key();
     let opacity = msg.get_opacity_key();
-    let should_push_stacking_context = transform.is_some() || opacity.is_some();
+    let mix_blend_mode = msg.get_mix_blend_mode();
+    let should_push_stacking_context = transform.is_some() || opacity.is_some() || mix_blend_mode.is_some();
 
     let property_binding = match transform {
         Some(s) => WrPropertyBinding::Binding(
@@ -1733,6 +1758,8 @@ fn push_display_list_msg(
     if should_push_stacking_context {
 
         use webrender::api::FilterOp as WrFilterOp;
+        use webrender::api::RasterSpace as WrRasterSpace;
+        use webrender::api::StackingContextFlags as WrStackingContextFlags;
 
         let opacity_filters = match opacity {
             None => Vec::new(),
@@ -1745,13 +1772,18 @@ fn push_display_list_msg(
         // let filters = ...
         // let backdrop_filters = ...
 
-        builder.push_simple_stacking_context_with_filters(
+        builder.push_stacking_context(
             WrLayoutPoint::zero(),
             rect_spatial_id,
             WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+            None,
+            WrTransformStyle::Flat,
+            wr_translate_mix_blend_mode(mix_blend_mode.copied().unwrap_or_default()),
             &opacity_filters,
             &[],
-            &[]
+            &[],
+            WrRasterSpace::Screen,
+            WrStackingContextFlags::empty(),
         );
     }
 

@@ -5,6 +5,7 @@
         StyleBackgroundRepeatVec,
         StyleTransformVec,
         StyleFontFamilyVec,
+        StyleFilterVec,
     };
 
     macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
@@ -79,6 +80,10 @@
             CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::$content_type),
             CssPropertyType::TransformOrigin => CssProperty::TransformOrigin(StyleTransformOriginValue::$content_type),
             CssPropertyType::BackfaceVisibility => CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::$content_type),
+            CssPropertyType::MixBlendMode => CssProperty::MixBlendMode(StyleMixBlendModeValue::$content_type),
+            CssPropertyType::Filter => CssProperty::Filter(StyleFilterVecValue::$content_type),
+            CssPropertyType::BackdropFilter => CssProperty::BackdropFilter(StyleFilterVecValue::$content_type),
+            CssPropertyType::TextShadow => CssProperty::TextShadow(StyleBoxShadowValue::$content_type),
         }
     })}
 
@@ -157,6 +162,10 @@
                 CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
                 CssProperty::TransformOrigin(_) => CssPropertyType::TransformOrigin,
                 CssProperty::BackfaceVisibility(_) => CssPropertyType::BackfaceVisibility,
+                CssProperty::MixBlendMode(_) => CssPropertyType::MixBlendMode,
+                CssProperty::Filter(_) => CssPropertyType::Filter,
+                CssProperty::BackdropFilter(_) => CssPropertyType::BackdropFilter,
+                CssProperty::TextShadow(_) => CssPropertyType::TextShadow,
             }
         }
 
@@ -236,7 +245,10 @@
         pub const fn transform_origin(input: StyleTransformOrigin) -> Self { CssProperty::TransformOrigin(StyleTransformOriginValue::Exact(input)) }
         pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self { CssProperty::PerspectiveOrigin(StylePerspectiveOriginValue::Exact(input)) }
         pub const fn backface_visiblity(input: StyleBackfaceVisibility) -> Self { CssProperty::BackfaceVisibility(StyleBackfaceVisibilityValue::Exact(input)) }
-
+        pub const fn mix_blend_mode(input: StyleMixBlendMode) -> Self { CssProperty::MixBlendMode(StyleMixBlendModeValue::Exact(input)) }
+        pub const fn filter(input: StyleFilterVec) -> Self { CssProperty::Filter(StyleFilterVecValue::Exact(input)) }
+        pub const fn backdrop_filter(input: StyleFilterVec) -> Self { CssProperty::BackdropFilter(StyleFilterVecValue::Exact(input)) }
+        pub const fn text_shadow(input: StyleBoxShadow) -> Self { CssProperty::TextShadow(StyleBoxShadowValue::Exact(input)) }
     }
 
     const FP_PRECISION_MULTIPLIER: f32 = 1000.0;

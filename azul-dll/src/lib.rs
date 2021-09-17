@@ -1844,6 +1844,16 @@ pub use AzStylePerspectiveOriginValueTT as AzStylePerspectiveOriginValue;
 pub type AzStyleBackfaceVisibilityValueTT = azul_impl::css::StyleBackfaceVisibilityValue;
 pub use AzStyleBackfaceVisibilityValueTT as AzStyleBackfaceVisibilityValue;
 
+/// Re-export of rust-allocated (stack based) `StyleMixBlendModeValue` struct
+pub type AzStyleMixBlendModeValueTT = azul_impl::css::StyleMixBlendModeValue;
+pub use AzStyleMixBlendModeValueTT as AzStyleMixBlendModeValue;
+
+/// Re-export of rust-allocated (stack based) `StyleFilterVecValue` struct
+pub type AzStyleFilterVecValueTT = azul_impl::css::StyleFilterVecValue;
+pub use AzStyleFilterVecValueTT as AzStyleFilterVecValue;
+/// Destructor: Takes ownership of the `StyleFilterVecValue` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzStyleFilterVecValue_delete(object: &mut AzStyleFilterVecValue) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Parsed CSS key-value pair
 pub type AzCssPropertyTT = azul_impl::css::CssProperty;
 pub use AzCssPropertyTT as AzCssProperty;
@@ -6238,7 +6248,7 @@ mod test_sizes {
         TransformOrigin,
         PerspectiveOrigin,
         BackfaceVisibility,
-        BlendMode,
+        MixBlendMode,
         Filter,
         BackdropFilter,
         TextShadow,
@@ -9444,6 +9454,16 @@ mod test_sizes {
         Exact(AzStyleBackfaceVisibility),
     }
 
+    /// Re-export of rust-allocated (stack based) `StyleMixBlendModeValue` struct
+    #[repr(C, u8)]
+    pub enum AzStyleMixBlendModeValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleMixBlendMode),
+    }
+
     /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
     #[repr(C)]
     pub struct AzButtonOnClick {
@@ -11334,6 +11354,16 @@ mod test_sizes {
         Exact(AzStyleTransformVec),
     }
 
+    /// Re-export of rust-allocated (stack based) `StyleFilterVecValue` struct
+    #[repr(C, u8)]
+    pub enum AzStyleFilterVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleFilterVec),
+    }
+
     /// Re-export of rust-allocated (stack based) `FileInputState` struct
     #[repr(C)]
     pub struct AzFileInputState {
@@ -11828,6 +11858,10 @@ mod test_sizes {
         TransformOrigin(AzStyleTransformOriginValue),
         PerspectiveOrigin(AzStylePerspectiveOriginValue),
         BackfaceVisibility(AzStyleBackfaceVisibilityValue),
+        MixBlendMode(AzStyleMixBlendModeValue),
+        Filter(AzStyleFilterVecValue),
+        BackdropFilter(AzStyleFilterVecValue),
+        TextShadow(AzStyleBoxShadowValue),
     }
 
     /// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
@@ -12941,6 +12975,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformOriginValue>(), "AzStyleTransformOriginValue"), (Layout::new::<AzStyleTransformOriginValue>(), "AzStyleTransformOriginValue"));
         assert_eq!((Layout::new::<azul_impl::css::StylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"), (Layout::new::<AzStylePerspectiveOriginValue>(), "AzStylePerspectiveOriginValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"), (Layout::new::<AzStyleBackfaceVisibilityValue>(), "AzStyleBackfaceVisibilityValue"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleMixBlendModeValue>(), "AzStyleMixBlendModeValue"), (Layout::new::<AzStyleMixBlendModeValue>(), "AzStyleMixBlendModeValue"));
         assert_eq!((Layout::new::<crate::widgets::button::ButtonOnClick>(), "AzButtonOnClick"), (Layout::new::<AzButtonOnClick>(), "AzButtonOnClick"));
         assert_eq!((Layout::new::<crate::widgets::file_input::FileInputOnPathChange>(), "AzFileInputOnPathChange"), (Layout::new::<AzFileInputOnPathChange>(), "AzFileInputOnPathChange"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxOnToggle>(), "AzCheckBoxOnToggle"), (Layout::new::<AzCheckBoxOnToggle>(), "AzCheckBoxOnToggle"));
@@ -13159,6 +13194,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamily>(), "AzStyleFontFamily"), (Layout::new::<AzStyleFontFamily>(), "AzStyleFontFamily"));
         assert_eq!((Layout::new::<azul_impl::css::ScrollbarStyleValue>(), "AzScrollbarStyleValue"), (Layout::new::<AzScrollbarStyleValue>(), "AzScrollbarStyleValue"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecValue>(), "AzStyleTransformVecValue"), (Layout::new::<AzStyleTransformVecValue>(), "AzStyleTransformVecValue"));
+        assert_eq!((Layout::new::<azul_impl::css::StyleFilterVecValue>(), "AzStyleFilterVecValue"), (Layout::new::<AzStyleFilterVecValue>(), "AzStyleFilterVecValue"));
         assert_eq!((Layout::new::<crate::widgets::file_input::FileInputState>(), "AzFileInputState"), (Layout::new::<AzFileInputState>(), "AzFileInputState"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputStateWrapper>(), "AzColorInputStateWrapper"), (Layout::new::<AzColorInputStateWrapper>(), "AzColorInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputState>(), "AzTextInputState"), (Layout::new::<AzTextInputState>(), "AzTextInputState"));

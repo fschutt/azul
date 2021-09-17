@@ -1189,7 +1189,7 @@ namespace dll {
        TransformOrigin,
        PerspectiveOrigin,
        BackfaceVisibility,
-       BlendMode,
+       MixBlendMode,
        Filter,
        BackdropFilter,
        TextShadow,
@@ -5468,6 +5468,28 @@ namespace dll {
     };
     
     
+    enum class StyleMixBlendModeValueTag {
+       Auto,
+       None,
+       Inherit,
+       Initial,
+       Exact,
+    };
+    
+    struct StyleMixBlendModeValueVariant_Auto { StyleMixBlendModeValueTag tag; };
+    struct StyleMixBlendModeValueVariant_None { StyleMixBlendModeValueTag tag; };
+    struct StyleMixBlendModeValueVariant_Inherit { StyleMixBlendModeValueTag tag; };
+    struct StyleMixBlendModeValueVariant_Initial { StyleMixBlendModeValueTag tag; };
+    struct StyleMixBlendModeValueVariant_Exact { StyleMixBlendModeValueTag tag; StyleMixBlendMode payload; };
+    union StyleMixBlendModeValue {
+        StyleMixBlendModeValueVariant_Auto Auto;
+        StyleMixBlendModeValueVariant_None None;
+        StyleMixBlendModeValueVariant_Inherit Inherit;
+        StyleMixBlendModeValueVariant_Initial Initial;
+        StyleMixBlendModeValueVariant_Exact Exact;
+    };
+    
+    
     struct ButtonOnClick {
         RefAny data;
         Callback callback;
@@ -8164,6 +8186,28 @@ namespace dll {
     };
     
     
+    enum class StyleFilterVecValueTag {
+       Auto,
+       None,
+       Inherit,
+       Initial,
+       Exact,
+    };
+    
+    struct StyleFilterVecValueVariant_Auto { StyleFilterVecValueTag tag; };
+    struct StyleFilterVecValueVariant_None { StyleFilterVecValueTag tag; };
+    struct StyleFilterVecValueVariant_Inherit { StyleFilterVecValueTag tag; };
+    struct StyleFilterVecValueVariant_Initial { StyleFilterVecValueTag tag; };
+    struct StyleFilterVecValueVariant_Exact { StyleFilterVecValueTag tag; StyleFilterVec payload; };
+    union StyleFilterVecValue {
+        StyleFilterVecValueVariant_Auto Auto;
+        StyleFilterVecValueVariant_None None;
+        StyleFilterVecValueVariant_Inherit Inherit;
+        StyleFilterVecValueVariant_Initial Initial;
+        StyleFilterVecValueVariant_Exact Exact;
+    };
+    
+    
     struct FileInputState {
         OptionString path;
         FileInputState& operator=(const FileInputState&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
@@ -8827,6 +8871,10 @@ namespace dll {
        TransformOrigin,
        PerspectiveOrigin,
        BackfaceVisibility,
+       MixBlendMode,
+       Filter,
+       BackdropFilter,
+       TextShadow,
     };
     
     struct CssPropertyVariant_TextColor { CssPropertyTag tag; StyleTextColorValue payload; };
@@ -8899,6 +8947,10 @@ namespace dll {
     struct CssPropertyVariant_TransformOrigin { CssPropertyTag tag; StyleTransformOriginValue payload; };
     struct CssPropertyVariant_PerspectiveOrigin { CssPropertyTag tag; StylePerspectiveOriginValue payload; };
     struct CssPropertyVariant_BackfaceVisibility { CssPropertyTag tag; StyleBackfaceVisibilityValue payload; };
+    struct CssPropertyVariant_MixBlendMode { CssPropertyTag tag; StyleMixBlendModeValue payload; };
+    struct CssPropertyVariant_Filter { CssPropertyTag tag; StyleFilterVecValue payload; };
+    struct CssPropertyVariant_BackdropFilter { CssPropertyTag tag; StyleFilterVecValue payload; };
+    struct CssPropertyVariant_TextShadow { CssPropertyTag tag; StyleBoxShadowValue payload; };
     union CssProperty {
         CssPropertyVariant_TextColor TextColor;
         CssPropertyVariant_FontSize FontSize;
@@ -8970,6 +9022,10 @@ namespace dll {
         CssPropertyVariant_TransformOrigin TransformOrigin;
         CssPropertyVariant_PerspectiveOrigin PerspectiveOrigin;
         CssPropertyVariant_BackfaceVisibility BackfaceVisibility;
+        CssPropertyVariant_MixBlendMode MixBlendMode;
+        CssPropertyVariant_Filter Filter;
+        CssPropertyVariant_BackdropFilter BackdropFilter;
+        CssPropertyVariant_TextShadow TextShadow;
     };
     
     
@@ -10156,6 +10212,7 @@ namespace dll {
         void StyleBackgroundSizeVecValue_delete(StyleBackgroundSizeVecValue* restrict instance);
         void StyleFontFamilyVecValue_delete(StyleFontFamilyVecValue* restrict instance);
         void StyleTransformVecValue_delete(StyleTransformVecValue* restrict instance);
+        void StyleFilterVecValue_delete(StyleFilterVecValue* restrict instance);
         String CssProperty_getKeyString(const CssProperty* cssproperty);
         String CssProperty_getValueString(const CssProperty* cssproperty);
         String CssProperty_getKeyValueString(const CssProperty* cssproperty);

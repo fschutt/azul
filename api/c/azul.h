@@ -1312,7 +1312,7 @@ enum AzCssPropertyType {
    AzCssPropertyType_TransformOrigin,
    AzCssPropertyType_PerspectiveOrigin,
    AzCssPropertyType_BackfaceVisibility,
-   AzCssPropertyType_BlendMode,
+   AzCssPropertyType_MixBlendMode,
    AzCssPropertyType_Filter,
    AzCssPropertyType_BackdropFilter,
    AzCssPropertyType_TextShadow,
@@ -6116,6 +6116,34 @@ union AzStyleBackfaceVisibilityValue {
 };
 typedef union AzStyleBackfaceVisibilityValue AzStyleBackfaceVisibilityValue;
 
+enum AzStyleMixBlendModeValueTag {
+   AzStyleMixBlendModeValueTag_Auto,
+   AzStyleMixBlendModeValueTag_None,
+   AzStyleMixBlendModeValueTag_Inherit,
+   AzStyleMixBlendModeValueTag_Initial,
+   AzStyleMixBlendModeValueTag_Exact,
+};
+typedef enum AzStyleMixBlendModeValueTag AzStyleMixBlendModeValueTag;
+
+struct AzStyleMixBlendModeValueVariant_Auto { AzStyleMixBlendModeValueTag tag; };
+typedef struct AzStyleMixBlendModeValueVariant_Auto AzStyleMixBlendModeValueVariant_Auto;
+struct AzStyleMixBlendModeValueVariant_None { AzStyleMixBlendModeValueTag tag; };
+typedef struct AzStyleMixBlendModeValueVariant_None AzStyleMixBlendModeValueVariant_None;
+struct AzStyleMixBlendModeValueVariant_Inherit { AzStyleMixBlendModeValueTag tag; };
+typedef struct AzStyleMixBlendModeValueVariant_Inherit AzStyleMixBlendModeValueVariant_Inherit;
+struct AzStyleMixBlendModeValueVariant_Initial { AzStyleMixBlendModeValueTag tag; };
+typedef struct AzStyleMixBlendModeValueVariant_Initial AzStyleMixBlendModeValueVariant_Initial;
+struct AzStyleMixBlendModeValueVariant_Exact { AzStyleMixBlendModeValueTag tag; AzStyleMixBlendMode payload; };
+typedef struct AzStyleMixBlendModeValueVariant_Exact AzStyleMixBlendModeValueVariant_Exact;
+union AzStyleMixBlendModeValue {
+    AzStyleMixBlendModeValueVariant_Auto Auto;
+    AzStyleMixBlendModeValueVariant_None None;
+    AzStyleMixBlendModeValueVariant_Inherit Inherit;
+    AzStyleMixBlendModeValueVariant_Initial Initial;
+    AzStyleMixBlendModeValueVariant_Exact Exact;
+};
+typedef union AzStyleMixBlendModeValue AzStyleMixBlendModeValue;
+
 struct AzButtonOnClick {
     AzRefAny data;
     AzCallback callback;
@@ -8921,6 +8949,34 @@ union AzStyleTransformVecValue {
 };
 typedef union AzStyleTransformVecValue AzStyleTransformVecValue;
 
+enum AzStyleFilterVecValueTag {
+   AzStyleFilterVecValueTag_Auto,
+   AzStyleFilterVecValueTag_None,
+   AzStyleFilterVecValueTag_Inherit,
+   AzStyleFilterVecValueTag_Initial,
+   AzStyleFilterVecValueTag_Exact,
+};
+typedef enum AzStyleFilterVecValueTag AzStyleFilterVecValueTag;
+
+struct AzStyleFilterVecValueVariant_Auto { AzStyleFilterVecValueTag tag; };
+typedef struct AzStyleFilterVecValueVariant_Auto AzStyleFilterVecValueVariant_Auto;
+struct AzStyleFilterVecValueVariant_None { AzStyleFilterVecValueTag tag; };
+typedef struct AzStyleFilterVecValueVariant_None AzStyleFilterVecValueVariant_None;
+struct AzStyleFilterVecValueVariant_Inherit { AzStyleFilterVecValueTag tag; };
+typedef struct AzStyleFilterVecValueVariant_Inherit AzStyleFilterVecValueVariant_Inherit;
+struct AzStyleFilterVecValueVariant_Initial { AzStyleFilterVecValueTag tag; };
+typedef struct AzStyleFilterVecValueVariant_Initial AzStyleFilterVecValueVariant_Initial;
+struct AzStyleFilterVecValueVariant_Exact { AzStyleFilterVecValueTag tag; AzStyleFilterVec payload; };
+typedef struct AzStyleFilterVecValueVariant_Exact AzStyleFilterVecValueVariant_Exact;
+union AzStyleFilterVecValue {
+    AzStyleFilterVecValueVariant_Auto Auto;
+    AzStyleFilterVecValueVariant_None None;
+    AzStyleFilterVecValueVariant_Inherit Inherit;
+    AzStyleFilterVecValueVariant_Initial Initial;
+    AzStyleFilterVecValueVariant_Exact Exact;
+};
+typedef union AzStyleFilterVecValue AzStyleFilterVecValue;
+
 struct AzFileInputState {
     AzOptionString path;
 };
@@ -9586,6 +9642,10 @@ enum AzCssPropertyTag {
    AzCssPropertyTag_TransformOrigin,
    AzCssPropertyTag_PerspectiveOrigin,
    AzCssPropertyTag_BackfaceVisibility,
+   AzCssPropertyTag_MixBlendMode,
+   AzCssPropertyTag_Filter,
+   AzCssPropertyTag_BackdropFilter,
+   AzCssPropertyTag_TextShadow,
 };
 typedef enum AzCssPropertyTag AzCssPropertyTag;
 
@@ -9729,6 +9789,14 @@ struct AzCssPropertyVariant_PerspectiveOrigin { AzCssPropertyTag tag; AzStylePer
 typedef struct AzCssPropertyVariant_PerspectiveOrigin AzCssPropertyVariant_PerspectiveOrigin;
 struct AzCssPropertyVariant_BackfaceVisibility { AzCssPropertyTag tag; AzStyleBackfaceVisibilityValue payload; };
 typedef struct AzCssPropertyVariant_BackfaceVisibility AzCssPropertyVariant_BackfaceVisibility;
+struct AzCssPropertyVariant_MixBlendMode { AzCssPropertyTag tag; AzStyleMixBlendModeValue payload; };
+typedef struct AzCssPropertyVariant_MixBlendMode AzCssPropertyVariant_MixBlendMode;
+struct AzCssPropertyVariant_Filter { AzCssPropertyTag tag; AzStyleFilterVecValue payload; };
+typedef struct AzCssPropertyVariant_Filter AzCssPropertyVariant_Filter;
+struct AzCssPropertyVariant_BackdropFilter { AzCssPropertyTag tag; AzStyleFilterVecValue payload; };
+typedef struct AzCssPropertyVariant_BackdropFilter AzCssPropertyVariant_BackdropFilter;
+struct AzCssPropertyVariant_TextShadow { AzCssPropertyTag tag; AzStyleBoxShadowValue payload; };
+typedef struct AzCssPropertyVariant_TextShadow AzCssPropertyVariant_TextShadow;
 union AzCssProperty {
     AzCssPropertyVariant_TextColor TextColor;
     AzCssPropertyVariant_FontSize FontSize;
@@ -9800,6 +9868,10 @@ union AzCssProperty {
     AzCssPropertyVariant_TransformOrigin TransformOrigin;
     AzCssPropertyVariant_PerspectiveOrigin PerspectiveOrigin;
     AzCssPropertyVariant_BackfaceVisibility BackfaceVisibility;
+    AzCssPropertyVariant_MixBlendMode MixBlendMode;
+    AzCssPropertyVariant_Filter Filter;
+    AzCssPropertyVariant_BackdropFilter BackdropFilter;
+    AzCssPropertyVariant_TextShadow TextShadow;
 };
 typedef union AzCssProperty AzCssProperty;
 
@@ -11248,6 +11320,11 @@ typedef struct AzCss AzCss;
 #define AzStyleBackfaceVisibilityValue_Inherit { .Inherit = { .tag = AzStyleBackfaceVisibilityValueTag_Inherit } }
 #define AzStyleBackfaceVisibilityValue_Initial { .Initial = { .tag = AzStyleBackfaceVisibilityValueTag_Initial } }
 #define AzStyleBackfaceVisibilityValue_Exact(v) { .Exact = { .tag = AzStyleBackfaceVisibilityValueTag_Exact, .payload = v } }
+#define AzStyleMixBlendModeValue_Auto { .Auto = { .tag = AzStyleMixBlendModeValueTag_Auto } }
+#define AzStyleMixBlendModeValue_None { .None = { .tag = AzStyleMixBlendModeValueTag_None } }
+#define AzStyleMixBlendModeValue_Inherit { .Inherit = { .tag = AzStyleMixBlendModeValueTag_Inherit } }
+#define AzStyleMixBlendModeValue_Initial { .Initial = { .tag = AzStyleMixBlendModeValueTag_Initial } }
+#define AzStyleMixBlendModeValue_Exact(v) { .Exact = { .tag = AzStyleMixBlendModeValueTag_Exact, .payload = v } }
 #define AzTextInputSelection_All { .All = { .tag = AzTextInputSelectionTag_All } }
 #define AzTextInputSelection_FromTo(v) { .FromTo = { .tag = AzTextInputSelectionTag_FromTo, .payload = v } }
 #define AzDuration_System(v) { .System = { .tag = AzDurationTag_System, .payload = v } }
@@ -11505,6 +11582,11 @@ typedef struct AzCss AzCss;
 #define AzStyleTransformVecValue_Inherit { .Inherit = { .tag = AzStyleTransformVecValueTag_Inherit } }
 #define AzStyleTransformVecValue_Initial { .Initial = { .tag = AzStyleTransformVecValueTag_Initial } }
 #define AzStyleTransformVecValue_Exact(v) { .Exact = { .tag = AzStyleTransformVecValueTag_Exact, .payload = v } }
+#define AzStyleFilterVecValue_Auto { .Auto = { .tag = AzStyleFilterVecValueTag_Auto } }
+#define AzStyleFilterVecValue_None { .None = { .tag = AzStyleFilterVecValueTag_None } }
+#define AzStyleFilterVecValue_Inherit { .Inherit = { .tag = AzStyleFilterVecValueTag_Inherit } }
+#define AzStyleFilterVecValue_Initial { .Initial = { .tag = AzStyleFilterVecValueTag_Initial } }
+#define AzStyleFilterVecValue_Exact(v) { .Exact = { .tag = AzStyleFilterVecValueTag_Exact, .payload = v } }
 #define AzNodeTypeFieldValue_TextInput(v) { .TextInput = { .tag = AzNodeTypeFieldValueTag_TextInput, .payload = v } }
 #define AzNodeTypeFieldValue_NumberInput(v) { .NumberInput = { .tag = AzNodeTypeFieldValueTag_NumberInput, .payload = v } }
 #define AzNodeTypeFieldValue_CheckBox(v) { .CheckBox = { .tag = AzNodeTypeFieldValueTag_CheckBox, .payload = v } }
@@ -11633,6 +11715,10 @@ typedef struct AzCss AzCss;
 #define AzCssProperty_TransformOrigin(v) { .TransformOrigin = { .tag = AzCssPropertyTag_TransformOrigin, .payload = v } }
 #define AzCssProperty_PerspectiveOrigin(v) { .PerspectiveOrigin = { .tag = AzCssPropertyTag_PerspectiveOrigin, .payload = v } }
 #define AzCssProperty_BackfaceVisibility(v) { .BackfaceVisibility = { .tag = AzCssPropertyTag_BackfaceVisibility, .payload = v } }
+#define AzCssProperty_MixBlendMode(v) { .MixBlendMode = { .tag = AzCssPropertyTag_MixBlendMode, .payload = v } }
+#define AzCssProperty_Filter(v) { .Filter = { .tag = AzCssPropertyTag_Filter, .payload = v } }
+#define AzCssProperty_BackdropFilter(v) { .BackdropFilter = { .tag = AzCssPropertyTag_BackdropFilter, .payload = v } }
+#define AzCssProperty_TextShadow(v) { .TextShadow = { .tag = AzCssPropertyTag_TextShadow, .payload = v } }
 #define AzCssPropertySource_Css(v) { .Css = { .tag = AzCssPropertySourceTag_Css, .payload = v } }
 #define AzCssPropertySource_Inline { .Inline = { .tag = AzCssPropertySourceTag_Inline } }
 #define AzOptionCssProperty_None { .None = { .tag = AzOptionCssPropertyTag_None } }
@@ -12234,6 +12320,7 @@ extern DLLIMPORT void AzStyleBackgroundRepeatVecValue_delete(AzStyleBackgroundRe
 extern DLLIMPORT void AzStyleBackgroundSizeVecValue_delete(AzStyleBackgroundSizeVecValue* restrict instance);
 extern DLLIMPORT void AzStyleFontFamilyVecValue_delete(AzStyleFontFamilyVecValue* restrict instance);
 extern DLLIMPORT void AzStyleTransformVecValue_delete(AzStyleTransformVecValue* restrict instance);
+extern DLLIMPORT void AzStyleFilterVecValue_delete(AzStyleFilterVecValue* restrict instance);
 extern DLLIMPORT AzString AzCssProperty_getKeyString(const AzCssProperty* cssproperty);
 extern DLLIMPORT AzString AzCssProperty_getValueString(const AzCssProperty* cssproperty);
 extern DLLIMPORT AzString AzCssProperty_getKeyValueString(const AzCssProperty* cssproperty);
@@ -16713,6 +16800,34 @@ bool AzStyleBackfaceVisibilityValue_matchMutExact(AzStyleBackfaceVisibilityValue
     return valid;
 }
 
+bool AzStyleMixBlendModeValue_matchRefExact(const AzStyleMixBlendModeValue* value, const AzStyleMixBlendMode** restrict out) {
+    const AzStyleMixBlendModeValueVariant_Exact* casted = (const AzStyleMixBlendModeValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleMixBlendModeValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleMixBlendModeValue_matchMutExact(AzStyleMixBlendModeValue* restrict value, AzStyleMixBlendMode* restrict * restrict out) {
+    AzStyleMixBlendModeValueVariant_Exact* restrict casted = (AzStyleMixBlendModeValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleMixBlendModeValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilterVecValue_matchRefExact(const AzStyleFilterVecValue* value, const AzStyleFilterVec** restrict out) {
+    const AzStyleFilterVecValueVariant_Exact* casted = (const AzStyleFilterVecValueVariant_Exact*)value;
+    bool valid = casted->tag == AzStyleFilterVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzStyleFilterVecValue_matchMutExact(AzStyleFilterVecValue* restrict value, AzStyleFilterVec* restrict * restrict out) {
+    AzStyleFilterVecValueVariant_Exact* restrict casted = (AzStyleFilterVecValueVariant_Exact* restrict)value;
+    bool valid = casted->tag == AzStyleFilterVecValueTag_Exact;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
 bool AzCssProperty_matchRefTextColor(const AzCssProperty* value, const AzStyleTextColorValue** restrict out) {
     const AzCssPropertyVariant_TextColor* casted = (const AzCssPropertyVariant_TextColor*)value;
     bool valid = casted->tag == AzCssPropertyTag_TextColor;
@@ -17689,6 +17804,62 @@ bool AzCssProperty_matchRefBackfaceVisibility(const AzCssProperty* value, const 
 bool AzCssProperty_matchMutBackfaceVisibility(AzCssProperty* restrict value, AzStyleBackfaceVisibilityValue* restrict * restrict out) {
     AzCssPropertyVariant_BackfaceVisibility* restrict casted = (AzCssPropertyVariant_BackfaceVisibility* restrict)value;
     bool valid = casted->tag == AzCssPropertyTag_BackfaceVisibility;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRefMixBlendMode(const AzCssProperty* value, const AzStyleMixBlendModeValue** restrict out) {
+    const AzCssPropertyVariant_MixBlendMode* casted = (const AzCssPropertyVariant_MixBlendMode*)value;
+    bool valid = casted->tag == AzCssPropertyTag_MixBlendMode;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMutMixBlendMode(AzCssProperty* restrict value, AzStyleMixBlendModeValue* restrict * restrict out) {
+    AzCssPropertyVariant_MixBlendMode* restrict casted = (AzCssPropertyVariant_MixBlendMode* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_MixBlendMode;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRefFilter(const AzCssProperty* value, const AzStyleFilterVecValue** restrict out) {
+    const AzCssPropertyVariant_Filter* casted = (const AzCssPropertyVariant_Filter*)value;
+    bool valid = casted->tag == AzCssPropertyTag_Filter;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMutFilter(AzCssProperty* restrict value, AzStyleFilterVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_Filter* restrict casted = (AzCssPropertyVariant_Filter* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_Filter;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRefBackdropFilter(const AzCssProperty* value, const AzStyleFilterVecValue** restrict out) {
+    const AzCssPropertyVariant_BackdropFilter* casted = (const AzCssPropertyVariant_BackdropFilter*)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackdropFilter;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMutBackdropFilter(AzCssProperty* restrict value, AzStyleFilterVecValue* restrict * restrict out) {
+    AzCssPropertyVariant_BackdropFilter* restrict casted = (AzCssPropertyVariant_BackdropFilter* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_BackdropFilter;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchRefTextShadow(const AzCssProperty* value, const AzStyleBoxShadowValue** restrict out) {
+    const AzCssPropertyVariant_TextShadow* casted = (const AzCssPropertyVariant_TextShadow*)value;
+    bool valid = casted->tag == AzCssPropertyTag_TextShadow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCssProperty_matchMutTextShadow(AzCssProperty* restrict value, AzStyleBoxShadowValue* restrict * restrict out) {
+    AzCssPropertyVariant_TextShadow* restrict casted = (AzCssPropertyVariant_TextShadow* restrict)value;
+    bool valid = casted->tag == AzCssPropertyTag_TextShadow;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

@@ -3638,7 +3638,7 @@
                         {"TransformOrigin": {}},
                         {"PerspectiveOrigin": {}},
                         {"BackfaceVisibility": {}},
-                        {"BlendMode": {}},
+                        {"MixBlendMode": {}},
                         {"Filter": {}},
                         {"BackdropFilter": {}},
                         {"TextShadow": {}}
@@ -5371,6 +5371,27 @@
                         { "Exact": { "type": "StyleBackfaceVisibility" }}
                     ]
                 },
+                "StyleMixBlendModeValue": {
+                    "external": "azul_impl::css::StyleMixBlendModeValue",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        { "Auto": { }} ,
+                        { "None": { }} ,
+                        { "Inherit": { }} ,
+                        { "Initial": { }} ,
+                        { "Exact": { "type": "StyleMixBlendMode" }}
+                    ]
+                },
+                "StyleFilterVecValue": {
+                    "external": "azul_impl::css::StyleFilterVecValue",
+                    "enum_fields": [
+                        { "Auto": { }} ,
+                        { "None": { }} ,
+                        { "Inherit": { }} ,
+                        { "Initial": { }} ,
+                        { "Exact": { "type": "StyleFilterVec" }}
+                    ]
+                },
                 "CssProperty": {
                     "doc": "Parsed CSS key-value pair",
                     "external": "azul_impl::css::CssProperty",
@@ -5444,7 +5465,11 @@
                         {"Transform": {"type": "StyleTransformVecValue"}},
                         {"TransformOrigin": {"type": "StyleTransformOriginValue"}},
                         {"PerspectiveOrigin": {"type": "StylePerspectiveOriginValue"}},
-                        {"BackfaceVisibility": {"type": "StyleBackfaceVisibilityValue"}}
+                        {"BackfaceVisibility": {"type": "StyleBackfaceVisibilityValue"}},
+                        {"MixBlendMode": {"type": "StyleMixBlendModeValue"}},
+                        {"Filter": {"type": "StyleFilterVecValue"}},
+                        {"BackdropFilter": {"type": "StyleFilterVecValue"}},
+                        {"TextShadow": {"type": "StyleBoxShadowValue"}}
                     ],
                     "functions": {
                         "get_key_string": {

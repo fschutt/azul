@@ -4940,7 +4940,7 @@ impl_vec_hash!(StyleFontFamily, StyleFontFamilyVec);
 impl_vec_partialeq!(StyleFontFamily, StyleFontFamilyVec);
 impl_vec_partialord!(StyleFontFamily, StyleFontFamilyVec);
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum StyleMixBlendMode {
     Normal,
@@ -4959,6 +4959,12 @@ pub enum StyleMixBlendMode {
     Saturation,
     Color,
     Luminosity,
+}
+
+impl Default for StyleMixBlendMode {
+    fn default() -> StyleMixBlendMode {
+        StyleMixBlendMode::Normal
+    }
 }
 
 impl fmt::Display for StyleMixBlendMode {

@@ -1659,7 +1659,7 @@ pub enum AzCssPropertyType {
     TransformOrigin,
     PerspectiveOrigin,
     BackfaceVisibility,
-    BlendMode,
+    MixBlendMode,
     Filter,
     BackdropFilter,
     TextShadow,
@@ -4816,6 +4816,16 @@ pub enum AzStyleBackfaceVisibilityValue {
     Exact(AzStyleBackfaceVisibility),
 }
 
+/// Re-export of rust-allocated (stack based) `StyleMixBlendModeValue` struct
+#[repr(C, u8)]
+pub enum AzStyleMixBlendModeValue {
+    Auto,
+    None,
+    Inherit,
+    Initial,
+    Exact(AzStyleMixBlendMode),
+}
+
 /// Re-export of rust-allocated (stack based) `ButtonOnClick` struct
 #[repr(C)]
 pub struct AzButtonOnClick {
@@ -6698,6 +6708,16 @@ pub enum AzStyleTransformVecValue {
     Exact(AzStyleTransformVec),
 }
 
+/// Re-export of rust-allocated (stack based) `StyleFilterVecValue` struct
+#[repr(C, u8)]
+pub enum AzStyleFilterVecValue {
+    Auto,
+    None,
+    Inherit,
+    Initial,
+    Exact(AzStyleFilterVec),
+}
+
 /// Re-export of rust-allocated (stack based) `FileInputState` struct
 #[repr(C)]
 pub struct AzFileInputState {
@@ -7189,6 +7209,10 @@ pub enum AzCssProperty {
     TransformOrigin(AzStyleTransformOriginValue),
     PerspectiveOrigin(AzStylePerspectiveOriginValue),
     BackfaceVisibility(AzStyleBackfaceVisibilityValue),
+    MixBlendMode(AzStyleMixBlendModeValue),
+    Filter(AzStyleFilterVecValue),
+    BackdropFilter(AzStyleFilterVecValue),
+    TextShadow(AzStyleBoxShadowValue),
 }
 
 /// Re-export of rust-allocated (stack based) `FileInputStateWrapper` struct
@@ -9194,6 +9218,12 @@ pub struct AzStyleBackfaceVisibilityValueEnumWrapper {
     pub inner: AzStyleBackfaceVisibilityValue,
 }
 
+/// `AzStyleMixBlendModeValueEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzStyleMixBlendModeValueEnumWrapper {
+    pub inner: AzStyleMixBlendModeValue,
+}
+
 /// `AzTextInputSelectionEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzTextInputSelectionEnumWrapper {
@@ -9738,6 +9768,12 @@ pub struct AzScrollbarStyleValueEnumWrapper {
 #[repr(transparent)]
 pub struct AzStyleTransformVecValueEnumWrapper {
     pub inner: AzStyleTransformVecValue,
+}
+
+/// `AzStyleFilterVecValueEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzStyleFilterVecValueEnumWrapper {
+    pub inner: AzStyleFilterVecValue,
 }
 
 /// `AzNodeTypeFieldValueEnumWrapper` struct
@@ -10451,6 +10487,7 @@ impl Clone for AzStyleOpacityValueEnumWrapper { fn clone(&self) -> Self { let r:
 impl Clone for AzStyleTransformOriginValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformOriginValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStylePerspectiveOriginValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StylePerspectiveOriginValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackfaceVisibilityValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackfaceVisibilityValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStyleMixBlendModeValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleMixBlendModeValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzButtonOnClick { fn clone(&self) -> Self { let r: &crate::widgets::button::ButtonOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFileInputOnPathChange { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputOnPathChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxOnToggle { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxOnToggle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10669,6 +10706,7 @@ impl Clone for AzScrollbarStyle { fn clone(&self) -> Self { let r: &azul_impl::c
 impl Clone for AzStyleFontFamilyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamily = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzScrollbarStyleValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::ScrollbarStyleValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTransformVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzStyleFilterVecValueEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFilterVecValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFileInputState { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputState { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -16542,7 +16580,7 @@ impl AzCssPropertyTypeEnumWrapper {
     #[classattr]
     fn BackfaceVisibility() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BackfaceVisibility } }
     #[classattr]
-    fn BlendMode() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::BlendMode } }
+    fn MixBlendMode() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::MixBlendMode } }
     #[classattr]
     fn Filter() -> AzCssPropertyTypeEnumWrapper { AzCssPropertyTypeEnumWrapper { inner: AzCssPropertyType::Filter } }
     #[classattr]
@@ -21918,6 +21956,82 @@ impl PyObjectProtocol for AzStyleBackfaceVisibilityValueEnumWrapper {
 }
 
 #[pymethods]
+impl AzStyleMixBlendModeValueEnumWrapper {
+    #[classattr]
+    fn Auto() -> AzStyleMixBlendModeValueEnumWrapper { AzStyleMixBlendModeValueEnumWrapper { inner: AzStyleMixBlendModeValue::Auto } }
+    #[classattr]
+    fn None() -> AzStyleMixBlendModeValueEnumWrapper { AzStyleMixBlendModeValueEnumWrapper { inner: AzStyleMixBlendModeValue::None } }
+    #[classattr]
+    fn Inherit() -> AzStyleMixBlendModeValueEnumWrapper { AzStyleMixBlendModeValueEnumWrapper { inner: AzStyleMixBlendModeValue::Inherit } }
+    #[classattr]
+    fn Initial() -> AzStyleMixBlendModeValueEnumWrapper { AzStyleMixBlendModeValueEnumWrapper { inner: AzStyleMixBlendModeValue::Initial } }
+    #[staticmethod]
+    fn Exact(v: AzStyleMixBlendModeEnumWrapper) -> AzStyleMixBlendModeValueEnumWrapper { AzStyleMixBlendModeValueEnumWrapper { inner: AzStyleMixBlendModeValue::Exact(unsafe { mem::transmute(v) }) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleMixBlendModeValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleMixBlendModeValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleMixBlendModeValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleMixBlendModeValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleMixBlendModeValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleMixBlendModeValue::Exact(v) => Ok(vec!["Exact".into_py(py), { let m: &AzStyleMixBlendModeEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzStyleMixBlendModeValueEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::StyleMixBlendModeValue = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::StyleMixBlendModeValue = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzStyleFilterVecValueEnumWrapper {
+    #[classattr]
+    fn Auto() -> AzStyleFilterVecValueEnumWrapper { AzStyleFilterVecValueEnumWrapper { inner: AzStyleFilterVecValue::Auto } }
+    #[classattr]
+    fn None() -> AzStyleFilterVecValueEnumWrapper { AzStyleFilterVecValueEnumWrapper { inner: AzStyleFilterVecValue::None } }
+    #[classattr]
+    fn Inherit() -> AzStyleFilterVecValueEnumWrapper { AzStyleFilterVecValueEnumWrapper { inner: AzStyleFilterVecValue::Inherit } }
+    #[classattr]
+    fn Initial() -> AzStyleFilterVecValueEnumWrapper { AzStyleFilterVecValueEnumWrapper { inner: AzStyleFilterVecValue::Initial } }
+    #[staticmethod]
+    fn Exact(v: AzStyleFilterVec) -> AzStyleFilterVecValueEnumWrapper { AzStyleFilterVecValueEnumWrapper { inner: AzStyleFilterVecValue::Exact(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzStyleFilterVecValue;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzStyleFilterVecValue::Auto => Ok(vec!["Auto".into_py(py), ().into_py(py)]),
+            AzStyleFilterVecValue::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzStyleFilterVecValue::Inherit => Ok(vec!["Inherit".into_py(py), ().into_py(py)]),
+            AzStyleFilterVecValue::Initial => Ok(vec!["Initial".into_py(py), ().into_py(py)]),
+            AzStyleFilterVecValue::Exact(v) => Ok(vec!["Exact".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzStyleFilterVecValueEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::StyleFilterVecValue = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::StyleFilterVecValue = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzCssPropertyEnumWrapper {
     #[staticmethod]
     fn TextColor(v: AzStyleTextColorValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::TextColor(unsafe { mem::transmute(v) }) } }
@@ -22059,6 +22173,14 @@ impl AzCssPropertyEnumWrapper {
     fn PerspectiveOrigin(v: AzStylePerspectiveOriginValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::PerspectiveOrigin(unsafe { mem::transmute(v) }) } }
     #[staticmethod]
     fn BackfaceVisibility(v: AzStyleBackfaceVisibilityValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackfaceVisibility(unsafe { mem::transmute(v) }) } }
+    #[staticmethod]
+    fn MixBlendMode(v: AzStyleMixBlendModeValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::MixBlendMode(unsafe { mem::transmute(v) }) } }
+    #[staticmethod]
+    fn Filter(v: AzStyleFilterVecValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::Filter(unsafe { mem::transmute(v) }) } }
+    #[staticmethod]
+    fn BackdropFilter(v: AzStyleFilterVecValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::BackdropFilter(unsafe { mem::transmute(v) }) } }
+    #[staticmethod]
+    fn TextShadow(v: AzStyleBoxShadowValueEnumWrapper) -> AzCssPropertyEnumWrapper { AzCssPropertyEnumWrapper { inner: AzCssProperty::TextShadow(unsafe { mem::transmute(v) }) } }
 
     fn r#match(&self) -> PyResult<Vec<PyObject>> {
         use crate::python::AzCssProperty;
@@ -22136,6 +22258,10 @@ impl AzCssPropertyEnumWrapper {
             AzCssProperty::TransformOrigin(v) => Ok(vec!["TransformOrigin".into_py(py), { let m: &AzStyleTransformOriginValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
             AzCssProperty::PerspectiveOrigin(v) => Ok(vec!["PerspectiveOrigin".into_py(py), { let m: &AzStylePerspectiveOriginValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
             AzCssProperty::BackfaceVisibility(v) => Ok(vec!["BackfaceVisibility".into_py(py), { let m: &AzStyleBackfaceVisibilityValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::MixBlendMode(v) => Ok(vec!["MixBlendMode".into_py(py), { let m: &AzStyleMixBlendModeValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::Filter(v) => Ok(vec!["Filter".into_py(py), { let m: &AzStyleFilterVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::BackdropFilter(v) => Ok(vec!["BackdropFilter".into_py(py), { let m: &AzStyleFilterVecValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
+            AzCssProperty::TextShadow(v) => Ok(vec!["TextShadow".into_py(py), { let m: &AzStyleBoxShadowValueEnumWrapper = unsafe { mem::transmute(v) }; m.clone() }.into_py(py)]),
         }
     }
 }
@@ -39562,6 +39688,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzStyleTransformOriginValueEnumWrapper>()?;
     m.add_class::<AzStylePerspectiveOriginValueEnumWrapper>()?;
     m.add_class::<AzStyleBackfaceVisibilityValueEnumWrapper>()?;
+    m.add_class::<AzStyleMixBlendModeValueEnumWrapper>()?;
+    m.add_class::<AzStyleFilterVecValueEnumWrapper>()?;
     m.add_class::<AzCssPropertyEnumWrapper>()?;
 
     m.add_class::<AzButton>()?;

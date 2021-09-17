@@ -350,7 +350,8 @@
     impl_vec_clone!(AzInputNodeAndIndex, AzInputNodeAndIndexVec, AzInputNodeAndIndexVecDestructor);
     impl_vec!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor, az_logical_rect_vec_destructor, AzLogicalRectVec_delete);
     impl_vec_clone!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor);
-
+    impl_vec!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor, az_style_filter_vec_destructor, AzStyleFilterVec_delete);
+    impl_vec_clone!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
