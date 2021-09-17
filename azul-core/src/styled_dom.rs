@@ -19,7 +19,7 @@ use azul_css::{
     StyleBorderBottomLeftRadiusValue, StyleBorderBottomRightRadiusValue,
     StyleOpacityValue, StyleTransformVecValue, StyleTransformOriginValue,
     StylePerspectiveOriginValue, StyleBackfaceVisibilityValue, StyleTextColor,
-    StyleFontSize, StyleTextColorValue,
+    StyleFontSize, StyleTextColorValue, StyleMixBlendModeValue, StyleFilterVecValue,
 
     LayoutDisplayValue, LayoutFloatValue, LayoutBoxSizingValue,
     LayoutWidthValue,  LayoutHeightValue, LayoutMinWidthValue,
@@ -1077,6 +1077,18 @@ impl CssPropertyCache {
     }
     pub fn get_align_content<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a LayoutAlignContentValue> {
         self.get_property(node_data, node_id, node_state, &CssPropertyType::AlignContent).and_then(|p| p.as_align_content())
+    }
+    pub fn get_mix_blend_mode<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleMixBlendModeValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::MixBlendMode).and_then(|p| p.as_mix_blend_mode())
+    }
+    pub fn get_filter<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleFilterVecValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Filter).and_then(|p| p.as_filter())
+    }
+    pub fn get_backdrop_filter<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleFilterVecValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::Filter).and_then(|p| p.as_backdrop_filter())
+    }
+    pub fn get_text_shadow<'a>(&'a self, node_data: &'a NodeData, node_id: &NodeId, node_state: &StyledNodeState) -> Option<&'a StyleBoxShadowValue> {
+        self.get_property(node_data, node_id, node_state, &CssPropertyType::TextShadow).and_then(|p| p.as_text_shadow())
     }
 }
 

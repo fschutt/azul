@@ -2442,6 +2442,10 @@ impl CssProperty {
     pub const fn as_transform_origin(&self) -> Option<&StyleTransformOriginValue> { match self { CssProperty::TransformOrigin(f) => Some(f), _ => None, } }
     pub const fn as_perspective_origin(&self) -> Option<&StylePerspectiveOriginValue> { match self { CssProperty::PerspectiveOrigin(f) => Some(f), _ => None, } }
     pub const fn as_backface_visibility(&self) -> Option<&StyleBackfaceVisibilityValue> { match self { CssProperty::BackfaceVisibility(f) => Some(f), _ => None, } }
+    pub const fn as_mix_blend_mode(&self) -> Option<&StyleMixBlendModeValue> { match self { CssProperty::MixBlendMode(f) => Some(f), _ => None, } }
+    pub const fn as_filter(&self) -> Option<&StyleFilterVecValue> { match self { CssProperty::Filter(f) => Some(f), _ => None, } }
+    pub const fn as_backdrop_filter(&self) -> Option<&StyleFilterVecValue> { match self { CssProperty::BackdropFilter(f) => Some(f), _ => None, } }
+    pub const fn as_text_shadow(&self) -> Option<&StyleBoxShadowValue> { match self { CssProperty::TextShadow(f) => Some(f), _ => None, } }
 
     // functions that downcast to the concrete CSS type (layout)
 
