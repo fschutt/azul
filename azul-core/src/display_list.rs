@@ -90,6 +90,16 @@ impl DisplayListMsg {
         }
     }
 
+    // warning: recursive function!
+    pub fn has_mix_blend_mode_children(&self) -> bool {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.children.iter().any(|f| f.get_mix_blend_mode().is_some()),
+            ScrollFrame(sf) => sf.frame.children.iter().any(|f| f.get_mix_blend_mode().is_some()),
+            IFrame(_, _, _, _) => false,
+        }
+    }
+
     pub fn get_opacity_key(&self) -> Option<&(OpacityKey, f32)> {
         use self::DisplayListMsg::*;
         match self {
@@ -712,10 +722,14 @@ pub fn displaylist_handle_rect<'a>(
     let overflow_vertical_visible = layout_result.styled_dom.get_css_property_cache()
     .is_vertical_overflow_visible(&html_node, &rect_idx, &styled_node.state);
 
+    let mix_blend_mode = layout_result.styled_dom.get_css_property_cache()
+    .get_mix_blend_mode(&html_node, &rect_idx, &styled_node.state)
+    .and_then(|p| p.get_property()).cloned();
+
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
         size: positioned_rect.size,
-        mix_blend_mode: layout_result.styled_dom.get_css_property_cache().get_mix_blend_mode(&html_node, &rect_idx, &styled_node.state).and_then(|p| p.get_property()).cloned(),
+        mix_blend_mode,
         clip_children: match layout_result.scrollable_nodes.clip_nodes.get(&rect_idx).copied() {
             Some(s) => {
                 // never clip children if overflow:visible is set!

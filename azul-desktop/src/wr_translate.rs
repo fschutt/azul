@@ -1735,7 +1735,8 @@ fn push_display_list_msg(
     let transform = msg.get_transform_key();
     let opacity = msg.get_opacity_key();
     let mix_blend_mode = msg.get_mix_blend_mode();
-    let should_push_stacking_context = transform.is_some() || opacity.is_some() || mix_blend_mode.is_some();
+    let has_mix_blend_mode_children = msg.has_mix_blend_mode_children();
+    let should_push_stacking_context = transform.is_some() || opacity.is_some() || mix_blend_mode.is_some() || has_mix_blend_mode_children;
 
     let property_binding = match transform {
         Some(s) => WrPropertyBinding::Binding(
@@ -1772,6 +1773,11 @@ fn push_display_list_msg(
         // let filters = ...
         // let backdrop_filters = ...
 
+        let mut stacking_context_flags = WrStackingContextFlags::empty();
+        if has_mix_blend_mode_children {
+            stacking_context_flags.set(WrStackingContextFlags::IS_BLEND_CONTAINER, true);
+        }
+
         builder.push_stacking_context(
             WrLayoutPoint::zero(),
             rect_spatial_id,
@@ -1783,7 +1789,7 @@ fn push_display_list_msg(
             &[],
             &[],
             WrRasterSpace::Screen,
-            WrStackingContextFlags::empty(),
+            stacking_context_flags,
         );
     }
 

@@ -2840,7 +2840,7 @@ unsafe extern "system" fn WindowProc(
                         true,
                     );
 
-                    InvalidateRect(current_window.hwnd, ptr::null_mut(), 0);
+                    PostMessageW(hwnd, WM_PAINT, 0, 0);
                     mem::drop(app_borrow);
                     return 0;
                 } else {
@@ -2850,8 +2850,6 @@ unsafe extern "system" fn WindowProc(
             },
             AZ_GPU_SCROLL_RENDER => {
 
-                use winapi::um::winuser::InvalidateRect;
-
                 match app_borrow.windows.get_mut(&hwnd_key) {
                     Some(current_window) => {
                         generate_frame(
@@ -2860,7 +2858,7 @@ unsafe extern "system" fn WindowProc(
                             false,
                         );
 
-                        InvalidateRect(current_window.hwnd, ptr::null_mut(), 0);
+                        PostMessageW(hwnd, WM_PAINT, 0, 0);
                     },
                     None => { },
                 }
@@ -4118,9 +4116,8 @@ fn process_callback_results(
             let mut txn = WrTransaction::new();
             wr_synchronize_updated_images(updated_images, &window.internal.document_id, &mut txn);
             window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+            result = result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
-
-        result = result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow);
     }
 
     window.start_stop_timers(

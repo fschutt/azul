@@ -445,6 +445,22 @@ impl StyleAndLayoutChanges {
         let mut doms_to_relayout = Vec::new();
         if need_root_relayout {
             doms_to_relayout.push(DomId::ROOT_ID);
+        } else {
+            // if no nodes were resized or styles changed,
+            // still update the GPU-only properties
+            for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
+
+                let gpu_key_changes = layout_result.gpu_value_cache.synchronize(
+                    &layout_result.rects.as_ref(),
+                    &layout_result.styled_dom,
+                );
+
+                if !gpu_key_changes.is_empty() {
+                    gpu_key_change_events
+                    .get_or_insert_with(|| BTreeMap::new())
+                    .insert(DomId { inner: dom_id }, gpu_key_changes);
+                }
+            }
         }
 
         loop {
@@ -479,7 +495,7 @@ impl StyleAndLayoutChanges {
                     word_changes,
                 );
 
-                if gpu_key_changes.is_empty() {
+                if !gpu_key_changes.is_empty() {
                     gpu_key_change_events
                     .get_or_insert_with(|| BTreeMap::new())
                     .insert(dom_id, gpu_key_changes);
