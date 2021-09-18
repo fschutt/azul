@@ -2092,14 +2092,50 @@ fn push_display_list_content(
         // are outside of the rect contents
         // All other content types get the regular clip
         match content {
-            Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
+            Text { glyphs, font_instance_key, color, glyph_options, overflow, text_shadow } => {
                 let mut text_info = normal_info.clone();
                 if overflow.0 || overflow.1 {
                     text_info.clip_id = content_clip.get_or_insert_with(|| {
                         define_border_radius_clip(builder, clip_rect, wr_border_radius, normal_info.spatial_id, parent_clip_id)
                     }).clone();
                 }
+
+                // push text shadow: push glyphs + blur filter
+                use azul_css::StyleBoxShadow;
+
+                if let Some(StyleBoxShadow { offset, color, blur_radius, spread_radius, clip_mode }) = text_shadow.as_ref() {
+
+                    use webrender::api::{
+                        FilterOp as WrFilterOp,
+                        RasterSpace as WrRasterSpace,
+                        StackingContextFlags as WrStackingContextFlags,
+                        Shadow as WrShadow,
+                    };
+
+                    builder.push_stacking_context(
+                        WrLayoutPoint::zero(),
+                        normal_info.spatial_id,
+                        WrPrimitiveFlags::empty(),
+                        None,
+                        WrTransformStyle::Flat,
+                        WrMixBlendMode::Normal,
+                        &[WrFilterOp::DropShadow(WrShadow {
+                            offset: WrLayoutVector2D::new(offset[0].to_pixels(), offset[1].to_pixels()),
+                            color: wr_translate_color_f(color.clone().into()),
+                            blur_radius: blur_radius.to_pixels(),
+                        })],
+                        &[],
+                        &[],
+                        WrRasterSpace::Screen,
+                        WrStackingContextFlags::empty(),
+                    );
+                }
+
                 text::push_text(builder, &text_info, glyphs, *font_instance_key, *color, *glyph_options);
+
+                if text_shadow.is_some() {
+                    builder.pop_stacking_context();
+                }
             },
             Background { content, size, offset, repeat  } => {
                 let mut background_info = normal_info.clone();

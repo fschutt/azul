@@ -443,6 +443,7 @@ pub enum LayoutRectContent {
         color: ColorU,
         glyph_options: Option<GlyphOptions>,
         overflow: (bool, bool),
+        text_shadow: Option<StyleBoxShadow>,
     },
     Background {
         content: RectBackground,
@@ -469,7 +470,7 @@ impl fmt::Debug for LayoutRectContent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::LayoutRectContent::*;
         match self {
-            Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
+            Text { glyphs, font_instance_key, color, glyph_options, overflow, text_shadow } => {
                 let glyphs_str = glyphs.iter().map(|g| format!("        {:?}", g)).collect::<Vec<_>>().join(",\r\n");
                 write!(f,
                     "Text {{\r\n\
@@ -478,8 +479,9 @@ impl fmt::Debug for LayoutRectContent {
                        .    color: {},\r\n\
                        .    glyph_options: {:?},\r\n\
                        .    overflow: {:?},\r\n\
+                       .    text_shadow: {:?},\r\n\
                     }}",
-                    glyphs_str, font_instance_key.key, color, glyph_options, overflow
+                    glyphs_str, font_instance_key.key, color, glyph_options, overflow, text_shadow
                 )
             },
             Background { content, size, offset, repeat } => {
@@ -894,12 +896,18 @@ pub fn displaylist_handle_rect<'a>(
                     let text_color = layout_result.styled_dom.get_css_property_cache()
                     .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
 
+                    let text_shadow = layout_result.styled_dom.get_css_property_cache()
+                    .get_text_shadow(&html_node, &rect_idx, &styled_node.state)
+                    .and_then(|p| p.get_property())
+                    .cloned();
+
                     frame.content.push(LayoutRectContent::Text {
-                       glyphs: layouted_glyphs.glyphs,
-                       font_instance_key,
-                       color: text_color.inner,
-                       glyph_options: None,
-                       overflow: (overflow_horizontal_visible, overflow_vertical_visible),
+                        text_shadow,
+                        glyphs: layouted_glyphs.glyphs,
+                        font_instance_key,
+                        color: text_color.inner,
+                        glyph_options: None,
+                        overflow: (overflow_horizontal_visible, overflow_vertical_visible),
                     });
                 }
             }
