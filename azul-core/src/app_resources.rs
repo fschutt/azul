@@ -1396,8 +1396,14 @@ impl RawImage {
                     return None;
                 }
 
-                data_format = RawImageFormat::R8;
-                pixels
+                let px = pixels
+                    .as_ref()
+                    .iter()
+                    .flat_map(|r| [*r, *r, *r, 0xff])
+                    .collect::<Vec<u8>>();
+
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
             RawImageFormat::RG8 => {
                 let pixels = pixels.get_u8_vec()?;
@@ -1462,23 +1468,18 @@ impl RawImage {
                 // no extra allocation necessary, but swizzling
                 if premultiplied_alpha {
                     for rgba in pixels.chunks_exact_mut(4) {
-                        let r = rgba[0];
-                        let g = rgba[1];
-                        let b = rgba[2];
-                        let a = rgba[3];
-                        if a != 255 { is_opaque = false; }
-                        rgba[0] = b;
-                        rgba[1] = r;
-                        rgba[2] = g;
-                        rgba[3] = a;
+                        let (r, gba) = rgba.split_first_mut()?;
+                        core::mem::swap(r, gba.get_mut(1)?);
+                        let a = rgba.get_mut(3)?;
+                        if *a != 255 { is_opaque = false; }
                     }
                 } else {
                     for rgba in pixels.chunks_exact_mut(4) {
-                        if rgba[3] != 255 { is_opaque = false; }
-                        rgba[0] = rgba[3];
-                        rgba[1] = rgba[2];
-                        rgba[2] = rgba[1];
-                        rgba[3] = rgba[0];
+                        // RGBA => BGRA
+                        let (r, gba) = rgba.split_first_mut()?;
+                        core::mem::swap(r, gba.get_mut(1)?);
+                        let a = rgba.get_mut(3)?;
+                        if *a != 255 { is_opaque = false; }
                         premultiply_alpha(rgba); // <-
                     }
                 }
