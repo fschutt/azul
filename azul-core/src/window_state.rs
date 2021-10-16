@@ -870,26 +870,6 @@ impl CallbacksOfHitTest {
 
         {
 
-        let mut node_hierarchies = layout_results.iter_mut().enumerate().filter_map(|(dom_id, lr)| {
-            Some((
-             DomId { inner: dom_id }, (
-                lr.styled_dom.root.into_crate_internal()?,
-                &lr.styled_dom.node_hierarchy,
-                &lr.styled_dom.non_leaf_nodes,
-                &lr.words_cache,
-                &lr.shaped_words_cache,
-                &lr.positioned_words_cache,
-                &lr.rects,
-                &lr.styled_dom.styled_nodes,
-                &lr.styled_dom.css_property_cache,
-                lr.styled_dom.node_data.split_into_callbacks_and_dataset(
-                    &lr.styled_dom.css_property_cache,
-                    &lr.styled_dom.styled_nodes.as_container(),
-                    renderer_resources,
-                )
-            )))
-        }).collect::<BTreeMap<_, _>>();
-
         for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {
 
             let callbacks = callbacks_filter_list
@@ -897,28 +877,17 @@ impl CallbacksOfHitTest {
             .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
             .collect::<BTreeMap<_, _>>();
 
-            let (
-                 root_id,
-                 node_hierarchy,
-                 non_leaf_nodes,
-                 words_cache,
-                 shaped_words_cache,
-                 positioned_words_cache,
-                 positioned_rects,
-                 styled_nodes,
-                 css_property_cache,
-                 (callback_map, dataset_map, font_map)
-            ) = match node_hierarchies.get_mut(dom_id) {
+            let lr = match layout_results.get(dom_id.inner) {
                 Some(s) => s,
-                None => { return ret; },
+                None => continue,
             };
 
             let mut blacklisted_event_types = BTreeSet::new();
 
             // Run all callbacks (front to back)
-            for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes.as_ref().iter().rev() {
+            for ParentWithNodeDepth { depth: _, node_id } in lr.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
                let parent_node_id = node_id;
-               for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&node_hierarchy.as_container()) {
+               for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&lr.styled_dom.node_hierarchy.as_container()) {
                     if let Some((hit_test_item, event_filter)) = callbacks.get(&child_id) {
 
                         if blacklisted_event_types.contains(&*event_filter) {
@@ -929,8 +898,8 @@ impl CallbacksOfHitTest {
                         let mut stop_propagation = false;
 
                         let mut callback_info = CallbackInfo::new(
-                            /*css_property_cache:*/ &css_property_cache.ptr,
-                            /*styled_node_states:*/ styled_nodes,
+                            /*layout_results:*/ &layout_results,
+                            /*renderer_resources:*/ renderer_resources,
                             /*previous_window_state:*/ &previous_window_state,
                             /*current_window_state:*/ &full_window_state,
                             /*modifiable_window_state:*/ &mut ret_modified_window_state,
@@ -941,16 +910,11 @@ impl CallbacksOfHitTest {
                             /*threads:*/ &mut ret_threads,
                             /*timers_removed:*/ &mut ret_timers_removed,
                             /*threads_removed:*/ &mut ret_threads_removed,
-                            /*new_windows:*/ &mut ret.windows_created,
+
                             /*current_window_handle:*/ raw_window_handle,
-                            /*node_hierarchy*/ &node_hierarchy,
+                            /*new_windows:*/ &mut ret.windows_created,
                             /*system_callbacks*/ system_callbacks,
-                            /*words_cache*/ &words_cache,
-                            /*shaped_words_cache*/ &shaped_words_cache,
-                            /*positioned_words_cache*/ &positioned_words_cache,
-                            /*positioned_rects*/ &positioned_rects,
-                            /*font_map*/ font_map,
-                            /*dataset_map*/ dataset_map,
+
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
                             /*words_changed_in_callbacks:*/ &mut ret_words_changed,
@@ -966,9 +930,11 @@ impl CallbacksOfHitTest {
 
                         let callback_return = {
                             // get a MUTABLE reference to the RefAny inside of the DOM
-                            if let Some(callback_data) = callback_map.get_mut(&child_id).unwrap().as_mut().iter_mut().find(|i| i.event == *event_filter) {
+                            let node_data_container = lr.styled_dom.node_data.as_container();
+                            if let Some(callback_data) =  node_data_container.get(child_id).and_then(|nd| nd.callbacks.as_ref() .iter().find(|i| i.event == *event_filter)) {
+                                let mut callback_data_clone = callback_data.clone();
                                 // Invoke callback
-                                (callback_data.callback.cb)(&mut callback_data.data, &mut callback_info)
+                                (callback_data_clone.callback.cb)(&mut callback_data_clone.data, &mut callback_info)
                             } else {
                                 Update::DoNothing
                             }
@@ -984,12 +950,14 @@ impl CallbacksOfHitTest {
                            blacklisted_event_types.insert(event_filter.clone());
                         }
                     }
-               }
+                }
             }
 
             // run the callbacks for node ID 0
             loop {
-                if let Some(((hit_test_item, event_filter), root_id)) = callbacks.get(&root_id).map(|cb| (cb, root_id)) {
+                if let Some(((hit_test_item, event_filter), root_id)) = lr.styled_dom.root
+                .into_crate_internal()
+                .and_then(|root_id| callbacks.get(&root_id).map(|cb| (cb, root_id))) {
 
                     if blacklisted_event_types.contains(&event_filter) {
                         break; // break out of loop
@@ -998,10 +966,11 @@ impl CallbacksOfHitTest {
                     let mut new_focus = None;
                     let mut stop_propagation = false;
 
+
                     let mut callback_info = CallbackInfo::new(
-                        /*css_property_cache:*/ &css_property_cache.ptr,
-                        /*styled_node_states:*/ styled_nodes,
-                        /*previous_window_State:*/ &previous_window_state,
+                        /*layout_results:*/ &layout_results,
+                        /*renderer_resources:*/ renderer_resources,
+                        /*previous_window_state:*/ &previous_window_state,
                         /*current_window_state:*/ &full_window_state,
                         /*modifiable_window_state:*/ &mut ret_modified_window_state,
                         /*gl_context,*/ gl_context,
@@ -1011,16 +980,11 @@ impl CallbacksOfHitTest {
                         /*threads:*/ &mut ret_threads,
                         /*timers_removed:*/ &mut ret_timers_removed,
                         /*threads_removed:*/ &mut ret_threads_removed,
-                        /*new_windows:*/ &mut ret.windows_created,
+
                         /*current_window_handle:*/ raw_window_handle,
-                        /*node_hierarchy*/ &node_hierarchy,
+                        /*new_windows:*/ &mut ret.windows_created,
                         /*system_callbacks*/ system_callbacks,
-                        /*words_cache*/ &words_cache,
-                        /*shaped_words_cache*/ &shaped_words_cache,
-                        /*positioned_words_cache*/ &positioned_words_cache,
-                        /*positioned_rects*/ &positioned_rects,
-                        /*font_map*/ &font_map,
-                        /*dataset_map*/ dataset_map,
+
                         /*stop_propagation:*/ &mut stop_propagation,
                         /*focus_target:*/ &mut new_focus,
                         /*words_changed_in_callbacks:*/ &mut ret_words_changed,
@@ -1029,18 +993,18 @@ impl CallbacksOfHitTest {
                         /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
                         /*current_scroll_states:*/ scroll_states,
                         /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
-                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(*root_id)) },
+                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(root_id)) },
                         /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi|hi.point_relative_to_item).into(),
                         /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
                     );
 
                     let callback_return = {
                         // get a MUTABLE reference to the RefAny inside of the DOM
-                        if let Some(callback_data) = callback_map
-                        .get_mut(&*root_id).unwrap()
-                        .iter_mut().find(|i| i.event == *event_filter) {
+                        let node_data_container = lr.styled_dom.node_data.as_container();
+                        if let Some(callback_data) =  node_data_container.get(root_id).and_then(|nd| nd.callbacks.as_ref() .iter().find(|i| i.event == *event_filter)) {
                             // Invoke callback
-                            (callback_data.callback.cb)(&mut callback_data.data, &mut callback_info)
+                            let mut callback_data_clone = callback_data.clone();
+                            (callback_data_clone.callback.cb)(&mut callback_data_clone.data, &mut callback_info)
                         } else {
                             Update::DoNothing
                         }
@@ -1056,6 +1020,7 @@ impl CallbacksOfHitTest {
                        blacklisted_event_types.insert(event_filter.clone());
                     }
                 }
+
                 break;
             }
         }

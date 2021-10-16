@@ -1429,8 +1429,7 @@ impl StyledDom {
             }
         }).collect::<Vec<_>>();
 
-        // collect nodes with either dataset or callback properties, necessary for
-        // the split_into_callbacks_and_dataset() function
+        // collect nodes with either dataset or callback properties
         let nodes_with_datasets = compact_dom.node_data.as_ref()
         .internal.par_iter().enumerate().filter_map(|(node_id, c)| {
             if !c.get_callbacks().is_empty() || c.get_dataset().is_some() {

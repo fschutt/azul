@@ -21,7 +21,7 @@ use crate::{
     FastBTreeSet,
     FastHashMap,
     app_resources::{
-        ImageCache, ImageRef, IdNamespace, Words, ShapedWords,
+        ImageCache, ImageRef, IdNamespace, Words, ShapedWords, RendererResources,
         WordPositions, FontInstanceKey, LayoutedGlyphs, ImageMask,
     },
     id_tree::{NodeId, NodeDataContainer},
@@ -1001,10 +1001,12 @@ impl_vec_partialord!(InlineGlyph, InlineGlyphVec);
 #[derive(Debug)]
 #[repr(C)]
 pub struct CallbackInfo {
-    /// Css property cache
-    css_property_cache: *const CssPropertyCache,
-    /// Styled node states
-    styled_node_states: *const StyledNodeVec,
+    /// Pointer to the layout results vector start
+    layout_results: *const LayoutResult,
+    /// Number of layout results
+    layout_results_count: usize,
+    /// Necessary to query FontRefs from callbacks
+    renderer_resources: *const RendererResources,
     /// Previous window state
     previous_window_state: *const Option<FullWindowState>,
     /// State of the current window that the callback was called on (read only!)
@@ -1025,31 +1027,17 @@ pub struct CallbackInfo {
     timers_removed: *mut FastBTreeSet<TimerId>,
     /// Threads removed by the callback
     threads_removed: *mut FastBTreeSet<ThreadId>,
-    /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows.
-    new_windows: *mut Vec<WindowCreateOptions>,
     /// Handle of the current window
     current_window_handle: *const RawWindowHandle,
-    /// Currently active, layouted rectangles
-    node_hierarchy: *const NodeHierarchyItemVec,
+    /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows.
+    new_windows: *mut Vec<WindowCreateOptions>,
     /// Callbacks for creating threads and getting the system time (since this crate uses no_std)
     system_callbacks: *const ExternalSystemCallbacks,
-    /// Current fonts in the DOM
-    font_map: *const BTreeMap<NodeId, FontRef>,
-    /// Current datasets in the DOM
-    dataset_map: *mut BTreeMap<NodeId, *mut RefAny>, // &'a BTreeMap<NodeId, &'b mut RefAny>
     /// Sets whether the event should be propagated to the parent hit node or not
     stop_propagation: *mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     focus_target: *mut Option<FocusTarget>,
-    /// Cache of UI strings broken into words
-    words_cache: *const BTreeMap<NodeId, Words>,
-    /// Cache of words shaped into glyphs
-    shaped_words_cache: *const BTreeMap<NodeId, ShapedWords>,
-    /// Cache of word positions on the screen
-    positioned_words_cache: *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    /// Cache of rectangles in the UI
-    positioned_rects: *const NodeDataContainer<PositionedRectangle>,
     /// Mutable reference to a list of words / text items that were changed in the callback
     words_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
     /// Mutable reference to a list of images that were changed in the callback
@@ -1083,43 +1071,37 @@ impl CallbackInfo {
     // since the call_callbacks() function is the only function
     #[inline]
     pub fn new<'a, 'b>(
-       css_property_cache: &'a CssPropertyCache,
-       styled_node_states: &'a StyledNodeVec,
-       previous_window_state: &'a Option<FullWindowState>,
-       current_window_state: &'a FullWindowState,
-       modifiable_window_state: &'a mut WindowState,
-       gl_context: &'a OptionGlContextPtr,
-       image_cache: &'a mut ImageCache,
-       system_fonts: &'a mut FcFontCache,
-       timers: &'a mut FastHashMap<TimerId, Timer>,
-       threads: &'a mut FastHashMap<ThreadId, Thread>,
-       timers_removed: &'a mut FastBTreeSet<TimerId>,
-       threads_removed: &'a mut FastBTreeSet<ThreadId>,
-       new_windows: &'a mut Vec<WindowCreateOptions>,
-       current_window_handle: &'a RawWindowHandle,
-       node_hierarchy: &'a NodeHierarchyItemVec,
-       system_callbacks: &'a ExternalSystemCallbacks,
-       words_cache: &'a BTreeMap<NodeId, Words>,
-       shaped_words_cache: &'a BTreeMap<NodeId, ShapedWords>,
-       positioned_words_cache: &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-       positioned_rects: &'a NodeDataContainer<PositionedRectangle>,
-       font_map: &'a BTreeMap<NodeId, FontRef>,
-       dataset_map: &'a mut BTreeMap<NodeId, &'b mut RefAny>,
-       stop_propagation: &'a mut bool,
-       focus_target: &'a mut Option<FocusTarget>,
-       words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
-       images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
-       image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
-       css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
-       current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
-       nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
-       hit_dom_node: DomNodeId,
-       cursor_relative_to_item: OptionLogicalPosition,
-       cursor_in_viewport: OptionLogicalPosition,
+        layout_results: &'a [LayoutResult],
+        renderer_resources: &'a RendererResources,
+        previous_window_state: &'a Option<FullWindowState>,
+        current_window_state: &'a FullWindowState,
+        modifiable_window_state: &'a mut WindowState,
+        gl_context: &'a OptionGlContextPtr,
+        image_cache: &'a mut ImageCache,
+        system_fonts: &'a mut FcFontCache,
+        timers: &'a mut FastHashMap<TimerId, Timer>,
+        threads: &'a mut FastHashMap<ThreadId, Thread>,
+        timers_removed: &'a mut FastBTreeSet<TimerId>,
+        threads_removed: &'a mut FastBTreeSet<ThreadId>,
+        current_window_handle: &'a RawWindowHandle,
+        new_windows: &'a mut Vec<WindowCreateOptions>,
+        system_callbacks: &'a ExternalSystemCallbacks,
+        stop_propagation: &'a mut bool,
+        focus_target: &'a mut Option<FocusTarget>,
+        words_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
+        images_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>>,
+        image_masks_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>>,
+        css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>>,
+        nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>,
+        hit_dom_node: DomNodeId,
+        cursor_relative_to_item: OptionLogicalPosition,
+        cursor_in_viewport: OptionLogicalPosition,
     ) -> Self {
         Self {
-            css_property_cache: css_property_cache as *const CssPropertyCache,
-            styled_node_states: styled_node_states as *const StyledNodeVec,
+            layout_results: layout_results.as_ptr(),
+            layout_results_count: layout_results.len(),
+            renderer_resources: renderer_resources as *const RendererResources,
             previous_window_state: previous_window_state as *const Option<FullWindowState>,
             current_window_state: current_window_state as *const FullWindowState,
             modifiable_window_state: modifiable_window_state as *mut WindowState,
@@ -1133,13 +1115,6 @@ impl CallbackInfo {
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
             system_callbacks: system_callbacks as *const ExternalSystemCallbacks,
-            words_cache: words_cache as *const BTreeMap<NodeId, Words>,
-            shaped_words_cache: shaped_words_cache as *const BTreeMap<NodeId, ShapedWords>,
-            positioned_words_cache: positioned_words_cache as *const BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-            positioned_rects: positioned_rects as *const NodeDataContainer<PositionedRectangle>,
-            node_hierarchy: node_hierarchy as *const NodeHierarchyItemVec,
-            font_map: font_map as *const BTreeMap<NodeId, FontRef>,
-            dataset_map: dataset_map as *mut BTreeMap<NodeId, &'b mut RefAny> as *mut BTreeMap<NodeId, *mut RefAny>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             words_changed_in_callbacks: words_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, AzString>>,
@@ -1156,8 +1131,8 @@ impl CallbackInfo {
         }
     }
 
-    fn internal_get_styled_node_states<'a>(&'a self) -> &'a StyledNodeVec { unsafe { &*self.styled_node_states } }
-    fn internal_get_css_property_cache<'a>(&'a self) -> &'a CssPropertyCache { unsafe { &*self.css_property_cache } }
+    fn internal_get_layout_results<'a>(&'a self) -> &'a [LayoutResult] { unsafe { core::slice::from_raw_parts(self.layout_results, self.layout_results_count) } }
+    fn internal_get_renderer_resources<'a>(&'a self) -> &'a RendererResources { unsafe { &*self.renderer_resources } }
     fn internal_get_previous_window_state<'a>(&'a self) -> &'a Option<FullWindowState> { unsafe { &*self.previous_window_state } }
     fn internal_get_current_window_state<'a>(&'a self) -> &'a FullWindowState { unsafe { &*self.current_window_state } }
     fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
@@ -1171,10 +1146,7 @@ impl CallbackInfo {
     fn internal_get_threads_removed<'a>(&'a mut self) -> &'a mut FastBTreeSet<ThreadId> { unsafe { &mut *self.threads_removed } }
     fn internal_get_new_windows<'a>(&'a mut self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
-    fn internal_get_node_hierarchy<'a>(&'a self) -> &'a NodeHierarchyItemVec { unsafe { &*self.node_hierarchy } }
     fn internal_get_extern_system_callbacks<'a>(&'a self) -> &'a ExternalSystemCallbacks { unsafe { &*self.system_callbacks } }
-    fn internal_get_font_map<'a>(&'a self) -> &'a BTreeMap<NodeId, FontRef> { unsafe { &*self.font_map } }
-    fn internal_get_dataset_map<'a>(&'a mut self) -> &'a mut BTreeMap<NodeId, *mut RefAny> { unsafe { &mut *self.dataset_map } }
     fn internal_get_stop_propagation<'a>(&'a mut self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a mut self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
     fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
@@ -1183,15 +1155,11 @@ impl CallbackInfo {
     fn internal_get_hit_dom_node<'a>(&'a self) -> DomNodeId { self.hit_dom_node }
     fn internal_get_cursor_relative_to_item<'a>(&'a self) -> OptionLogicalPosition { self.cursor_relative_to_item }
     fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLogicalPosition { self.cursor_in_viewport }
-    fn internal_words_changed_in_callbacks<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
-    fn internal_get_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, Words> { unsafe { &*self.words_cache } }
-    fn internal_get_shaped_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, ShapedWords> { unsafe { &*self.shaped_words_cache } }
-    fn internal_get_positioned_words_cache<'a>(&'a self) -> &'a BTreeMap<NodeId, (WordPositions, FontInstanceKey)> { unsafe { &*self.positioned_words_cache } }
-    pub fn internal_get_positioned_rectangles<'a>(&'a self) -> &'a NodeDataContainer<PositionedRectangle> { unsafe { &*self.positioned_rects } }
     fn internal_get_words_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, AzString>> { unsafe { &mut *self.words_changed_in_callbacks } }
     fn internal_get_images_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, (ImageRef, UpdateImageType)>> { unsafe { &mut *self.images_changed_in_callbacks } }
     fn internal_get_image_masks_changed_in_callbacks<'a>(&'a mut self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, ImageMask>> { unsafe { &mut *self.image_masks_changed_in_callbacks } }
 
+    // public functions
     pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
     pub fn get_system_time_fn(&self) -> GetSystemTimeCallback { self.internal_get_extern_system_callbacks().get_system_time_fn }
     pub fn get_thread_create_fn(&self) -> CreateThreadCallback { self.internal_get_extern_system_callbacks().create_thread_fn }
@@ -1205,9 +1173,7 @@ impl CallbackInfo {
     pub fn get_previous_keyboard_state(&self) -> Option<KeyboardState> { Some(self.internal_get_previous_window_state().as_ref()?.keyboard_state.clone()) }
     pub fn get_previous_mouse_state(&self) -> Option<MouseState> { Some(self.internal_get_previous_window_state().as_ref()?.mouse_state.clone()) }
     pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
-
     pub fn get_current_time(&self) -> Instant { (self.internal_get_extern_system_callbacks().get_system_time_fn.cb)() }
-
     pub fn get_gl_context(&self) -> OptionGlContextPtr { self.internal_get_gl_context().clone() }
 
     pub fn get_scroll_position(&self, node_id: DomNodeId) -> Option<LogicalPosition> {
@@ -1229,81 +1195,84 @@ impl CallbackInfo {
     }
 
     pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            self.internal_get_node_hierarchy()
-            .as_container().get(node_id.node.into_crate_internal()?)?.parent_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
-        }
+        let nid = node_id.node.into_crate_internal()?;
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .styled_dom.node_hierarchy
+        .as_container().get(node_id.node.into_crate_internal()?)?.parent_id()
+        .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            self.internal_get_node_hierarchy()
-            .as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
-        }
+        let nid = node_id.node.into_crate_internal()?;
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .styled_dom.node_hierarchy
+        .as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()
+        .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            self.internal_get_node_hierarchy()
-            .as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
-        }
+        let nid = node_id.node.into_crate_internal()?;
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .styled_dom.node_hierarchy
+        .as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()
+        .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            let nid = node_id.node.into_crate_internal()?;
-            self.internal_get_node_hierarchy()
-            .as_container().get(nid)?.first_child_id(nid)
-            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
-        }
+        let nid = node_id.node.into_crate_internal()?;
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .styled_dom.node_hierarchy
+        .as_container().get(nid)?.first_child_id(nid)
+        .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            self.internal_get_node_hierarchy()
-            .as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()
-            .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
-        }
+        let nid = node_id.node.into_crate_internal()?;
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .styled_dom.node_hierarchy
+        .as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()
+        .map(|nid| DomNodeId { dom: node_id.dom, node: NodeHierarchyItemId::from_crate_internal(Some(nid)) })
     }
 
     pub fn get_dataset(&mut self, node_id: DomNodeId) -> Option<RefAny> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            self.internal_get_dataset_map()
-            .get_mut(&node_id.node.into_crate_internal()?)
-            .map(|refany| unsafe { &**refany }.clone())
-        }
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .styled_dom.node_data
+        .as_container().get(node_id.node.into_crate_internal()?)?
+        .dataset.as_ref().map(|s| s.clone())
     }
 
     pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
-        let hit_node = self.get_hit_node();
-        unsafe {
-            self.internal_get_dataset_map()
-            .iter_mut()
-            .filter(|(k, v)| {
-                let v: &mut RefAny = &mut ***v; // lmao
-                v._internal_ptr as usize == search_key._internal_ptr as usize
-            })
-            .min_by(|a, b| (*(*a.1)).instance_id.cmp(&(*(*b.1)).instance_id))
-            .map(|(k, v)| DomNodeId {
-                dom: hit_node.dom,
-                node: NodeHierarchyItemId::from_crate_internal(Some(*k))
-            })
+
+        let mut found: Option<(u64, DomNodeId)> = None;
+
+        for (dom_node_id, layout_result) in self.internal_get_layout_results().iter().enumerate() {
+            for (node_id, node_data) in layout_result.styled_dom.node_data.as_container().iter().enumerate() {
+                if let Some(dataset) = node_data.dataset.as_ref() {
+
+                    // dataset RefAny has to point to the same instance
+                    if dataset._internal_ptr as usize != search_key._internal_ptr as usize {
+                        continue;
+                    }
+
+                    let node_id = DomNodeId {
+                        dom: DomId { inner: dom_node_id },
+                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id))),
+                    };
+
+                    if (dataset.instance_id as u64) < found.as_ref().map(|s| s.0).unwrap_or(u64::MAX) {
+                        found = Some((dataset.instance_id, node_id))
+                    }
+                }
+            }
         }
+
+        found.map(|s| s.1)
     }
 
     pub fn set_window_state(&mut self, new_state: WindowState) {
@@ -1329,13 +1298,11 @@ impl CallbackInfo {
     }
 
     pub fn get_string_contents(&self, node_id: DomNodeId) -> Option<AzString> {
-        if node_id.dom != self.get_hit_node().dom {
-            None
-        } else {
-            let nid = node_id.node.into_crate_internal()?;
-            let words = self.internal_get_words_cache().get(&nid)?;
-            Some(words.internal_str.clone())
-        }
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner)?
+        .words_cache
+        .get(&node_id.node.into_crate_internal()?)
+        .map(|words| words.internal_str.clone())
     }
 
     pub fn set_string_contents(&mut self, node_id: DomNodeId, new_string_contents: AzString) {
@@ -1349,51 +1316,56 @@ impl CallbackInfo {
 
     #[cfg(feature = "multithreading")]
     pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
-
-        if node_id.dom != self.get_hit_node().dom {
-            return None;
-        }
-
         let nid = node_id.node.into_crate_internal()?;
-        let words = self.internal_get_words_cache();
-        let words = words.get(&nid)?;
-        let shaped_words = self.internal_get_shaped_words_cache();
-        let shaped_words = shaped_words.get(&nid)?;
-        let word_positions = self.internal_get_positioned_words_cache();
-        let word_positions = word_positions.get(&nid)?;
-        let positioned_rectangle = self.internal_get_positioned_rectangles();
-        let positioned_rectangle = positioned_rectangle.as_ref();
-        let positioned_rectangle = positioned_rectangle.get(nid)?;
+        let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
+        let words = layout_result.words_cache.get(&nid)?;
+        let shaped_words = layout_result.shaped_words_cache.get(&nid)?;
+        let word_positions = layout_result.positioned_words_cache.get(&nid)?;
+        let positioned_rectangles = layout_result.rects.as_ref();
+        let positioned_rectangle = positioned_rectangles.get(nid)?;
         let (_, inline_text_layout) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
-
         Some(crate::app_resources::get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout))
     }
 
     /// Returns the FontRef for the given NodeId
     pub fn get_font_ref(&self, node_id: DomNodeId) -> Option<FontRef> {
-        if node_id.dom != self.get_hit_node().dom {
-            return None;
-        }
-        self.internal_get_font_map().get(&node_id.node.into_crate_internal()?).cloned()
-    }
 
-    pub fn get_text_layout_options(&self, node_id: DomNodeId) -> Option<ResolvedTextLayoutOptions> {
+        use crate::styled_dom::StyleFontFamiliesHash;
 
-        if node_id.dom != self.get_hit_node().dom {
+        let layout_result = self.internal_get_layout_results()
+        .get(node_id.dom.inner)?;
+        let renderer_resources = self.internal_get_renderer_resources();
+
+        let node_data = layout_result.styled_dom.node_data.as_container();
+        let node_data = node_data.get(node_id.node.into_crate_internal()?)?;
+
+        if !node_data.is_text_node() {
             return None;
         }
 
         let nid = node_id.node.into_crate_internal()?;
+        let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
+        styled_nodes
+        .get(nid)
+        .map(|s| layout_result.styled_dom.css_property_cache.ptr.get_font_id_or_default(node_data, &nid, &s.state))
+        .map(|css_font_families| StyleFontFamiliesHash::new(css_font_families.as_ref()))
+        .and_then(|css_font_families_hash| renderer_resources.get_font_family(&css_font_families_hash))
+        .and_then(|css_font_family| renderer_resources.get_font_key(&css_font_family))
+        .and_then(|font_key| renderer_resources.get_registered_font(&font_key))
+        .map(|f| f.0.clone())
+    }
 
-        let positioned_rectangle = self.internal_get_positioned_rectangles();
-        let positioned_rectangle = positioned_rectangle.as_ref();
-        let positioned_rectangle = positioned_rectangle.get(nid)?;
+    pub fn get_text_layout_options(&self, node_id: DomNodeId) -> Option<ResolvedTextLayoutOptions> {
+        let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
+        let nid = node_id.node.into_crate_internal()?;
+        let positioned_rectangles = layout_result.rects.as_ref();
+        let positioned_rectangle = positioned_rectangles.get(nid)?;
         let (text_layout_options, _) = positioned_rectangle.resolved_text_layout_options.as_ref()?;
-
         Some(text_layout_options.clone())
     }
 
     pub fn get_computed_css_property(&self, node_id: DomNodeId, property_type: CssPropertyType) -> Option<CssProperty> {
+        let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
 
         /*
             if node_id.dom != self.get_hit_node().dom {
@@ -1462,9 +1434,8 @@ impl CallbackInfo {
 
         use crate::task::SystemTimeDiff;
 
-        let dom_id = dom_node_id.dom;
-        if dom_id != self.get_hit_node().dom { return None; }
-        let node_id = dom_node_id.node.into_crate_internal()?;
+        let layout_result = self.internal_get_layout_results().get(dom_node_id.dom.inner)?;
+        let nid = dom_node_id.node.into_crate_internal()?;
 
         // timer duration may not be the animation duration if the animatio is infinitely long
         let timer_duration = if animation.repeat == AnimationRepeat::NoRepeat {
@@ -1473,9 +1444,9 @@ impl CallbackInfo {
             None // infinite
         };
 
-        let parent_id = self.internal_get_node_hierarchy().as_container().get(node_id)?.parent_id().unwrap_or(NodeId::ZERO);
-        let current_size = self.internal_get_positioned_rectangles().as_ref().get(node_id)?.size;
-        let parent_size = self.internal_get_positioned_rectangles().as_ref().get(parent_id)?.size;
+        let parent_id = layout_result.styled_dom.node_hierarchy.as_container().get(nid)?.parent_id().unwrap_or(NodeId::ZERO);
+        let current_size = layout_result.rects.as_ref().get(nid)?.size;
+        let parent_size = layout_result.rects.as_ref().get(nid)?.size;
 
         if animation.from.get_type() != animation.to.get_type() {
             return None;
@@ -1522,21 +1493,19 @@ impl CallbackInfo {
     }
 
     pub fn get_node_position(&self, node_id: DomNodeId) -> Option<PositionInfo> {
-        let dom_id = node_id.dom;
-        if dom_id != self.get_hit_node().dom { return None; }
-        let node_id = node_id.node.into_crate_internal()?;
-        let positioned_rects = self.internal_get_positioned_rectangles().as_ref();
-        let positioned_rect = positioned_rects.get(node_id)?;
-        Some(positioned_rect.position)
+        let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
+        let nid = node_id.node.into_crate_internal()?;
+        let positioned_rectangles = layout_result.rects.as_ref();
+        let positioned_rectangle = positioned_rectangles.get(nid)?;
+        Some(positioned_rectangle.position)
     }
 
     pub fn get_node_size(&self, node_id: DomNodeId) -> Option<LogicalSize> {
-        let dom_id = node_id.dom;
-        if dom_id != self.get_hit_node().dom { return None; }
-        let node_id = node_id.node.into_crate_internal()?;
-        let positioned_rects = self.internal_get_positioned_rectangles().as_ref();
-        let positioned_rect = positioned_rects.get(node_id)?;
-        Some(positioned_rect.size)
+        let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
+        let nid = node_id.node.into_crate_internal()?;
+        let positioned_rectangles = layout_result.rects.as_ref();
+        let positioned_rectangle = positioned_rectangles.get(nid)?;
+        Some(positioned_rectangle.size)
     }
 
     /// Adds an image to the internal image cache
@@ -1574,30 +1543,14 @@ impl CallbackInfo {
             .insert(nid, new_image_mask);
         }
     }
-
-    /*
-    /// Returns a reference to the image content of the node ID or None if there is no background
-    pub fn get_image_content() -> Option<&ImageRef> {
-
-    }
-
-    /// Returns a reference to the backgroud image of the node or None if there
-    pub fn get_background_image() -> Option<&ImageRef> {
-
-    }
-
-    /// Returns a reference to the clip mask image or None if there was no clip mask
-    pub fn get_clip_mask_image() -> Option<&ImageRef> {
-
-    }
-    */
 }
 
 impl Clone for CallbackInfo {
     fn clone(&self) -> Self {
         Self {
-            css_property_cache: self.css_property_cache,
-            styled_node_states: self.styled_node_states,
+            layout_results: self.layout_results,
+            layout_results_count: self.layout_results_count,
+            renderer_resources: self.renderer_resources,
             previous_window_state: self.previous_window_state,
             current_window_state: self.current_window_state,
             modifiable_window_state: self.modifiable_window_state,
@@ -1608,18 +1561,11 @@ impl Clone for CallbackInfo {
             threads: self.threads,
             timers_removed: self.timers_removed,
             threads_removed: self.threads_removed,
-            new_windows: self.new_windows,
             current_window_handle: self.current_window_handle,
-            node_hierarchy: self.node_hierarchy,
+            new_windows: self.new_windows,
             system_callbacks: self.system_callbacks,
-            font_map: self.font_map,
-            dataset_map: self.dataset_map,
             stop_propagation: self.stop_propagation,
             focus_target: self.focus_target,
-            words_cache: self.words_cache,
-            shaped_words_cache: self.shaped_words_cache,
-            positioned_words_cache: self.positioned_words_cache,
-            positioned_rects: self.positioned_rects,
             words_changed_in_callbacks: self.words_changed_in_callbacks,
             images_changed_in_callbacks: self.images_changed_in_callbacks,
             image_masks_changed_in_callbacks: self.image_masks_changed_in_callbacks,

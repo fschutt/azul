@@ -950,6 +950,7 @@ impl_vec_eq!(NodeData, NodeDataVec);
 impl_vec_hash!(NodeData, NodeDataVec);
 
 impl NodeDataVec {
+
     #[inline]
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, NodeData> {
         NodeDataContainerRef { internal: self.as_ref() }
@@ -957,60 +958,6 @@ impl NodeDataVec {
     #[inline]
     pub fn as_container_mut<'a>(&'a mut self) -> NodeDataContainerRefMut<'a, NodeData> {
         NodeDataContainerRefMut { internal: self.as_mut() }
-    }
-
-    // necessary so that the callbacks have mutable access to the NodeType while
-    // at the same time the library has mutable access to the CallbackDataVec
-    pub fn split_into_callbacks_and_dataset<'a>(
-        &'a mut self,
-        css_property_cache: &CssPropertyCachePtr,
-        styled_nodes: &NodeDataContainerRef<StyledNode>,
-        renderer_resources: &RendererResources,
-    ) -> (
-        BTreeMap<NodeId, &'a mut CallbackDataVec>,
-         BTreeMap<NodeId, &'a mut RefAny>,
-         BTreeMap<NodeId, FontRef>,
-    ) {
-
-        let mut a = BTreeMap::new();
-        let mut b = BTreeMap::new();
-        let mut fonts = BTreeMap::new();
-
-        for (node_id, node_data) in self.iter_mut().enumerate() {
-
-            let n_internal = NodeId::new(node_id);
-
-            if node_data.is_text_node() {
-
-                use crate::styled_dom::StyleFontFamiliesHash;
-
-                let font_ref = styled_nodes
-                    .get(n_internal)
-                    .map(|s| css_property_cache.ptr.get_font_id_or_default(node_data, &n_internal, &s.state))
-                    .map(|css_font_families| StyleFontFamiliesHash::new(css_font_families.as_ref()))
-                    .and_then(|css_font_families_hash| renderer_resources.get_font_family(&css_font_families_hash))
-                    .and_then(|css_font_family| renderer_resources.get_font_key(&css_font_family))
-                    .and_then(|font_key| renderer_resources.get_registered_font(&font_key))
-                    .map(|f| f.0.clone());
-
-                if let Some(font_ref) = font_ref {
-                    fonts.insert(n_internal, font_ref.clone());
-                }
-            }
-
-            let a_map = &mut node_data.callbacks;
-            let b_map = &mut node_data.dataset;
-
-            if !a_map.is_empty() {
-                a.insert(n_internal, a_map);
-            }
-
-            if let Some(s) = b_map.as_mut() {
-                b.insert(n_internal, s);
-            }
-        }
-
-        (a, b, fonts)
     }
 }
 

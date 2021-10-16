@@ -10080,8 +10080,9 @@ struct AzWindowState {
 typedef struct AzWindowState AzWindowState;
 
 struct AzCallbackInfo {
-    void* css_property_cache;
-    void* styled_node_states;
+    void* layout_results;
+    size_t layout_results_count;
+    void* renderer_resources;
     void* previous_window_state;
     void* current_window_state;
     AzWindowState* restrict modifiable_window_state;
@@ -10092,18 +10093,11 @@ struct AzCallbackInfo {
     void* restrict threads;
     void* restrict timers_removed;
     void* restrict threads_removed;
-    void* restrict new_windows;
     AzRawWindowHandle* current_window_handle;
-    void* node_hierarchy;
+    void* restrict new_windows;
     AzSystemCallbacks* system_callbacks;
-    void* fonts;
-    void* restrict datasets;
     bool * restrict stop_propagation;
     void* restrict focus_target;
-    void* words_cache;
-    void* shaped_words_cache;
-    void* positioned_words_cache;
-    void* positioned_rects;
     void* restrict words_changed_in_callbacks;
     void* restrict images_changed_in_callbacks;
     void* restrict image_masks_changed_in_callbacks;
