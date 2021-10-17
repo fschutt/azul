@@ -2567,7 +2567,9 @@ unsafe extern "system" fn WindowProc(
 
         let hwnd_key = hwnd as usize;
 
-        match msg {
+        let msg_start = std::time::Instant::now();
+
+        let r = match msg {
             AZ_REGENERATE_DOM => {
 
                 use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
@@ -2704,7 +2706,7 @@ unsafe extern "system" fn WindowProc(
                 }
 
                 mem::drop(app_borrow);
-                return 0;
+                0
             },
             AZ_REDO_HIT_TEST => {
 
@@ -2766,6 +2768,7 @@ unsafe extern "system" fn WindowProc(
                         if !hDC.is_null() {
                             ReleaseDC(cur_hwnd, hDC);
                         }
+                        0
                     },
                     None => {
                         mem::drop(app_borrow);
@@ -2810,7 +2813,7 @@ unsafe extern "system" fn WindowProc(
                 }
 
                 mem::drop(app_borrow);
-                return 0;
+                0
             },
             AZ_REGENERATE_DISPLAY_LIST => {
 
@@ -2842,10 +2845,10 @@ unsafe extern "system" fn WindowProc(
 
                     PostMessageW(hwnd, WM_PAINT, 0, 0);
                     mem::drop(app_borrow);
-                    return 0;
+                    0
                 } else {
                     mem::drop(app_borrow);
-                    return -1;
+                    -1
                 }
             },
             AZ_GPU_SCROLL_RENDER => {
@@ -2864,7 +2867,7 @@ unsafe extern "system" fn WindowProc(
                 }
 
                 mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
+                DefWindowProcW(hwnd, msg, wparam, lparam)
             },
             WM_CREATE => {
                 if let Ok(mut o) = app_borrow.active_hwnds.try_borrow_mut() {
@@ -2879,7 +2882,7 @@ unsafe extern "system" fn WindowProc(
             },
             WM_ERASEBKGND => {
                 mem::drop(app_borrow);
-                return 1;
+                1
             },
             WM_SETFOCUS => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
@@ -2887,10 +2890,11 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.flags.has_focus = true;
                     PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
-                    return 0;
+                    0
+                } else {
+                    mem::drop(app_borrow);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-                mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_KILLFOCUS => {
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
@@ -2898,10 +2902,11 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.flags.has_focus = false;
                     PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
-                    return 0;
+                    0
+                } else {
+                    mem::drop(app_borrow);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-                mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_MOUSEMOVE => {
 
@@ -2971,12 +2976,12 @@ unsafe extern "system" fn WindowProc(
                 };
 
                 mem::drop(app_borrow);
-                return 0;
+                0
             },
             WM_KEYDOWN | WM_SYSKEYDOWN => {
                 if msg == WM_SYSKEYDOWN && wparam as i32 == VK_F4 {
                     mem::drop(app_borrow);
-                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 } else {
                     if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
                         if let Some((scancode, vk)) = event::process_key_params(wparam, lparam) {
@@ -2998,13 +3003,17 @@ unsafe extern "system" fn WindowProc(
                             // So here we use SendMessage instead of PostMessage in order to immediately
                             // call AZ_REDO_HIT_TEST (instead of posting to the windows message queue).
                             SendMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
-                            return 0;
+
+                            0
+                        } else {
+                            mem::drop(app_borrow);
+                            DefWindowProcW(hwnd, msg, wparam, lparam)
                         }
+                    } else {
+                        mem::drop(app_borrow);
+                        DefWindowProcW(hwnd, msg, wparam, lparam)
                     }
                 }
-
-                mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_CHAR | WM_SYSCHAR => {
 
@@ -3038,13 +3047,19 @@ unsafe extern "system" fn WindowProc(
                             current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
                             PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                             mem::drop(app_borrow);
-                            return 0;
+                            0
+                        } else {
+                            mem::drop(app_borrow);
+                            DefWindowProcW(hwnd, msg, wparam, lparam)
                         }
+                    } else {
+                        mem::drop(app_borrow);
+                        DefWindowProcW(hwnd, msg, wparam, lparam)
                     }
+                } else {
+                    mem::drop(app_borrow);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-
-                mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_KEYUP | WM_SYSKEYUP => {
                 use self::event::process_key_params;
@@ -3059,11 +3074,15 @@ unsafe extern "system" fn WindowProc(
                         }
                         PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
                         mem::drop(app_borrow);
-                        return 0;
+                        0
+                    } else {
+                        mem::drop(app_borrow);
+                        DefWindowProcW(hwnd, msg, wparam, lparam)
                     }
+                } else {
+                    mem::drop(app_borrow);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
-                mem::drop(app_borrow);
-                return DefWindowProcW(hwnd, msg, wparam, lparam);
             },
             WM_MOUSELEAVE => {
 
@@ -3084,10 +3103,10 @@ unsafe extern "system" fn WindowProc(
                     SetClassLongPtrW(hwnd, GCLP_HCURSOR, win32_translate_cursor(MouseCursorType::Default) as isize);
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
-                    return 0;
+                    0
                 } else {
                     mem::drop(app_borrow);
-                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
             },
             WM_RBUTTONDOWN => {
@@ -3262,10 +3281,10 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.mouse_state.scroll_y = Some(value).into();
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
-                    return 0;
+                    0
                 } else {
                     mem::drop(app_borrow);
-                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
             },
             WM_DPICHANGED => {
@@ -3388,10 +3407,10 @@ unsafe extern "system" fn WindowProc(
                     });
 
                     mem::drop(app_borrow);
-                    return 0;
+                    0
                 } else {
                     mem::drop(app_borrow);
-                    return DefWindowProcW(hwnd, msg, wparam, lparam);
+                    DefWindowProcW(hwnd, msg, wparam, lparam)
                 }
             },
             WM_NCHITTEST => {
@@ -3494,12 +3513,12 @@ unsafe extern "system" fn WindowProc(
                 let mut new_windows = Vec::new();
                 let mut destroyed_windows = Vec::new();
 
-                match wparam {
+                let r = match wparam {
                     AZ_TICK_REGENERATE_DOM => {
                         // re-load the layout() callback
                         PostMessageW(hwnd, AZ_REGENERATE_DOM, 0, 0);
                         mem::drop(app_borrow);
-                        return DefWindowProcW(hwnd, msg, wparam, lparam);
+                        return DefWindowProcW(hwnd, msg, wparam, lparam)
                     },
                     AZ_THREAD_TICK => {
 
@@ -3601,7 +3620,7 @@ unsafe extern "system" fn WindowProc(
                             },
                         }
                     }
-                }
+                };
 
                 // create_windows needs to clone the SharedApplicationData RefCell
                 // drop the borrowed variables and restore them immediately after
@@ -3641,7 +3660,7 @@ unsafe extern "system" fn WindowProc(
 
                 mem::drop(ab);
                 mem::drop(app_borrow);
-                return 0;
+                0
             },
             WM_COMMAND => {
 
@@ -3857,7 +3876,11 @@ unsafe extern "system" fn WindowProc(
                 mem::drop(app_borrow);
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
-        }
+        };
+
+        // TODO: performance benchmark here!
+
+        r
     };
 }
 
