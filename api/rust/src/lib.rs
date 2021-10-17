@@ -6280,6 +6280,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgLine {
         pub start: AzSvgPoint,
         pub end: AzSvgPoint,
@@ -7789,6 +7790,7 @@ mod dll {
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
     #[derive(Copy)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzSvgPathElement {
         Line(AzSvgLine),
         QuadraticCurve(AzSvgQuadraticCurve),
@@ -8581,6 +8583,7 @@ mod dll {
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
     }
@@ -17321,6 +17324,25 @@ pub mod vec {
             let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
             vec.into()
             // v dropped here
+        }
+    }
+
+    #[cfg(feature = "serde-support")]
+    impl Serialize for crate::prelude::SvgPathElementVec {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer,
+        {
+            self.as_ref().serialize(serializer)
+        }
+    }
+
+    #[cfg(feature = "serde-support")]
+    impl<'de> Deserialize<'de> for crate::prelude::SvgPathElementVec {
+        fn deserialize<D>(deserializer: D) -> Result<crate::prelude::SvgPathElementVec, D::Error>
+        where D: Deserializer<'de>,
+        {
+            let s = Vec::<crate::prelude::SvgPathElement>::deserialize(deserializer)?;
+            Ok(s.into())
         }
     }    /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
     

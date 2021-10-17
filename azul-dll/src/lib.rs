@@ -9716,6 +9716,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgLine` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgLine {
         pub start: AzSvgPoint,
         pub end: AzSvgPoint,
@@ -10869,6 +10870,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
     #[repr(C, u8)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzSvgPathElement {
         Line(AzSvgLine),
         QuadraticCurve(AzSvgQuadraticCurve),
@@ -11484,6 +11486,7 @@ mod test_sizes {
 
     /// Re-export of rust-allocated (stack based) `SvgPath` struct
     #[repr(C)]
+    #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgPath {
         pub items: AzSvgPathElementVec,
     }

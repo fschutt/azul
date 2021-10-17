@@ -11728,6 +11728,7 @@
                 },
                 "SvgPath": {
                     "external": "azul_impl::svg::SvgPath",
+                    "derive": ["Serialize", "Deserialize"],
                     "struct_fields": [
                         {"items": {"type": "SvgPathElementVec"}}
                     ],
@@ -11775,7 +11776,7 @@
                 },
                 "SvgPathElement": {
                     "external": "azul_impl::svg::SvgPathElement",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
                         {"Line": {"type": "SvgLine"}},
                         {"QuadraticCurve": {"type": "SvgQuadraticCurve"}},
@@ -11911,7 +11912,7 @@
                 },
                 "SvgLine": {
                     "external": "azul_impl::svg::SvgLine",
-                    "derive": ["Copy"],
+                    "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"start": {"type": "SvgPoint"}},
                         {"end": {"type": "SvgPoint"}}

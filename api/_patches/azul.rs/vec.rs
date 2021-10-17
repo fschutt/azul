@@ -366,3 +366,22 @@
             // v dropped here
         }
     }
+
+    #[cfg(feature = "serde-support")]
+    impl Serialize for crate::prelude::SvgPathElementVec {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer,
+        {
+            self.as_ref().serialize(serializer)
+        }
+    }
+
+    #[cfg(feature = "serde-support")]
+    impl<'de> Deserialize<'de> for crate::prelude::SvgPathElementVec {
+        fn deserialize<D>(deserializer: D) -> Result<crate::prelude::SvgPathElementVec, D::Error>
+        where D: Deserializer<'de>,
+        {
+            let s = Vec::<crate::prelude::SvgPathElement>::deserialize(deserializer)?;
+            Ok(s.into())
+        }
+    }
