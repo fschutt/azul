@@ -170,7 +170,7 @@ dependencies = [
  "azul-desktop",
  "flate2",
  "log",
- "pyo3 0.14.1",
+ "pyo3",
  "pyo3-log",
  "tar",
 ]
@@ -1355,23 +1355,6 @@ dependencies = [
 
 [[package]]
 name = "pyo3"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4837b8e8e18a102c23f79d1e9a110b597ea3b684c95e874eb1ad88f8683109c3"
-dependencies = [
- "cfg-if",
- "ctor",
- "indoc",
- "inventory",
- "libc",
- "parking_lot",
- "paste",
- "pyo3-macros 0.13.2",
- "unindent",
-]
-
-[[package]]
-name = "pyo3"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "338f7f3701e11fd7f76508c91fbcaabc982564bcaf4d1ca7e1574ff2b4778aec"
@@ -1383,7 +1366,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "pyo3-build-config",
- "pyo3-macros 0.14.1",
+ "pyo3-macros",
  "unindent",
 ]
 
@@ -1398,24 +1381,13 @@ dependencies = [
 
 [[package]]
 name = "pyo3-log"
-version = "0.3.1"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f2965889c13ef9401c9483965c4a9e5737df9cc7ab53f3893abadf481b2977f"
+checksum = "6087e5025c5d7d6ed6294c68f83d9f7965c2b3fd3a726ecc1c22dbe4af7390f4"
 dependencies = [
  "arc-swap",
  "log",
- "pyo3 0.13.2",
-]
-
-[[package]]
-name = "pyo3-macros"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a47f2c300ceec3e58064fd5f8f5b61230f2ffd64bde4970c81fdd0563a2db1bb"
-dependencies = [
- "pyo3-macros-backend 0.13.2",
- "quote",
- "syn",
+ "pyo3",
 ]
 
 [[package]]
@@ -1424,18 +1396,7 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfb8671a42d0ecc4bec8cc107ae96d49292ca20cd1968e09b98af4aafd516adf"
 dependencies = [
- "pyo3-macros-backend 0.14.1",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "pyo3-macros-backend"
-version = "0.13.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87b097e5d84fcbe3e167f400fbedd657820a375b034c78bd852050749a575d66"
-dependencies = [
- "proc-macro2",
+ "pyo3-macros-backend",
  "quote",
  "syn",
 ]
