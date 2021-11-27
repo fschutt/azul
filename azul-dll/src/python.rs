@@ -2422,8 +2422,8 @@ pub struct AzSvgPoint {
 /// Re-export of rust-allocated (stack based) `SvgVector` struct
 #[repr(C)]
 pub struct AzSvgVector {
-    pub x: f32,
-    pub y: f32,
+    pub x: f64,
+    pub y: f64,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgRect` struct
@@ -30843,14 +30843,14 @@ impl PyObjectProtocol for AzSvgPoint {
 #[pymethods]
 impl AzSvgVector {
     #[new]
-    fn __new__(x: f32, y: f32) -> Self {
+    fn __new__(x: f64, y: f64) -> Self {
         Self {
             x,
             y,
         }
     }
 
-    fn angle_degrees(&self) -> f32 {
+    fn angle_degrees(&self) -> f64 {
         unsafe { mem::transmute(crate::AzSvgVector_angleDegrees(
             mem::transmute(self),
         )) }
@@ -30907,30 +30907,30 @@ impl AzSvgLine {
             mem::transmute(self),
         )) }
     }
-    fn get_length(&self) -> f32 {
+    fn get_length(&self) -> f64 {
         unsafe { mem::transmute(crate::AzSvgLine_getLength(
             mem::transmute(self),
         )) }
     }
-    fn get_t_at_offset(&self, offset: f32) -> f32 {
+    fn get_t_at_offset(&self, offset: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgLine_getTAtOffset(
             mem::transmute(self),
             mem::transmute(offset),
         )) }
     }
-    fn get_x_at_t(&self, t: f32) -> f32 {
+    fn get_x_at_t(&self, t: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgLine_getXAtT(
             mem::transmute(self),
             mem::transmute(t),
         )) }
     }
-    fn get_y_at_t(&self, t: f32) -> f32 {
+    fn get_y_at_t(&self, t: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgLine_getYAtT(
             mem::transmute(self),
             mem::transmute(t),
         )) }
     }
-    fn get_tangent_vector_at_t(&self, t: f32) -> AzSvgVector {
+    fn get_tangent_vector_at_t(&self, t: f64) -> AzSvgVector {
         unsafe { mem::transmute(crate::AzSvgLine_getTangentVectorAtT(
             mem::transmute(self),
             mem::transmute(t),
@@ -30985,30 +30985,30 @@ impl AzSvgQuadraticCurve {
             mem::transmute(self),
         )) }
     }
-    fn get_length(&self) -> f32 {
+    fn get_length(&self) -> f64 {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getLength(
             mem::transmute(self),
         )) }
     }
-    fn get_t_at_offset(&self, offset: f32) -> f32 {
+    fn get_t_at_offset(&self, offset: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getTAtOffset(
             mem::transmute(self),
             mem::transmute(offset),
         )) }
     }
-    fn get_x_at_t(&self, t: f32) -> f32 {
+    fn get_x_at_t(&self, t: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getXAtT(
             mem::transmute(self),
             mem::transmute(t),
         )) }
     }
-    fn get_y_at_t(&self, t: f32) -> f32 {
+    fn get_y_at_t(&self, t: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getYAtT(
             mem::transmute(self),
             mem::transmute(t),
         )) }
     }
-    fn get_tangent_vector_at_t(&self, t: f32) -> AzSvgVector {
+    fn get_tangent_vector_at_t(&self, t: f64) -> AzSvgVector {
         unsafe { mem::transmute(crate::AzSvgQuadraticCurve_getTangentVectorAtT(
             mem::transmute(self),
             mem::transmute(t),
@@ -31064,30 +31064,30 @@ impl AzSvgCubicCurve {
             mem::transmute(self),
         )) }
     }
-    fn get_length(&self) -> f32 {
+    fn get_length(&self) -> f64 {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_getLength(
             mem::transmute(self),
         )) }
     }
-    fn get_t_at_offset(&self, offset: f32) -> f32 {
+    fn get_t_at_offset(&self, offset: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_getTAtOffset(
             mem::transmute(self),
             mem::transmute(offset),
         )) }
     }
-    fn get_x_at_t(&self, t: f32) -> f32 {
+    fn get_x_at_t(&self, t: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_getXAtT(
             mem::transmute(self),
             mem::transmute(t),
         )) }
     }
-    fn get_y_at_t(&self, t: f32) -> f32 {
+    fn get_y_at_t(&self, t: f64) -> f64 {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_getYAtT(
             mem::transmute(self),
             mem::transmute(t),
         )) }
     }
-    fn get_tangent_vector_at_t(&self, t: f32) -> AzSvgVector {
+    fn get_tangent_vector_at_t(&self, t: f64) -> AzSvgVector {
         unsafe { mem::transmute(crate::AzSvgCubicCurve_getTangentVectorAtT(
             mem::transmute(self),
             mem::transmute(t),

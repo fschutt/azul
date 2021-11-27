@@ -1412,10 +1412,10 @@ pub struct SvgPoint {
 
 impl SvgPoint {
     #[inline]
-    pub fn distance(&self, other: &Self) -> f32 {
+    pub fn distance(&self, other: &Self) -> f64 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
-        libm::hypotf(dx, dy) as f32
+        libm::hypotf(dx, dy) as f64
     }
 }
 
@@ -1485,15 +1485,15 @@ pub struct SvgCubicCurve {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgVector {
-    pub x: f32,
-    pub y: f32,
+    pub x: f64,
+    pub y: f64,
 }
 
 impl SvgVector {
 
     /// Returns the angle of the vector in degrees
     #[inline]
-    pub fn angle_degrees(&self) -> f32 {
+    pub fn angle_degrees(&self) -> f64 {
 
         //  y
         //  |  /
@@ -1508,7 +1508,7 @@ impl SvgVector {
     #[must_use = "returns a new vector"]
     pub fn normalize(&self) -> Self {
 
-        let tangent_length = libm::hypotf(self.x, self.y) as f32;
+        let tangent_length = libm::hypotf(self.x as f32, self.y as f32) as f64;
 
         Self {
             x: self.x / tangent_length,
@@ -1525,7 +1525,7 @@ impl SvgVector {
 }
 
 const STEP_SIZE: usize = 20;
-const STEP_SIZE_F32: f32 = 0.05;
+const STEP_SIZE_F64: f64 = 0.05;
 
 impl SvgCubicCurve {
 
@@ -1542,39 +1542,39 @@ impl SvgCubicCurve {
     pub fn get_end(&self) -> SvgPoint { self.end }
 
     // evaluate the curve at t
-    pub fn get_x_at_t(&self, t: f32) -> f32 {
-        let c_x = 3.0 * (self.ctrl_1.x - self.start.x);
-        let b_x = 3.0 * (self.ctrl_2.x - self.ctrl_1.x) - c_x;
-        let a_x = self.end.x - self.start.x - c_x - b_x;
+    pub fn get_x_at_t(&self, t: f64) -> f64 {
+        let c_x = 3.0 * (self.ctrl_1.x as f64 - self.start.x as f64);
+        let b_x = 3.0 * (self.ctrl_2.x as f64 - self.ctrl_1.x as f64) - c_x;
+        let a_x = self.end.x as f64 - self.start.x as f64 - c_x - b_x;
 
         (a_x * t * t * t) +
         (b_x * t * t) +
         (c_x * t) +
-        self.start.x
+        self.start.x as f64
     }
 
-    pub fn get_y_at_t(&self, t: f32) -> f32 {
-        let c_x = 3.0 * (self.ctrl_1.y - self.start.y);
-        let b_x = 3.0 * (self.ctrl_2.y - self.ctrl_1.y) - c_x;
-        let a_x = self.end.y - self.start.y - c_x - b_x;
+    pub fn get_y_at_t(&self, t: f64) -> f64 {
+        let c_x = 3.0 * (self.ctrl_1.y as f64 - self.start.y as f64);
+        let b_x = 3.0 * (self.ctrl_2.y as f64 - self.ctrl_1.y as f64) - c_x;
+        let a_x = self.end.y as f64 - self.start.y as f64 - c_x - b_x;
 
         (a_x * t * t * t) +
         (b_x * t * t) +
         (c_x * t) +
-        self.start.y
+        self.start.y as f64
     }
 
-    pub fn get_length(&self) -> f32 {
+    pub fn get_length(&self) -> f64 {
 
         // NOTE: this arc length parametrization is not very precise, but fast
         let mut arc_length = 0.0;
         let mut prev_point = self.get_start();
 
         for i in 0..STEP_SIZE {
-            let t_next = (i + 1) as f32 * STEP_SIZE_F32;
+            let t_next = (i + 1) as f64 * STEP_SIZE_F64;
             let next_point = SvgPoint {
-                x: self.get_x_at_t(t_next),
-                y: self.get_y_at_t(t_next),
+                x: self.get_x_at_t(t_next) as f32,
+                y: self.get_y_at_t(t_next) as f32,
             };
             arc_length += prev_point.distance(&next_point);
             prev_point = next_point;
@@ -1583,7 +1583,7 @@ impl SvgCubicCurve {
         arc_length
     }
 
-    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
 
         // step through the line until the offset is reached,
         // then interpolate linearly between the
@@ -1594,10 +1594,10 @@ impl SvgCubicCurve {
 
         for i in 0..STEP_SIZE {
 
-            let t_next = (i + 1) as f32 * STEP_SIZE_F32;
+            let t_next = (i + 1) as f64 * STEP_SIZE_F64;
             let next_point = SvgPoint {
-                x: self.get_x_at_t(t_next),
-                y: self.get_y_at_t(t_next),
+                x: self.get_x_at_t(t_next) as f32,
+                y: self.get_y_at_t(t_next) as f32,
             };
 
             let distance = prev_point.distance(&next_point);
@@ -1607,7 +1607,7 @@ impl SvgCubicCurve {
             // linearly interpolate between last t and current t
             if arc_length > offset {
                 let remaining = arc_length - offset;
-                return t_current + (remaining / distance) * STEP_SIZE_F32;
+                return t_current + (remaining / distance) * STEP_SIZE_F64;
             }
 
             prev_point = next_point;
@@ -1617,7 +1617,7 @@ impl SvgCubicCurve {
         t_current
     }
 
-    pub fn get_tangent_vector_at_t(&self, t: f32) -> SvgVector {
+    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
 
         // 1. Calculate the derivative of the bezier curve.
         //
@@ -1717,35 +1717,35 @@ impl SvgQuadraticCurve {
         }
     }
 
-    pub fn get_x_at_t(&self, t: f32) -> f32 {
+    pub fn get_x_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
         let one_minus_squared = one_minus * one_minus;
         let t_squared = t * t;
 
-          1.0 * one_minus_squared * 1.0 * self.start.x
-        + 2.0 * one_minus         * t   * self.ctrl.x
-        + 3.0 * 1.0               * t_squared * self.end.x
+          1.0 * one_minus_squared * 1.0 * self.start.x as f64
+        + 2.0 * one_minus         * t   * self.ctrl.x as f64
+        + 3.0 * 1.0               * t_squared * self.end.x as f64
     }
 
-    pub fn get_y_at_t(&self, t: f32) -> f32 {
+    pub fn get_y_at_t(&self, t: f64) -> f64 {
         let one_minus = 1.0 - t;
         let one_minus_squared = one_minus * one_minus;
         let t_squared = t * t;
 
-          1.0 * one_minus_squared * 1.0 * self.start.y
-        + 2.0 * one_minus         * t   * self.ctrl.y
-        + 3.0 * 1.0               * t_squared * self.end.y
+          1.0 * one_minus_squared * 1.0 * self.start.y as f64
+        + 2.0 * one_minus         * t   * self.ctrl.y as f64
+        + 3.0 * 1.0               * t_squared * self.end.y as f64
     }
 
-    pub fn get_length(&self) -> f32 {
+    pub fn get_length(&self) -> f64 {
         self.to_cubic().get_length()
     }
 
-    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         self.to_cubic().get_t_at_offset(offset)
     }
 
-    pub fn get_tangent_vector_at_t(&self, t: f32) -> SvgVector {
+    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         self.to_cubic().get_tangent_vector_at_t(t)
     }
 
@@ -1802,8 +1802,8 @@ impl AnimationInterpolationFunction {
         }
     }
 
-    pub fn evaluate(self, t: f32) -> f32 {
-        self.get_curve().get_y_at_t(t)
+    pub fn evaluate(self, t: f64) -> f32 {
+        self.get_curve().get_y_at_t(t) as f32
     }
 }
 
@@ -1920,7 +1920,7 @@ impl CssProperty {
         }
 
         // Map from linear interpolation function to Easing curve
-        let t = interpolate_resolver.interpolate_func.evaluate(t);
+        let t: f32 = interpolate_resolver.interpolate_func.evaluate(t as f64);
 
         let t = t.max(0.0).min(1.0);
 

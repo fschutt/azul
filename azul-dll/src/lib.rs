@@ -3436,15 +3436,15 @@ pub use AzSvgPathElementTT as AzSvgPathElement;
 /// Returns the bounding box of this item
 #[no_mangle] pub extern "C" fn AzSvgPathElement_getBounds(svgpathelement: &AzSvgPathElement) -> AzSvgRect { svgpathelement.get_bounds() }
 /// Returns the length of the line or curve
-#[no_mangle] pub extern "C" fn AzSvgPathElement_getLength(svgpathelement: &AzSvgPathElement) -> f32 { svgpathelement.get_length() }
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getLength(svgpathelement: &AzSvgPathElement) -> f64 { svgpathelement.get_length() }
 /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-#[no_mangle] pub extern "C" fn AzSvgPathElement_getTAtOffset(svgpathelement: &AzSvgPathElement, offset: f32) -> f32 { svgpathelement.get_t_at_offset(offset) }
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getTAtOffset(svgpathelement: &AzSvgPathElement, offset: f64) -> f64 { svgpathelement.get_t_at_offset(offset) }
 /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgPathElement_getXAtT(svgpathelement: &AzSvgPathElement, t: f32) -> f32 { svgpathelement.get_x_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getXAtT(svgpathelement: &AzSvgPathElement, t: f64) -> f64 { svgpathelement.get_x_at_t(t) }
 /// Returns the y position of the line or curve at t
-#[no_mangle] pub extern "C" fn AzSvgPathElement_getYAtT(svgpathelement: &AzSvgPathElement, t: f32) -> f32 { svgpathelement.get_y_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getYAtT(svgpathelement: &AzSvgPathElement, t: f64) -> f64 { svgpathelement.get_y_at_t(t) }
 /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgPathElement_getTangentVectorAtT(svgpathelement: &AzSvgPathElement, t: f32) -> AzSvgVector { svgpathelement.get_tangent_vector_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgPathElement_getTangentVectorAtT(svgpathelement: &AzSvgPathElement, t: f64) -> AzSvgVector { svgpathelement.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgPathElement::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgPathElement_tessellateStroke(svgpathelement: &AzSvgPathElement, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_svgpathelement_stroke(svgpathelement, stroke_style) }
 
@@ -3456,7 +3456,7 @@ pub use AzSvgPointTT as AzSvgPoint;
 pub type AzSvgVectorTT = azul_impl::svg::SvgVector;
 pub use AzSvgVectorTT as AzSvgVector;
 /// Returns the angle of this vector in degrees
-#[no_mangle] pub extern "C" fn AzSvgVector_angleDegrees(svgvector: &AzSvgVector) -> f32 { svgvector.angle_degrees() }
+#[no_mangle] pub extern "C" fn AzSvgVector_angleDegrees(svgvector: &AzSvgVector) -> f64 { svgvector.angle_degrees() }
 /// Normalizes the vector, returning the normalized vector
 #[no_mangle] pub extern "C" fn AzSvgVector_normalize(svgvector: &AzSvgVector) -> AzSvgVector { svgvector.normalize() }
 /// Rotates the vector 90 degrees counter clockwise, returning the rotated vector
@@ -3474,15 +3474,15 @@ pub use AzSvgLineTT as AzSvgLine;
 /// Returns the bounding box of this item
 #[no_mangle] pub extern "C" fn AzSvgLine_getBounds(svgline: &AzSvgLine) -> AzSvgRect { svgline.get_bounds() }
 /// Returns the length of the line or curve
-#[no_mangle] pub extern "C" fn AzSvgLine_getLength(svgline: &AzSvgLine) -> f32 { svgline.get_length() }
+#[no_mangle] pub extern "C" fn AzSvgLine_getLength(svgline: &AzSvgLine) -> f64 { svgline.get_length() }
 /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-#[no_mangle] pub extern "C" fn AzSvgLine_getTAtOffset(svgline: &AzSvgLine, offset: f32) -> f32 { svgline.get_t_at_offset(offset) }
+#[no_mangle] pub extern "C" fn AzSvgLine_getTAtOffset(svgline: &AzSvgLine, offset: f64) -> f64 { svgline.get_t_at_offset(offset) }
 /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgLine_getXAtT(svgline: &AzSvgLine, t: f32) -> f32 { svgline.get_x_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgLine_getXAtT(svgline: &AzSvgLine, t: f64) -> f64 { svgline.get_x_at_t(t) }
 /// Returns the y position of the line or curve at t
-#[no_mangle] pub extern "C" fn AzSvgLine_getYAtT(svgline: &AzSvgLine, t: f32) -> f32 { svgline.get_y_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgLine_getYAtT(svgline: &AzSvgLine, t: f64) -> f64 { svgline.get_y_at_t(t) }
 /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgLine_getTangentVectorAtT(svgline: &AzSvgLine, t: f32) -> AzSvgVector { svgline.get_tangent_vector_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgLine_getTangentVectorAtT(svgline: &AzSvgLine, t: f64) -> AzSvgVector { svgline.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgLine::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgLine_tessellateStroke(svgline: &AzSvgLine, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_line_stroke(svgline, stroke_style) }
 
@@ -3498,15 +3498,15 @@ pub use AzSvgQuadraticCurveTT as AzSvgQuadraticCurve;
 /// Returns the bounding box of this item
 #[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getBounds(svgquadraticcurve: &AzSvgQuadraticCurve) -> AzSvgRect { svgquadraticcurve.get_bounds() }
 /// Returns the length of the line or curve
-#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getLength(svgquadraticcurve: &AzSvgQuadraticCurve) -> f32 { svgquadraticcurve.get_length() }
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getLength(svgquadraticcurve: &AzSvgQuadraticCurve) -> f64 { svgquadraticcurve.get_length() }
 /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getTAtOffset(svgquadraticcurve: &AzSvgQuadraticCurve, offset: f32) -> f32 { svgquadraticcurve.get_t_at_offset(offset) }
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getTAtOffset(svgquadraticcurve: &AzSvgQuadraticCurve, offset: f64) -> f64 { svgquadraticcurve.get_t_at_offset(offset) }
 /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getXAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f32) -> f32 { svgquadraticcurve.get_x_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getXAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f64) -> f64 { svgquadraticcurve.get_x_at_t(t) }
 /// Returns the y position of the line or curve at t
-#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getYAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f32) -> f32 { svgquadraticcurve.get_y_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getYAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f64) -> f64 { svgquadraticcurve.get_y_at_t(t) }
 /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getTangentVectorAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f32) -> AzSvgVector { svgquadraticcurve.get_tangent_vector_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_getTangentVectorAtT(svgquadraticcurve: &AzSvgQuadraticCurve, t: f64) -> AzSvgVector { svgquadraticcurve.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgQuadraticCurve::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgQuadraticCurve_tessellateStroke(svgquadraticcurve: &AzSvgQuadraticCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_quadraticcurve_stroke(svgquadraticcurve, stroke_style) }
 
@@ -3522,15 +3522,15 @@ pub use AzSvgCubicCurveTT as AzSvgCubicCurve;
 /// Returns the bounding box of this item
 #[no_mangle] pub extern "C" fn AzSvgCubicCurve_getBounds(svgcubiccurve: &AzSvgCubicCurve) -> AzSvgRect { svgcubiccurve.get_bounds() }
 /// Returns the length of the line or curve
-#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getLength(svgcubiccurve: &AzSvgCubicCurve) -> f32 { svgcubiccurve.get_length() }
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getLength(svgcubiccurve: &AzSvgCubicCurve) -> f64 { svgcubiccurve.get_length() }
 /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getTAtOffset(svgcubiccurve: &AzSvgCubicCurve, offset: f32) -> f32 { svgcubiccurve.get_t_at_offset(offset) }
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getTAtOffset(svgcubiccurve: &AzSvgCubicCurve, offset: f64) -> f64 { svgcubiccurve.get_t_at_offset(offset) }
 /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getXAtT(svgcubiccurve: &AzSvgCubicCurve, t: f32) -> f32 { svgcubiccurve.get_x_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getXAtT(svgcubiccurve: &AzSvgCubicCurve, t: f64) -> f64 { svgcubiccurve.get_x_at_t(t) }
 /// Returns the y position of the line or curve at t
-#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getYAtT(svgcubiccurve: &AzSvgCubicCurve, t: f32) -> f32 { svgcubiccurve.get_y_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getYAtT(svgcubiccurve: &AzSvgCubicCurve, t: f64) -> f64 { svgcubiccurve.get_y_at_t(t) }
 /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getTangentVectorAtT(svgcubiccurve: &AzSvgCubicCurve, t: f32) -> AzSvgVector { svgcubiccurve.get_tangent_vector_at_t(t) }
+#[no_mangle] pub extern "C" fn AzSvgCubicCurve_getTangentVectorAtT(svgcubiccurve: &AzSvgCubicCurve, t: f64) -> AzSvgVector { svgcubiccurve.get_tangent_vector_at_t(t) }
 /// Equivalent to the Rust `SvgCubicCurve::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgCubicCurve_tessellateStroke(svgcubiccurve: &AzSvgCubicCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_cubiccurve_stroke(svgcubiccurve, stroke_style) }
 
@@ -7033,8 +7033,8 @@ mod test_sizes {
     #[repr(C)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgVector {
-        pub x: f32,
-        pub y: f32,
+        pub x: f64,
+        pub y: f64,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgRect` struct

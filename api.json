@@ -11819,41 +11819,41 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgpathelement.get_length()"
                         },
                         "get_t_at_offset": {
                             "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"offset": "f32"}
+                                {"offset": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgpathelement.get_t_at_offset(offset)"
                         },
                         "get_x_at_t": {
                             "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgpathelement.get_x_at_t(t)"
                         },
                         "get_y_at_t": {
                             "doc": "Returns the y position of the line or curve at t",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgpathelement.get_y_at_t(t)"
                         },
                         "get_tangent_vector_at_t": {
                             "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
                             "returns": {"type": "SvgVector"},
                             "fn_body": "svgpathelement.get_tangent_vector_at_t(t)"
@@ -11880,8 +11880,8 @@
                     "external": "azul_impl::svg::SvgVector",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
-                        {"x": {"type": "f32"}},
-                        {"y": {"type": "f32"}}
+                        {"x": {"type": "f64"}},
+                        {"y": {"type": "f64"}}
                     ],
                     "functions": {
                         "angle_degrees": {
@@ -11889,7 +11889,7 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgvector.angle_degrees()"
                         },
                         "normalize": {
@@ -11954,41 +11954,41 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgline.get_length()"
                         },
                         "get_t_at_offset": {
                             "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"offset": "f32"}
+                                {"offset": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgline.get_t_at_offset(offset)"
                         },
                         "get_x_at_t": {
                             "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgline.get_x_at_t(t)"
                         },
                         "get_y_at_t": {
                             "doc": "Returns the y position of the line or curve at t",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgline.get_y_at_t(t)"
                         },
                         "get_tangent_vector_at_t": {
                             "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
                             "returns": {"type": "SvgVector"},
                             "fn_body": "svgline.get_tangent_vector_at_t(t)"
@@ -12048,41 +12048,41 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgquadraticcurve.get_length()"
                         },
                         "get_t_at_offset": {
                             "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"offset": "f32"}
+                                {"offset": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgquadraticcurve.get_t_at_offset(offset)"
                         },
                         "get_x_at_t": {
                             "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgquadraticcurve.get_x_at_t(t)"
                         },
                         "get_y_at_t": {
                             "doc": "Returns the y position of the line or curve at t",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgquadraticcurve.get_y_at_t(t)"
                         },
                         "get_tangent_vector_at_t": {
                             "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
                             "returns": {"type": "SvgVector"},
                             "fn_body": "svgquadraticcurve.get_tangent_vector_at_t(t)"
@@ -12143,41 +12143,41 @@
                             "fn_args": [
                                 {"self": "ref"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgcubiccurve.get_length()"
                         },
                         "get_t_at_offset": {
                             "doc": "Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"offset": "f32"}
+                                {"offset": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgcubiccurve.get_t_at_offset(offset)"
                         },
                         "get_x_at_t": {
                             "doc": "Returns the point on the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgcubiccurve.get_x_at_t(t)"
                         },
                         "get_y_at_t": {
                             "doc": "Returns the y position of the line or curve at t",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
-                            "returns": {"type": "f32"},
+                            "returns": {"type": "f64"},
                             "fn_body": "svgcubiccurve.get_y_at_t(t)"
                         },
                         "get_tangent_vector_at_t": {
                             "doc": "Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)",
                             "fn_args": [
                                 {"self": "ref"},
-                                {"t": "f32"}
+                                {"t": "f64"}
                             ],
                             "returns": {"type": "SvgVector"},
                             "fn_body": "svgcubiccurve.get_tangent_vector_at_t(t)"

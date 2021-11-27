@@ -2621,8 +2621,8 @@ mod dll {
     #[derive(Copy)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub struct AzSvgVector {
-        pub x: f32,
-        pub y: f32,
+        pub x: f64,
+        pub y: f64,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgRect` struct
@@ -10508,44 +10508,44 @@ mod dll {
         pub(crate) fn AzSvgPathElement_getStart(_:  &AzSvgPathElement) -> AzSvgPoint;
         pub(crate) fn AzSvgPathElement_getEnd(_:  &AzSvgPathElement) -> AzSvgPoint;
         pub(crate) fn AzSvgPathElement_getBounds(_:  &AzSvgPathElement) -> AzSvgRect;
-        pub(crate) fn AzSvgPathElement_getLength(_:  &AzSvgPathElement) -> f32;
-        pub(crate) fn AzSvgPathElement_getTAtOffset(_:  &AzSvgPathElement, _:  f32) -> f32;
-        pub(crate) fn AzSvgPathElement_getXAtT(_:  &AzSvgPathElement, _:  f32) -> f32;
-        pub(crate) fn AzSvgPathElement_getYAtT(_:  &AzSvgPathElement, _:  f32) -> f32;
-        pub(crate) fn AzSvgPathElement_getTangentVectorAtT(_:  &AzSvgPathElement, _:  f32) -> AzSvgVector;
+        pub(crate) fn AzSvgPathElement_getLength(_:  &AzSvgPathElement) -> f64;
+        pub(crate) fn AzSvgPathElement_getTAtOffset(_:  &AzSvgPathElement, _:  f64) -> f64;
+        pub(crate) fn AzSvgPathElement_getXAtT(_:  &AzSvgPathElement, _:  f64) -> f64;
+        pub(crate) fn AzSvgPathElement_getYAtT(_:  &AzSvgPathElement, _:  f64) -> f64;
+        pub(crate) fn AzSvgPathElement_getTangentVectorAtT(_:  &AzSvgPathElement, _:  f64) -> AzSvgVector;
         pub(crate) fn AzSvgPathElement_tessellateStroke(_:  &AzSvgPathElement, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
-        pub(crate) fn AzSvgVector_angleDegrees(_:  &AzSvgVector) -> f32;
+        pub(crate) fn AzSvgVector_angleDegrees(_:  &AzSvgVector) -> f64;
         pub(crate) fn AzSvgVector_normalize(_:  &AzSvgVector) -> AzSvgVector;
         pub(crate) fn AzSvgVector_rotate90DegCcw(_:  &AzSvgVector) -> AzSvgVector;
         pub(crate) fn AzSvgLine_reverse(_:  &mut AzSvgLine);
         pub(crate) fn AzSvgLine_getStart(_:  &AzSvgLine) -> AzSvgPoint;
         pub(crate) fn AzSvgLine_getEnd(_:  &AzSvgLine) -> AzSvgPoint;
         pub(crate) fn AzSvgLine_getBounds(_:  &AzSvgLine) -> AzSvgRect;
-        pub(crate) fn AzSvgLine_getLength(_:  &AzSvgLine) -> f32;
-        pub(crate) fn AzSvgLine_getTAtOffset(_:  &AzSvgLine, _:  f32) -> f32;
-        pub(crate) fn AzSvgLine_getXAtT(_:  &AzSvgLine, _:  f32) -> f32;
-        pub(crate) fn AzSvgLine_getYAtT(_:  &AzSvgLine, _:  f32) -> f32;
-        pub(crate) fn AzSvgLine_getTangentVectorAtT(_:  &AzSvgLine, _:  f32) -> AzSvgVector;
+        pub(crate) fn AzSvgLine_getLength(_:  &AzSvgLine) -> f64;
+        pub(crate) fn AzSvgLine_getTAtOffset(_:  &AzSvgLine, _:  f64) -> f64;
+        pub(crate) fn AzSvgLine_getXAtT(_:  &AzSvgLine, _:  f64) -> f64;
+        pub(crate) fn AzSvgLine_getYAtT(_:  &AzSvgLine, _:  f64) -> f64;
+        pub(crate) fn AzSvgLine_getTangentVectorAtT(_:  &AzSvgLine, _:  f64) -> AzSvgVector;
         pub(crate) fn AzSvgLine_tessellateStroke(_:  &AzSvgLine, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgQuadraticCurve_reverse(_:  &mut AzSvgQuadraticCurve);
         pub(crate) fn AzSvgQuadraticCurve_getStart(_:  &AzSvgQuadraticCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgQuadraticCurve_getEnd(_:  &AzSvgQuadraticCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgQuadraticCurve_getBounds(_:  &AzSvgQuadraticCurve) -> AzSvgRect;
-        pub(crate) fn AzSvgQuadraticCurve_getLength(_:  &AzSvgQuadraticCurve) -> f32;
-        pub(crate) fn AzSvgQuadraticCurve_getTAtOffset(_:  &AzSvgQuadraticCurve, _:  f32) -> f32;
-        pub(crate) fn AzSvgQuadraticCurve_getXAtT(_:  &AzSvgQuadraticCurve, _:  f32) -> f32;
-        pub(crate) fn AzSvgQuadraticCurve_getYAtT(_:  &AzSvgQuadraticCurve, _:  f32) -> f32;
-        pub(crate) fn AzSvgQuadraticCurve_getTangentVectorAtT(_:  &AzSvgQuadraticCurve, _:  f32) -> AzSvgVector;
+        pub(crate) fn AzSvgQuadraticCurve_getLength(_:  &AzSvgQuadraticCurve) -> f64;
+        pub(crate) fn AzSvgQuadraticCurve_getTAtOffset(_:  &AzSvgQuadraticCurve, _:  f64) -> f64;
+        pub(crate) fn AzSvgQuadraticCurve_getXAtT(_:  &AzSvgQuadraticCurve, _:  f64) -> f64;
+        pub(crate) fn AzSvgQuadraticCurve_getYAtT(_:  &AzSvgQuadraticCurve, _:  f64) -> f64;
+        pub(crate) fn AzSvgQuadraticCurve_getTangentVectorAtT(_:  &AzSvgQuadraticCurve, _:  f64) -> AzSvgVector;
         pub(crate) fn AzSvgQuadraticCurve_tessellateStroke(_:  &AzSvgQuadraticCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCubicCurve_reverse(_:  &mut AzSvgCubicCurve);
         pub(crate) fn AzSvgCubicCurve_getStart(_:  &AzSvgCubicCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgCubicCurve_getEnd(_:  &AzSvgCubicCurve) -> AzSvgPoint;
         pub(crate) fn AzSvgCubicCurve_getBounds(_:  &AzSvgCubicCurve) -> AzSvgRect;
-        pub(crate) fn AzSvgCubicCurve_getLength(_:  &AzSvgCubicCurve) -> f32;
-        pub(crate) fn AzSvgCubicCurve_getTAtOffset(_:  &AzSvgCubicCurve, _:  f32) -> f32;
-        pub(crate) fn AzSvgCubicCurve_getXAtT(_:  &AzSvgCubicCurve, _:  f32) -> f32;
-        pub(crate) fn AzSvgCubicCurve_getYAtT(_:  &AzSvgCubicCurve, _:  f32) -> f32;
-        pub(crate) fn AzSvgCubicCurve_getTangentVectorAtT(_:  &AzSvgCubicCurve, _:  f32) -> AzSvgVector;
+        pub(crate) fn AzSvgCubicCurve_getLength(_:  &AzSvgCubicCurve) -> f64;
+        pub(crate) fn AzSvgCubicCurve_getTAtOffset(_:  &AzSvgCubicCurve, _:  f64) -> f64;
+        pub(crate) fn AzSvgCubicCurve_getXAtT(_:  &AzSvgCubicCurve, _:  f64) -> f64;
+        pub(crate) fn AzSvgCubicCurve_getYAtT(_:  &AzSvgCubicCurve, _:  f64) -> f64;
+        pub(crate) fn AzSvgCubicCurve_getTangentVectorAtT(_:  &AzSvgCubicCurve, _:  f64) -> AzSvgVector;
         pub(crate) fn AzSvgCubicCurve_tessellateStroke(_:  &AzSvgCubicCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgRect_getCenter(_:  &AzSvgRect) -> AzSvgPoint;
         pub(crate) fn AzSvgRect_containsPoint(_:  &AzSvgRect, _:  AzSvgPoint) -> bool;
@@ -16328,15 +16328,15 @@ pub mod svg {
         /// Returns the bounding box of this item
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgPathElement_getBounds(self) } }
         /// Returns the length of the line or curve
-        pub fn get_length(&self)  -> f32 { unsafe { crate::dll::AzSvgPathElement_getLength(self) } }
+        pub fn get_length(&self)  -> f64 { unsafe { crate::dll::AzSvgPathElement_getLength(self) } }
         /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-        pub fn get_t_at_offset(&self, offset: f32)  -> f32 { unsafe { crate::dll::AzSvgPathElement_getTAtOffset(self, offset) } }
+        pub fn get_t_at_offset(&self, offset: f64)  -> f64 { unsafe { crate::dll::AzSvgPathElement_getTAtOffset(self, offset) } }
         /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_x_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgPathElement_getXAtT(self, t) } }
+        pub fn get_x_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgPathElement_getXAtT(self, t) } }
         /// Returns the y position of the line or curve at t
-        pub fn get_y_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgPathElement_getYAtT(self, t) } }
+        pub fn get_y_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgPathElement_getYAtT(self, t) } }
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_tangent_vector_at_t(&self, t: f32)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgPathElement_getTangentVectorAtT(self, t) } }
+        pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgPathElement_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgPathElement::tessellate_stroke` function.
         pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPathElement_tessellateStroke(self, stroke_style) } }
     }
@@ -16349,7 +16349,7 @@ pub mod svg {
 #[doc(inline)] pub use crate::dll::AzSvgVector as SvgVector;
     impl SvgVector {
         /// Returns the angle of this vector in degrees
-        pub fn angle_degrees(&self)  -> f32 { unsafe { crate::dll::AzSvgVector_angleDegrees(self) } }
+        pub fn angle_degrees(&self)  -> f64 { unsafe { crate::dll::AzSvgVector_angleDegrees(self) } }
         /// Normalizes the vector, returning the normalized vector
         pub fn normalize(&self)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgVector_normalize(self) } }
         /// Rotates the vector 90 degrees counter clockwise, returning the rotated vector
@@ -16369,15 +16369,15 @@ pub mod svg {
         /// Returns the bounding box of this item
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgLine_getBounds(self) } }
         /// Returns the length of the line or curve
-        pub fn get_length(&self)  -> f32 { unsafe { crate::dll::AzSvgLine_getLength(self) } }
+        pub fn get_length(&self)  -> f64 { unsafe { crate::dll::AzSvgLine_getLength(self) } }
         /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-        pub fn get_t_at_offset(&self, offset: f32)  -> f32 { unsafe { crate::dll::AzSvgLine_getTAtOffset(self, offset) } }
+        pub fn get_t_at_offset(&self, offset: f64)  -> f64 { unsafe { crate::dll::AzSvgLine_getTAtOffset(self, offset) } }
         /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_x_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgLine_getXAtT(self, t) } }
+        pub fn get_x_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgLine_getXAtT(self, t) } }
         /// Returns the y position of the line or curve at t
-        pub fn get_y_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgLine_getYAtT(self, t) } }
+        pub fn get_y_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgLine_getYAtT(self, t) } }
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_tangent_vector_at_t(&self, t: f32)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgLine_getTangentVectorAtT(self, t) } }
+        pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgLine_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgLine::tessellate_stroke` function.
         pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgLine_tessellateStroke(self, stroke_style) } }
     }
@@ -16395,15 +16395,15 @@ pub mod svg {
         /// Returns the bounding box of this item
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgQuadraticCurve_getBounds(self) } }
         /// Returns the length of the line or curve
-        pub fn get_length(&self)  -> f32 { unsafe { crate::dll::AzSvgQuadraticCurve_getLength(self) } }
+        pub fn get_length(&self)  -> f64 { unsafe { crate::dll::AzSvgQuadraticCurve_getLength(self) } }
         /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-        pub fn get_t_at_offset(&self, offset: f32)  -> f32 { unsafe { crate::dll::AzSvgQuadraticCurve_getTAtOffset(self, offset) } }
+        pub fn get_t_at_offset(&self, offset: f64)  -> f64 { unsafe { crate::dll::AzSvgQuadraticCurve_getTAtOffset(self, offset) } }
         /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_x_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgQuadraticCurve_getXAtT(self, t) } }
+        pub fn get_x_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgQuadraticCurve_getXAtT(self, t) } }
         /// Returns the y position of the line or curve at t
-        pub fn get_y_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgQuadraticCurve_getYAtT(self, t) } }
+        pub fn get_y_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgQuadraticCurve_getYAtT(self, t) } }
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_tangent_vector_at_t(&self, t: f32)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgQuadraticCurve_getTangentVectorAtT(self, t) } }
+        pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgQuadraticCurve_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgQuadraticCurve::tessellate_stroke` function.
         pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgQuadraticCurve_tessellateStroke(self, stroke_style) } }
     }
@@ -16421,15 +16421,15 @@ pub mod svg {
         /// Returns the bounding box of this item
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgCubicCurve_getBounds(self) } }
         /// Returns the length of the line or curve
-        pub fn get_length(&self)  -> f32 { unsafe { crate::dll::AzSvgCubicCurve_getLength(self) } }
+        pub fn get_length(&self)  -> f64 { unsafe { crate::dll::AzSvgCubicCurve_getLength(self) } }
         /// Returns the interpolation value t (between 0 and 1) at the given offset from the line or curve start
-        pub fn get_t_at_offset(&self, offset: f32)  -> f32 { unsafe { crate::dll::AzSvgCubicCurve_getTAtOffset(self, offset) } }
+        pub fn get_t_at_offset(&self, offset: f64)  -> f64 { unsafe { crate::dll::AzSvgCubicCurve_getTAtOffset(self, offset) } }
         /// Returns the point on the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_x_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgCubicCurve_getXAtT(self, t) } }
+        pub fn get_x_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgCubicCurve_getXAtT(self, t) } }
         /// Returns the y position of the line or curve at t
-        pub fn get_y_at_t(&self, t: f32)  -> f32 { unsafe { crate::dll::AzSvgCubicCurve_getYAtT(self, t) } }
+        pub fn get_y_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgCubicCurve_getYAtT(self, t) } }
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
-        pub fn get_tangent_vector_at_t(&self, t: f32)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgCubicCurve_getTangentVectorAtT(self, t) } }
+        pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgCubicCurve_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgCubicCurve::tessellate_stroke` function.
         pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCubicCurve_tessellateStroke(self, stroke_style) } }
     }

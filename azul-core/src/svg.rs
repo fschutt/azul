@@ -46,28 +46,28 @@ impl SvgLine {
     pub fn get_start(&self) -> SvgPoint { self.start }
     pub fn get_end(&self) -> SvgPoint { self.end }
 
-    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         offset / self.get_length()
     }
 
-    pub fn get_tangent_vector_at_t(&self, _: f32) -> SvgVector {
+    pub fn get_tangent_vector_at_t(&self, _: f64) -> SvgVector {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
-        SvgVector { x: dx, y: dy }.normalize()
+        SvgVector { x: dx as f64, y: dy as f64 }.normalize()
     }
 
-    pub fn get_x_at_t(&self, t: f32) -> f32 {
-        self.start.x + (self.end.x - self.start.x) * t
+    pub fn get_x_at_t(&self, t: f64) -> f64 {
+        self.start.x as f64 + (self.end.x as f64 - self.start.x as f64) * t
     }
 
-    pub fn get_y_at_t(&self, t: f32) -> f32 {
-        self.start.y + (self.end.y - self.start.y) * t
+    pub fn get_y_at_t(&self, t: f64) -> f64 {
+        self.start.y as f64 + (self.end.y as f64 - self.start.y as f64) * t
     }
 
-    pub fn get_length(&self) -> f32 {
+    pub fn get_length(&self) -> f64 {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
-        libm::hypotf(dx, dy) as f32
+        libm::hypotf(dx, dy) as f64
     }
 
     pub fn get_bounds(&self) -> SvgRect {
@@ -143,35 +143,35 @@ impl SvgPathElement {
             SvgPathElement::CubicCurve(cc) => cc.get_bounds(),
         }
     }
-    pub fn get_length(&self) -> f32 {
+    pub fn get_length(&self) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_length(),
             SvgPathElement::QuadraticCurve(qc) => qc.get_length(),
             SvgPathElement::CubicCurve(cc) => cc.get_length(),
         }
     }
-    pub fn get_t_at_offset(&self, offset: f32) -> f32 {
+    pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_t_at_offset(offset),
             SvgPathElement::QuadraticCurve(qc) => qc.get_t_at_offset(offset),
             SvgPathElement::CubicCurve(cc) => cc.get_t_at_offset(offset),
         }
     }
-    pub fn get_tangent_vector_at_t(&self, t: f32) -> SvgVector {
+    pub fn get_tangent_vector_at_t(&self, t: f64) -> SvgVector {
         match self {
             SvgPathElement::Line(l) => l.get_tangent_vector_at_t(t),
             SvgPathElement::QuadraticCurve(qc) => qc.get_tangent_vector_at_t(t),
             SvgPathElement::CubicCurve(cc) => cc.get_tangent_vector_at_t(t),
         }
     }
-    pub fn get_x_at_t(&self, t: f32) -> f32 {
+    pub fn get_x_at_t(&self, t: f64) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_x_at_t(t),
             SvgPathElement::QuadraticCurve(qc) => qc.get_x_at_t(t),
             SvgPathElement::CubicCurve(cc) => cc.get_x_at_t(t),
         }
     }
-    pub fn get_y_at_t(&self, t: f32) -> f32 {
+    pub fn get_y_at_t(&self, t: f64) -> f64 {
         match self {
             SvgPathElement::Line(l) => l.get_y_at_t(t),
             SvgPathElement::QuadraticCurve(qc) => qc.get_y_at_t(t),
