@@ -10613,6 +10613,7 @@ namespace dll {
         bool  ImageRef_isGlTexture(const ImageRef* imageref);
         bool  ImageRef_isRawImage(const ImageRef* imageref);
         bool  ImageRef_isCallback(const ImageRef* imageref);
+        OptionRawImage ImageRef_getRawImage(const ImageRef* imageref);
         void ImageRef_delete(ImageRef* restrict instance);
         ImageRef ImageRef_deepCopy(ImageRef* const instance);
         RawImage RawImage_empty();

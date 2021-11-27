@@ -371,6 +371,23 @@ impl ImageRef {
         }
     }
 
+    // OptionRawImage
+    pub fn get_rawimage(&self) -> Option<RawImage> {
+        match self.get_data() {
+            DecodedImage::Raw((image_descriptor, image_data)) => Some(RawImage {
+                pixels: match image_data {
+                    ImageData::Raw(u8_bytes) => RawImageData::U8(u8_bytes.clone()),
+                    ImageData::External(_) => return None,
+                },
+                width: image_descriptor.width,
+                height: image_descriptor.height,
+                premultiplied_alpha: true,
+                data_format: image_descriptor.format,
+            }),
+            _ => None,
+        }
+    }
+
     /// NOTE: returns (0, 0) for a Callback
     pub fn get_size(&self) -> LogicalSize {
         match self.get_data() {

@@ -10436,6 +10436,7 @@ mod dll {
         pub(crate) fn AzImageRef_isGlTexture(_:  &AzImageRef) -> bool;
         pub(crate) fn AzImageRef_isRawImage(_:  &AzImageRef) -> bool;
         pub(crate) fn AzImageRef_isCallback(_:  &AzImageRef) -> bool;
+        pub(crate) fn AzImageRef_getRawImage(_:  &AzImageRef) -> AzOptionRawImage;
         pub(crate) fn AzImageRef_delete(_:  &mut AzImageRef);
         pub(crate) fn AzImageRef_deepCopy(_:  &AzImageRef) -> AzImageRef;
         pub(crate) fn AzRawImage_empty() -> AzRawImage;
@@ -16086,6 +16087,8 @@ pub mod image {
         pub fn is_raw_image(&self)  -> bool { unsafe { crate::dll::AzImageRef_isRawImage(self) } }
         /// Returns whether the image is a `RenderImageCallback`
         pub fn is_callback(&self)  -> bool { unsafe { crate::dll::AzImageRef_isCallback(self) } }
+        /// If the image is a RawImage, returns a COPY of the internal image bytes (useful for encoding the RawImage / exporting the ImageRef to a file)
+        pub fn get_raw_image(&self)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzImageRef_getRawImage(self) } }
     }
 
     impl Clone for ImageRef { fn clone(&self) -> Self { unsafe { crate::dll::AzImageRef_deepCopy(self) } } }

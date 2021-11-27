@@ -29979,6 +29979,16 @@ impl AzImageRef {
             mem::transmute(self),
         )) }
     }
+    fn get_raw_image(&self) -> Option<AzRawImage> {
+        let m: AzOptionRawImage = unsafe { mem::transmute(crate::AzImageRef_getRawImage(
+            mem::transmute(self),
+        )) };
+        match m {
+            AzOptionRawImage::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionRawImage::None => None,
+        }
+
+    }
 }
 
 #[pyproto]

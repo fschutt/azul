@@ -12721,6 +12721,7 @@ extern DLLIMPORT bool  AzImageRef_isInvalid(const AzImageRef* imageref);
 extern DLLIMPORT bool  AzImageRef_isGlTexture(const AzImageRef* imageref);
 extern DLLIMPORT bool  AzImageRef_isRawImage(const AzImageRef* imageref);
 extern DLLIMPORT bool  AzImageRef_isCallback(const AzImageRef* imageref);
+extern DLLIMPORT AzOptionRawImage AzImageRef_getRawImage(const AzImageRef* imageref);
 extern DLLIMPORT void AzImageRef_delete(AzImageRef* restrict instance);
 extern DLLIMPORT AzImageRef AzImageRef_deepCopy(AzImageRef* const instance);
 extern DLLIMPORT AzRawImage AzRawImage_empty();

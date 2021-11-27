@@ -11053,6 +11053,14 @@
                             ],
                             "returns": {"type": "bool"},
                             "fn_body": "imageref.is_callback()"
+                        },
+                        "get_raw_image": {
+                            "doc": "If the image is a RawImage, returns a COPY of the internal image bytes (useful for encoding the RawImage / exporting the ImageRef to a file)",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionRawImage"},
+                            "fn_body": "imageref.get_rawimage().into()"
                         }
                     }
                 },

@@ -3203,6 +3203,8 @@ pub use AzImageRefTT as AzImageRef;
 #[no_mangle] pub extern "C" fn AzImageRef_isRawImage(imageref: &AzImageRef) -> bool { imageref.is_raw_image() }
 /// Returns whether the image is a `RenderImageCallback`
 #[no_mangle] pub extern "C" fn AzImageRef_isCallback(imageref: &AzImageRef) -> bool { imageref.is_callback() }
+/// If the image is a RawImage, returns a COPY of the internal image bytes (useful for encoding the RawImage / exporting the ImageRef to a file)
+#[no_mangle] pub extern "C" fn AzImageRef_getRawImage(imageref: &AzImageRef) -> AzOptionRawImage { imageref.get_rawimage().into() }
 /// Destructor: Takes ownership of the `ImageRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzImageRef_delete(object: &mut AzImageRef) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
