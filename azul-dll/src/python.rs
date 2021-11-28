@@ -30052,9 +30052,10 @@ impl AzRawImage {
         }
 
     }
-    fn encode_jpeg(&self) -> Result<Vec<u8>, PyErr> {
+    fn encode_jpeg(&self, quality: u8) -> Result<Vec<u8>, PyErr> {
         let m: AzResultU8VecEncodeImageError = unsafe { mem::transmute(crate::AzRawImage_encodeJpeg(
             mem::transmute(self),
+            mem::transmute(quality),
         )) };
         match m {
             AzResultU8VecEncodeImageError::Ok(o) => Ok(o.into()),
@@ -30469,6 +30470,11 @@ impl AzFontRef {
             AzOptionFontRef::None => None,
         }
 
+    }
+    fn get_bytes(&self) -> Vec<u8> {
+        az_vecu8_to_py_vecu8(unsafe { mem::transmute(crate::AzFontRef_getBytes(
+            mem::transmute(self),
+        )) })
     }
     fn get_font_metrics(&self) -> AzFontMetrics {
         unsafe { mem::transmute(crate::AzFontRef_getFontMetrics(

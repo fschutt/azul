@@ -4849,6 +4849,9 @@ impl FontRef {
             run_destructor: true,
         }
     }
+    pub fn get_bytes(&self) -> U8Vec {
+        self.get_data().bytes.clone()
+    }
 }
 
 impl Clone for FontRef {

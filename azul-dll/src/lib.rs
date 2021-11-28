@@ -3226,7 +3226,7 @@ pub use AzRawImageTT as AzRawImage;
 /// Encodes the RawImage in the PNG image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodePng(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_png(rawimage) }
 /// Encodes the RawImage in the JPG image format
-#[no_mangle] pub extern "C" fn AzRawImage_encodeJpeg(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_jpeg(rawimage) }
+#[no_mangle] pub extern "C" fn AzRawImage_encodeJpeg(rawimage: &AzRawImage, quality: u8) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_jpeg(rawimage, quality) }
 /// Encodes the RawImage in the TGA image format
 #[no_mangle] pub extern "C" fn AzRawImage_encodeTga(rawimage: &AzRawImage) -> AzResultU8VecEncodeImageError { azul_impl::resources::encode::encode_tga(rawimage) }
 /// Encodes the RawImage in the PNM image format
@@ -3326,6 +3326,8 @@ pub type AzFontRefTT = azul_impl::css::FontRef;
 pub use AzFontRefTT as AzFontRef;
 /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
 #[no_mangle] pub extern "C" fn AzFontRef_parse(source: AzFontSource) -> AzOptionFontRef { azul_impl::text_layout::parse_font_fn(source).into() }
+/// Returns the font bytes of the underlying font source
+#[no_mangle] pub extern "C" fn AzFontRef_getBytes(fontref: &AzFontRef) -> AzU8Vec { fontref.get_bytes() }
 /// Returns the font metrics of the parsed font
 #[no_mangle] pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics { azul_impl::text_layout::get_font_metrics_fontref(fontref) }
 /// Returns the text layout of the shaped text

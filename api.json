@@ -11124,10 +11124,11 @@
                         "encode_jpeg": {
                             "doc": "Encodes the RawImage in the JPG image format",
                             "fn_args": [
-                                {"self": "ref"}
+                                {"self": "ref"},
+                                {"quality": "u8", "doc": "Output JPEG quality, value from 0 to 100"}
                             ],
                             "returns": {"type": "ResultU8VecEncodeImageError"},
-                            "fn_body": "azul_impl::resources::encode::encode_jpeg(rawimage)"
+                            "fn_body": "azul_impl::resources::encode::encode_jpeg(rawimage, quality)"
                         },
                         "encode_tga": {
                             "doc": "Encodes the RawImage in the TGA image format",
@@ -11508,6 +11509,14 @@
                         }
                     },
                     "functions": {
+                        "get_bytes": {
+                            "doc": "Returns the font bytes of the underlying font source",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "U8Vec"},
+                            "fn_body": "fontref.get_bytes()"
+                        },
                         "get_font_metrics": {
                             "doc": "Returns the font metrics of the parsed font",
                             "fn_args": [

@@ -10622,7 +10622,7 @@ namespace dll {
         bool  RawImage_drawClipMask(RawImage* restrict rawimage, AzSvgNode  node, AzSvgStyle  style);
         ResultU8VecEncodeImageError RawImage_encodeBmp(const RawImage* rawimage);
         ResultU8VecEncodeImageError RawImage_encodePng(const RawImage* rawimage);
-        ResultU8VecEncodeImageError RawImage_encodeJpeg(const RawImage* rawimage);
+        ResultU8VecEncodeImageError RawImage_encodeJpeg(const RawImage* rawimage, uint8_t quality);
         ResultU8VecEncodeImageError RawImage_encodeTga(const RawImage* rawimage);
         ResultU8VecEncodeImageError RawImage_encodePnm(const RawImage* rawimage);
         ResultU8VecEncodeImageError RawImage_encodeGif(const RawImage* rawimage);
@@ -10656,6 +10656,7 @@ namespace dll {
         float FontMetrics_getYStrikeoutPosition(const FontMetrics* fontmetrics, float target_font_size);
         void FontSource_delete(FontSource* restrict instance);
         FontRef FontRef_parse(AzFontSource  source);
+        U8Vec FontRef_getBytes(const FontRef* fontref);
         FontMetrics FontRef_getFontMetrics(const FontRef* fontref);
         InlineText FontRef_shapeText(const FontRef* fontref, AzRefstr  text, AzResolvedTextLayoutOptions  options);
         void FontRef_delete(FontRef* restrict instance);

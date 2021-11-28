@@ -12730,7 +12730,7 @@ extern DLLIMPORT AzRawImage AzRawImage_decodeImageBytesAny(AzU8VecRef  bytes);
 extern DLLIMPORT bool  AzRawImage_drawClipMask(AzRawImage* restrict rawimage, AzSvgNode  node, AzSvgStyle  style);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeBmp(const AzRawImage* rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePng(const AzRawImage* rawimage);
-extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeJpeg(const AzRawImage* rawimage);
+extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeJpeg(const AzRawImage* rawimage, uint8_t quality);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeTga(const AzRawImage* rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodePnm(const AzRawImage* rawimage);
 extern DLLIMPORT AzResultU8VecEncodeImageError AzRawImage_encodeGif(const AzRawImage* rawimage);
@@ -12764,6 +12764,7 @@ extern DLLIMPORT float AzFontMetrics_getYStrikeoutSize(const AzFontMetrics* font
 extern DLLIMPORT float AzFontMetrics_getYStrikeoutPosition(const AzFontMetrics* fontmetrics, float target_font_size);
 extern DLLIMPORT void AzFontSource_delete(AzFontSource* restrict instance);
 extern DLLIMPORT AzFontRef AzFontRef_parse(AzFontSource  source);
+extern DLLIMPORT AzU8Vec AzFontRef_getBytes(const AzFontRef* fontref);
 extern DLLIMPORT AzFontMetrics AzFontRef_getFontMetrics(const AzFontRef* fontref);
 extern DLLIMPORT AzInlineText AzFontRef_shapeText(const AzFontRef* fontref, AzRefstr  text, AzResolvedTextLayoutOptions  options);
 extern DLLIMPORT void AzFontRef_delete(AzFontRef* restrict instance);

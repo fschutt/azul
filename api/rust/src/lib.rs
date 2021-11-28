@@ -10445,7 +10445,7 @@ mod dll {
         pub(crate) fn AzRawImage_drawClipMask(_:  &mut AzRawImage, _:  AzSvgNode, _:  AzSvgStyle) -> bool;
         pub(crate) fn AzRawImage_encodeBmp(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePng(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
-        pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
+        pub(crate) fn AzRawImage_encodeJpeg(_:  &AzRawImage, _:  u8) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeTga(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodePnm(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
         pub(crate) fn AzRawImage_encodeGif(_:  &AzRawImage) -> AzResultU8VecEncodeImageError;
@@ -10475,6 +10475,7 @@ mod dll {
         pub(crate) fn AzFontMetrics_getYStrikeoutSize(_:  &AzFontMetrics, _:  f32) -> f32;
         pub(crate) fn AzFontMetrics_getYStrikeoutPosition(_:  &AzFontMetrics, _:  f32) -> f32;
         pub(crate) fn AzFontRef_parse(_:  AzFontSource) -> AzOptionFontRef;
+        pub(crate) fn AzFontRef_getBytes(_:  &AzFontRef) -> AzU8Vec;
         pub(crate) fn AzFontRef_getFontMetrics(_:  &AzFontRef) -> AzFontMetrics;
         pub(crate) fn AzFontRef_shapeText(_:  &AzFontRef, _:  AzRefstr, _:  AzResolvedTextLayoutOptions) -> AzInlineText;
         pub(crate) fn AzFontRef_delete(_:  &mut AzFontRef);
@@ -16110,7 +16111,7 @@ pub mod image {
         /// Encodes the RawImage in the PNG image format
         pub fn encode_png(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodePng(self) } }
         /// Encodes the RawImage in the JPG image format
-        pub fn encode_jpeg(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeJpeg(self) } }
+        pub fn encode_jpeg(&self, quality: u8)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeJpeg(self, quality) } }
         /// Encodes the RawImage in the TGA image format
         pub fn encode_tga(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeTga(self) } }
         /// Encodes the RawImage in the PNM image format
@@ -16211,6 +16212,8 @@ pub mod font {
     impl FontRef {
         /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
         pub fn parse(source: FontSource) ->  crate::option::OptionFontRef { unsafe { crate::dll::AzFontRef_parse(source) } }
+        /// Returns the font bytes of the underlying font source
+        pub fn get_bytes(&self)  -> crate::vec::U8Vec { unsafe { crate::dll::AzFontRef_getBytes(self) } }
         /// Returns the font metrics of the parsed font
         pub fn get_font_metrics(&self)  -> crate::font::FontMetrics { unsafe { crate::dll::AzFontRef_getFontMetrics(self) } }
         /// Returns the text layout of the shaped text
