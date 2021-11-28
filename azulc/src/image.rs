@@ -220,9 +220,39 @@ pub mod encode {
 
     encode_func!(encode_bmp, BmpEncoder, "bmp");
     encode_func!(encode_png, PngEncoder, "png");
-    encode_func!(encode_jpeg, JpegEncoder, "jpeg");
     encode_func!(encode_tga, TgaEncoder, "tga");
     encode_func!(encode_tiff, TiffEncoder, "tiff");
     encode_func!(encode_gif, GifEncoder, "gif");
     encode_func!(encode_pnm, PnmEncoder, "pnm");
+
+    #[cfg(feature = "jpeg")]
+    pub fn encode_jpeg(image: &RawImage, quality: u8) -> ResultU8VecEncodeImageError {
+        let mut result = Vec::<u8>::new();
+
+        {
+            let mut cursor = Cursor::new(&mut result);
+            let mut encoder = JpegEncoder::new_with_quality(&mut cursor, quality);
+            let pixels = match image.pixels.get_u8_vec_ref() {
+                Some(s) => s,
+                None => { return ResultU8VecEncodeImageError::Err(EncodeImageError::InvalidData); },
+            };
+
+            if let Err(e) = encoder.encode(
+                pixels.as_ref(),
+                image.width as u32,
+                image.height as u32,
+                translate_rawimage_colortype(image.data_format),
+            ) {
+                println!("{:?}", e);
+                return ResultU8VecEncodeImageError::Err(translate_image_error_encode(e));
+            }
+        }
+
+        ResultU8VecEncodeImageError::Ok(result.into())
+    }
+
+    #[cfg(not(feature = "jpeg"))]
+    pub fn encode_jpeg(image: &RawImage) -> ResultU8VecEncodeImageError {
+        ResultU8VecEncodeImageError::Err(EncodeImageError::EncoderNotAvailable)
+    }
 }
