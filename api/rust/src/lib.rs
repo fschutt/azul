@@ -10437,6 +10437,7 @@ mod dll {
         pub(crate) fn AzImageRef_isRawImage(_:  &AzImageRef) -> bool;
         pub(crate) fn AzImageRef_isCallback(_:  &AzImageRef) -> bool;
         pub(crate) fn AzImageRef_getRawImage(_:  &AzImageRef) -> AzOptionRawImage;
+        pub(crate) fn AzImageRef_getHash(_:  &AzImageRef) -> u64;
         pub(crate) fn AzImageRef_delete(_:  &mut AzImageRef);
         pub(crate) fn AzImageRef_deepCopy(_:  &AzImageRef) -> AzImageRef;
         pub(crate) fn AzRawImage_empty() -> AzRawImage;
@@ -10478,6 +10479,7 @@ mod dll {
         pub(crate) fn AzFontRef_getBytes(_:  &AzFontRef) -> AzU8Vec;
         pub(crate) fn AzFontRef_getFontMetrics(_:  &AzFontRef) -> AzFontMetrics;
         pub(crate) fn AzFontRef_shapeText(_:  &AzFontRef, _:  AzRefstr, _:  AzResolvedTextLayoutOptions) -> AzInlineText;
+        pub(crate) fn AzFontRef_getHash(_:  &AzFontRef) -> u64;
         pub(crate) fn AzFontRef_delete(_:  &mut AzFontRef);
         pub(crate) fn AzFontRef_deepCopy(_:  &AzFontRef) -> AzFontRef;
         pub(crate) fn AzSvg_fromString(_:  AzString, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError;
@@ -16090,6 +16092,8 @@ pub mod image {
         pub fn is_callback(&self)  -> bool { unsafe { crate::dll::AzImageRef_isCallback(self) } }
         /// If the image is a RawImage, returns a COPY of the internal image bytes (useful for encoding the RawImage / exporting the ImageRef to a file)
         pub fn get_raw_image(&self)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzImageRef_getRawImage(self) } }
+        /// Returns the hash of the ImageRef (fast)
+        pub fn get_hash(&self)  -> u64 { unsafe { crate::dll::AzImageRef_getHash(self) } }
     }
 
     impl Clone for ImageRef { fn clone(&self) -> Self { unsafe { crate::dll::AzImageRef_deepCopy(self) } } }
@@ -16218,6 +16222,8 @@ pub mod font {
         pub fn get_font_metrics(&self)  -> crate::font::FontMetrics { unsafe { crate::dll::AzFontRef_getFontMetrics(self) } }
         /// Returns the text layout of the shaped text
         pub fn shape_text(&self, text: Refstr, options: ResolvedTextLayoutOptions)  -> crate::callbacks::InlineText { unsafe { crate::dll::AzFontRef_shapeText(self, text, options) } }
+        /// Returns the hash of the FontRef (fast)
+        pub fn get_hash(&self)  -> u64 { unsafe { crate::dll::AzFontRef_getHash(self) } }
     }
 
     impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }

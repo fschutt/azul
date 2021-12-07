@@ -11061,6 +11061,14 @@
                             ],
                             "returns": {"type": "OptionRawImage"},
                             "fn_body": "imageref.get_rawimage().into()"
+                        },
+                        "get_hash": {
+                            "doc": "Returns the hash of the ImageRef (fast)",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "u64"},
+                            "fn_body": "imageref.get_hash().0 as u64"
                         }
                     }
                 },
@@ -11534,6 +11542,14 @@
                             ],
                             "returns": {"type": "InlineText"},
                             "fn_body": "azul_impl::text_layout::shape_text(fontref, text.as_str(), &options)"
+                        },
+                        "get_hash": {
+                            "doc": "Returns the hash of the FontRef (fast)",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "u64"},
+                            "fn_body": "azul_core::app_resources::font_ref_get_hash(fontref)"
                         }
                     }
                 }

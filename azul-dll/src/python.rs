@@ -29989,6 +29989,11 @@ impl AzImageRef {
         }
 
     }
+    fn get_hash(&self) -> u64 {
+        unsafe { mem::transmute(crate::AzImageRef_getHash(
+            mem::transmute(self),
+        )) }
+    }
 }
 
 #[pyproto]
@@ -30487,6 +30492,11 @@ impl AzFontRef {
             mem::transmute(self),
             mem::transmute(text),
             mem::transmute(options),
+        )) }
+    }
+    fn get_hash(&self) -> u64 {
+        unsafe { mem::transmute(crate::AzFontRef_getHash(
+            mem::transmute(self),
         )) }
     }
 }

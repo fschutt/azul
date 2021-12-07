@@ -486,6 +486,10 @@ impl Drop for ImageRef {
     }
 }
 
+pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
+    use crate::css::GetHash;
+    fr.get_hash()
+}
 
 /// Stores the resources for the application, souch as fonts, images and cached
 /// texts, also clipboard strings

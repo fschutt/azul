@@ -3205,6 +3205,8 @@ pub use AzImageRefTT as AzImageRef;
 #[no_mangle] pub extern "C" fn AzImageRef_isCallback(imageref: &AzImageRef) -> bool { imageref.is_callback() }
 /// If the image is a RawImage, returns a COPY of the internal image bytes (useful for encoding the RawImage / exporting the ImageRef to a file)
 #[no_mangle] pub extern "C" fn AzImageRef_getRawImage(imageref: &AzImageRef) -> AzOptionRawImage { imageref.get_rawimage().into() }
+/// Returns the hash of the ImageRef (fast)
+#[no_mangle] pub extern "C" fn AzImageRef_getHash(imageref: &AzImageRef) -> u64 { imageref.get_hash().0 as u64 }
 /// Destructor: Takes ownership of the `ImageRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzImageRef_delete(object: &mut AzImageRef) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
@@ -3332,6 +3334,8 @@ pub use AzFontRefTT as AzFontRef;
 #[no_mangle] pub extern "C" fn AzFontRef_getFontMetrics(fontref: &AzFontRef) -> AzFontMetrics { azul_impl::text_layout::get_font_metrics_fontref(fontref) }
 /// Returns the text layout of the shaped text
 #[no_mangle] pub extern "C" fn AzFontRef_shapeText(fontref: &AzFontRef, text: AzRefstr, options: AzResolvedTextLayoutOptions) -> AzInlineText { azul_impl::text_layout::shape_text(fontref, text.as_str(), &options) }
+/// Returns the hash of the FontRef (fast)
+#[no_mangle] pub extern "C" fn AzFontRef_getHash(fontref: &AzFontRef) -> u64 { azul_core::app_resources::font_ref_get_hash(fontref) }
 /// Destructor: Takes ownership of the `FontRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzFontRef_delete(object: &mut AzFontRef) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object

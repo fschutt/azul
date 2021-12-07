@@ -10614,6 +10614,7 @@ namespace dll {
         bool  ImageRef_isRawImage(const ImageRef* imageref);
         bool  ImageRef_isCallback(const ImageRef* imageref);
         OptionRawImage ImageRef_getRawImage(const ImageRef* imageref);
+        uint64_t ImageRef_getHash(const ImageRef* imageref);
         void ImageRef_delete(ImageRef* restrict instance);
         ImageRef ImageRef_deepCopy(ImageRef* const instance);
         RawImage RawImage_empty();
@@ -10659,6 +10660,7 @@ namespace dll {
         U8Vec FontRef_getBytes(const FontRef* fontref);
         FontMetrics FontRef_getFontMetrics(const FontRef* fontref);
         InlineText FontRef_shapeText(const FontRef* fontref, AzRefstr  text, AzResolvedTextLayoutOptions  options);
+        uint64_t FontRef_getHash(const FontRef* fontref);
         void FontRef_delete(FontRef* restrict instance);
         FontRef FontRef_deepCopy(FontRef* const instance);
         Svg Svg_fromString(AzString  svg_string, AzSvgParseOptions  parse_options);
