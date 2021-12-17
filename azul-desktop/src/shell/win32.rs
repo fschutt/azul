@@ -46,6 +46,7 @@ use azul_core::{
 };
 use core::{
     fmt,
+    convert::TryInto,
     cell::{BorrowError, BorrowMutError, RefCell},
     ffi::c_void,
     mem, ptr,
@@ -2969,7 +2970,12 @@ unsafe extern "system" fn WindowProc(
                     if current_window.internal.current_window_state.mouse_state.mouse_cursor_type != OptionMouseCursorType::Some(cht.cursor_icon) {
                         // TODO: unset previous cursor?
                         current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
-                        SetClassLongPtrW(current_window.hwnd, GCLP_HCURSOR, win32_translate_cursor(cht.cursor_icon) as isize);
+                        SetClassLongPtrW(
+                                current_window.hwnd, 
+                                GCLP_HCURSOR, 
+                                (win32_translate_cursor(cht.cursor_icon) as isize)
+                                .try_into().unwrap_or(0)
+                        );
                     }
 
                     PostMessageW(current_window.hwnd, AZ_REDO_HIT_TEST, 0, 0);
@@ -3100,7 +3106,12 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.last_hit_test = FullHitTest::empty(current_focus);
                     current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
 
-                    SetClassLongPtrW(hwnd, GCLP_HCURSOR, win32_translate_cursor(MouseCursorType::Default) as isize);
+                    SetClassLongPtrW(
+                        hwnd, 
+                        GCLP_HCURSOR, 
+                        (win32_translate_cursor(MouseCursorType::Default) as isize)
+                        .try_into().unwrap_or(0)
+                    );
                     PostMessageW(hwnd, AZ_REDO_HIT_TEST, 0, 0);
                     mem::drop(app_borrow);
                     0

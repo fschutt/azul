@@ -1729,9 +1729,12 @@ impl ComputedTransform3D {
 
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
+        let use_avx = INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst);
+        let use_sse = !use_avx && INITIALIZED.load(AtomicOrdering::SeqCst) && USE_SSE.load(AtomicOrdering::SeqCst);
 
-        if INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst) {
+        if use_avx {
             for t in t_vec.iter() {
+                #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_avx8(&Self::from_style_transform(
                         t,
@@ -1742,8 +1745,9 @@ impl ComputedTransform3D {
                     ));
                 }
             }
-        } else if INITIALIZED.load(AtomicOrdering::SeqCst) && USE_SSE.load(AtomicOrdering::SeqCst) {
+        } else if use_sse {
             for t in t_vec.iter() {
+                #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = matrix.then_sse(&Self::from_style_transform(
                         t,
@@ -1755,6 +1759,7 @@ impl ComputedTransform3D {
                 }
             }
         } else {
+            // fallback for everything else
             for t in t_vec.iter() {
                 matrix = matrix.then(&Self::from_style_transform(
                     t,

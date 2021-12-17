@@ -15,8 +15,21 @@ const INSTALL_DIRECTORY_VAR: &str = "AZUL_LINK_PATH";
 
 fn main() {
 
+    let cargo_home = match env::var("CARGO_HOME") {
+        Ok(val) => val,
+        Err(e) => {
+            println!("WARNING (azul/azul-dll:build.rs): could not find environment variable CARGO_HOME: rustup not installed?: {}", e); 
+            // don't error, installation can still continue without CARGO_HOME, 
+            // usually when building locally or in a VM
+            return; 
+        },
+    };
+
     // 0. find the source crate "azul-dll-0.1.0.crate" in ~/.cargo/registry/cache/
-    let crate_file_path = find_crate(concat!(env!("CARGO_HOME"), "/registry/cache/"), concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION"), ".crate"));
+    let crate_file_path = find_crate(
+        &format!("{}/registry/cache/", cargo_home), 
+        concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION"), ".crate")
+    );
 
     let crate_file_path = match crate_file_path {
         None => {
@@ -29,7 +42,7 @@ fn main() {
     // 1. re-create the output path for the DLL, i.e "~/.cargo/lib/azul-dll-0.1.0"
     let dll_output_path = match env::var(INSTALL_DIRECTORY_VAR).ok() {
         Some(s) => s,
-        None => concat!(env!("CARGO_HOME"), "/lib/", env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION")).to_string(),
+        None => format!("{}/lib/{}-{}", cargo_home, env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
     };
 
     env::set_var(INSTALL_DIRECTORY_VAR, dll_output_path.clone());
@@ -41,7 +54,7 @@ fn main() {
     fs::create_dir_all(&dll_output_path).unwrap();
 
     // 2. unzip it into ~/.cargo/lib/azul-dll-0.1.0
-    unzip_file_into_dir(crate_file_path.as_path(), concat!(env!("CARGO_HOME"), "/lib/")).unwrap();
+    unzip_file_into_dir(crate_file_path.as_path(), &format!("{}/lib/", cargo_home)).unwrap();
 
     // 3. remove the 'build = "build.rs"' from the Cargo.toml file to prevent a infinite build loop
     let file = fs::read_to_string(&format!("{}/Cargo.toml", dll_output_path)).unwrap();

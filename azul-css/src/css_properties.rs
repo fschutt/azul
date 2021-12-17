@@ -4896,7 +4896,7 @@ impl fmt::Debug for FontData {
         "    bytes: ".fmt(f)?;
         self.bytes.len().fmt(f)?;
         "    font_index: ".fmt(f)?;
-        write!(f, "}}");
+        write!(f, "}}")?;
         Ok(())
     }
 }
@@ -4972,6 +4972,7 @@ impl Default for StyleMixBlendMode {
 
 impl fmt::Display for StyleMixBlendMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::StyleMixBlendMode::*;
         write!(f, "{}", match self {
             Normal => "normal",
             Multiply => "multiply",

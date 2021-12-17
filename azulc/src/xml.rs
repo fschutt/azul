@@ -4,7 +4,7 @@ use core::fmt;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use alloc::string::String;
-use alloc::prelude::v1::Box;
+use alloc::boxed::Box;
 use azul_core::{
     impl_from,
     dom::Dom,
