@@ -43,7 +43,7 @@ pub use AzAppTT as AzApp;
 pub type AzAppConfigTT = azul_impl::resources::AppConfig;
 pub use AzAppConfigTT as AzAppConfig;
 /// Constructs a default `AppConfig`, uses the layout solver currently available
-#[no_mangle] pub extern "C" fn AzAppConfig_new(layout_solver: AzLayoutSolver) -> AzAppConfig { AzAppConfig::default(layout_solver) }
+#[no_mangle] pub extern "C" fn AzAppConfig_new(layout_solver: AzLayoutSolver) -> AzAppConfig { AzAppConfig::new(layout_solver) }
 
 /// Configuration to set which messages should be logged.
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
@@ -737,7 +737,7 @@ pub use AzDomTT as AzDom;
 /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
 #[no_mangle] pub extern "C" fn AzDom_addChild(dom: &mut AzDom, child: AzDom) { dom.add_child(child) }
 /// Same as add_child, but as a builder method.
-#[no_mangle] pub extern "C" fn AzDom_withChild(dom: &mut AzDom, child: AzDom) -> AzDom { let mut dom = dom.swap_with_default(); dom.add_child(child); dom }
+#[no_mangle] pub extern "C" fn AzDom_withChild(dom: &mut AzDom, child: AzDom) -> AzDom { dom.with_child(child) }
 /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
 #[no_mangle] pub extern "C" fn AzDom_setChildren(dom: &mut AzDom, children: AzDomVec) { dom.set_children(children) }
 /// Same as set_children, but as a builder method.
@@ -807,11 +807,11 @@ pub use AzDomTT as AzDom;
 /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
 #[no_mangle] pub extern "C" fn AzDom_nodeCount(dom: &AzDom) -> usize { dom.node_count() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
-#[no_mangle] pub extern "C" fn AzDom_getHtmlString(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", false).into() }
+#[no_mangle] pub extern "C" fn AzDom_getHtmlString(dom: &mut AzDom) -> AzString { dom.style(AzCss::empty()).get_html_string("", "", false).into() }
 /// Returns a HTML for unit testing
-#[no_mangle] pub extern "C" fn AzDom_getHtmlStringTest(dom: &mut AzDom) -> AzString { dom.style(&mut AzCss::empty()).get_html_string("", "", true).into() }
+#[no_mangle] pub extern "C" fn AzDom_getHtmlStringTest(dom: &mut AzDom) -> AzString { dom.style(AzCss::empty()).get_html_string("", "", true).into() }
 /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
-#[no_mangle] pub extern "C" fn AzDom_style(dom: &mut AzDom, css: AzCss) -> AzStyledDom { let mut css = css; dom.style(&mut css) }
+#[no_mangle] pub extern "C" fn AzDom_style(dom: &mut AzDom, css: AzCss) -> AzStyledDom { dom.style(css) }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzDom_delete(object: &mut AzDom) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -1104,7 +1104,7 @@ pub use AzCssTT as AzCss;
 /// Returns an empty CSS style
 #[no_mangle] pub extern "C" fn AzCss_empty() -> AzCss { AzCss::empty() }
 /// Returns a CSS style parsed from a `String`
-#[no_mangle] pub extern "C" fn AzCss_fromString(s: AzString) -> AzCss { azul_impl::css::from_str(s.as_str()).unwrap_or_default() }
+#[no_mangle] pub extern "C" fn AzCss_fromString(s: AzString) -> AzCss { AzCss::from_string(s) }
 /// Destructor: Takes ownership of the `Css` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzCss_delete(object: &mut AzCss) {  unsafe { core::ptr::drop_in_place(object); } }
 
@@ -2533,7 +2533,7 @@ pub use AzCssPropertyCacheTT as AzCssPropertyCache;
 pub type AzStyledDomTT = azul_impl::styled_dom::StyledDom;
 pub use AzStyledDomTT as AzStyledDom;
 /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
-#[no_mangle] pub extern "C" fn AzStyledDom_new(dom: AzDom, css: AzCss) -> AzStyledDom { let mut dom = dom; let mut css = css; AzStyledDom::new(&mut dom, &mut css) }
+#[no_mangle] pub extern "C" fn AzStyledDom_new(dom: AzDom, css: AzCss) -> AzStyledDom { let mut dom = dom; let mut css = css; AzStyledDom::new(&mut dom, css) }
 /// Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case.
 #[no_mangle] pub extern "C" fn AzStyledDom_default() -> AzStyledDom { AzStyledDom::default() }
 /// Returns a DOM loaded from an XML file
@@ -2543,7 +2543,7 @@ pub use AzStyledDomTT as AzStyledDom;
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
 #[no_mangle] pub extern "C" fn AzStyledDom_appendChild(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append_child(dom); }
 /// Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style
-#[no_mangle] pub extern "C" fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) { let mut css = css; styleddom.restyle(&mut css); }
+#[no_mangle] pub extern "C" fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) { styleddom.restyle(css); }
 /// Returns the number of nodes in the styled DOM
 #[no_mangle] pub extern "C" fn AzStyledDom_nodeCount(styleddom: &AzStyledDom) -> usize { styleddom.node_count() }
 /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues

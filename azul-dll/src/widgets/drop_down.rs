@@ -482,7 +482,7 @@ fn dropdownWindowLayoutFn(data: &mut RefAny, _: &mut RefAny, info: &mut LayoutCa
             callback: Callback { cb: close_choice_window }
         }
     ].into())
-    .style(&mut Css::empty())
+    .style(Css::empty())
 }
 
 extern "C"
@@ -512,5 +512,5 @@ fn close_choice_window(_: &mut RefAny, info: &mut CallbackInfo) -> Update {
     let mut flags = info.get_current_window_flags();
     flags.is_about_to_close = true;
     info.set_window_flags(flags);
-    Update::RegenerateStyledDomForCurrentWindow
+    Update::RefreshDom
 }

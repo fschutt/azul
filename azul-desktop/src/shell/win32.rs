@@ -4203,10 +4203,10 @@ fn process_callback_results(
         return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
     } else {
         match callback_results.callbacks_update_screen {
-            Update::RegenerateStyledDomForCurrentWindow => {
+            Update::RefreshDom => {
                 return ProcessEventResult::ShouldRegenerateDomCurrentWindow;
             },
-            Update::RegenerateStyledDomForAllWindows => {
+            Update::RefreshDomAllWindows => {
                 return ProcessEventResult::ShouldRegenerateDomAllWindows;
             },
             Update::DoNothing => { },

@@ -20,7 +20,7 @@ use crate::styled_dom::StyledDom;
 use crate::css::VecContents;
 use crate::dom::Dom;
 #[cfg(feature = "css_parser")]
-use azul_css_parser::CssParseError;
+use azul_css_parser::{CssParseError, CssApiWrapper};
 
 /// Error that can happen during hot-reload -
 /// stringified, since it is only used for printing and is not exposed in the public API
@@ -749,7 +749,7 @@ impl XmlComponent for DivRenderer {
     }
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::div().style(&mut Css::empty()))
+        Ok(Dom::div().style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -778,7 +778,7 @@ impl XmlComponent for BodyRenderer {
     }
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
-        Ok(Dom::body().style(&mut Css::empty()))
+        Ok(Dom::body().style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
@@ -811,7 +811,7 @@ impl XmlComponent for TextRenderer {
 
     fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<StyledDom, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
-        Ok(Dom::text(content).style(&mut Css::empty()))
+        Ok(Dom::text(content).style(CssApiWrapper::empty()))
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
@@ -1014,7 +1014,7 @@ pub fn str_to_dom<'a>(
         // parse the <style></style> tag contents, if present
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                let parsed_css = azul_css_parser::new_from_str(&text)?;
+                let parsed_css = CssApiWrapper::from_string(text.clone().into());
                 global_style = Some(parsed_css);
             }
         }
@@ -1211,7 +1211,7 @@ pub fn compile_component(
 
 pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
-    mut global_css: Option<Css>,
+    mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap
 ) -> Result<StyledDom, RenderDomError<'a>> {
 
@@ -1222,7 +1222,7 @@ pub fn render_dom_from_body_node<'a>(
         dom.append_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
 
-    if let Some(global_css) = global_css.as_mut() {
+    if let Some(global_css) = global_css.clone() {
         dom.restyle(global_css); // apply the CSS again
     }
 
@@ -2210,7 +2210,7 @@ impl XmlComponent for DynamicXmlComponent {
         let mut component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
             Some(style_node) => {
                 if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                    let parsed_css = azul_css_parser::new_from_str(&text)?;
+                    let parsed_css = CssApiWrapper::from_string(text.to_string().into());
                     Some(parsed_css)
                 } else {
                     None
@@ -2225,7 +2225,7 @@ impl XmlComponent for DynamicXmlComponent {
             dom.append_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
 
-        if let Some(css) = component_css.as_mut() {
+        if let Some(css) = component_css.clone() {
             dom.restyle(css);
         }
 

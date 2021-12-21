@@ -185,7 +185,7 @@ extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> 
         None => return Update::DoNothing,
     };
 
-    result.max_self(Update::RegenerateStyledDomForCurrentWindow);
+    result.max_self(Update::RefreshDom);
 
     result
 }

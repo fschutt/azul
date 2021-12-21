@@ -74,7 +74,7 @@
                             "fn_args": [
                                 {"layout_solver": "LayoutSolver"}
                             ],
-                            "fn_body": "AzAppConfig::default(layout_solver)"
+                            "fn_body": "AzAppConfig::new(layout_solver)"
                         }
                     }
                 },
@@ -2347,7 +2347,7 @@
                                 {"child": "Dom"}
                             ],
                             "returns": {"type": "Dom"},
-                            "fn_body": "let mut dom = dom.swap_with_default(); dom.add_child(child); dom"
+                            "fn_body": "dom.with_child(child)"
                         },
                         "set_children": {
                             "doc": "Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.",
@@ -2635,7 +2635,7 @@
                                 {"self": "refmut"}
                             ],
                             "returns": {"type": "String"},
-                            "fn_body": "dom.style(&mut AzCss::empty()).get_html_string(\"\", \"\", false).into()"
+                            "fn_body": "dom.style(AzCss::empty()).get_html_string(\"\", \"\", false).into()"
                         },
                         "get_html_string_test": {
                             "doc": "Returns a HTML for unit testing",
@@ -2643,7 +2643,7 @@
                                 {"self": "refmut"}
                             ],
                             "returns": {"type": "String"},
-                            "fn_body": "dom.style(&mut AzCss::empty()).get_html_string(\"\", \"\", true).into()"
+                            "fn_body": "dom.style(AzCss::empty()).get_html_string(\"\", \"\", true).into()"
                         },
                         "style": {
                             "doc": "Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely",
@@ -2652,7 +2652,7 @@
                                 {"css": "Css"}
                             ],
                             "returns": {"type": "StyledDom"},
-                            "fn_body": "let mut css = css; dom.style(&mut css)"
+                            "fn_body": "dom.style(css)"
                         }
                     }
                 },
@@ -3540,7 +3540,7 @@
                             "fn_args": [
                                 {"s": "String"}
                             ],
-                            "fn_body":"azul_impl::css::from_str(s.as_str()).unwrap_or_default()"
+                            "fn_body":"AzCss::from_string(s)"
                         }
                     }
                 },
@@ -7037,7 +7037,7 @@
                                 {"dom": "Dom"},
                                 {"css": "Css"}
                             ],
-                            "fn_body":"let mut dom = dom; let mut css = css; AzStyledDom::new(&mut dom, &mut css)"
+                            "fn_body":"let mut dom = dom; let mut css = css; AzStyledDom::new(&mut dom, css)"
                         },
                         "default": {
                             "doc": "Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case.",
@@ -7074,7 +7074,7 @@
                                 {"self": "refmut"},
                                 {"css": "Css"}
                             ],
-                            "fn_body": "let mut css = css; styleddom.restyle(&mut css);"
+                            "fn_body": "styleddom.restyle(css);"
                         },
                         "node_count": {
                             "doc": "Returns the number of nodes in the styled DOM",

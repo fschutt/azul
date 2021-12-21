@@ -12,11 +12,29 @@ use azul_simplecss::Tokenizer;
 use crate::css_parser;
 pub use crate::css_parser::CssParsingError;
 use azul_css::{
-    Css, CssDeclaration, Stylesheet, DynamicCssProperty,
+    Css, CssDeclaration, Stylesheet, DynamicCssProperty, AzString,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
     NodeTypeTag, NodeTypeTagParseError, CombinedCssPropertyType, CssKeyMap,
 };
+
+#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
+#[repr(transparent)]
+pub struct CssApiWrapper {
+    pub css: Css,
+}
+
+impl CssApiWrapper {
+    pub fn empty() -> Self {
+        Self { css: Css::empty() }
+    }
+
+    pub fn from_string(s: AzString) -> Self {
+        Self {
+            css: crate::new_from_str(s.as_str()).unwrap_or_default()
+        }
+    }
+}
 
 /// Error that can happen during the parsing of a CSS value
 #[derive(Debug, Clone, PartialEq)]

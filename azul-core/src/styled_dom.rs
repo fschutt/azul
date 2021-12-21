@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::collections::btree_map::BTreeMap;
+use azul_css_parser::CssApiWrapper;
 use azul_css::{
     Css, CssPath, CssProperty, CssPropertyType, AzString,
 
@@ -1342,7 +1343,7 @@ impl StyledDom {
     //
     // The CSS will be left in-place, but will be re-ordered
     #[cfg(feature = "multithreading")]
-    pub fn new(dom: &mut Dom, css: &mut Css) -> Self {
+    pub fn new(dom: &mut Dom, mut css: CssApiWrapper) -> Self {
 
         use rayon::prelude::*;
         use crate::dom::EventFilter;
@@ -1383,7 +1384,7 @@ impl StyledDom {
 
         // apply all the styles from the CSS
         let tag_ids = css_property_cache.restyle(
-            css,
+            &mut css.css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
             &non_leaf_nodes,
@@ -1534,13 +1535,13 @@ impl StyledDom {
 
     }
 
-    pub fn restyle(&mut self, css: &mut Css) {
+    pub fn restyle(&mut self, mut css: CssApiWrapper) {
 
         use rayon::prelude::*;
 
         let new_tag_ids = self.css_property_cache.downcast_mut()
         .restyle(
-            css,
+            &mut css.css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
             &self.non_leaf_nodes,

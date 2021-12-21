@@ -54,16 +54,16 @@ pub enum Update {
     /// The screen does not need to redraw after the callback has been called
     DoNothing,
     /// After the callback is called, the screen needs to redraw (layout() function being called again)
-    RegenerateStyledDomForCurrentWindow,
+    RefreshDom,
     /// The layout has to be re-calculated for all windows
-    RegenerateStyledDomForAllWindows,
+    RefreshDomAllWindows,
 }
 
 impl Update {
     pub fn max_self(&mut self, other: Self) {
         if *self == Update::DoNothing && other != Update::DoNothing {
             *self = other;
-        } else if *self == Update::RegenerateStyledDomForCurrentWindow && other == Update::RegenerateStyledDomForAllWindows {
+        } else if *self == Update::RefreshDom && other == Update::RefreshDomAllWindows {
             *self = other;
         }
     }
@@ -1691,7 +1691,7 @@ extern "C" fn drive_animation_func(anim_data: &mut RefAny, info: &mut TimerCallb
                 return TimerCallbackReturn {
                     should_terminate: TerminateTimer::Terminate,
                     should_update: if anim_data.relayout_on_finish {
-                        Update::RegenerateStyledDomForCurrentWindow
+                        Update::RefreshDom
                     } else {
                         Update::DoNothing
                     },
@@ -1705,7 +1705,7 @@ extern "C" fn drive_animation_func(anim_data: &mut RefAny, info: &mut TimerCallb
         TimerCallbackReturn {
             should_terminate: TerminateTimer::Terminate,
             should_update: if anim_data.relayout_on_finish {
-                Update::RegenerateStyledDomForCurrentWindow
+                Update::RefreshDom
             } else {
                 Update::DoNothing
             },

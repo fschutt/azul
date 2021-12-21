@@ -62,7 +62,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn default(layout_solver: LayoutSolverVersion) -> Self {
+    pub fn new(layout_solver: LayoutSolverVersion) -> Self {
         Self {
             layout_solver,
             log_level: AppLogLevel::Error,
@@ -77,8 +77,8 @@ impl AppConfig {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutSolverVersion {
-    /// Current layout model
-    March2021,
+    /// Current default layout model
+    Default,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

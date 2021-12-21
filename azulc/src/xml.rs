@@ -12,7 +12,7 @@ use azul_core::{
     window::StringPairVec,
 };
 use azul_css::{AzString, U8Vec, OptionAzString, Css};
-use azul_css_parser::CssParseError;
+use azul_css_parser::{CssParseError, CssApiWrapper};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "std")]
@@ -22,19 +22,19 @@ pub use azul_core::xml::*;
 
 #[cfg(feature = "xml")]
 pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml {
-    let mut error_css = Css::empty();
+    let mut error_css = CssApiWrapper::empty();
 
     let parsed = match parse_xml_string(&xml) {
         Ok(parsed) => parsed,
         Err(e) => return DomXml {
-            parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(&mut error_css),
+            parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(error_css.clone()),
         },
     };
 
     let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
         Ok(o) => o,
         Err(e) => return DomXml {
-            parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(&mut error_css),
+            parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(error_css.clone()),
         },
     };
 
@@ -51,7 +51,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlCom
 
     use std::fs;
 
-    let mut error_css = Css::empty();
+    let mut error_css = CssApiWrapper::empty();
 
     let xml = match fs::read_to_string(file_path.as_ref()) {
         Ok(xml) => xml,
@@ -60,7 +60,7 @@ pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlCom
             .with_children(vec![
                 Dom::text(format!("Error reading: \"{}\": {}", file_path.as_ref().to_string_lossy(), e))
             ].into())
-            .style(&mut error_css),
+            .style(error_css.clone()),
         },
     };
 

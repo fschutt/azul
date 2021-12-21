@@ -44,13 +44,8 @@ pub mod css_parser {
     pub use azul_css_parser::*;
 }
 
-/// Returns an empty CSS style
-pub fn empty() -> Css {
-    Css::empty()
-}
-
-/// Parses CSS stylesheet from a string. Convenience wrapper for `azul-css-parser::new_from_str`.
-#[cfg(feature = "css_parser")]
-pub fn from_str(input: &str) -> Result<Css, CssParseError> {
-    azul_css_parser::new_from_str(input)
-}
+// azul_css::Css and azul_css_parser::CssApiWrapper
+// have the exact same binary layout. However, we
+// don't want the azul_css crate to depend on a CSS parser
+// which requires this workaround for static linking.
+pub use azul_css_parser::CssApiWrapper as Css;

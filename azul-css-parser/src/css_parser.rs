@@ -39,7 +39,6 @@ use azul_css::{
     LayoutPaddingTop, LayoutPaddingLeft,
 };
 
-
 pub trait FormatAsCssValue {
     fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
 }

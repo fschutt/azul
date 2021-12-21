@@ -1444,13 +1444,14 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    #[cfg(feature = "multithreading")]
-    pub fn style(&mut self, css: &mut Css) -> StyledDom {
+    #[cfg(all(feature = "multithreading", feature = "css_parser"))]
+    pub fn style(&mut self, css: azul_css_parser::CssApiWrapper) -> StyledDom {
         StyledDom::new(self, css)
     }
-
     #[inline(always)]
     pub fn with_children(mut self, children: DomVec) -> Self { self.children = children; self }
+    #[inline(always)]
+    pub fn with_child(&mut self, child: Self) -> Self { let mut dom = self.swap_with_default(); dom.add_child(child); dom }
     #[inline(always)]
     pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self { self.root.set_tab_index(tab_index); self }
     #[inline(always)]
