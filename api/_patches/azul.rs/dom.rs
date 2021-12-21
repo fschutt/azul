@@ -1,3 +1,4 @@
+
     #[cfg(not(feature = "link_static"))]
     impl Default for Dom {
         fn default() -> Self {

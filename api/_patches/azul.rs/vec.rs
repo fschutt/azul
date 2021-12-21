@@ -1,11 +1,19 @@
+
+    #[cfg(not(feature = "link_static"))]
     use core::iter;
+    #[cfg(not(feature = "link_static"))]
     use core::fmt;
+    #[cfg(not(feature = "link_static"))]
     use core::cmp;
 
+    #[cfg(not(feature = "link_static"))]
     use alloc::vec::{self, Vec};
+    #[cfg(not(feature = "link_static"))]
     use alloc::slice;
+    #[cfg(not(feature = "link_static"))]
     use alloc::string;
 
+    #[cfg(not(feature = "link_static"))]
     use crate::gl::{
         GLint as AzGLint,
         GLuint as AzGLuint,

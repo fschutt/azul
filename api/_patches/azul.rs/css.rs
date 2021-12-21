@@ -1,3 +1,5 @@
+
+    #[cfg(not(feature = "link_static"))]
     use crate::vec::{
         StyleBackgroundPositionVec,
         StyleBackgroundContentVec,

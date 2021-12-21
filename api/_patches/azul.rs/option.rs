@@ -1,3 +1,5 @@
+
+    #[cfg(not(feature = "link_static"))]
     use crate::dll::*;
 
     macro_rules! impl_option_inner {

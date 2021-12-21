@@ -3,7 +3,10 @@
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
+        #[cfg(not(feature = "link_static"))]
         sharing_info: RefCount,
+        #[cfg(feature = "link_static")]
+        sharing_info: azul::AzRefCountTT,
     }
 
     impl<'a, T> Drop for Ref<'a, T> {
@@ -24,7 +27,10 @@
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
+        #[cfg(not(feature = "link_static"))]
         sharing_info: RefCount,
+        #[cfg(feature = "link_static")]
+        sharing_info: azul::AzRefCountTT,
     }
 
     impl<'a, T> Drop for RefMut<'a, T> {

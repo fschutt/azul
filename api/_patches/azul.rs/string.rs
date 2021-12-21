@@ -1,4 +1,5 @@
 
+    #[cfg(not(feature = "link_static"))]
     use alloc::string;
 
     #[cfg(all(feature = "serde-support", not(feature = "link_static")))]

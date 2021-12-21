@@ -1,3 +1,4 @@
+
     #[cfg(not(feature = "link_static"))]
     impl AzString {
         #[inline]
