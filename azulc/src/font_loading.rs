@@ -12,8 +12,14 @@ use azul_css::{
 
 const DEFAULT_FONT_INDEX: i32 = 0;
 
+#[cfg(not(miri))]
 pub fn build_font_cache() -> FcFontCache {
     FcFontCache::build()
+}
+
+#[cfg(miri)]
+pub fn build_font_cache() -> FcFontCache {
+    FcFontCache::default()
 }
 
 #[derive(Debug)]

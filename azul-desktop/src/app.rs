@@ -62,13 +62,18 @@ impl AzAppPtr {
 
     pub fn run(&self, root_window: WindowCreateOptions) {
         if let Ok(mut l) = self.ptr.try_lock() {
-            struct Dummy { }
-            let mut app = App::new(RefAny::new(Dummy { }), l.config.clone());
+            let mut app = App::new(RefAny::new(Dummy { _dummy: 0 }), l.config.clone());
             core::mem::swap(&mut *l, &mut app);
             app.run(root_window)
         }
     }
 }
+
+// NOTE: must be repr(C), otherwise UB
+// due to zero-sized allocation in RefAny::new_c
+// TODO: fix later!
+#[repr(C)]
+struct Dummy { _dummy: u8 }
 
 /// Graphical application that maintains some kind of application state
 #[derive(Debug)]
@@ -100,7 +105,10 @@ impl App {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Self {
         use std::thread;
 
+        #[cfg(not(miri))]
         let fc_cache = LazyFcCache::InProgress(Some(thread::spawn(move || FcFontCache::build())));
+        #[cfg(miri)]
+        let fc_cache = LazyFcCache::Resolved(FcFontCache::default());
 
         #[cfg(feature = "logging")]
         {
@@ -208,6 +216,7 @@ impl App {
         #[cfg(target_os = "windows")]
         {
             if let Err(e) = crate::shell::win32::run(self, root_window) {
+                crate::dialogs::msg_box(&format!("{:?}", e));
                 println!("{:?}", e);
             }
         }

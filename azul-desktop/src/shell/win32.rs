@@ -197,13 +197,13 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             }
         }
 
-        if let Ok(w) = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() }) {
-            active_hwnds.try_borrow_mut()?.insert(w.hwnd);
-            app_data_inner
-                .try_borrow_mut()?
-                .windows
-                .insert(w.get_id(), w);
-        }
+        let w = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() })?;
+
+        active_hwnds.try_borrow_mut()?.insert(w.hwnd);
+        app_data_inner
+            .try_borrow_mut()?
+            .windows
+            .insert(w.get_id(), w);
     }
 
     // Process the window messages one after another
