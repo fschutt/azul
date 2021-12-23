@@ -59,7 +59,7 @@ name = "udp-chat"
 path = "rust/udp-chat.rs"
 
 [dependencies]
-azul = { path = "../api/rust", features = ["serde", "link_static"] }
+azul = { path = "../api/rust", default-features = false, features = ["serde"] }
 serde = "1"
 serde_derive = "1"
 serde_json = "1"

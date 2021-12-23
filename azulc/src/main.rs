@@ -17,11 +17,12 @@ use azul_core::{
     app_resources::{
         IdNamespace, LoadFontFn,
         Epoch, RendererResources,
-        ImageCache,
+        ImageCache, GlTextureCache,
     },
     display_list::{
-        SolvedLayout, GlTextureCache,
-        CachedDisplayList, RenderCallbacks
+        SolvedLayout,
+        CachedDisplayList,
+        RenderCallbacks
     },
 };
 
@@ -201,7 +202,7 @@ fn process(action: Action, file: Option<&String>) {
         },
         Action::PrintDebugLayout(size) => {
             let pipeline_id = PipelineId::new();
-            let epoch = Epoch(0);
+            let epoch = Epoch::new();
             let document_id = DocumentId {
                 namespace_id: IdNamespace(0),
                 id: 0,
@@ -218,7 +219,7 @@ fn process(action: Action, file: Option<&String>) {
                 namespace_id: IdNamespace(0),
                 id: 0,
             };
-            let epoch = Epoch(0);
+            let epoch = Epoch::new();
             let mut fake_window_state = FullWindowState::default();
             fake_window_state.size.dimensions = size;
             let mut renderer_resources = RendererResources::default();
@@ -226,7 +227,7 @@ fn process(action: Action, file: Option<&String>) {
             println!("{:#?}", layout.scrollable_nodes);
         },
         Action::PrintDisplayList(size) => {
-            let epoch = Epoch(0);
+            let epoch = Epoch::new();
             let document_id = DocumentId {
                 namespace_id: IdNamespace(0),
                 id: 0,

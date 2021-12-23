@@ -1062,6 +1062,7 @@ pub struct SvgXmlNode {
     pub run_destructor: bool,
 }
 
+#[cfg(feature = "svg")]
 impl Clone for SvgXmlNode {
     fn clone(&self) -> Self {
         Self {
@@ -1071,6 +1072,7 @@ impl Clone for SvgXmlNode {
     }
 }
 
+#[cfg(feature = "svg")]
 impl Drop for SvgXmlNode {
     fn drop(&mut self) {
         self.run_destructor = false;
@@ -1149,6 +1151,7 @@ pub struct Svg {
     pub run_destructor: bool,
 }
 
+#[cfg(feature = "svg")]
 impl Clone for Svg {
     fn clone(&self) -> Self {
         Self {
@@ -1158,6 +1161,7 @@ impl Clone for Svg {
     }
 }
 
+#[cfg(feature = "svg")]
 impl Drop for Svg {
     fn drop(&mut self) {
         self.run_destructor = false;
@@ -1197,7 +1201,7 @@ pub fn svg_root(s: &Svg) -> SvgXmlNode {
 
 #[cfg(not(feature = "svg"))]
 pub fn svg_root(s: &Svg) -> SvgXmlNode {
-    SvgXmlNode { node: core::ptr::null_mut() }
+    SvgXmlNode { node: core::ptr::null_mut(), run_destructor: false }
 }
 
 #[cfg(feature = "svg")]

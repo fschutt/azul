@@ -471,8 +471,9 @@ impl TabContainer {
                     let mut tabs: Vec<Tab> = tabs.tabs.into_library_owned_vec();
                     for ((tab_idx, tab), refany) in tabs.iter_mut().enumerate().zip(refanys.into_iter()) {
                         items.push(Dom::div()
-                        .with_inline_css_props( if tab_idx == active_tab {
+                        .with_inline_css_props( /*if tab_idx == active_tab {*/
                             tab_content_css_style.clone()
+                        /*
                         } else {
                             // fastest way to prepend to a Vec
                             let mut style = vec![NodeDataInlineCssProperty::Normal(
@@ -480,7 +481,8 @@ impl TabContainer {
                             )];
                             style.append(&mut tab_content_css_style.clone().into_library_owned_vec());
                             NodeDataInlineCssPropertyVec::from_vec(style)
-                        })
+                        }*/)
+
                         .with_ids_and_classes(IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222))
                         .with_dataset(Some(refany).into())
                         .with_children(DomVec::from_vec(vec![
