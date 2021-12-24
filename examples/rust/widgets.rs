@@ -74,9 +74,57 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                     .with_children(vec![
                         TreeView::new("".into()).dom(),
                         ListView::new(Vec::<AzString>::new().into()).dom(),
+                    ].into()),
+
+                    Dom::div()
+                    .with_inline_style("flex-direction: row;padding:10px;".into())
+                    .with_children(vec![
+                        Dom::div().with_inline_style("
+                            width:200px;
+                            height:200px;
+                            background:linear-gradient(black, white);
+                            border-radius: 10px 5px;
+                            border: 5px dotted salmon;
+                            margin: 50px;
+                        ".into()),
+                        Dom::div().with_inline_style("
+                            width:200px;
+                            height:200px;
+                            background: radial-gradient(ellipse at top, #e66465, transparent);
+                            border-radius: 10px 5px;
+                            border: 3px dashed blue;
+                            margin: 50px;
+                        ".into()),
+                        Dom::div().with_inline_style("
+                            width:200px;
+                            height:200px;
+                            background:conic-gradient(black, white);
+                            border-radius: 10px 5px;
+                            border: 4px solid red;
+                            margin: 50px;
+                        ".into()),
+                        Dom::div().with_children(vec![
+                            Dom::text("This is a text 1".into())
+                            .with_inline_style("
+                                font-family:serif;
+                                font-size:50px;
+                                display:inline;
+                                color:#ccc;
+                            ".into()),
+                            Dom::text("Lorem ipsum dolor\nsit amet".into())
+                            .with_inline_style("
+                                font-family:Courier New Bold;
+                                font-size:25px;
+                                display:inline;
+                            ".into()),
+                            Dom::text("3".into())
+                            .with_inline_style("font-size:10px".into()),
+                            Dom::text("2".into())
+                            .with_inline_style("font-size:5px".into()),
+                        ].into())
                     ].into())
+
                 ].into())
-                .with_inline_style("flex-grow: 1;".into())
             ).dom(),
             _ => Dom::div(),
         })
@@ -107,7 +155,7 @@ extern "C" fn enable_disable_padding(data: &mut RefAny, _: &mut CallbackInfo) ->
 }
 
 fn main() {
-    let data = RefAny::new(WidgetShowcase { enable_padding: true, active_tab: 1 });
+    let data = RefAny::new(WidgetShowcase { enable_padding: true, active_tab: 0 });
     let app = App::new(data, AppConfig::new(LayoutSolver::Default));
     let mut options = WindowCreateOptions::new(layout);
     options.state.flags.frame = WindowFrame::Maximized;
