@@ -221,6 +221,9 @@ extern "C" fn animate(
 }
 
 fn main() {
+
+    println!("starting!");
+
     let multipolygons = parse_multipolygons(DATA);
 
     println!("parsed {} multipolygons!", multipolygons.len());

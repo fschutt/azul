@@ -12311,6 +12311,7 @@
                 },
                 "TessellatedGPUSvgNode": {
                     "external": "azul_impl::svg::TessellatedGPUSvgNode",
+                    "derive": ["Debug"],
                     "struct_fields": [
                         {"vertex_index_buffer": {"type": "VertexBuffer"}}
                     ],

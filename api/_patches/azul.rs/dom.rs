@@ -1,21 +1,25 @@
+    #[cfg(not(feature = "link_static"))]
     impl Default for Dom {
         fn default() -> Self {
             Dom::div()
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl Default for NodeData {
         fn default() -> Self {
             NodeData::new(NodeType::Div)
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl Default for TabIndex {
         fn default() -> Self {
             TabIndex::Auto
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl core::iter::FromIterator<Dom> for Dom {
         fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
             use crate::vec::DomVec;
@@ -33,6 +37,7 @@
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl core::iter::FromIterator<NodeData> for Dom {
         fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
             use crate::vec::DomVec;
@@ -51,6 +56,7 @@
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl core::iter::FromIterator<NodeType> for Dom {
         fn from_iter<I: core::iter::IntoIterator<Item=NodeType>>(iter: I) -> Self {
             iter.into_iter().map(|i| {
@@ -61,12 +67,14 @@
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl From<On> for AzEventFilter {
         fn from(on: On) -> AzEventFilter {
             on.into_event_filter()
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl NodeData {
         pub const fn const_new(node_type: NodeType) -> Self {
             use crate::option::{OptionRefAny, OptionTabIndex};
@@ -94,6 +102,7 @@
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl Dom {
 
         pub const fn const_new(node_data: NodeData) -> Self {

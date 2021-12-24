@@ -1,5 +1,5 @@
 
-    #[derive(Debug)]
+    #[cfg_attr(not(feature = "link_static"), derive(Debug))]
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
@@ -20,7 +20,7 @@
         }
     }
 
-    #[derive(Debug)]
+    #[cfg_attr(not(feature = "link_static"), derive(Debug))]
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
@@ -47,6 +47,7 @@
         }
     }
 
+    #[cfg(not(feature = "link_static"))]
     impl RefAny {
 
         /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID

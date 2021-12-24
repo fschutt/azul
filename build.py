@@ -388,19 +388,28 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_
     return fn_args
 
 # Generate the string for CALLING rust-api function args
-def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_data, class_is_boxed_object):
+def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_data, class_is_boxed_object, self_ext=""):
     fn_args = ""
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
-        fn_args += "self, "
 
     if "fn_args" in f.keys():
         for arg_object in f["fn_args"]:
             arg_name = list(arg_object.keys())[0]
+            arg_type = arg_object[arg_name].strip()
+
             if arg_name == "self":
+                if len(self_ext) > 0:
+                    if arg_type == "ref":
+                        fn_args += "&self" + self_ext + ", "
+                    elif arg_type == "refmut":
+                        fn_args += "&mut self" + self_ext + ", "
+                    else:
+                        fn_args += "self" + self_ext + ", "
+                else:
+                    fn_args += "self" + self_ext + ", "
                 continue
 
-            arg_type = arg_object[arg_name].strip()
             starts = ""
             type_analyzed = analyze_type(arg_type)
             start = type_analyzed[0]
@@ -416,14 +425,17 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
                 arg_type_class = get_class(api_data, arg_type_class[0], arg_type_class[1])
 
                 if start == "*const " or start == "*mut ":
-                    fn_args += arg_name + ", "
+                    if len(self_ext) > 0:
+                        fn_args += "unsafe { core::mem::transmute(" + arg_name + ") }, "
+                    else:
+                        fn_args += arg_name + self_ext + ", "
                 else:
                     if class_is_typedef(arg_type_class):
-                        fn_args += start + arg_name + ", "
+                        fn_args += start + arg_name + self_ext + ", "
                     elif class_is_stack_allocated(arg_type_class):
-                        fn_args += start + arg_name + ", " # .object
+                        fn_args += start + arg_name + self_ext + ", " # .object
                     else:
-                        fn_args += start + arg_name + ", "
+                        fn_args += start + arg_name + self_ext + ", "
 
         fn_args = fn_args[:-2]
 
@@ -1188,16 +1200,6 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code += "\r\n"
     code += "\r\n"
-
-    code += "    #[cfg(feature = \"link_static\")]\r\n"
-    code += "    mod static_link {\r\n"
-    code += "       #[cfg(feature = \"link_static\")]\r\n"
-    code += "        extern crate azul; // the azul_dll package, confusingly it has to also be named \"azul\"\r\n"
-    code += "       #[cfg(feature = \"link_static\")]\r\n"
-    code += "        use azul::*;\r\n"
-    code += "    }\r\n\r\n"
-    code += "    #[cfg(feature = \"link_static\")]\r\n"
-    code += "    pub use self::static_link::*;\r\n"
 
     return code
 
@@ -2065,7 +2067,11 @@ def generate_rust_api(api_data, structs_map, functions_map):
         code += "    #![allow(dead_code, unused_imports)]\r\n"
         if module_doc != None:
             code += "    //! " + module_doc + "\r\n"
+
+        code += "    #[cfg(not(feature = \"link_static\"))]\r\n"
         code += "    use crate::dll::*;\r\n"
+        code += "    #[cfg(feature = \"link_static\")]\r\n"
+        code += "    use azul::*;\r\n"
         code += "    use core::ffi::c_void;\r\n"
 
         if tuple([module_name]) in rust_api_patches:
@@ -2102,7 +2108,15 @@ def generate_rust_api(api_data, structs_map, functions_map):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "\r\n#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n"
+            derive = ""
+            if class_can_derive_debug:
+                derive = "#[derive(Debug)]"
+
+            code += "\r\n    #[cfg(not(feature = \"link_static\"))] #[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n"
+            code += "\r\n    #[cfg(feature = \"link_static\")] #[repr(transparent)] " + derive + " pub struct " + class_name + "CrossCrateImpl { pub _0: azul::" + class_ptr_name + " }\r\n"
+            code += "\r\n    #[cfg(feature = \"link_static\")] pub use " + class_name + "CrossCrateImpl as " + class_name + ";\r\n"
+            code += "\r\n    #[cfg(feature = \"link_static\")] impl core::ops::Deref for " + class_name + "CrossCrateImpl { type Target = " + class_ptr_name + "; fn deref(&self) -> &Self::Target { &self._0 } }\r\n"
+            code += "\r\n    #[cfg(feature = \"link_static\")] impl core::ops::DerefMut for " + class_name + "CrossCrateImpl { fn deref_mut(&mut self) -> &mut Self::Target { &mut self._0 } }\r\n"
 
             has_constructors = ("constructors" in c.keys() and len(c["constructors"]) > 0)
             has_functions = ("functions" in c.keys() and len(c["functions"]) > 0)
@@ -2111,15 +2125,20 @@ def generate_rust_api(api_data, structs_map, functions_map):
             should_emit_impl = has_constructors or has_functions or has_constants and not(class_is_const or class_is_callback_typedef)
 
             if should_emit_impl:
-                code += "    impl " + class_name + " {\r\n"
+
+                class_impl_block = "\r\n"
+                class_impl_block_new = "\r\n"
 
                 if "constants" in c.keys():
                     for constant in c["constants"]:
                         constant_name = list(constant.keys())[0]
                         constant_type = constant[constant_name]["type"]
                         constant_value = constant[constant_name]["value"]
-                        code += "        pub const " + constant_name + ": " + constant_type + " = " + constant_value + ";\r\n"
-                    code += "\r\n"
+                        class_impl_block += "        pub const " + constant_name + ": " + constant_type + " = " + constant_value + ";\r\n"
+                        class_impl_block_new += "        pub const " + constant_name + ": " + constant_type + " = " + constant_value + ";\r\n"
+
+                    class_impl_block += "\r\n"
+                    class_impl_block_new += "\r\n"
 
                 if "constructors" in c.keys():
                     for fn_name in c["constructors"]:
@@ -2128,20 +2147,26 @@ def generate_rust_api(api_data, structs_map, functions_map):
                         c_fn_name = class_ptr_name + "_" + snake_case_to_lower_camel(fn_name)
                         fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, myapi_data)
                         fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, myapi_data, class_is_boxed_object)
+                        fn_args_call_new = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, myapi_data, class_is_boxed_object, "._0")
 
                         fn_body = ""
+                        fn_body_new = ""
 
                         if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
                         and "use_patches" in const.keys() \
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
+                            fn_body_new = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
                             fn_body = "unsafe { crate::dll::" + c_fn_name + "(" + fn_args_call + ") }"
+                            fn_body_new = "unsafe { azul::" + c_fn_name + "(" + fn_args_call_new + ") }"
 
                         if "doc" in const.keys():
-                            code += "        /// " + const["doc"] + "\r\n"
+                            class_impl_block += "        /// " + const["doc"] + "\r\n"
+                            class_impl_block_new += "        /// " + const["doc"] + "\r\n"
                         else:
-                            code += "        /// Creates a new `" + class_name + "` instance.\r\n"
+                            class_impl_block += "        /// Creates a new `" + class_name + "` instance.\r\n"
+                            class_impl_block_new += "        /// Creates a new `" + class_name + "` instance.\r\n"
 
                         returns = "Self"
                         if "returns" in const.keys():
@@ -2157,7 +2182,8 @@ def generate_rust_api(api_data, structs_map, functions_map):
                                 returns = analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
                                 fn_body = fn_body
 
-                        code += "        pub fn " + fn_name + "(" + fn_args + ") -> " + returns + " { " + fn_body + " }\r\n"
+                        class_impl_block += "        pub fn " + fn_name + "(" + fn_args + ") -> " + returns + " { " + fn_body + " }\r\n"
+                        class_impl_block_new += "        pub fn " + fn_name + "(" + fn_args + ") -> " + returns + " { unsafe { core::mem::transmute(" + fn_body_new + ") } }\r\n"
 
                 if "functions" in c.keys():
                     for fn_name in c["functions"]:
@@ -2165,26 +2191,35 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                         fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, myapi_data)
                         fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, myapi_data, class_is_boxed_object)
+                        fn_args_call_new = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, myapi_data, class_is_boxed_object, "._0")
+
                         c_fn_name = class_ptr_name + "_" + snake_case_to_lower_camel(fn_name)
 
                         fn_body = ""
+                        fn_body_new = ""
 
                         if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
                         and "use_patches" in const.keys() \
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
+                            fn_body_new = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
                             fn_body = "unsafe { crate::dll::" + c_fn_name + "(" + fn_args_call + ") }"
+                            fn_body_new = "unsafe { azul::" + c_fn_name + "(" + fn_args_call_new + ") }"
 
                         if tuple([module_name, class_name, fn_name]) in rust_api_patches:
-                            code += rust_api_patches[tuple([module_name, class_name, fn_name])]
+                            class_impl_block += rust_api_patches[tuple([module_name, class_name, fn_name])]
+                            class_impl_block_new += rust_api_patches[tuple([module_name, class_name, fn_name])]
+
                             if "use_patches" in f.keys() and f["use_patches"]:
                                 continue
 
                         if "doc" in f.keys():
-                            code += "        /// " + f["doc"] + "\r\n"
+                            class_impl_block += "        /// " + f["doc"] + "\r\n"
+                            class_impl_block_new += "        /// " + f["doc"] + "\r\n"
                         else:
-                            code += "        /// Calls the `" + class_name + "::" + fn_name + "` function.\r\n"
+                            class_impl_block += "        /// Calls the `" + class_name + "::" + fn_name + "` function.\r\n"
+                            class_impl_block_new += "        /// Calls the `" + class_name + "::" + fn_name + "` function.\r\n"
 
                         returns = ""
                         if "returns" in f.keys():
@@ -2200,14 +2235,27 @@ def generate_rust_api(api_data, structs_map, functions_map):
                                 returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
                                 fn_body = fn_body
 
-                        code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
+                        class_impl_block += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
+                        class_impl_block_new += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " {  unsafe { core::mem::transmute(" + fn_body_new + ") } }\r\n"
 
+                code += "    #[cfg(not(feature = \"link_static\"))]\r\n"
+                code += "    impl " + class_name + " {\r\n"
+                code += class_impl_block
+                code += "    }\r\n\r\n" # end of class
+
+                # due to cross-crate impl restrictions, we have to generate a
+                # duplicate type here, with a repr(transparent)
+                # to make sure that
+                code += "    #[cfg(feature = \"link_static\")]\r\n"
+                code += "    impl " + class_name + "CrossCrateImpl {\r\n"
+                # operate on &self._0 field, but still keep the same API
+                code += class_impl_block_new
                 code += "    }\r\n\r\n" # end of class
 
             if treat_external_as_ptr and class_can_be_cloned:
-                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + class_ptr_name + "_deepCopy(self) } } }\r\n"
+                code += "    #[cfg(not(feature = \"link_static\"))] impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + class_ptr_name + "_deepCopy(self) } } }\r\n"
             if treat_external_as_ptr:
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } } }\r\n"
+                code += "    #[cfg(not(feature = \"link_static\"))] impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } } }\r\n"
 
 
         module_file_map[module_name] = code
@@ -3727,15 +3775,18 @@ def build_azulc():
 
 def generate_license():
     # windows
-    os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json')
-    license_template = read_file(root_folder + "/LICENSE")
-    license_authors = read_file(root_folder + "/LICENSE-WINDOWS.json")
-    license_json = json.loads(license_authors)
-    license_authors_formatted = format_license_authors(license_json)
-    remove_unused_crates(license_json, root_folder + "/../azul-v1.0-beta1")
-    final_license_text = license_template.replace("$$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$", license_authors_formatted)
-    write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
-    remove_path(root_folder + "/LICENSE-WINDOWS.json")
+    try:
+        os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json')
+        license_template = read_file(root_folder + "/LICENSE")
+        license_authors = read_file(root_folder + "/LICENSE-WINDOWS.json")
+        license_json = json.loads(license_authors)
+        license_authors_formatted = format_license_authors(license_json)
+        remove_unused_crates(license_json, root_folder + "/../azul-v1.0-beta1")
+        final_license_text = license_template.replace("$$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$", license_authors_formatted)
+        write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
+        remove_path(root_folder + "/LICENSE-WINDOWS.json")
+    except:
+        print("could not generate license: no cargo-license installed? continuing.")
 
 def format_license_authors(license_json):
     license_txt = ""
@@ -3768,6 +3819,11 @@ def remove_unused_crates(license_json, vendor_path):
         "azul-text-layout",
         "azul-css-parser",
     ]
+
+    # early exit if path does not exist
+    if (not(path.isdir(vendor_path)) and not(path.isfile(vendor_path))):
+        return
+
     vendored_crates = os.listdir(vendor_path)
     for crate in license_json:
         name = crate["name"]

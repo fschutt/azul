@@ -22,41 +22,44 @@ links = "azul"
 [dependencies]
 serde = { version = "1", optional = true, default-features = false }
 serde_derive = { version = "1", optional = true, default-features = false }
-# azul-dll = { version = "0.0.1", path = "../../azul-dll", default-features = false, features = ["rlib"], optional = true }
+
+[dependencies.azul-dll]
+version = "0.0.1"
+path = "../../azul-dll"
+default-features = false
+features = ["rlib"]
+optional = true
 
 [features]
 default = []
 serde-support = ["serde_derive", "serde"]
 docs_rs = []
+link_static = [
+    "azul-dll",
+    # enable all features of azul-dll
+    "azul-dll/std",
+    "azul-dll/logging",
+    "azul-dll/css_parser",
+    "azul-dll/font_loading",
+    "azul-dll/text_layout",
+    "azul-dll/svg",
+    "azul-dll/xml",
+    "azul-dll/image_loading",
+    "azul-dll/gif",
+    "azul-dll/jpeg",
+    "azul-dll/png",
+    "azul-dll/tiff",
+    "azul-dll/bmp",
+    "azul-dll/ico",
+    "azul-dll/tga",
+    "azul-dll/hdr",
+    "azul-dll/dxt",
+    "azul-dll/webp",
+    "azul-dll/pnm",
+]
+# # currently blocked on gleam, allsorts, rayon and webrender not being no_std
+# no_std = ["link_static", "azul-dll/css_parser", "azul-dll/text_layout"]
+# minifb = ["azul-dll/std", "link_static"]
 
 [package.metadata.docs.rs]
 features = ["docs_rs"]
-
-# [features]
-# default = []
-# link_static = [
-#     "azul-dll",
-#     # enable all features of azul-dll
-#     "azul-dll/std",
-#     "azul-dll/logging",
-#     "azul-dll/css_parser",
-#     "azul-dll/font_loading",
-#     "azul-dll/text_layout",
-#     "azul-dll/svg",
-#     "azul-dll/xml",
-#     "azul-dll/image_loading",
-#     "azul-dll/gif",
-#     "azul-dll/jpeg",
-#     "azul-dll/png",
-#     "azul-dll/tiff",
-#     "azul-dll/bmp",
-#     "azul-dll/ico",
-#     "azul-dll/tga",
-#     "azul-dll/hdr",
-#     "azul-dll/dxt",
-#     "azul-dll/webp",
-#     "azul-dll/pnm",
-# ]
-# # currently blocked on gleam, allsorts, rayon and webrender not being no_std
-# no_std = ["link_static", "azul-dll/css_parser", "azul-dll/text_layout"]
-# minifb = ["azul-dll/std", "link_static"]#
