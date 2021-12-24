@@ -48,20 +48,27 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                     .with_on_click(data.clone(), enable_disable_padding)
                     .dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     CheckBox::new(enable_padding)
                     .with_on_toggle(data.clone(), enable_disable_padding_check)
                     .dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     DropDown::new(Vec::<AzString>::new().into()).dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     ProgressBar::new(20.0).dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     TextInput::new("Input text...".into()).dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     NumberInput::new(5.0).dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
+
                     Dom::div()
                     .with_inline_style("flex-direction: row;".into())
                     .with_children(vec![

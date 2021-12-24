@@ -214,7 +214,7 @@ static BUTTON_CONTAINER_OTHER: &[NodeDataInlineCssProperty] = &[
 ];
 
 static BUTTON_LABEL_WINDOWS: &[NodeDataInlineCssProperty] = &[
-    Normal(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    Normal(CssProperty::const_font_size(StyleFontSize::const_px(11))),
     Normal(CssProperty::const_text_align(StyleTextAlign::Center)),
     Normal(CssProperty::const_text_color(StyleTextColor { inner: ColorU::BLACK })),
     Normal(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
