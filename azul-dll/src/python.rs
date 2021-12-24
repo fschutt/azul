@@ -2033,6 +2033,21 @@ pub struct AzProgressBarState {
     pub display_percentage: bool,
 }
 
+/// Re-export of rust-allocated (stack based) `TabHeaderState` struct
+#[repr(C)]
+pub struct AzTabHeaderState {
+    pub active_tab: usize,
+}
+
+/// Re-export of rust-allocated (stack based) `TabOnClickCallback` struct
+#[repr(C)]
+pub struct AzTabOnClickCallback {
+    pub cb: AzTabOnClickCallbackType,
+}
+
+/// `AzTabOnClickCallbackType` struct
+pub type AzTabOnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTabHeaderState) -> AzUpdate;
+
 /// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
 #[repr(C)]
 pub enum AzNodeGraphStyle {
@@ -2886,17 +2901,6 @@ pub enum AzInputNodeAndIndexVecDestructor {
 
 /// `AzInputNodeAndIndexVecDestructorType` struct
 pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
-
-/// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
-#[repr(C, u8)]
-pub enum AzTabVecDestructor {
-    DefaultRust,
-    NoDestructor,
-    External(AzTabVecDestructorType),
-}
-
-/// `AzTabVecDestructorType` struct
-pub type AzTabVecDestructorType = extern "C" fn(&mut AzTabVec);
 
 /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
 #[repr(C, u8)]
@@ -4909,6 +4913,13 @@ pub struct AzNumberInputOnFocusLost {
     pub callback: AzNumberInputOnFocusLostCallback,
 }
 
+/// Re-export of rust-allocated (stack based) `TabOnClick` struct
+#[repr(C)]
+pub struct AzTabOnClick {
+    pub data: AzRefAny,
+    pub callback: AzTabOnClickCallback,
+}
+
 /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
 #[repr(C)]
 pub struct AzNodeGraphOnNodeAdded {
@@ -5496,6 +5507,13 @@ pub enum AzOptionColorInputOnValueChange {
 pub enum AzOptionButtonOnClick {
     None,
     Some(AzButtonOnClick),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionTabOnClick` struct
+#[repr(C, u8)]
+pub enum AzOptionTabOnClick {
+    None,
+    Some(AzTabOnClick),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
@@ -6742,6 +6760,14 @@ pub struct AzTextInputState {
     pub cursor_pos: usize,
 }
 
+/// Re-export of rust-allocated (stack based) `TabHeader` struct
+#[repr(C)]
+pub struct AzTabHeader {
+    pub tabs: AzStringVec,
+    pub active_tab: usize,
+    pub on_click: AzOptionTabOnClickEnumWrapper,
+}
+
 /// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
 #[repr(C, u8)]
 pub enum AzNodeTypeFieldValue {
@@ -7751,11 +7777,11 @@ pub struct AzCssRuleBlock {
     pub declarations: AzCssDeclarationVec,
 }
 
-/// Re-export of rust-allocated (stack based) `Tab` struct
+/// Re-export of rust-allocated (stack based) `TabContent` struct
 #[repr(C)]
-pub struct AzTab {
-    pub title: AzString,
+pub struct AzTabContent {
     pub content: AzDom,
+    pub has_padding: bool,
 }
 
 /// Re-export of rust-allocated (stack based) `Frame` struct
@@ -7793,15 +7819,6 @@ pub struct AzStyledDom {
     pub tag_ids_to_node_ids: AzTagIdToNodeIdMappingVec,
     pub non_leaf_nodes: AzParentWithNodeDepthVec,
     pub css_property_cache: AzCssPropertyCache,
-}
-
-/// Wrapper over a Rust-allocated `Vec<Tab>`
-#[repr(C)]
-pub struct AzTabVec {
-    pub(crate) ptr: *const AzTab,
-    pub len: usize,
-    pub cap: usize,
-    pub destructor: AzTabVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `CssRuleBlock`
@@ -7853,14 +7870,6 @@ pub struct AzIFrameCallbackReturn {
 #[repr(C)]
 pub struct AzStylesheet {
     pub rules: AzCssRuleBlockVec,
-}
-
-/// Re-export of rust-allocated (stack based) `TabContainer` struct
-#[repr(C)]
-pub struct AzTabContainer {
-    pub tabs: AzTabVec,
-    pub active_tab: usize,
-    pub has_padding: bool,
 }
 
 /// Wrapper over a Rust-allocated `Stylesheet`
@@ -8406,12 +8415,6 @@ pub struct AzOutputConnectionVecDestructorEnumWrapper {
 #[repr(transparent)]
 pub struct AzInputNodeAndIndexVecDestructorEnumWrapper {
     pub inner: AzInputNodeAndIndexVecDestructor,
-}
-
-/// `AzTabVecDestructorEnumWrapper` struct
-#[repr(transparent)]
-pub struct AzTabVecDestructorEnumWrapper {
-    pub inner: AzTabVecDestructor,
 }
 
 /// `AzAccessibilityStateVecDestructorEnumWrapper` struct
@@ -9302,6 +9305,12 @@ pub struct AzOptionButtonOnClickEnumWrapper {
     pub inner: AzOptionButtonOnClick,
 }
 
+/// `AzOptionTabOnClickEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionTabOnClickEnumWrapper {
+    pub inner: AzOptionTabOnClick,
+}
+
 /// `AzOptionFileInputOnPathChangeEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionFileInputOnPathChangeEnumWrapper {
@@ -10056,7 +10065,6 @@ unsafe impl Send for AzNodeData { }
 unsafe impl Send for AzNodeIdNodeMapVec { }
 unsafe impl Send for AzCssDeclarationVec { }
 unsafe impl Send for AzNodeDataVec { }
-unsafe impl Send for AzTabVec { }
 unsafe impl Send for AzCssRuleBlockVec { }
 unsafe impl Send for AzStylesheetVec { }
 
@@ -10163,6 +10171,8 @@ impl Clone for AzNumberInputState { fn clone(&self) -> Self { let r: &crate::wid
 impl Clone for AzNumberInputOnValueChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnFocusLostCallback { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLostCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzProgressBarState { fn clone(&self) -> Self { let r: &crate::widgets::progressbar::ProgressBarState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTabHeaderState { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabHeaderState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTabOnClickCallback { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabOnClickCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphStyleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraphStyle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeAddedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeAddedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeRemovedCallback { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeRemovedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10266,7 +10276,6 @@ impl Clone for AzInputConnectionVecDestructorEnumWrapper { fn clone(&self) -> Se
 impl Clone for AzOutputNodeAndIndexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOutputConnectionVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnectionVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputNodeAndIndexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTabVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzAccessibilityStateVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10494,6 +10503,7 @@ impl Clone for AzTextInputOnFocusLost { fn clone(&self) -> Self { let r: &crate:
 impl Clone for AzOnTextInputReturn { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OnTextInputReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnValueChange { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNumberInputOnFocusLost { fn clone(&self) -> Self { let r: &crate::widgets::number_input::NumberInputOnFocusLost = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTabOnClick { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeAdded { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeAdded = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeRemoved { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeRemoved = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraphOnNodeGraphDragged { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeGraphDragged = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10560,6 +10570,7 @@ impl Clone for AzOptionNodeGraphOnNodeOutputDisconnectedEnumWrapper { fn clone(&
 impl Clone for AzOptionNodeGraphOnNodeFieldEditedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeFieldEdited = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionColorInputOnValueChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::OptionColorInputOnValueChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionButtonOnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::button::OptionButtonOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionTabOnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::tabs::OptionTabOnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionFileInputOnPathChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::file_input::OptionFileInputOnPathChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCheckBoxOnToggleEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::check_box::OptionCheckBoxOnToggle = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionTextInputOnTextInputEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::text_input::OptionTextInputOnTextInput = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10704,6 +10715,7 @@ impl Clone for AzStyleFilterVecValueEnumWrapper { fn clone(&self) -> Self { let 
 impl Clone for AzFileInputState { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzColorInputStateWrapper { fn clone(&self) -> Self { let r: &crate::widgets::color_input::ColorInputStateWrapper = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextInputState { fn clone(&self) -> Self { let r: &crate::widgets::text_input::TextInputState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTabHeader { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabHeader = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeFieldValueEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeFieldValue = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputOutputInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10803,18 +10815,16 @@ impl Clone for AzNodeDataVec { fn clone(&self) -> Self { let r: &azul_impl::dom:
 impl Clone for AzXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDom { fn clone(&self) -> Self { let r: &azul_impl::dom::Dom = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssRuleBlock { fn clone(&self) -> Self { let r: &azul_impl::css::CssRuleBlock = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTab { fn clone(&self) -> Self { let r: &crate::widgets::tabs::Tab = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTabContent { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabContent = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFrame { fn clone(&self) -> Self { let r: &crate::widgets::frame::Frame = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeGraph { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraph = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledDom { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledDom = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTabVec { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssRuleBlockVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssRuleBlockVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionDomEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::OptionDom = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzResultXmlXmlErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::ResultXmlXmlError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgParseErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgParseError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIFrameCallbackReturn { fn clone(&self) -> Self { let r: &azul_impl::callbacks::IFrameCallbackReturn = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStylesheet { fn clone(&self) -> Self { let r: &azul_impl::css::Stylesheet = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTabContainer { fn clone(&self) -> Self { let r: &crate::widgets::tabs::TabContainer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStylesheetVec { fn clone(&self) -> Self { let r: &azul_impl::css::StylesheetVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzResultSvgXmlNodeSvgParseErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::ResultSvgXmlNodeSvgParseError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzResultSvgSvgParseErrorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::ResultSvgSvgParseError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10902,7 +10912,6 @@ impl Drop for AzNodeDataInlineCssPropertyVec { fn drop(&mut self) { crate::AzNod
 impl Drop for AzNodeIdNodeMapVec { fn drop(&mut self) { crate::AzNodeIdNodeMapVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssDeclarationVec { fn drop(&mut self) { crate::AzCssDeclarationVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeDataVec { fn drop(&mut self) { crate::AzNodeDataVec_delete(unsafe { mem::transmute(self) }); } }
-impl Drop for AzTabVec { fn drop(&mut self) { crate::AzTabVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssRuleBlockVec { fn drop(&mut self) { crate::AzCssRuleBlockVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStylesheetVec { fn drop(&mut self) { crate::AzStylesheetVec_delete(unsafe { mem::transmute(self) }); } }
 
@@ -23300,73 +23309,139 @@ impl PyObjectProtocol for AzProgressBarState {
 }
 
 #[pymethods]
-impl AzTabContainer {
+impl AzTabHeader {
     #[new]
-    fn new(tabs: AzTabVec) -> AzTabContainer {
-        unsafe { mem::transmute(crate::AzTabContainer_new(
+    fn new(tabs: AzStringVec) -> AzTabHeader {
+        unsafe { mem::transmute(crate::AzTabHeader_new(
             mem::transmute(tabs),
         )) }
     }
     fn set_active_tab(&mut self, active_tab: usize) -> () {
-        unsafe { mem::transmute(crate::AzTabContainer_setActiveTab(
+        unsafe { mem::transmute(crate::AzTabHeader_setActiveTab(
             mem::transmute(self),
             mem::transmute(active_tab),
         )) }
     }
-    fn with_active_tab(&mut self, active_tab: usize) -> AzTabContainer {
-        unsafe { mem::transmute(crate::AzTabContainer_withActiveTab(
+    fn with_active_tab(&mut self, active_tab: usize) -> AzTabHeader {
+        unsafe { mem::transmute(crate::AzTabHeader_withActiveTab(
             mem::transmute(self),
             mem::transmute(active_tab),
-        )) }
-    }
-    fn set_padding(&mut self, has_padding: bool) -> () {
-        unsafe { mem::transmute(crate::AzTabContainer_setPadding(
-            mem::transmute(self),
-            mem::transmute(has_padding),
-        )) }
-    }
-    fn with_padding(&mut self, has_padding: bool) -> AzTabContainer {
-        unsafe { mem::transmute(crate::AzTabContainer_withPadding(
-            mem::transmute(self),
-            mem::transmute(has_padding),
         )) }
     }
     fn dom(&mut self) -> AzDom {
-        unsafe { mem::transmute(crate::AzTabContainer_dom(
+        unsafe { mem::transmute(crate::AzTabHeader_dom(
             mem::transmute(self),
         )) }
     }
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzTabContainer {
+impl PyObjectProtocol for AzTabHeader {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::TabContainer = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::tabs::TabHeader = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::TabContainer = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::tabs::TabHeader = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
 #[pymethods]
-impl AzTab {
+impl AzTabHeaderState {
     #[new]
-    fn __new__(title: AzString, content: AzDom) -> Self {
+    fn __new__(active_tab: usize) -> Self {
         Self {
-            title,
-            content,
+            active_tab,
         }
     }
 
 }
 
 #[pyproto]
-impl PyObjectProtocol for AzTab {
+impl PyObjectProtocol for AzTabHeaderState {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::Tab = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::tabs::TabHeaderState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::Tab = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &crate::widgets::tabs::TabHeaderState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzTabContent {
+    #[new]
+    fn new(content: AzDom) -> AzTabContent {
+        unsafe { mem::transmute(crate::AzTabContent_new(
+            mem::transmute(content),
+        )) }
+    }
+    fn set_padding(&mut self, has_padding: bool) -> () {
+        unsafe { mem::transmute(crate::AzTabContent_setPadding(
+            mem::transmute(self),
+            mem::transmute(has_padding),
+        )) }
+    }
+    fn with_padding(&mut self, has_padding: bool) -> AzTabContent {
+        unsafe { mem::transmute(crate::AzTabContent_withPadding(
+            mem::transmute(self),
+            mem::transmute(has_padding),
+        )) }
+    }
+    fn dom(&mut self) -> AzDom {
+        unsafe { mem::transmute(crate::AzTabContent_dom(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzTabContent {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::TabContent = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::TabContent = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzTabOnClick {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzTabOnClickCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzTabOnClick {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::TabOnClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::TabOnClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzTabOnClickCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzTabOnClickCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::TabOnClickCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::TabOnClickCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -33098,31 +33173,6 @@ impl PyObjectProtocol for AzInputNodeAndIndexVec {
 }
 
 #[pymethods]
-impl AzTabVec {
-    /// Creates a new `TabVec` from a Python array
-    #[new]
-    fn __new__(input: Vec<AzTab>) -> Self {
-        let m: crate::widgets::tabs::TabVec = crate::widgets::tabs::TabVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
-    }
-    
-    /// Returns the Tab as a Python array
-    fn array(&self) -> Vec<AzTab> {
-        let m: &crate::widgets::tabs::TabVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
-    }
-
-}
-
-#[pyproto]
-impl PyObjectProtocol for AzTabVec {
-    fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::TabVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
-    }
-    fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::TabVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
-    }
-}
-
-#[pymethods]
 impl AzAccessibilityStateVec {
     /// Creates a new `AccessibilityStateEnumWrapperVec` from a Python array
     #[new]
@@ -34773,36 +34823,6 @@ impl PyObjectProtocol for AzInputNodeAndIndexVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::node_graph::InputNodeAndIndexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
-    }
-}
-
-#[pymethods]
-impl AzTabVecDestructorEnumWrapper {
-    #[classattr]
-    fn DefaultRust() -> AzTabVecDestructorEnumWrapper { AzTabVecDestructorEnumWrapper { inner: AzTabVecDestructor::DefaultRust } }
-    #[classattr]
-    fn NoDestructor() -> AzTabVecDestructorEnumWrapper { AzTabVecDestructorEnumWrapper { inner: AzTabVecDestructor::NoDestructor } }
-
-    fn r#match(&self) -> PyResult<Vec<PyObject>> {
-        use crate::python::AzTabVecDestructor;
-        use pyo3::conversion::IntoPy;
-        let gil = Python::acquire_gil();
-        let py = gil.python();
-        match &self.inner {
-            AzTabVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
-            AzTabVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
-            AzTabVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
-        }
-    }
-}
-
-#[pyproto]
-impl PyObjectProtocol for AzTabVecDestructorEnumWrapper {
-    fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::TabVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
-    }
-    fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &crate::widgets::tabs::TabVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -36681,6 +36701,35 @@ impl PyObjectProtocol for AzOptionButtonOnClickEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::button::OptionButtonOnClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionTabOnClickEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionTabOnClickEnumWrapper { AzOptionTabOnClickEnumWrapper { inner: AzOptionTabOnClick::None } }
+    #[staticmethod]
+    fn Some(v: AzTabOnClick) -> AzOptionTabOnClickEnumWrapper { AzOptionTabOnClickEnumWrapper { inner: AzOptionTabOnClick::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionTabOnClick;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionTabOnClick::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionTabOnClick::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionTabOnClickEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::OptionTabOnClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::tabs::OptionTabOnClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -39752,8 +39801,11 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzNumberInputOnFocusLostCallback>()?;
     m.add_class::<AzProgressBar>()?;
     m.add_class::<AzProgressBarState>()?;
-    m.add_class::<AzTabContainer>()?;
-    m.add_class::<AzTab>()?;
+    m.add_class::<AzTabHeader>()?;
+    m.add_class::<AzTabHeaderState>()?;
+    m.add_class::<AzTabContent>()?;
+    m.add_class::<AzTabOnClick>()?;
+    m.add_class::<AzTabOnClickCallback>()?;
     m.add_class::<AzFrame>()?;
     m.add_class::<AzNodeGraph>()?;
     m.add_class::<AzNodeTypeIdInfoMap>()?;
@@ -39948,7 +40000,6 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzOutputNodeAndIndexVec>()?;
     m.add_class::<AzOutputConnectionVec>()?;
     m.add_class::<AzInputNodeAndIndexVec>()?;
-    m.add_class::<AzTabVec>()?;
     m.add_class::<AzAccessibilityStateVec>()?;
     m.add_class::<AzMenuItemVec>()?;
     m.add_class::<AzTessellatedSvgNodeVec>()?;
@@ -40013,7 +40064,6 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzOutputNodeAndIndexVecDestructorEnumWrapper>()?;
     m.add_class::<AzOutputConnectionVecDestructorEnumWrapper>()?;
     m.add_class::<AzInputNodeAndIndexVecDestructorEnumWrapper>()?;
-    m.add_class::<AzTabVecDestructorEnumWrapper>()?;
     m.add_class::<AzAccessibilityStateVecDestructorEnumWrapper>()?;
     m.add_class::<AzMenuItemVecDestructorEnumWrapper>()?;
     m.add_class::<AzTessellatedSvgNodeVecDestructorEnumWrapper>()?;
@@ -40078,6 +40128,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzOptionNodeGraphOnNodeFieldEditedEnumWrapper>()?;
     m.add_class::<AzOptionColorInputOnValueChangeEnumWrapper>()?;
     m.add_class::<AzOptionButtonOnClickEnumWrapper>()?;
+    m.add_class::<AzOptionTabOnClickEnumWrapper>()?;
     m.add_class::<AzOptionFileInputOnPathChangeEnumWrapper>()?;
     m.add_class::<AzOptionCheckBoxOnToggleEnumWrapper>()?;
     m.add_class::<AzOptionTextInputOnTextInputEnumWrapper>()?;

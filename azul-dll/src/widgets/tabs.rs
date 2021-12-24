@@ -288,50 +288,40 @@ const CSS_MATCH_11510695043643111367_PROPERTIES: &[NodeDataInlineCssProperty] = 
 const CSS_MATCH_11510695043643111367: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_11510695043643111367_PROPERTIES);
 
 
-#[repr(C)]
-pub struct TabContainer {
-    pub tabs: TabVec,
-    pub active_tab: usize,
-    pub has_padding: bool,
-}
-
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct Tab {
-    pub title: AzString,
-    pub content: Dom,
+pub struct TabHeader {
+    pub tabs: StringVec,
+    pub active_tab: usize,
+    pub on_click: OptionTabOnClick,
 }
 
-impl Default for TabContainer {
+impl Default for TabHeader {
     fn default() -> Self {
         Self {
-            tabs: TabVec::from_const_slice(&[]),
+            tabs: StringVec::from_const_slice(&[]),
             active_tab: 0,
-            has_padding: true,
+            on_click: None.into(),
         }
     }
 }
 
-impl_vec!(Tab, TabVec, TabVecDestructor);
-impl_vec_clone!(Tab, TabVec, TabVecDestructor);
-impl_vec_debug!(Tab, TabVec);
+#[repr(C)]
+pub struct TabHeaderState {
+    pub active_tab: usize,
+}
 
-impl TabContainer {
+pub type TabOnClickCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &TabHeaderState) -> Update;
+impl_callback!(TabOnClick, OptionTabOnClick, TabOnClickCallback, TabOnClickCallbackType);
 
-    pub fn new(tabs: TabVec) -> Self {
+impl TabHeader {
+
+    pub fn new(tabs: StringVec) -> Self {
         Self {
-            active_tab: 0,
             tabs,
-            has_padding: true,
+            active_tab: 0,
+            on_click: None.into(),
         }
-    }
-
-    pub fn set_active_tab(&mut self, active_tab: usize) {
-        self.active_tab = active_tab;
-    }
-
-    pub fn set_padding(&mut self, has_padding: bool) {
-        self.has_padding = has_padding;
     }
 
     pub fn swap_with_default(&mut self) -> Self {
@@ -340,28 +330,41 @@ impl TabContainer {
         default
     }
 
+    pub fn set_active_tab(&mut self, active_tab: usize) {
+        self.active_tab = active_tab;
+    }
+
+    pub fn with_active_tab(&mut self, active_tab: usize) -> Self {
+        let mut s = self.swap_with_default();
+        s.set_active_tab(active_tab);
+        s
+    }
+
+    pub fn set_on_click(&mut self, data: RefAny, on_click: TabOnClickCallbackType) {
+        self.on_click = Some(TabOnClick { data, callback: TabOnClickCallback { cb: on_click }}).into();
+    }
+
+    pub fn with_on_click(&mut self, data: RefAny, on_click: TabOnClickCallbackType) -> Self {
+        let mut s = self.swap_with_default();
+        s.set_on_click(data, on_click);
+        s
+    }
+
     pub fn dom(&mut self) -> Dom {
 
-        let has_padding = self.has_padding;
-        let active_tab = self.active_tab;
+        use azul_core::dom::CallbackDataVec;
+
+        let on_click_is_some = self.on_click.is_some();
 
         Dom::div()
-        .with_inline_css_props(if has_padding {
-            CSS_MATCH_4738503469417034630
-        } else {
-            CSS_MATCH_4738503469417034630_NO_PADDING
-        })
+        .with_inline_css_props(CSS_MATCH_9988039989460234263)
         .with_ids_and_classes({
-            const IDS_AND_CLASSES_12678371749214821025: &[IdOrClass] = &[
-                Class(AzString::from_const_str("__azul-native-tabs-container")),
+            const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] = &[
+                Class(AzString::from_const_str("__azul-native-tabs-header")),
             ];
-            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12678371749214821025)
+            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
         })
         .with_children({
-
-            let mut refanys = (0..self.tabs.len()).map(|tab_idx| {
-                RefAny::new(TabLocalDataset { tab_idx })
-            }).collect::<Vec<_>>();
 
             let mut tab_items = vec![
                 Dom::div()
@@ -374,160 +377,187 @@ impl TabContainer {
                 }),
             ];
 
-            // push tab header
-            vec![
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_9988039989460234263)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_6172459441955124689: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul-native-tabs-header")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6172459441955124689)
-                })
-                .with_children({
+            let s = self.swap_with_default();
 
-                    for (tab_idx, tab) in self.tabs.as_ref().iter().enumerate() {
+            let dataset = TabLocalDataset {
+                tab_idx: 0,
+                on_click: s.on_click,
+            };
 
-                        let next_tab_is_active = active_tab == tab_idx.saturating_add(1);
-                        let previous_tab_was_active = if active_tab == 0 { false } else { active_tab == tab_idx.saturating_sub(1) };
-                        let tab_is_active = active_tab == tab_idx;
+            for (tab_idx, tab) in s.tabs.as_ref().iter().enumerate() {
 
-                        // classes for previous tab
-                        const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-tab-norightborder")),
-                            Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-                        ]; // CSS_MATCH_4415083954137121609
+                let next_tab_is_active = s.active_tab == tab_idx.saturating_add(1);
+                let previous_tab_was_active = if s.active_tab == 0 {
+                    false
+                } else {
+                    s.active_tab == tab_idx.saturating_sub(1)
+                };
 
-                        // classes for current tab
-                        const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-tab-active")),
-                        ];
+                let tab_is_active = s.active_tab == tab_idx;
 
-                        // classes for next tab
-                        const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
-                            Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-                        ];
+                // classes for previous tab
+                const IDS_AND_CLASSES_5117007530891373979: &[IdOrClass] = &[
+                    Class(AzString::from_const_str("__azul-native-tabs-tab-norightborder")),
+                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
+                ]; // CSS_MATCH_4415083954137121609
 
-                        // classes for default inactive tab
-                        const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
-                        ];
+                // classes for current tab
+                const IDS_AND_CLASSES_15002865554973741556: &[IdOrClass] = &[
+                    Class(AzString::from_const_str("__azul-native-tabs-tab-active")),
+                ];
 
-                        let (ids_and_classes, css_props) = if next_tab_is_active {
-                            (IDS_AND_CLASSES_5117007530891373979, CSS_MATCH_4415083954137121609)
-                        } else if tab_is_active {
-                            (IDS_AND_CLASSES_15002865554973741556, CSS_MATCH_14575853790110873394)
-                        } else if previous_tab_was_active {
-                            (IDS_AND_CLASSES_16877793354714897051, CSS_MATCH_13824480602841492081)
-                        } else {
-                            (IDS_AND_CLASSES_INACTIVE, CSS_MATCH_11510695043643111367)
-                        };
+                // classes for next tab
+                const IDS_AND_CLASSES_16877793354714897051: &[IdOrClass] = &[
+                    Class(AzString::from_const_str("__azul-native-tabs-tab-noleftborder")),
+                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
+                ];
 
-                        tab_items.push(
-                            Dom::text(tab.title.clone())
-                            .with_dataset(Some(refanys[tab_idx].clone()).into())
-                            .with_callbacks(vec![
-                                CallbackData {
-                                    event: EventFilter::Hover(HoverEventFilter::MouseDown),
-                                    callback: Callback { cb: select_new_tab },
-                                    data: refanys[tab_idx].clone(),
-                                }
-                            ].into())
-                            .with_inline_css_props(css_props)
-                            .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes))
-                        );
-                    }
+                // classes for default inactive tab
+                const IDS_AND_CLASSES_INACTIVE: &[IdOrClass] = &[
+                    Class(AzString::from_const_str("__azul-native-tabs-tab-not-active")),
+                ];
 
-                    tab_items.push(Dom::div()
-                    .with_inline_css_props(CSS_MATCH_3088386549906605418)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul-native-tabs-after-tabs")),
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11001585590816277275)
-                    }));
+                let (ids_and_classes, css_props) = if tab_is_active {
+                    (IDS_AND_CLASSES_15002865554973741556, CSS_MATCH_14575853790110873394)
+                } else if next_tab_is_active {
+                    // tab before the active tab
+                    (IDS_AND_CLASSES_5117007530891373979, CSS_MATCH_4415083954137121609)
+                } else if previous_tab_was_active {
+                    // tab after the active tab
+                    (IDS_AND_CLASSES_16877793354714897051, CSS_MATCH_13824480602841492081)
+                } else {
+                    // default inactive tab
+                    (IDS_AND_CLASSES_INACTIVE, CSS_MATCH_11510695043643111367)
+                };
 
-                    tab_items.into()
-                }),
-                Dom::div()
-                .with_inline_css_props(NodeDataInlineCssPropertyVec::from_vec(vec![
-                    NodeDataInlineCssProperty::Normal(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(LayoutFlexGrow { inner: FloatValue::const_new(1) }))),
-                ]))
-                .with_children({
-                    const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul-native-tabs-content")),
-                    ];
+                let mut dataset = dataset.clone();
+                dataset.tab_idx = tab_idx;
+                let dataset = RefAny::new(dataset);
 
-                    let tab_content_css_style = if has_padding {
-                        CSS_MATCH_18014909903571752977
+                tab_items.push(
+                    Dom::text(tab.clone())
+                    .with_callbacks(if on_click_is_some {
+                        vec![
+                            CallbackData {
+                                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                callback: Callback { cb: on_tab_click },
+                                data: dataset.clone(),
+                            }
+                        ].into()
                     } else {
-                        CSS_MATCH_18014909903571752977_NO_PADDING
-                    };
+                        CallbackDataVec::from_const_slice(&[])
+                    })
+                    .with_dataset(Some(dataset).into())
+                    .with_inline_css_props(css_props)
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(ids_and_classes))
+                );
+            }
 
-                    // wrap all content items into a "__azul-native-tabs-content" wrapper
-                    let mut items = Vec::new();
-                    let tabs = self.swap_with_default();
-                    let mut tabs: Vec<Tab> = tabs.tabs.into_library_owned_vec();
-                    for ((tab_idx, tab), refany) in tabs.iter_mut().enumerate().zip(refanys.into_iter()) {
-                        items.push(Dom::div()
-                        .with_inline_css_props( /*if tab_idx == active_tab {*/
-                            tab_content_css_style.clone()
-                        /*
-                        } else {
-                            // fastest way to prepend to a Vec
-                            let mut style = vec![NodeDataInlineCssProperty::Normal(
-                                CssProperty::Display(LayoutDisplayValue::Exact(LayoutDisplay::None))
-                            )];
-                            style.append(&mut tab_content_css_style.clone().into_library_owned_vec());
-                            NodeDataInlineCssPropertyVec::from_vec(style)
-                        }*/)
+            tab_items.push(Dom::div()
+            .with_inline_css_props(CSS_MATCH_3088386549906605418)
+            .with_ids_and_classes({
+                const IDS_AND_CLASSES_11001585590816277275: &[IdOrClass] = &[
+                    Class(AzString::from_const_str("__azul-native-tabs-after-tabs")),
+                ];
+                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_11001585590816277275)
+            }));
 
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222))
-                        .with_dataset(Some(refany).into())
-                        .with_children(DomVec::from_vec(vec![
-                            tab.content.swap_with_default()
-                        ])));
-                    }
-
-                    items.into()
-                })
-            ].into()
+            tab_items.into()
         })
     }
 }
 
-struct TabLocalDataset {
-    tab_idx: usize
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct TabContent {
+    pub content: Dom,
+    pub has_padding: bool,
 }
 
-extern "C" fn select_new_tab(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+impl Default for TabContent {
+    fn default() -> Self {
+        Self {
+            content: Dom::div(),
+            has_padding: true,
+        }
+    }
+}
+
+impl TabContent {
+
+    pub fn new(content: Dom) -> Self {
+        Self { content, has_padding: true }
+    }
+
+    pub fn swap_with_default(&mut self) -> Self {
+        let mut default = Self::default();
+        core::mem::swap(&mut default, self);
+        default
+    }
+
+    pub fn with_padding(&mut self, padding: bool) -> Self {
+        let mut s = self.swap_with_default();
+        s.set_padding(padding);
+        s
+    }
+
+    pub fn set_padding(&mut self, padding: bool) {
+        self.has_padding = padding;
+    }
+
+    pub fn dom(&mut self) -> Dom {
+
+        const IDS_AND_CLASSES_2989815829020816222: &[IdOrClass] = &[
+            Class(AzString::from_const_str("__azul-native-tabs-content")),
+        ];
+
+        let tab_content_css_style = if self.has_padding {
+            CSS_MATCH_18014909903571752977
+        } else {
+            CSS_MATCH_18014909903571752977_NO_PADDING
+        };
+
+        Dom::div()
+        .with_inline_css_props(tab_content_css_style)
+        .with_children(DomVec::from_vec(vec![
+            Dom::div()
+            .with_ids_and_classes(IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2989815829020816222))
+            .with_children(DomVec::from_vec(vec![
+                self.content.swap_with_default()
+            ]))
+        ]))
+    }
+}
+
+#[derive(Clone)]
+struct TabLocalDataset {
+    tab_idx: usize,
+    on_click: OptionTabOnClick,
+}
+
+extern "C" fn on_tab_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
     fn select_new_tab_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()> {
 
-        let tab_idx = data.downcast_ref::<TabLocalDataset>().map(|s| s.tab_idx)?;
-        let tab_content_node_id = info.get_node_id_of_root_dataset(data.clone())?;
+        let mut tab_local_dataset = data.downcast_mut::<TabLocalDataset>()?;
+        let tab_idx = tab_local_dataset.tab_idx;
+        let tab_header_state = TabHeaderState { active_tab: tab_idx };
 
-        // hide all tab content items
-        let tab_content_parent = info.get_parent(tab_content_node_id)?;
-        let mut first_child = info.get_first_child(tab_content_parent)?;
-        loop {
-            info.set_css_property(first_child, CssProperty::display(LayoutDisplay::None));
-            let next = match info.get_next_sibling(first_child) {
-                None => break,
-                Some(s) => { first_child = s; },
-            };
-        }
+        let result = {
+            // rustc doesn't understand the borrowing lifetime here
+            let tab_local_dataset = &mut *tab_local_dataset;
+            let onclick = &mut tab_local_dataset.on_click;
 
-        // show tab with index i
-        info.set_css_property(tab_content_node_id, CssProperty::display(LayoutDisplay::Flex));
+            match onclick.as_mut() {
+                Some(TabOnClick { callback, data }) => (callback.cb)(data, info, &tab_header_state),
+                None => Update::DoNothing,
+            }
+        };
 
-        // TODO: set active / inactive tab in header
-
-        None
+        Some(())
     }
 
     let _ = select_new_tab_inner(data, info);
 
-    Update::DoNothing
+    Update::RefreshDom
 }

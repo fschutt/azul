@@ -84,6 +84,8 @@
     impl ::core::fmt::Debug for AzNodeGraphOnNodeFieldEditedCallback        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     #[cfg(not(feature = "link_static"))]
     impl ::core::fmt::Debug for AzDropDownOnChoiceChangeCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    #[cfg(not(feature = "link_static"))]
+    impl ::core::fmt::Debug for AzTabOnClickCallback                        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
     #[cfg(not(feature = "link_static"))]
     impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
@@ -158,6 +160,8 @@
     impl PartialEq for AzNodeGraphOnNodeFieldEditedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     #[cfg(not(feature = "link_static"))]
     impl PartialEq for AzDropDownOnChoiceChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialEq for AzTabOnClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
     #[cfg(not(feature = "link_static"))]
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
@@ -232,3 +236,5 @@
     impl PartialOrd for AzNodeGraphOnNodeFieldEditedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     #[cfg(not(feature = "link_static"))]
     impl PartialOrd for AzDropDownOnChoiceChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialOrd for AzTabOnClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }

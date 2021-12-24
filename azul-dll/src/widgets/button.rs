@@ -344,7 +344,7 @@ mod ui_test {
         use crate::widgets::button::Button;
         use azul_desktop::css::Css;
 
-        let button = Button::new("Hello".into()).dom().style(&mut Css::empty());
+        let button = Button::new("Hello".into()).dom().style(Css::empty());
         let button_html = button.get_html_string("", "", true);
 
         assert_lines(EXPECTED_1.trim(), button_html.as_str().trim());

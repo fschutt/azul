@@ -351,8 +351,6 @@
     impl_vec_clone!(AzMonitor, AzMonitorVec, AzMonitorVecDestructor);
     impl_vec!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor, az_style_font_family_vec_destructor, AzStyleFontFamilyVec_delete);
     impl_vec_clone!(AzStyleFontFamily, AzStyleFontFamilyVec, AzStyleFontFamilyVecDestructor);
-    impl_vec!(AzTab, AzTabVec, AzTabVecDestructor, az_tab_vec_destructor, AzTabVec_delete);
-    impl_vec_clone!(AzTab, AzTabVec, AzTabVecDestructor);
     impl_vec!(AzNodeTypeIdInfoMap, AzNodeTypeIdInfoMapVec, AzNodeTypeIdInfoMapVecDestructor, az_node_type_id_info_map_vec_destructor, AzNodeTypeIdInfoMapVec_delete);
     impl_vec_clone!(AzNodeTypeIdInfoMap, AzNodeTypeIdInfoMapVec, AzNodeTypeIdInfoMapVecDestructor);
     impl_vec!(AzInputOutputTypeIdInfoMap, AzInputOutputTypeIdInfoMapVec, AzInputOutputTypeIdInfoMapVecDestructor, az_input_output_type_id_info_map_vec_destructor, AzInputOutputTypeIdInfoMapVec_delete);

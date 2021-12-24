@@ -108,6 +108,10 @@ typedef AzUpdate (*AzNumberInputOnValueChangeCallbackType)(AzRefAny* restrict A,
 
 typedef AzUpdate (*AzNumberInputOnFocusLostCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNumberInputState* const C);
 
+struct AzTabHeaderState;
+typedef struct AzTabHeaderState AzTabHeaderState;
+typedef AzUpdate (*AzTabOnClickCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzTabHeaderState* const C);
+
 struct AzNodeTypeId;
 typedef struct AzNodeTypeId AzNodeTypeId;
 struct AzNodeGraphNodeId;
@@ -227,10 +231,6 @@ typedef void (*AzOutputConnectionVecDestructorType)(AzOutputConnectionVec* restr
 struct AzInputNodeAndIndexVec;
 typedef struct AzInputNodeAndIndexVec AzInputNodeAndIndexVec;
 typedef void (*AzInputNodeAndIndexVecDestructorType)(AzInputNodeAndIndexVec* restrict A);
-
-struct AzTabVec;
-typedef struct AzTabVec AzTabVec;
-typedef void (*AzTabVecDestructorType)(AzTabVec* restrict A);
 
 struct AzAccessibilityStateVec;
 typedef struct AzAccessibilityStateVec AzAccessibilityStateVec;
@@ -1625,6 +1625,16 @@ struct AzProgressBarState {
 };
 typedef struct AzProgressBarState AzProgressBarState;
 
+struct AzTabHeaderState {
+    size_t active_tab;
+};
+typedef struct AzTabHeaderState AzTabHeaderState;
+
+struct AzTabOnClickCallback {
+    AzTabOnClickCallbackType cb;
+};
+typedef struct AzTabOnClickCallback AzTabOnClickCallback;
+
 enum AzNodeGraphStyle {
    AzNodeGraphStyle_Default,
 };
@@ -2458,26 +2468,6 @@ union AzInputNodeAndIndexVecDestructor {
     AzInputNodeAndIndexVecDestructorVariant_External External;
 };
 typedef union AzInputNodeAndIndexVecDestructor AzInputNodeAndIndexVecDestructor;
-
-enum AzTabVecDestructorTag {
-   AzTabVecDestructorTag_DefaultRust,
-   AzTabVecDestructorTag_NoDestructor,
-   AzTabVecDestructorTag_External,
-};
-typedef enum AzTabVecDestructorTag AzTabVecDestructorTag;
-
-struct AzTabVecDestructorVariant_DefaultRust { AzTabVecDestructorTag tag; };
-typedef struct AzTabVecDestructorVariant_DefaultRust AzTabVecDestructorVariant_DefaultRust;
-struct AzTabVecDestructorVariant_NoDestructor { AzTabVecDestructorTag tag; };
-typedef struct AzTabVecDestructorVariant_NoDestructor AzTabVecDestructorVariant_NoDestructor;
-struct AzTabVecDestructorVariant_External { AzTabVecDestructorTag tag; AzTabVecDestructorType payload; };
-typedef struct AzTabVecDestructorVariant_External AzTabVecDestructorVariant_External;
-union AzTabVecDestructor {
-    AzTabVecDestructorVariant_DefaultRust DefaultRust;
-    AzTabVecDestructorVariant_NoDestructor NoDestructor;
-    AzTabVecDestructorVariant_External External;
-};
-typedef union AzTabVecDestructor AzTabVecDestructor;
 
 enum AzAccessibilityStateVecDestructorTag {
    AzAccessibilityStateVecDestructorTag_DefaultRust,
@@ -6225,6 +6215,12 @@ struct AzNumberInputOnFocusLost {
 };
 typedef struct AzNumberInputOnFocusLost AzNumberInputOnFocusLost;
 
+struct AzTabOnClick {
+    AzRefAny data;
+    AzTabOnClickCallback callback;
+};
+typedef struct AzTabOnClick AzTabOnClick;
+
 struct AzNodeGraphOnNodeAdded {
     AzRefAny data;
     AzNodeGraphOnNodeAddedCallback callback;
@@ -6886,6 +6882,22 @@ union AzOptionButtonOnClick {
     AzOptionButtonOnClickVariant_Some Some;
 };
 typedef union AzOptionButtonOnClick AzOptionButtonOnClick;
+
+enum AzOptionTabOnClickTag {
+   AzOptionTabOnClickTag_None,
+   AzOptionTabOnClickTag_Some,
+};
+typedef enum AzOptionTabOnClickTag AzOptionTabOnClickTag;
+
+struct AzOptionTabOnClickVariant_None { AzOptionTabOnClickTag tag; };
+typedef struct AzOptionTabOnClickVariant_None AzOptionTabOnClickVariant_None;
+struct AzOptionTabOnClickVariant_Some { AzOptionTabOnClickTag tag; AzTabOnClick payload; };
+typedef struct AzOptionTabOnClickVariant_Some AzOptionTabOnClickVariant_Some;
+union AzOptionTabOnClick {
+    AzOptionTabOnClickVariant_None None;
+    AzOptionTabOnClickVariant_Some Some;
+};
+typedef union AzOptionTabOnClick AzOptionTabOnClick;
 
 enum AzOptionFileInputOnPathChangeTag {
    AzOptionFileInputOnPathChangeTag_None,
@@ -8998,6 +9010,13 @@ struct AzTextInputState {
 };
 typedef struct AzTextInputState AzTextInputState;
 
+struct AzTabHeader {
+    AzStringVec tabs;
+    size_t active_tab;
+    AzOptionTabOnClick on_click;
+};
+typedef struct AzTabHeader AzTabHeader;
+
 enum AzNodeTypeFieldValueTag {
    AzNodeTypeFieldValueTag_TextInput,
    AzNodeTypeFieldValueTag_NumberInput,
@@ -10555,11 +10574,11 @@ struct AzCssRuleBlock {
 };
 typedef struct AzCssRuleBlock AzCssRuleBlock;
 
-struct AzTab {
-    AzString title;
+struct AzTabContent {
     AzDom content;
+    bool  has_padding;
 };
-typedef struct AzTab AzTab;
+typedef struct AzTabContent AzTabContent;
 
 struct AzFrame {
     AzString title;
@@ -10594,14 +10613,6 @@ struct AzStyledDom {
     AzCssPropertyCache css_property_cache;
 };
 typedef struct AzStyledDom AzStyledDom;
-
-struct AzTabVec {
-    AzTab* ptr;
-    size_t len;
-    size_t cap;
-    AzTabVecDestructor destructor;
-};
-typedef struct AzTabVec AzTabVec;
 
 struct AzCssRuleBlockVec {
     AzCssRuleBlock* ptr;
@@ -10692,13 +10703,6 @@ struct AzStylesheet {
     AzCssRuleBlockVec rules;
 };
 typedef struct AzStylesheet AzStylesheet;
-
-struct AzTabContainer {
-    AzTabVec tabs;
-    size_t active_tab;
-    bool  has_padding;
-};
-typedef struct AzTabContainer AzTabContainer;
 
 struct AzStylesheetVec {
     AzStylesheet* ptr;
@@ -10793,9 +10797,6 @@ typedef struct AzCss AzCss;
 #define AzInputNodeAndIndexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzInputNodeAndIndexVecDestructorTag_DefaultRust } }
 #define AzInputNodeAndIndexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzInputNodeAndIndexVecDestructorTag_NoDestructor } }
 #define AzInputNodeAndIndexVecDestructor_External(v) { .External = { .tag = AzInputNodeAndIndexVecDestructorTag_External, .payload = v } }
-#define AzTabVecDestructor_DefaultRust { .DefaultRust = { .tag = AzTabVecDestructorTag_DefaultRust } }
-#define AzTabVecDestructor_NoDestructor { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor } }
-#define AzTabVecDestructor_External(v) { .External = { .tag = AzTabVecDestructorTag_External, .payload = v } }
 #define AzAccessibilityStateVecDestructor_DefaultRust { .DefaultRust = { .tag = AzAccessibilityStateVecDestructorTag_DefaultRust } }
 #define AzAccessibilityStateVecDestructor_NoDestructor { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor } }
 #define AzAccessibilityStateVecDestructor_External(v) { .External = { .tag = AzAccessibilityStateVecDestructorTag_External, .payload = v } }
@@ -11348,6 +11349,8 @@ typedef struct AzCss AzCss;
 #define AzOptionColorInputOnValueChange_Some(v) { .Some = { .tag = AzOptionColorInputOnValueChangeTag_Some, .payload = v } }
 #define AzOptionButtonOnClick_None { .None = { .tag = AzOptionButtonOnClickTag_None } }
 #define AzOptionButtonOnClick_Some(v) { .Some = { .tag = AzOptionButtonOnClickTag_Some, .payload = v } }
+#define AzOptionTabOnClick_None { .None = { .tag = AzOptionTabOnClickTag_None } }
+#define AzOptionTabOnClick_Some(v) { .Some = { .tag = AzOptionTabOnClickTag_Some, .payload = v } }
 #define AzOptionFileInputOnPathChange_None { .None = { .tag = AzOptionFileInputOnPathChangeTag_None } }
 #define AzOptionFileInputOnPathChange_Some(v) { .Some = { .tag = AzOptionFileInputOnPathChangeTag_Some, .payload = v } }
 #define AzOptionCheckBoxOnToggle_None { .None = { .tag = AzOptionCheckBoxOnToggleTag_None } }
@@ -11824,10 +11827,6 @@ AzOutputConnection AzOutputConnectionVecArray[] = {};
 AzInputNodeAndIndex AzInputNodeAndIndexVecArray[] = {};
 #define AzInputNodeAndIndexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzInputNodeAndIndex), .cap = sizeof(v) / sizeof(AzInputNodeAndIndex), .destructor = { .NoDestructor = { .tag = AzInputNodeAndIndexVecDestructorTag_NoDestructor, }, }, }
 #define AzInputNodeAndIndexVec_empty { .ptr = &AzInputNodeAndIndexVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzInputNodeAndIndexVecDestructorTag_NoDestructor, }, }, }
-
-AzTab AzTabVecArray[] = {};
-#define AzTabVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzTab), .cap = sizeof(v) / sizeof(AzTab), .destructor = { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor, }, }, }
-#define AzTabVec_empty { .ptr = &AzTabVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzTabVecDestructorTag_NoDestructor, }, }, }
 
 AzAccessibilityState AzAccessibilityStateVecArray[] = {};
 #define AzAccessibilityStateVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzAccessibilityState), .cap = sizeof(v) / sizeof(AzAccessibilityState), .destructor = { .NoDestructor = { .tag = AzAccessibilityStateVecDestructorTag_NoDestructor, }, }, }
@@ -12401,14 +12400,19 @@ extern DLLIMPORT void AzProgressBar_setBarBackground(AzProgressBar* restrict pro
 extern DLLIMPORT AzProgressBar AzProgressBar_withBarBackground(AzProgressBar* restrict progressbar, AzStyleBackgroundContentVec  background);
 extern DLLIMPORT AzDom AzProgressBar_dom(AzProgressBar* restrict progressbar);
 extern DLLIMPORT void AzProgressBar_delete(AzProgressBar* restrict instance);
-extern DLLIMPORT AzTabContainer AzTabContainer_new(AzTabVec  tabs);
-extern DLLIMPORT void AzTabContainer_setActiveTab(AzTabContainer* restrict tabcontainer, size_t active_tab);
-extern DLLIMPORT AzTabContainer AzTabContainer_withActiveTab(AzTabContainer* restrict tabcontainer, size_t active_tab);
-extern DLLIMPORT void AzTabContainer_setPadding(AzTabContainer* restrict tabcontainer, bool  has_padding);
-extern DLLIMPORT AzTabContainer AzTabContainer_withPadding(AzTabContainer* restrict tabcontainer, bool  has_padding);
-extern DLLIMPORT AzDom AzTabContainer_dom(AzTabContainer* restrict tabcontainer);
-extern DLLIMPORT void AzTabContainer_delete(AzTabContainer* restrict instance);
-extern DLLIMPORT void AzTab_delete(AzTab* restrict instance);
+extern DLLIMPORT AzTabHeader AzTabHeader_new(AzStringVec  tabs);
+extern DLLIMPORT void AzTabHeader_setActiveTab(AzTabHeader* restrict tabheader, size_t active_tab);
+extern DLLIMPORT AzTabHeader AzTabHeader_withActiveTab(AzTabHeader* restrict tabheader, size_t active_tab);
+extern DLLIMPORT void AzTabHeader_setOnClick(AzTabHeader* restrict tabheader, AzRefAny  data, AzTabOnClickCallbackType  callback);
+extern DLLIMPORT AzTabHeader AzTabHeader_withOnClick(AzTabHeader* restrict tabheader, AzRefAny  data, AzTabOnClickCallbackType  callback);
+extern DLLIMPORT AzDom AzTabHeader_dom(AzTabHeader* restrict tabheader);
+extern DLLIMPORT void AzTabHeader_delete(AzTabHeader* restrict instance);
+extern DLLIMPORT AzTabContent AzTabContent_new(AzDom  content);
+extern DLLIMPORT void AzTabContent_setPadding(AzTabContent* restrict tabcontent, bool  has_padding);
+extern DLLIMPORT AzTabContent AzTabContent_withPadding(AzTabContent* restrict tabcontent, bool  has_padding);
+extern DLLIMPORT AzDom AzTabContent_dom(AzTabContent* restrict tabcontent);
+extern DLLIMPORT void AzTabContent_delete(AzTabContent* restrict instance);
+extern DLLIMPORT void AzTabOnClick_delete(AzTabOnClick* restrict instance);
 extern DLLIMPORT AzFrame AzFrame_new(AzString  title, AzDom  dom);
 extern DLLIMPORT void AzFrame_setFlexGrow(AzFrame* restrict frame, float flex_grow);
 extern DLLIMPORT AzFrame AzFrame_withFlexGrow(AzFrame* restrict frame, float flex_grow);
@@ -12929,7 +12933,6 @@ extern DLLIMPORT void AzInputConnectionVec_delete(AzInputConnectionVec* restrict
 extern DLLIMPORT void AzOutputNodeAndIndexVec_delete(AzOutputNodeAndIndexVec* restrict instance);
 extern DLLIMPORT void AzOutputConnectionVec_delete(AzOutputConnectionVec* restrict instance);
 extern DLLIMPORT void AzInputNodeAndIndexVec_delete(AzInputNodeAndIndexVec* restrict instance);
-extern DLLIMPORT void AzTabVec_delete(AzTabVec* restrict instance);
 extern DLLIMPORT void AzAccessibilityStateVec_delete(AzAccessibilityStateVec* restrict instance);
 extern DLLIMPORT void AzMenuItemVec_delete(AzMenuItemVec* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNodeVecRef AzTessellatedSvgNodeVec_asRefVec(const AzTessellatedSvgNodeVec* tessellatedsvgnodevec);
@@ -12997,6 +13000,7 @@ extern DLLIMPORT void AzOptionNodeGraphOnNodeOutputDisconnected_delete(AzOptionN
 extern DLLIMPORT void AzOptionNodeGraphOnNodeFieldEdited_delete(AzOptionNodeGraphOnNodeFieldEdited* restrict instance);
 extern DLLIMPORT void AzOptionColorInputOnValueChange_delete(AzOptionColorInputOnValueChange* restrict instance);
 extern DLLIMPORT void AzOptionButtonOnClick_delete(AzOptionButtonOnClick* restrict instance);
+extern DLLIMPORT void AzOptionTabOnClick_delete(AzOptionTabOnClick* restrict instance);
 extern DLLIMPORT void AzOptionFileInputOnPathChange_delete(AzOptionFileInputOnPathChange* restrict instance);
 extern DLLIMPORT void AzOptionCheckBoxOnToggle_delete(AzOptionCheckBoxOnToggle* restrict instance);
 extern DLLIMPORT void AzOptionTextInputOnTextInput_delete(AzOptionTextInputOnTextInput* restrict instance);
@@ -18674,20 +18678,6 @@ bool AzInputNodeAndIndexVecDestructor_matchMutExternal(AzInputNodeAndIndexVecDes
     return valid;
 }
 
-bool AzTabVecDestructor_matchRefExternal(const AzTabVecDestructor* value, const AzTabVecDestructorType** restrict out) {
-    const AzTabVecDestructorVariant_External* casted = (const AzTabVecDestructorVariant_External*)value;
-    bool valid = casted->tag == AzTabVecDestructorTag_External;
-    if (valid) { *out = &casted->payload; } else { *out = 0; }
-    return valid;
-}
-
-bool AzTabVecDestructor_matchMutExternal(AzTabVecDestructor* restrict value, AzTabVecDestructorType* restrict * restrict out) {
-    AzTabVecDestructorVariant_External* restrict casted = (AzTabVecDestructorVariant_External* restrict)value;
-    bool valid = casted->tag == AzTabVecDestructorTag_External;
-    if (valid) { *out = &casted->payload; } else { *out = 0; }
-    return valid;
-}
-
 bool AzAccessibilityStateVecDestructor_matchRefExternal(const AzAccessibilityStateVecDestructor* value, const AzAccessibilityStateVecDestructorType** restrict out) {
     const AzAccessibilityStateVecDestructorVariant_External* casted = (const AzAccessibilityStateVecDestructorVariant_External*)value;
     bool valid = casted->tag == AzAccessibilityStateVecDestructorTag_External;
@@ -19566,6 +19556,20 @@ bool AzOptionButtonOnClick_matchRefSome(const AzOptionButtonOnClick* value, cons
 bool AzOptionButtonOnClick_matchMutSome(AzOptionButtonOnClick* restrict value, AzButtonOnClick* restrict * restrict out) {
     AzOptionButtonOnClickVariant_Some* restrict casted = (AzOptionButtonOnClickVariant_Some* restrict)value;
     bool valid = casted->tag == AzOptionButtonOnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTabOnClick_matchRefSome(const AzOptionTabOnClick* value, const AzTabOnClick** restrict out) {
+    const AzOptionTabOnClickVariant_Some* casted = (const AzOptionTabOnClickVariant_Some*)value;
+    bool valid = casted->tag == AzOptionTabOnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionTabOnClick_matchMutSome(AzOptionTabOnClick* restrict value, AzTabOnClick* restrict * restrict out) {
+    AzOptionTabOnClickVariant_Some* restrict casted = (AzOptionTabOnClickVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionTabOnClickTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

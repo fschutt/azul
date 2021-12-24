@@ -16,6 +16,7 @@
 
     #[cfg(not(feature = "link_static"))]
     pub(crate) mod dummy {
+        use super::*;
         impl ::core::fmt::Debug for AzCallback                          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzLayoutCallbackInner               { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzMarshaledLayoutCallbackInner      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
@@ -41,6 +42,7 @@
         impl ::core::fmt::Debug for AzTextInputOnVirtualKeyDownCallback { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzTextInputOnFocusLostCallback      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzNumberInputOnValueChangeCallback  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+        impl ::core::fmt::Debug for AzTabOnClickCallback                { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
         impl ::core::fmt::Debug for AzDomVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzDomVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
         impl ::core::fmt::Debug for AzIdOrClassVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzIdOrClassVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}

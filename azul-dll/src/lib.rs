@@ -2203,31 +2203,55 @@ pub use AzProgressBarTT as AzProgressBar;
 pub type AzProgressBarStateTT = crate::widgets::progressbar::ProgressBarState;
 pub use AzProgressBarStateTT as AzProgressBarState;
 
-/// Re-export of rust-allocated (stack based) `TabContainer` struct
-pub type AzTabContainerTT = crate::widgets::tabs::TabContainer;
-pub use AzTabContainerTT as AzTabContainer;
-/// Creates a new `TabContainer` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `TabContainer::new()` constructor.
-#[no_mangle] pub extern "C" fn AzTabContainer_new(tabs: AzTabVec) -> AzTabContainer { AzTabContainer::new(tabs) }
-/// Equivalent to the Rust `TabContainer::set_active_tab()` function.
-#[no_mangle] pub extern "C" fn AzTabContainer_setActiveTab(tabcontainer: &mut AzTabContainer, active_tab: usize) { tabcontainer.set_active_tab(active_tab); }
-/// Equivalent to the Rust `TabContainer::with_active_tab()` function.
-#[no_mangle] pub extern "C" fn AzTabContainer_withActiveTab(tabcontainer: &mut AzTabContainer, active_tab: usize) -> AzTabContainer { let mut tabcontainer = tabcontainer.swap_with_default(); tabcontainer.set_active_tab(active_tab); tabcontainer }
-/// Equivalent to the Rust `TabContainer::set_padding()` function.
-#[no_mangle] pub extern "C" fn AzTabContainer_setPadding(tabcontainer: &mut AzTabContainer, has_padding: bool) { tabcontainer.set_padding(has_padding); }
-/// Equivalent to the Rust `TabContainer::with_padding()` function.
-#[no_mangle] pub extern "C" fn AzTabContainer_withPadding(tabcontainer: &mut AzTabContainer, has_padding: bool) -> AzTabContainer { let mut tabcontainer = tabcontainer.swap_with_default(); tabcontainer.set_padding(has_padding); tabcontainer }
-/// Equivalent to the Rust `TabContainer::dom()` function.
-#[no_mangle] pub extern "C" fn AzTabContainer_dom(tabcontainer: &mut AzTabContainer) -> AzDom { tabcontainer.dom() }
-/// Destructor: Takes ownership of the `TabContainer` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzTabContainer_delete(object: &mut AzTabContainer) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Re-export of rust-allocated (stack based) `TabHeader` struct
+pub type AzTabHeaderTT = crate::widgets::tabs::TabHeader;
+pub use AzTabHeaderTT as AzTabHeader;
+/// Creates a new `TabHeader` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TabHeader::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTabHeader_new(tabs: AzStringVec) -> AzTabHeader { AzTabHeader::new(tabs) }
+/// Equivalent to the Rust `TabHeader::set_active_tab()` function.
+#[no_mangle] pub extern "C" fn AzTabHeader_setActiveTab(tabheader: &mut AzTabHeader, active_tab: usize) { tabheader.set_active_tab(active_tab) }
+/// Equivalent to the Rust `TabHeader::with_active_tab()` function.
+#[no_mangle] pub extern "C" fn AzTabHeader_withActiveTab(tabheader: &mut AzTabHeader, active_tab: usize) -> AzTabHeader { tabheader.with_active_tab(active_tab) }
+/// Equivalent to the Rust `TabHeader::set_on_click()` function.
+#[no_mangle] pub extern "C" fn AzTabHeader_setOnClick(tabheader: &mut AzTabHeader, data: AzRefAny, callback: AzTabOnClickCallbackType) { tabheader.set_on_click(data, callback) }
+/// Equivalent to the Rust `TabHeader::with_on_click()` function.
+#[no_mangle] pub extern "C" fn AzTabHeader_withOnClick(tabheader: &mut AzTabHeader, data: AzRefAny, callback: AzTabOnClickCallbackType) -> AzTabHeader { tabheader.with_on_click(data, callback) }
+/// Equivalent to the Rust `TabHeader::dom()` function.
+#[no_mangle] pub extern "C" fn AzTabHeader_dom(tabheader: &mut AzTabHeader) -> AzDom { tabheader.dom() }
+/// Destructor: Takes ownership of the `TabHeader` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTabHeader_delete(object: &mut AzTabHeader) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Re-export of rust-allocated (stack based) `Tab` struct
-pub type AzTabTT = crate::widgets::tabs::Tab;
-pub use AzTabTT as AzTab;
-/// Destructor: Takes ownership of the `Tab` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzTab_delete(object: &mut AzTab) {  unsafe { core::ptr::drop_in_place(object); } }
+/// Re-export of rust-allocated (stack based) `TabHeaderState` struct
+pub type AzTabHeaderStateTT = crate::widgets::tabs::TabHeaderState;
+pub use AzTabHeaderStateTT as AzTabHeaderState;
 
+/// Re-export of rust-allocated (stack based) `TabContent` struct
+pub type AzTabContentTT = crate::widgets::tabs::TabContent;
+pub use AzTabContentTT as AzTabContent;
+/// Creates a new `TabContent` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TabContent::new()` constructor.
+#[no_mangle] pub extern "C" fn AzTabContent_new(content: AzDom) -> AzTabContent { AzTabContent::new(content) }
+/// Equivalent to the Rust `TabContent::set_padding()` function.
+#[no_mangle] pub extern "C" fn AzTabContent_setPadding(tabcontent: &mut AzTabContent, has_padding: bool) { tabcontent.set_padding(has_padding) }
+/// Equivalent to the Rust `TabContent::with_padding()` function.
+#[no_mangle] pub extern "C" fn AzTabContent_withPadding(tabcontent: &mut AzTabContent, has_padding: bool) -> AzTabContent { tabcontent.with_padding(has_padding) }
+/// Equivalent to the Rust `TabContent::dom()` function.
+#[no_mangle] pub extern "C" fn AzTabContent_dom(tabcontent: &mut AzTabContent) -> AzDom { tabcontent.dom() }
+/// Destructor: Takes ownership of the `TabContent` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTabContent_delete(object: &mut AzTabContent) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `TabOnClick` struct
+pub type AzTabOnClickTT = crate::widgets::tabs::TabOnClick;
+pub use AzTabOnClickTT as AzTabOnClick;
+/// Destructor: Takes ownership of the `TabOnClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTabOnClick_delete(object: &mut AzTabOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `TabOnClickCallback` struct
+pub type AzTabOnClickCallbackTT = crate::widgets::tabs::TabOnClickCallback;
+pub use AzTabOnClickCallbackTT as AzTabOnClickCallback;
+
+pub type AzTabOnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTabHeaderState) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `Frame` struct
 pub type AzFrameTT = crate::widgets::frame::Frame;
 pub use AzFrameTT as AzFrame;
@@ -4030,12 +4054,6 @@ pub use AzInputNodeAndIndexVecTT as AzInputNodeAndIndexVec;
 /// Destructor: Takes ownership of the `InputNodeAndIndexVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzInputNodeAndIndexVec_delete(object: &mut AzInputNodeAndIndexVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
-/// Wrapper over a Rust-allocated `Vec<Tab>`
-pub type AzTabVecTT = crate::widgets::tabs::TabVec;
-pub use AzTabVecTT as AzTabVec;
-/// Destructor: Takes ownership of the `TabVec` pointer and deletes it.
-#[no_mangle] pub extern "C" fn AzTabVec_delete(object: &mut AzTabVec) {  unsafe { core::ptr::drop_in_place(object); } }
-
 /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
 pub type AzAccessibilityStateVecTT = azul_impl::dom::AccessibilityStateVec;
 pub use AzAccessibilityStateVecTT as AzAccessibilityStateVec;
@@ -4414,11 +4432,6 @@ pub type AzInputNodeAndIndexVecDestructorTT = crate::widgets::node_graph::InputN
 pub use AzInputNodeAndIndexVecDestructorTT as AzInputNodeAndIndexVecDestructor;
 
 pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
-/// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
-pub type AzTabVecDestructorTT = crate::widgets::tabs::TabVecDestructor;
-pub use AzTabVecDestructorTT as AzTabVecDestructor;
-
-pub type AzTabVecDestructorType = extern "C" fn(&mut AzTabVec);
 /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
 pub type AzAccessibilityStateVecDestructorTT = azul_impl::dom::AccessibilityStateVecDestructor;
 pub use AzAccessibilityStateVecDestructorTT as AzAccessibilityStateVecDestructor;
@@ -4745,6 +4758,12 @@ pub type AzOptionButtonOnClickTT = crate::widgets::button::OptionButtonOnClick;
 pub use AzOptionButtonOnClickTT as AzOptionButtonOnClick;
 /// Destructor: Takes ownership of the `OptionButtonOnClick` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzOptionButtonOnClick_delete(object: &mut AzOptionButtonOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionTabOnClick` struct
+pub type AzOptionTabOnClickTT = crate::widgets::tabs::OptionTabOnClick;
+pub use AzOptionTabOnClickTT as AzOptionTabOnClick;
+/// Destructor: Takes ownership of the `OptionTabOnClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionTabOnClick_delete(object: &mut AzOptionTabOnClick) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
 pub type AzOptionFileInputOnPathChangeTT = crate::widgets::file_input::OptionFileInputOnPathChange;
@@ -5234,6 +5253,7 @@ mod test_sizes {
 
     #[cfg(not(feature = "link_static"))]
     pub(crate) mod dummy {
+        use super::*;
         impl ::core::fmt::Debug for AzCallback                          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzLayoutCallbackInner               { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzMarshaledLayoutCallbackInner      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
@@ -5259,6 +5279,7 @@ mod test_sizes {
         impl ::core::fmt::Debug for AzTextInputOnVirtualKeyDownCallback { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzTextInputOnFocusLostCallback      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
         impl ::core::fmt::Debug for AzNumberInputOnValueChangeCallback  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+        impl ::core::fmt::Debug for AzTabOnClickCallback                { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
         impl ::core::fmt::Debug for AzDomVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzDomVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
         impl ::core::fmt::Debug for AzIdOrClassVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzIdOrClassVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
@@ -6648,6 +6669,21 @@ mod test_sizes {
         pub display_percentage: bool,
     }
 
+    /// Re-export of rust-allocated (stack based) `TabHeaderState` struct
+    #[repr(C)]
+    pub struct AzTabHeaderState {
+        pub active_tab: usize,
+    }
+
+    /// Re-export of rust-allocated (stack based) `TabOnClickCallback` struct
+    #[repr(C)]
+    pub struct AzTabOnClickCallback {
+        pub cb: AzTabOnClickCallbackType,
+    }
+
+    /// `AzTabOnClickCallbackType` struct
+    pub type AzTabOnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzTabHeaderState) -> AzUpdate;
+
     /// Re-export of rust-allocated (stack based) `NodeGraphStyle` struct
     #[repr(C)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
@@ -7515,17 +7551,6 @@ mod test_sizes {
 
     /// `AzInputNodeAndIndexVecDestructorType` struct
     pub type AzInputNodeAndIndexVecDestructorType = extern "C" fn(&mut AzInputNodeAndIndexVec);
-
-    /// Re-export of rust-allocated (stack based) `TabVecDestructor` struct
-    #[repr(C, u8)]
-    pub enum AzTabVecDestructor {
-        DefaultRust,
-        NoDestructor,
-        External(AzTabVecDestructorType),
-    }
-
-    /// `AzTabVecDestructorType` struct
-    pub type AzTabVecDestructorType = extern "C" fn(&mut AzTabVec);
 
     /// Re-export of rust-allocated (stack based) `AccessibilityStateVecDestructor` struct
     #[repr(C, u8)]
@@ -9563,6 +9588,13 @@ mod test_sizes {
         pub callback: AzNumberInputOnFocusLostCallback,
     }
 
+    /// Re-export of rust-allocated (stack based) `TabOnClick` struct
+    #[repr(C)]
+    pub struct AzTabOnClick {
+        pub data: AzRefAny,
+        pub callback: AzTabOnClickCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `NodeGraphOnNodeAdded` struct
     #[repr(C)]
     pub struct AzNodeGraphOnNodeAdded {
@@ -10153,6 +10185,13 @@ mod test_sizes {
     pub enum AzOptionButtonOnClick {
         None,
         Some(AzButtonOnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionTabOnClick` struct
+    #[repr(C, u8)]
+    pub enum AzOptionTabOnClick {
+        None,
+        Some(AzTabOnClick),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionFileInputOnPathChange` struct
@@ -11406,6 +11445,14 @@ mod test_sizes {
         pub cursor_pos: usize,
     }
 
+    /// Re-export of rust-allocated (stack based) `TabHeader` struct
+    #[repr(C)]
+    pub struct AzTabHeader {
+        pub tabs: AzStringVec,
+        pub active_tab: usize,
+        pub on_click: AzOptionTabOnClick,
+    }
+
     /// Re-export of rust-allocated (stack based) `NodeTypeFieldValue` struct
     #[repr(C, u8)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
@@ -12422,11 +12469,11 @@ mod test_sizes {
         pub declarations: AzCssDeclarationVec,
     }
 
-    /// Re-export of rust-allocated (stack based) `Tab` struct
+    /// Re-export of rust-allocated (stack based) `TabContent` struct
     #[repr(C)]
-    pub struct AzTab {
-        pub title: AzString,
+    pub struct AzTabContent {
         pub content: AzDom,
+        pub has_padding: bool,
     }
 
     /// Re-export of rust-allocated (stack based) `Frame` struct
@@ -12464,15 +12511,6 @@ mod test_sizes {
         pub tag_ids_to_node_ids: AzTagIdToNodeIdMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub css_property_cache: AzCssPropertyCache,
-    }
-
-    /// Wrapper over a Rust-allocated `Vec<Tab>`
-    #[repr(C)]
-    pub struct AzTabVec {
-        pub(crate) ptr: *const AzTab,
-        pub len: usize,
-        pub cap: usize,
-        pub destructor: AzTabVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `CssRuleBlock`
@@ -12524,14 +12562,6 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzStylesheet {
         pub rules: AzCssRuleBlockVec,
-    }
-
-    /// Re-export of rust-allocated (stack based) `TabContainer` struct
-    #[repr(C)]
-    pub struct AzTabContainer {
-        pub tabs: AzTabVec,
-        pub active_tab: usize,
-        pub has_padding: bool,
     }
 
     /// Wrapper over a Rust-allocated `Stylesheet`
@@ -12670,6 +12700,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnValueChangeCallback>(), "AzNumberInputOnValueChangeCallback"), (Layout::new::<AzNumberInputOnValueChangeCallback>(), "AzNumberInputOnValueChangeCallback"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnFocusLostCallback>(), "AzNumberInputOnFocusLostCallback"), (Layout::new::<AzNumberInputOnFocusLostCallback>(), "AzNumberInputOnFocusLostCallback"));
         assert_eq!((Layout::new::<crate::widgets::progressbar::ProgressBarState>(), "AzProgressBarState"), (Layout::new::<AzProgressBarState>(), "AzProgressBarState"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabHeaderState>(), "AzTabHeaderState"), (Layout::new::<AzTabHeaderState>(), "AzTabHeaderState"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabOnClickCallback>(), "AzTabOnClickCallback"), (Layout::new::<AzTabOnClickCallback>(), "AzTabOnClickCallback"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeGraphStyle>(), "AzNodeGraphStyle"), (Layout::new::<AzNodeGraphStyle>(), "AzNodeGraphStyle"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeAddedCallback>(), "AzNodeGraphOnNodeAddedCallback"), (Layout::new::<AzNodeGraphOnNodeAddedCallback>(), "AzNodeGraphOnNodeAddedCallback"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeRemovedCallback>(), "AzNodeGraphOnNodeRemovedCallback"), (Layout::new::<AzNodeGraphOnNodeRemovedCallback>(), "AzNodeGraphOnNodeRemovedCallback"));
@@ -12773,7 +12805,6 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndexVecDestructor>(), "AzOutputNodeAndIndexVecDestructor"), (Layout::new::<AzOutputNodeAndIndexVecDestructor>(), "AzOutputNodeAndIndexVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnectionVecDestructor>(), "AzOutputConnectionVecDestructor"), (Layout::new::<AzOutputConnectionVecDestructor>(), "AzOutputConnectionVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndexVecDestructor>(), "AzInputNodeAndIndexVecDestructor"), (Layout::new::<AzInputNodeAndIndexVecDestructor>(), "AzInputNodeAndIndexVecDestructor"));
-        assert_eq!((Layout::new::<crate::widgets::tabs::TabVecDestructor>(), "AzTabVecDestructor"), (Layout::new::<AzTabVecDestructor>(), "AzTabVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"), (Layout::new::<AzTessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"));
@@ -13001,6 +13032,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::text_input::OnTextInputReturn>(), "AzOnTextInputReturn"), (Layout::new::<AzOnTextInputReturn>(), "AzOnTextInputReturn"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnValueChange>(), "AzNumberInputOnValueChange"), (Layout::new::<AzNumberInputOnValueChange>(), "AzNumberInputOnValueChange"));
         assert_eq!((Layout::new::<crate::widgets::number_input::NumberInputOnFocusLost>(), "AzNumberInputOnFocusLost"), (Layout::new::<AzNumberInputOnFocusLost>(), "AzNumberInputOnFocusLost"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabOnClick>(), "AzTabOnClick"), (Layout::new::<AzTabOnClick>(), "AzTabOnClick"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeAdded>(), "AzNodeGraphOnNodeAdded"), (Layout::new::<AzNodeGraphOnNodeAdded>(), "AzNodeGraphOnNodeAdded"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeRemoved>(), "AzNodeGraphOnNodeRemoved"), (Layout::new::<AzNodeGraphOnNodeRemoved>(), "AzNodeGraphOnNodeRemoved"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeGraphDragged>(), "AzNodeGraphOnNodeGraphDragged"), (Layout::new::<AzNodeGraphOnNodeGraphDragged>(), "AzNodeGraphOnNodeGraphDragged"));
@@ -13067,6 +13099,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeFieldEdited>(), "AzOptionNodeGraphOnNodeFieldEdited"), (Layout::new::<AzOptionNodeGraphOnNodeFieldEdited>(), "AzOptionNodeGraphOnNodeFieldEdited"));
         assert_eq!((Layout::new::<crate::widgets::color_input::OptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"), (Layout::new::<AzOptionColorInputOnValueChange>(), "AzOptionColorInputOnValueChange"));
         assert_eq!((Layout::new::<crate::widgets::button::OptionButtonOnClick>(), "AzOptionButtonOnClick"), (Layout::new::<AzOptionButtonOnClick>(), "AzOptionButtonOnClick"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::OptionTabOnClick>(), "AzOptionTabOnClick"), (Layout::new::<AzOptionTabOnClick>(), "AzOptionTabOnClick"));
         assert_eq!((Layout::new::<crate::widgets::file_input::OptionFileInputOnPathChange>(), "AzOptionFileInputOnPathChange"), (Layout::new::<AzOptionFileInputOnPathChange>(), "AzOptionFileInputOnPathChange"));
         assert_eq!((Layout::new::<crate::widgets::check_box::OptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"), (Layout::new::<AzOptionCheckBoxOnToggle>(), "AzOptionCheckBoxOnToggle"));
         assert_eq!((Layout::new::<crate::widgets::text_input::OptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"), (Layout::new::<AzOptionTextInputOnTextInput>(), "AzOptionTextInputOnTextInput"));
@@ -13211,6 +13244,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::file_input::FileInputState>(), "AzFileInputState"), (Layout::new::<AzFileInputState>(), "AzFileInputState"));
         assert_eq!((Layout::new::<crate::widgets::color_input::ColorInputStateWrapper>(), "AzColorInputStateWrapper"), (Layout::new::<AzColorInputStateWrapper>(), "AzColorInputStateWrapper"));
         assert_eq!((Layout::new::<crate::widgets::text_input::TextInputState>(), "AzTextInputState"), (Layout::new::<AzTextInputState>(), "AzTextInputState"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabHeader>(), "AzTabHeader"), (Layout::new::<AzTabHeader>(), "AzTabHeader"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeFieldValue>(), "AzNodeTypeFieldValue"), (Layout::new::<AzNodeTypeFieldValue>(), "AzNodeTypeFieldValue"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeInfo>(), "AzNodeTypeInfo"), (Layout::new::<AzNodeTypeInfo>(), "AzNodeTypeInfo"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputInfo>(), "AzInputOutputInfo"), (Layout::new::<AzInputOutputInfo>(), "AzInputOutputInfo"));
@@ -13310,18 +13344,16 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::xml::XmlError>(), "AzXmlError"), (Layout::new::<AzXmlError>(), "AzXmlError"));
         assert_eq!((Layout::new::<azul_impl::dom::Dom>(), "AzDom"), (Layout::new::<AzDom>(), "AzDom"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlock>(), "AzCssRuleBlock"), (Layout::new::<AzCssRuleBlock>(), "AzCssRuleBlock"));
-        assert_eq!((Layout::new::<crate::widgets::tabs::Tab>(), "AzTab"), (Layout::new::<AzTab>(), "AzTab"));
+        assert_eq!((Layout::new::<crate::widgets::tabs::TabContent>(), "AzTabContent"), (Layout::new::<AzTabContent>(), "AzTabContent"));
         assert_eq!((Layout::new::<crate::widgets::frame::Frame>(), "AzFrame"), (Layout::new::<AzFrame>(), "AzFrame"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeGraph>(), "AzNodeGraph"), (Layout::new::<AzNodeGraph>(), "AzNodeGraph"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledDom>(), "AzStyledDom"), (Layout::new::<AzStyledDom>(), "AzStyledDom"));
-        assert_eq!((Layout::new::<crate::widgets::tabs::TabVec>(), "AzTabVec"), (Layout::new::<AzTabVec>(), "AzTabVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssRuleBlockVec>(), "AzCssRuleBlockVec"), (Layout::new::<AzCssRuleBlockVec>(), "AzCssRuleBlockVec"));
         assert_eq!((Layout::new::<azul_impl::dom::OptionDom>(), "AzOptionDom"), (Layout::new::<AzOptionDom>(), "AzOptionDom"));
         assert_eq!((Layout::new::<azul_impl::xml::ResultXmlXmlError>(), "AzResultXmlXmlError"), (Layout::new::<AzResultXmlXmlError>(), "AzResultXmlXmlError"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgParseError>(), "AzSvgParseError"), (Layout::new::<AzSvgParseError>(), "AzSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::callbacks::IFrameCallbackReturn>(), "AzIFrameCallbackReturn"), (Layout::new::<AzIFrameCallbackReturn>(), "AzIFrameCallbackReturn"));
         assert_eq!((Layout::new::<azul_impl::css::Stylesheet>(), "AzStylesheet"), (Layout::new::<AzStylesheet>(), "AzStylesheet"));
-        assert_eq!((Layout::new::<crate::widgets::tabs::TabContainer>(), "AzTabContainer"), (Layout::new::<AzTabContainer>(), "AzTabContainer"));
         assert_eq!((Layout::new::<azul_impl::css::StylesheetVec>(), "AzStylesheetVec"), (Layout::new::<AzStylesheetVec>(), "AzStylesheetVec"));
         assert_eq!((Layout::new::<azul_impl::svg::ResultSvgXmlNodeSvgParseError>(), "AzResultSvgXmlNodeSvgParseError"), (Layout::new::<AzResultSvgXmlNodeSvgParseError>(), "AzResultSvgXmlNodeSvgParseError"));
         assert_eq!((Layout::new::<azul_impl::svg::ResultSvgSvgParseError>(), "AzResultSvgSvgParseError"), (Layout::new::<AzResultSvgSvgParseError>(), "AzResultSvgSvgParseError"));
