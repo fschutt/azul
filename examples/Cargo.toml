@@ -33,6 +33,7 @@ path = "rust/widgets.rs"
 [[bin]]
 name = "opengl"
 path = "rust/opengl.rs"
+required-features = ["serde_support"]
 
 [[bin]]
 name = "calculator"
@@ -59,8 +60,12 @@ name = "udp-chat"
 path = "rust/udp-chat.rs"
 
 [dependencies]
-azul = { path = "../api/rust", default-features = false, features = ["serde"] }
-serde = "1"
-serde_derive = "1"
-serde_json = "1"
+azul = { path = "../api/rust", default-features = false }
+serde = { version = "1", optional = true }
+serde_derive = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
 # libc_alloc = { version = "1.0.2", default-features = false }
+
+[features]
+default = []
+serde_support = ["azul/serde", "serde", "serde_derive", "serde_json"]

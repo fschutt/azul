@@ -118,7 +118,15 @@ pub fn msg_box_yes_no(title: &str, message: &str, icon: MessageBoxIcon, default:
 
 /// "Ok" MsgBox (title, message, icon)
 pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
-    ::tinyfiledialogs::message_box_ok(title, message, icon)
+    let mut msg = message.to_string();
+
+    #[cfg(target_os = "windows")] {
+        // Windows does REALLY not like quotes in messages
+        // otherwise the displayed message is just "INVALID MESSAGE WITH QUOTES"
+        msg = msg.replace("\"", "");
+    }
+
+    ::tinyfiledialogs::message_box_ok(title, &msg, icon)
 }
 
 /// Wrapper around `message_box_ok` with the default title "Info" + an info icon.

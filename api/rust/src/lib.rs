@@ -10023,6 +10023,8 @@ mod dll {
         pub(crate) fn AzAppConfig_new(_:  AzLayoutSolver) -> AzAppConfig;
         pub(crate) fn AzSystemCallbacks_libraryInternal() -> AzSystemCallbacks;
         pub(crate) fn AzWindowCreateOptions_new(_:  AzLayoutCallbackType) -> AzWindowCreateOptions;
+        pub(crate) fn AzLogicalPosition_new(_:  f32, _:  f32) -> AzLogicalPosition;
+        pub(crate) fn AzLogicalPosition_zero() -> AzLogicalPosition;
         pub(crate) fn AzLogicalSize_toPhysical(_:  &AzLogicalSize, _:  f32) -> AzPhysicalSizeU32;
         pub(crate) fn AzKeyboardState_shiftDown(_:  &AzKeyboardState) -> bool;
         pub(crate) fn AzKeyboardState_ctrlDown(_:  &AzKeyboardState) -> bool;
@@ -11180,6 +11182,15 @@ pub mod window {
     /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;
+    #[cfg(not(feature = "link_static"))]
+    impl LogicalPosition {
+
+        /// Creates a new `LogicalPosition` instance.
+        pub fn new(x: f32, y: f32) -> Self { unsafe { crate::dll::AzLogicalPosition_new(x, y) } }
+        /// Creates a new `LogicalPosition` instance.
+        pub fn zero() -> Self { unsafe { crate::dll::AzLogicalPosition_zero() } }
+    }
+
     /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;

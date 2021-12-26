@@ -9951,6 +9951,8 @@ namespace dll {
         SystemCallbacks SystemCallbacks_libraryInternal();
         WindowCreateOptions WindowCreateOptions_new(AzLayoutCallbackType  layout_callback);
         void WindowCreateOptions_delete(WindowCreateOptions* restrict instance);
+        LogicalPosition LogicalPosition_new(float x, float y);
+        LogicalPosition LogicalPosition_zero();
         PhysicalSizeU32 LogicalSize_toPhysical(const LogicalSize* logicalsize, float hidpi_factor);
         void SmallWindowIconBytes_delete(SmallWindowIconBytes* restrict instance);
         void LargeWindowIconBytes_delete(LargeWindowIconBytes* restrict instance);

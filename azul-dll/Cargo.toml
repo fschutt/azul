@@ -24,16 +24,21 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 doc = false
 
 [profile.dev]
-opt-level = 1
-lto = false
-panic = "unwind"
-debug = false
-
-[profile.release]
 opt-level = 'z'
 lto = false
 panic = "abort"
 codegen-units = 16
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = true
+rpath = false
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+codegen-units = 1
 debug = false
 debug-assertions = false
 overflow-checks = false

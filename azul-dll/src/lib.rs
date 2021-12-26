@@ -150,6 +150,12 @@ pub use AzLogicalRectTT as AzLogicalRect;
 /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
 pub type AzLogicalPositionTT = azul_core::window::LogicalPosition;
 pub use AzLogicalPositionTT as AzLogicalPosition;
+/// Creates a new `LogicalPosition` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `LogicalPosition::new()` constructor.
+#[no_mangle] pub extern "C" fn AzLogicalPosition_new(x: f32, y: f32) -> AzLogicalPosition { AzLogicalPosition::new(x, y) }
+/// Creates a new `LogicalPosition` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `LogicalPosition::zero()` constructor.
+#[no_mangle] pub extern "C" fn AzLogicalPosition_zero() -> AzLogicalPosition { AzLogicalPosition::zero() }
 
 /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
 pub type AzLogicalSizeTT = azul_core::window::LogicalSize;

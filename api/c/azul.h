@@ -12049,6 +12049,8 @@ extern DLLIMPORT AzAppConfig AzAppConfig_new(AzLayoutSolver  layout_solver);
 extern DLLIMPORT AzSystemCallbacks AzSystemCallbacks_libraryInternal();
 extern DLLIMPORT AzWindowCreateOptions AzWindowCreateOptions_new(AzLayoutCallbackType  layout_callback);
 extern DLLIMPORT void AzWindowCreateOptions_delete(AzWindowCreateOptions* restrict instance);
+extern DLLIMPORT AzLogicalPosition AzLogicalPosition_new(float x, float y);
+extern DLLIMPORT AzLogicalPosition AzLogicalPosition_zero();
 extern DLLIMPORT AzPhysicalSizeU32 AzLogicalSize_toPhysical(const AzLogicalSize* logicalsize, float hidpi_factor);
 extern DLLIMPORT void AzSmallWindowIconBytes_delete(AzSmallWindowIconBytes* restrict instance);
 extern DLLIMPORT void AzLargeWindowIconBytes_delete(AzLargeWindowIconBytes* restrict instance);

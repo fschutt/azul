@@ -106,16 +106,43 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                         Dom::div().with_children(vec![
                             Dom::text("This is a text 1".into())
                             .with_inline_style("
-                                font-family:serif;
-                                font-size:50px;
-                                display:inline;
-                                color:#ccc;
-                            ".into()),
-                            Dom::text("Lorem ipsum dolor\nsit amet".into())
-                            .with_inline_style("
                                 font-family:Courier New Bold;
                                 font-size:25px;
                                 display:inline;
+                            ".into()),
+                            Dom::text("\
+                              Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
+                              Nulla gravida placerat urna, tristique sodales nisi. Fusce \
+                              at commodo ipsum. Etiam consequat, metus rutrum porttitor tempor,  \
+                              metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
+                              cursus, dolor semper ultricies eleifend, erat magna faucibus nisl, ut \
+                              interdum velit magna quis neque. Integer mollis eros nec leo faucibus, \
+                              nec tincidunt dolor posuere. Donec molestie massa neque, ac \
+                              tempor lacus rutrum sit amet. Quisque viverra leo sit amet consequat \
+                              feugiat. Morbi turpis purus, auctor ac enim euismod, dignissim porttitor nisi. \
+                              Mauris at purus et augue suscipit porta ac in ex. Nullam sagittis interdum sodales. \
+                              Duis eu sapien eget leo eleifend aliquam vel eu nunc. Pellentesque sed cursus elit. \
+                              Interdum et malesuada fames ac ante ipsum primis in faucibus. Fusce vitae elit ligula.\
+                              \
+                              Praesent finibus consequat consectetur. Proin et erat dictum erat \
+                              tristique tempor ac vel velit. Ut sit amet ultrices purus. Etiam vel \
+                              convallis diam. Sed lobortis convallis ante a eleifend. Suspendisse \
+                              eu rhoncus orci, vel consequat risus. Nam at sodales massa. Aliquam \
+                              sit amet condimentum ex, non cursus neque. Lorem ipsum dolor sit \
+                              amet, consectetur adipiscing elit. \
+                               \
+                              In hac habitasse platea dictumst. Maecenas egestas mi sed mi \
+                              vestibulum, ut malesuada nibh tincidunt. Lorem ipsum dolor sit amet, \
+                              consectetur adipiscing elit. Proin at aliquet risus. Nulla elementum \
+                              venenatis diam, et viverra nunc fermentum quis. Vestibulum porta \
+                              sagittis diam vel malesuada. Nam pellentesque elementum lorem, quis \
+                              euismod ipsum semper ut.".into())
+                            .with_inline_style("
+                                font-family:serif;
+                                font-size:16px;
+                                display:inline;
+                                max-width: 500px;
+                                color:#ccc;
                             ".into()),
                             Dom::text("3".into())
                             .with_inline_style("font-size:10px".into()),

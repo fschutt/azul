@@ -342,7 +342,21 @@
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
-                    ]
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args":[
+                                {"x": "f32"},
+                                {"y": "f32"}
+                            ],
+                            "fn_body": "AzLogicalPosition::new(x, y)"
+                        },
+                        "zero": {
+                            "fn_args":[
+                            ],
+                            "fn_body": "AzLogicalPosition::zero()"
+                        }
+                    }
                 },
                 "LogicalSize": {
                     "doc": "A size in \"logical\" (non-HiDPI-adjusted) pixels in floating-point units",

@@ -243,16 +243,15 @@ dependencies = [
 
 [[package]]
 name = "azul-webrender"
-version = "0.62.1"
+version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be4a0c6749d6dbaede78dec4606805cefa7e0f0f400c7c7c060754f263e315fc"
+checksum = "1234646f5b1dc6b2c639504aa2b367ce62fe06bac1a3629c1070c82f17e02c8a"
 dependencies = [
  "azul-webrender-api",
  "azul-webrender-build",
  "azul-wr_malloc_size_of",
  "bincode",
  "bitflags",
- "build-parallel",
  "byteorder",
  "core-foundation",
  "core-graphics",
@@ -265,7 +264,6 @@ dependencies = [
  "freetype",
  "fxhash",
  "gl-context-loader",
- "glslopt",
  "lazy_static",
  "libc",
  "log",
@@ -407,17 +405,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1052e1c3b8d4d80eb84a8b94f0a1498797b5fb96314c001156a1c761940ef4ec"
 dependencies = [
  "alloc-no-stdlib",
-]
-
-[[package]]
-name = "build-parallel"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e3ff9db740167616e528c509b3618046fc05d337f8f3182d300f4aa977d2bb"
-dependencies = [
- "crossbeam-utils",
- "jobserver",
- "num_cpus",
 ]
 
 [[package]]
@@ -853,15 +840,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c64aa1db02ed7b6b2d4972e5a20c957cc1c0616365b6f47c713bf4506c76bd06"
 
 [[package]]
-name = "glslopt"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74a3f5c04450dfdadb4b08f6e5ee6f5110f674de1acbd6199bfec68392a8cbaf"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "glyph-names"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -969,15 +947,6 @@ name = "itoa"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
-
-[[package]]
-name = "jobserver"
-version = "0.1.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "972f5ae5d1cb9c6ae417789196c803205313edde988685da5e3aae0827b9e7fd"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "jpeg-decoder"

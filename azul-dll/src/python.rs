@@ -11559,13 +11559,16 @@ impl PyObjectProtocol for AzLogicalRect {
 #[pymethods]
 impl AzLogicalPosition {
     #[new]
-    fn __new__(x: f32, y: f32) -> Self {
-        Self {
-            x,
-            y,
-        }
+    fn new(x: f32, y: f32) -> AzLogicalPosition {
+        unsafe { mem::transmute(crate::AzLogicalPosition_new(
+            mem::transmute(x),
+            mem::transmute(y),
+        )) }
     }
-
+    #[staticmethod]
+    fn zero() -> AzLogicalPosition {
+        unsafe { mem::transmute(crate::AzLogicalPosition_zero()) }
+    }
 }
 
 #[pyproto]
