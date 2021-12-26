@@ -1,4 +1,6 @@
 
+    static NULL_REF: [u8;0] = [];
+
     #[cfg_attr(not(feature = "link_static"), derive(Debug))]
     #[repr(C)]
     pub struct Ref<'a, T> {
@@ -99,7 +101,11 @@
 
             self.sharing_info.increase_ref();
             Some(Ref {
-                ptr: unsafe { &*(self._internal_ptr as *const U) },
+                ptr: unsafe { &*(if self._internal_ptr.is_null() {
+                    NULL_REF.as_ptr() as *const U
+                } else {
+                    self._internal_ptr as *const U
+                }) },
                 sharing_info: self.sharing_info.clone(),
             })
         }
@@ -112,6 +118,9 @@
 
             let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
             if !can_be_shared_mut { return None; }
+
+            // zero-sized structs cannot be mutated
+            if self._internal_ptr.is_null() { return None; }
 
             self.sharing_info.increase_refmut();
 

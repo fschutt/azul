@@ -53,6 +53,7 @@ struct WidthConfig {
     exact: Option<LayoutWidth>,
     max: Option<LayoutMaxWidth>,
     min: Option<LayoutMinWidth>,
+    overflow: Option<LayoutOverflow>,
 }
 
 #[derive(Debug, Default)]
@@ -60,6 +61,7 @@ struct HeightConfig {
     exact: Option<LayoutHeight>,
     max: Option<LayoutMaxHeight>,
     min: Option<LayoutMinHeight>,
+    overflow: Option<LayoutOverflow>,
 }
 
 fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig> {
@@ -93,6 +95,11 @@ fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig>
                         &node_id,
                         &styled_node.state
                     ).and_then(|p| p.get_property().copied()),
+                    overflow: css_property_cache.get_overflow_x(
+                        &node_data_container[node_id],
+                        &node_id,
+                        &styled_node.state
+                    ).and_then(|p| p.get_property().copied()),
                 },
                 height: HeightConfig {
                     exact: css_property_cache.get_height(
@@ -106,6 +113,11 @@ fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig>
                         &styled_node.state
                     ).and_then(|p| p.get_property().copied()),
                     min: css_property_cache.get_min_height(
+                        &node_data_container[node_id],
+                        &node_id,
+                        &styled_node.state
+                    ).and_then(|p| p.get_property().copied()),
+                    overflow: css_property_cache.get_overflow_y(
                         &node_data_container[node_id],
                         &node_id,
                         &styled_node.state
@@ -125,7 +137,12 @@ macro_rules! determine_preferred {
     ///
     /// For example, if you have an image, the `preferred_inner_width` is the images width,
     /// if the node type is an text, the `preferred_inner_width` is the text height.
-    fn $fn_name(config: &WhConfig, preferred_width: Option<f32>, parent_width: f32) -> WhConstraint {
+    fn $fn_name(
+        config: &WhConfig,
+        preferred_width: Option<f32>,
+        parent_width: f32,
+        parent_overflow: LayoutOverflow,
+    ) -> WhConstraint {
 
         let width     = config.$width.exact.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
         let min_width = config.$width.min.as_ref().map(|x| x.inner.to_pixels(parent_width).max(0.0));
@@ -159,9 +176,19 @@ macro_rules! determine_preferred {
                     // no width, min_width or max_width: try preferred width
                     if let Some(preferred_width) = preferred_width {
                         let preferred_max = preferred_width.max(0.0);
-                        WhConstraint::Between(preferred_max, core::f32::MAX)
+                        if preferred_max > parent_width {
+                            match parent_overflow {
+                                LayoutOverflow::Hidden | LayoutOverflow::Visible => WhConstraint::Between(preferred_max, core::f32::MAX),
+                                LayoutOverflow::Auto | LayoutOverflow::Scroll => WhConstraint::EqualTo(parent_width),
+                            }
+                        } else {
+                            WhConstraint::Between(preferred_max, parent_width)
+                        }
                     } else {
-                        WhConstraint::Unconstrained
+                        match parent_overflow {
+                            LayoutOverflow::Hidden | LayoutOverflow::Visible => WhConstraint::Between(0.0, core::f32::MAX),
+                            LayoutOverflow::Auto | LayoutOverflow::Scroll => WhConstraint::Between(0.0, parent_width),
+                        }
                     }
                 }
             }
@@ -199,6 +226,7 @@ macro_rules! typed_arena {(
     $struct_name:ident,
     $preferred_field:ident,
     $determine_preferred_fn:ident,
+    $width_or_height:ident,
     $get_padding_fn:ident,
     $get_border_fn:ident,
     $get_margin_fn:ident,
@@ -256,17 +284,22 @@ macro_rules! typed_arena {(
                 None => continue,
             };
 
-            let parent_parent_width = node_hierarchy
-            .get(parent_id)
-            .and_then(|t| {
-                new_nodes.as_ref().get(t.parent_id()?)
-                .map(|parent| parent.$preferred_field)
-            })
-            .unwrap_or_default()
-            .max_available_space()
-            .unwrap_or(root_size_width);
+            let parent_parent_id = node_hierarchy
+                .get(parent_id)
+                .and_then(|t| t.parent_id())
+                .unwrap_or(NodeId::ZERO);
 
-            let parent_width = $determine_preferred_fn(&nd, width, parent_parent_width);
+            let parent_parent_width = new_nodes
+                .as_ref()
+                .get(parent_parent_id)
+                .map(|parent| parent.$preferred_field)
+                .unwrap_or_default()
+                .max_available_space()
+                .unwrap_or(root_size_width);
+
+            let parent_parent_overflow = wh_configs[parent_parent_id].$width_or_height.overflow.unwrap_or_default();
+
+            let parent_width = $determine_preferred_fn(&nd, width, parent_parent_width, parent_parent_overflow);
 
             new_nodes.as_ref_mut()[parent_id] = $struct_name {
                 // TODO: get the initial width of the rect content
@@ -289,12 +322,14 @@ macro_rules! typed_arena {(
                 min_inner_size_px: parent_width.min_needed_space().unwrap_or(0.0),
             };
 
+            let parent_overflow = wh_configs[parent_id].$width_or_height.overflow.unwrap_or_default();
+
             for child_id in parent_id.az_children(node_hierarchy) {
                 let nd = &wh_configs[child_id];
                 let child_offsets = &offsets[child_id];
                 let width = match widths.get(child_id) { Some(s) => *s, None => continue, };
                 let parent_available_space = parent_width.max_available_space().unwrap_or(0.0);
-                let child_width = $determine_preferred_fn(&nd, width, parent_available_space);
+                let child_width = $determine_preferred_fn(&nd, width, parent_available_space, parent_overflow);
                 let mut child = $struct_name {
                     // TODO: get the initial width of the rect content
                     $preferred_field: child_width,
@@ -648,8 +683,6 @@ macro_rules! typed_arena {(
 
         use azul_css::{LayoutAxis, LayoutPosition};
 
-        debug_assert!(node_data.as_ref()[NodeId::ZERO].flex_grow_px == 0.0);
-
         // Set the window width on the root node (since there is only one root node, we can
         // calculate the `flex_grow_px` directly)
         //
@@ -740,6 +773,7 @@ typed_arena!(
     WidthCalculatedRect,
     preferred_width,
     determine_preferred_width,
+    width,
     get_horizontal_padding,
     get_horizontal_border,
     get_horizontal_margin,
@@ -762,6 +796,7 @@ typed_arena!(
     HeightCalculatedRect,
     preferred_height,
     determine_preferred_height,
+    height,
     get_vertical_padding,
     get_vertical_border,
     get_vertical_margin,
@@ -1789,7 +1824,11 @@ pub fn do_the_layout_internal(
     // to shrink in width, it needs to recalculate its height
     let word_blocks_to_recalculate = word_positions_no_max_width.iter()
     .filter_map(|(node_id, word_positions)| {
+        let parent_id = styled_dom.node_hierarchy.as_container()[*node_id].parent_id().unwrap_or(NodeId::ZERO);
         if width_calculated_arena.as_ref()[*node_id].total() < word_positions.0.content_size.width {
+            Some(*node_id)
+        // if the text content overflows the parent width, we also need to recalculate
+        } else if width_calculated_arena.as_ref()[*node_id].total() > width_calculated_arena.as_ref()[parent_id].total() {
             Some(*node_id)
         } else {
             None
@@ -2365,22 +2404,36 @@ fn create_word_positions<'a>(
 
         let shaped_words = shaped_words.get(&node_id)?;
 
-        let overflow_x = css_property_cache
-        .get_overflow_x(node_data, node_id, &styled_node_state)
-        .cloned().unwrap_or_default().get_property_or_default().unwrap_or_default();
+        let mut max_text_width = None;
+        let mut cur_node = *node_id;
+        while let Some(parent) = styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
 
-        let text_can_overflow_parent = match overflow_x {
-            LayoutOverflow::Auto => false,
-            LayoutOverflow::Scroll => false,
-            LayoutOverflow::Hidden => true,
-            LayoutOverflow::Visible => true,
-        };
+            let overflow_x = css_property_cache.get_overflow_x(
+                &node_data_container[parent],
+                &parent,
+                &styled_dom.styled_nodes.as_container()[parent].state
+            ).cloned();
 
-        let max_text_width = if !text_can_overflow_parent {
-            solved_widths.map(|sw| sw[*node_id].total() as f32)
-        } else {
-            None
-        };
+            match overflow_x {
+                Some(CssPropertyValue::Exact(LayoutOverflow::Hidden)) |
+                Some(CssPropertyValue::Exact(LayoutOverflow::Visible)) => {
+                    max_text_width = None;
+                    break;
+                },
+                None |
+                Some(CssPropertyValue::None) |
+                Some(CssPropertyValue::Auto) |
+                Some(CssPropertyValue::Initial) |
+                Some(CssPropertyValue::Inherit) |
+                Some(CssPropertyValue::Exact(LayoutOverflow::Auto)) |
+                Some(CssPropertyValue::Exact(LayoutOverflow::Scroll)) => {
+                    max_text_width = solved_widths.map(|sw| sw[parent].total() as f32);
+                    break;
+                },
+            }
+
+            cur_node = parent;
+        }
 
         let letter_spacing = css_property_cache
         .get_letter_spacing(node_data, node_id, &styled_node_state)
@@ -2722,6 +2775,8 @@ pub fn do_the_relayout(
         parents_that_need_to_recalc_height_of_children.insert(root_id);
     }
 
+    let mut node_ids_that_changed_text_content = Vec::new();
+
     // Update words cache and shaped words cache
     if let Some(words_to_relayout) = words_to_relayout {
         for (node_id, new_string) in words_to_relayout.iter() {
@@ -2744,6 +2799,10 @@ pub fn do_the_relayout(
                 Some(s) => s.0.clone(),
             };
 
+            let text_max_width = text_layout_options.max_horizontal_width.clone();
+
+            println!("new string: {:?}", new_string);
+            println!("text_layout_options max width: {:?}", text_layout_options.max_horizontal_width);
             let new_words = split_text_into_words(new_string.as_str());
 
             let css_property_cache = layout_result.styled_dom.get_css_property_cache();
@@ -2792,11 +2851,23 @@ pub fn do_the_relayout(
             let new_word_positions = position_words(&new_words, &new_shaped_words, &text_layout_options);
             let new_inline_text_layout = word_positions_to_inline_text_layout(&new_word_positions);
 
+            let old_word_dimensions = layout_result.rects.as_ref()
+                .get(*node_id)
+                .and_then(|s| s.resolved_text_layout_options.as_ref())
+                .map(|s| s.1.content_size)
+                .unwrap_or(LogicalSize::zero());
+
+            let new_word_dimensions = new_word_positions.content_size;
+
+            println!("old word dimensions: {:?}", old_word_dimensions);
+            println!("new word dimensions: {:?}", new_word_dimensions);
+
             layout_result.preferred_widths.as_ref_mut()[*node_id] = Some(new_word_positions.content_size.width);
             *layout_result.words_cache.get_mut(node_id).unwrap() = new_words;
             *layout_result.shaped_words_cache.get_mut(node_id).unwrap() = new_shaped_words;
             layout_result.positioned_words_cache.get_mut(node_id).unwrap().0 = new_word_positions;
             layout_result.rects.as_ref_mut().get_mut(*node_id).unwrap().resolved_text_layout_options = Some((text_layout_options, new_inline_text_layout));
+            node_ids_that_changed_text_content.push(*node_id);
         }
     }
 
@@ -2822,6 +2893,7 @@ pub fn do_the_relayout(
                     let solved_width_layout = &mut layout_result.width_calculated_rects.as_ref_mut()[$node_id];
                     let solved_height_layout = &mut layout_result.height_calculated_rects.as_ref_mut()[$node_id];
                     let css_property_cache = layout_result.styled_dom.get_css_property_cache();
+                    let parent_parent = layout_result.styled_dom.node_hierarchy.as_container()[$parent_id].parent_id().unwrap_or(NodeId::ZERO);
 
                     // recalculate min / max / preferred width constraint if needed
                     if changes_for_this_node.contains_key(&CssPropertyType::Width) ||
@@ -2839,15 +2911,25 @@ pub fn do_the_relayout(
                                 .and_then(|p| p.get_property().copied()),
                                 min: css_property_cache.get_min_width(node_data, &$node_id, styled_node_state)
                                 .and_then(|p| p.get_property().copied()),
+                                overflow: css_property_cache.get_overflow_x(node_data, &$node_id, styled_node_state)
+                                .and_then(|p| p.get_property().copied()),
                             },
                             height: HeightConfig::default(),
                         };
-
                         let parent_width = layout_result.preferred_widths.as_ref()[$parent_id].clone().unwrap_or(root_size.width as f32);
+                        let parent_parent_overflow_x = css_property_cache
+                            .get_overflow_x(
+                                &layout_result.styled_dom.node_data.as_container()[parent_parent],
+                                &parent_parent,
+                                &layout_result.styled_dom.styled_nodes.as_container()[parent_parent].state
+                            ).and_then(|p| p.get_property().copied())
+                            .unwrap_or_default();
+
                         let new_preferred_width = determine_preferred_width(
                             &wh_config,
                             layout_result.preferred_widths.as_ref()[$node_id],
-                            parent_width
+                            parent_width,
+                            parent_parent_overflow_x,
                         );
 
                         if new_preferred_width != solved_width_layout.preferred_width {
@@ -2871,13 +2953,24 @@ pub fn do_the_relayout(
                                 .and_then(|p| p.get_property().copied()),
                                 min: css_property_cache.get_min_height(node_data, &$node_id, &styled_node_state)
                                 .and_then(|p| p.get_property().copied()),
+                                overflow: css_property_cache.get_overflow_y(node_data, &$node_id, &styled_node_state)
+                                .and_then(|p| p.get_property().copied()),
                             },
                         };
                         let parent_height = layout_result.preferred_heights.as_ref()[$parent_id].clone().unwrap_or(root_size.height as f32);
+                        let parent_parent_overflow_y = css_property_cache
+                            .get_overflow_x(
+                                &layout_result.styled_dom.node_data.as_container()[parent_parent],
+                                &parent_parent,
+                                &layout_result.styled_dom.styled_nodes.as_container()[parent_parent].state
+                            ).and_then(|p| p.get_property().copied())
+                            .unwrap_or_default();
+
                         let new_preferred_height = determine_preferred_height(
                             &wh_config,
                             layout_result.preferred_heights.as_ref()[$node_id],
-                            parent_height
+                            parent_height,
+                            parent_parent_overflow_y
                         );
 
                         if new_preferred_height != solved_height_layout.preferred_height {
@@ -3210,6 +3303,9 @@ pub fn do_the_relayout(
         }
     }
 
+    updated_word_caches.extend(node_ids_that_changed_text_content.clone().into_iter());
+
+    println!("do_the_relayout");
     #[cfg(feature = "text_layout")]
     create_word_positions(
         &mut layout_result.positioned_words_cache,
@@ -3220,6 +3316,7 @@ pub fn do_the_relayout(
         &layout_result.styled_dom,
         Some(&layout_result.width_calculated_rects.as_ref()),
     );
+    println!("do_the_relayout donde");
 
     // determine which nodes changed their size and return
     let mut nodes_that_changed_size = BTreeSet::new();
@@ -3235,6 +3332,7 @@ pub fn do_the_relayout(
             nodes_that_changed_size.insert(child_id);
         }
     }
+    nodes_that_changed_size.extend(node_ids_that_changed_text_content.into_iter());
 
     let css_property_cache = layout_result.styled_dom.get_css_property_cache();
     let node_data_container = layout_result.styled_dom.node_data.as_container();

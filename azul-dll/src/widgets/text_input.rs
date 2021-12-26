@@ -498,6 +498,7 @@ impl TextInputState {
     fn handle_on_text_input(&mut self, c: char) -> usize {
         match self.selection.clone().into_option() {
             None => {
+                println!("handle on text input: char = {}, cursor_pos = {}", c, self.cursor_pos);
                 if self.cursor_pos >= self.text.len() {
                     self.text.push(c as u32);
                 } else {
@@ -681,6 +682,8 @@ extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut Callback
         None => return Update::DoNothing,
     };
 
+    println!("entered: {}", c);
+
     let label_node_id = match info.get_first_child(info.get_hit_node()) {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -704,17 +707,18 @@ extern "C" fn default_on_text_input(text_input: &mut RefAny, info: &mut Callback
         }
     };
 
-    let new_text = text_input.inner.get_text();
 
     if result.valid == TextInputValid::Yes {
         // Update the string, cursor position on the screen and selection background
         let new_cursor = text_input.inner.handle_on_text_input(c);
-        text_input.inner.set_cursor_pos(new_cursor, new_text.as_ref(), label_node_id, info);
+        // text_input.inner.set_cursor_pos(new_cursor, new_text.as_ref(), label_node_id, info);
 
         // TODO: restart the timer for cursor blinking
         // info.update_image(selection_node_id, render_selection(self.selection));
     }
 
+    let new_text = text_input.inner.get_text();
+    println!("setting text to: {}", new_text);
     info.set_string_contents(label_node_id, new_text.into());
 
     result.update
@@ -753,23 +757,23 @@ extern "C" fn default_on_virtual_key_down(text_input: &mut RefAny, info: &mut Ca
         }
     };
 
-    let new_text = text_input.inner.get_text();
     if result.valid == TextInputValid::Yes {
         let (should_update, new_cursor) = text_input.inner.handle_on_virtual_key_down(last_keycode, &kb_state, info);
         if should_update {
             if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
-                text_input.inner.set_cursor_pos(
-                    new_cursor,
-                    &new_text,
-                    label_node_id,
-                    info,
-                );
+                // text_input.inner.set_cursor_pos(
+                //     new_cursor,
+                //     &new_text,
+                //     label_node_id,
+                //     info,
+                // );
                 // set_selection(text_input.cursor)
             };
         }
     }
 
     if let Some(label_node_id) = info.get_first_child(info.get_hit_node()) {
+        let new_text = text_input.inner.get_text();
         info.set_string_contents(label_node_id, new_text.into());
     }
 
@@ -790,14 +794,14 @@ extern "C" fn default_on_container_click(text_input: &mut RefAny, info: &mut Cal
 
     let new_cursor_pos = text_input.inner.text.len();
     let new_text = text_input.inner.get_text();
-    text_input.inner.set_cursor_pos(
-        new_cursor_pos,
-        &new_text,
-        label_node_id,
-        info,
-    );
+    // text_input.inner.set_cursor_pos(
+    //     new_cursor_pos,
+    //     &new_text,
+    //     label_node_id,
+    //     info,
+    // );
 
-    println!("container clicked at position {:?}", info.get_cursor_relative_to_node());
+    // println!("container clicked at position {:?}", info.get_cursor_relative_to_node());
 
     // TODO: clear selection, set cursor to text hit
     Update::DoNothing
@@ -832,10 +836,10 @@ extern "C" fn default_on_label_click(text_input: &mut RefAny, info: &mut Callbac
     println!("hit: {:#?}", hit);
 
     let label_node_id = info.get_hit_node();
-    let new_cursor_pos = hit.char_index_relative_to_text;
     let new_text = text_input.inner.get_text();
     text_input.inner.set_cursor_pos(
-        new_cursor_pos,
+        hit.hit_relative_to_inline_text.x,
+        hit.char_index_relative_to_text,
         &new_text,
         label_node_id,
         info
@@ -926,11 +930,11 @@ extern "C" fn default_on_focus_lost(text_input: &mut RefAny, info: &mut Callback
 // determine the cursor position from the x position that was clicked
 impl TextInputState {
 
-    // Updates the cursor position and scrolls
-    // the text to the correct position
+    // Updates the cursor position and scrolls the text to the correct position
     pub fn set_cursor_pos(
         &mut self,
-        new_cursor: usize,
+        new_cursor_x: f32,
+        new_cursor_index: usize,
         new_text: &str,
         label_node_id: DomNodeId,
         info: &mut CallbackInfo,
@@ -943,67 +947,20 @@ impl TextInputState {
             None => return,
         };
 
-        let text_font_ref = match info.get_font_ref(label_node_id) {
-            Some(s) => s,
-            None => return,
-        };
+        /*
+        let inline_text = info.get_inline_text(label_node_id) {
 
-        let text_layout_options = match info.get_text_layout_options(label_node_id) {
-            Some(s) => s,
-            None => return,
-        };
+        };*/
 
-        let text_layout = azul_desktop::text_layout::shape_text(
-            &text_font_ref,
-            new_text,
-            &text_layout_options
-        );
-
-        let first_line = match text_layout.lines.get(0) {
-            Some(s) => s,
-            None => return,
-        };
-
-        let mut cursor_x = 0.0;
-        let mut cur_pos = 0;
-
-        for word in first_line.words.iter() {
-            match word {
-                InlineWord::Tab => {
-                    cur_pos += 1;
-                },
-                InlineWord::Return => {
-                    return; // impossible in single-line text
-                },
-                InlineWord::Space => {
-                    cur_pos += 1;
-                },
-                InlineWord::Word(tc) => {
-                    for g in tc.glyphs.iter() {
-                        cursor_x += g.bounds.size.width;
-                        cur_pos += 1;
-                        if cur_pos >= new_cursor {
-                            break;
-                        }
-                    }
-                },
-            }
-
-            if cur_pos >= new_cursor {
-                break;
-            }
-        }
-
+        info.set_string_contents(label_node_id, new_text.to_owned().into());
         info.set_css_property(cursor_node_id, CssProperty::const_transform(vec![
             StyleTransform::Translate(StyleTransformTranslate2D {
-                x: PixelValue::px(cursor_x),
+                x: PixelValue::px(new_cursor_x),
                 y: PixelValue::px(2.0),
             })
         ].into()));
 
-        // if cursor_x > bounds.width() { }
-
-        self.cursor_pos = new_cursor;
+        self.cursor_pos = new_cursor_index;
     }
 }
 

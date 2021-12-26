@@ -3754,7 +3754,7 @@ enum AzCursorPositionTag {
 };
 typedef enum AzCursorPositionTag AzCursorPositionTag;
 
-struct AzCursorPositionVariant_OutOfWindow { AzCursorPositionTag tag; };
+struct AzCursorPositionVariant_OutOfWindow { AzCursorPositionTag tag; AzLogicalPosition payload; };
 typedef struct AzCursorPositionVariant_OutOfWindow AzCursorPositionVariant_OutOfWindow;
 struct AzCursorPositionVariant_Uninitialized { AzCursorPositionTag tag; };
 typedef struct AzCursorPositionVariant_Uninitialized AzCursorPositionVariant_Uninitialized;
@@ -10596,6 +10596,7 @@ struct AzNodeGraph {
     AzNodeGraphStyle style;
     AzNodeGraphCallbacks callbacks;
     AzString add_node_str;
+    float scale_factor;
 };
 typedef struct AzNodeGraph AzNodeGraph;
 
@@ -10981,7 +10982,7 @@ typedef struct AzCss AzCss;
 #define AzAcceleratorKey_Alt { .Alt = { .tag = AzAcceleratorKeyTag_Alt } }
 #define AzAcceleratorKey_Shift { .Shift = { .tag = AzAcceleratorKeyTag_Shift } }
 #define AzAcceleratorKey_Key(v) { .Key = { .tag = AzAcceleratorKeyTag_Key, .payload = v } }
-#define AzCursorPosition_OutOfWindow { .OutOfWindow = { .tag = AzCursorPositionTag_OutOfWindow } }
+#define AzCursorPosition_OutOfWindow(v) { .OutOfWindow = { .tag = AzCursorPositionTag_OutOfWindow, .payload = v } }
 #define AzCursorPosition_Uninitialized { .Uninitialized = { .tag = AzCursorPositionTag_Uninitialized } }
 #define AzCursorPosition_InWindow(v) { .InWindow = { .tag = AzCursorPositionTag_InWindow, .payload = v } }
 #define AzWindowPosition_Uninitialized { .Uninitialized = { .tag = AzWindowPositionTag_Uninitialized } }
@@ -14644,6 +14645,20 @@ bool AzAcceleratorKey_matchRefKey(const AzAcceleratorKey* value, const AzVirtual
 bool AzAcceleratorKey_matchMutKey(AzAcceleratorKey* restrict value, AzVirtualKeyCode* restrict * restrict out) {
     AzAcceleratorKeyVariant_Key* restrict casted = (AzAcceleratorKeyVariant_Key* restrict)value;
     bool valid = casted->tag == AzAcceleratorKeyTag_Key;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCursorPosition_matchRefOutOfWindow(const AzCursorPosition* value, const AzLogicalPosition** restrict out) {
+    const AzCursorPositionVariant_OutOfWindow* casted = (const AzCursorPositionVariant_OutOfWindow*)value;
+    bool valid = casted->tag == AzCursorPositionTag_OutOfWindow;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzCursorPosition_matchMutOutOfWindow(AzCursorPosition* restrict value, AzLogicalPosition* restrict * restrict out) {
+    AzCursorPositionVariant_OutOfWindow* restrict casted = (AzCursorPositionVariant_OutOfWindow* restrict)value;
+    bool valid = casted->tag == AzCursorPositionTag_OutOfWindow;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

@@ -295,13 +295,24 @@ impl RefAny {
 
         use core::ptr;
 
-        // cast the struct as bytes
-        let struct_as_bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
+        // special case: calling alloc() with 0 bytes would be undefined behaviour
+        //
+        // In order to invoke the destructor correctly, we need a 0-sized allocation
+        // on the heap (NOT nullptr, as this would lead to UB when calling the destructor)
+        let (_internal_ptr, layout) = if len == 0 {
+            let _dummy: [u8;0] = [];
+            (ptr::null_mut(), Layout::for_value(&_dummy))
+        } else {
 
-        // allocate + copy the struct to the heap
-        let layout = Layout::for_value(&*struct_as_bytes);
-        let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
-        unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
+            // cast the struct as bytes
+            let struct_as_bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
+            let layout = Layout::for_value(&*struct_as_bytes);
+
+            // allocate + copy the struct to the heap
+            let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
+            unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
+            (heap_struct_as_bytes, layout)
+        };
 
         let ref_count_inner = RefCountInner {
             num_copies: AtomicUsize::new(1),
@@ -317,7 +328,7 @@ impl RefAny {
         };
 
         Self {
-            _internal_ptr: heap_struct_as_bytes as *const c_void,
+            _internal_ptr: _internal_ptr as *const c_void,
             sharing_info: RefCount::new(ref_count_inner),
             instance_id: 0,
             run_destructor: true,
@@ -340,6 +351,7 @@ impl RefAny {
         let can_be_shared = self.sharing_info.can_be_shared();
         if !can_be_shared { return None; }
 
+        if self._internal_ptr.is_null() { return None; }
         self.sharing_info.increase_ref();
         Some(Ref {
             ptr: unsafe { &*(self._internal_ptr as *const U) },
@@ -356,6 +368,7 @@ impl RefAny {
         let can_be_shared_mut = self.sharing_info.can_be_shared_mut();
         if !can_be_shared_mut { return None; }
 
+        if self._internal_ptr.is_null() { return None; }
         self.sharing_info.increase_refmut();
 
         Some(RefMut {
@@ -423,25 +436,32 @@ impl Clone for RefAny {
 impl Drop for RefAny {
     fn drop(&mut self) {
 
+        use std::ptr;
+
         self.run_destructor = false;
 
         let current_copies = self.sharing_info.downcast().num_copies.fetch_sub(1, AtomicOrdering::SeqCst);
 
-        if current_copies == 1 {
-            let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
-            let sharing_info = *sharing_info; // sharing_info itself deallocates here
+        if current_copies != 1 {
+            return;
+        }
+
+        let sharing_info = unsafe { Box::from_raw(self.sharing_info.ptr as *mut RefCountInner) };
+        let sharing_info = *sharing_info; // sharing_info itself deallocates here
+
+        if sharing_info._internal_len == 0 ||
+           sharing_info._internal_layout_size == 0 ||
+           self._internal_ptr.is_null() {
+            let mut _dummy: [u8;0] = [];
+            (sharing_info.custom_destructor)(_dummy.as_ptr() as *mut c_void);
+        } else {
+            let layout = unsafe { Layout::from_size_align_unchecked(
+                sharing_info._internal_layout_size,
+                sharing_info._internal_layout_align
+            ) };
 
             (sharing_info.custom_destructor)(self._internal_ptr as *mut c_void);
-
-            unsafe {
-                alloc::alloc::dealloc(
-                    self._internal_ptr as *mut u8,
-                    Layout::from_size_align_unchecked(
-                        sharing_info._internal_layout_size,
-                        sharing_info._internal_layout_align
-                    ),
-                );
-            }
+            unsafe { alloc::alloc::dealloc(self._internal_ptr as *mut u8, layout); }
         }
     }
 }
@@ -848,9 +868,6 @@ impl InlineText {
             line_bounds.hit_test(&hit_relative_to_inline_text)
             .map(|mut hit_relative_to_line| {
 
-                // shift the hit by baseline offset
-                hit_relative_to_line.y += descender_px;
-
                 line.words
                 .iter() // TODO: par_iter
                 .flat_map(|word| {
@@ -867,13 +884,16 @@ impl InlineText {
 
                         text_content_bounds
                         .hit_test(&hit_relative_to_line)
-                        .map(|hit_relative_to_text_content| {
+                        .map(|mut hit_relative_to_text_content| {
 
                             text_content.glyphs
                             .iter() // TODO: par_iter
                             .flat_map(|glyph| {
 
-                                let result = glyph.bounds
+                                let mut glyph_bounds = glyph.bounds;
+                                glyph_bounds.origin.y = text_content.bounds.size.height + descender_px - glyph.bounds.size.height;
+
+                                let result = glyph_bounds
                                 .hit_test(&hit_relative_to_text_content)
                                 .map(|hit_relative_to_glyph| {
                                     InlineTextHit {

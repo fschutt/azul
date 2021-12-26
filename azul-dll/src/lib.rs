@@ -8266,7 +8266,7 @@ mod test_sizes {
     #[repr(C, u8)]
     #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
     pub enum AzCursorPosition {
-        OutOfWindow,
+        OutOfWindow(AzLogicalPosition),
         Uninitialized,
         InWindow(AzLogicalPosition),
     }
@@ -12501,6 +12501,7 @@ mod test_sizes {
         pub style: AzNodeGraphStyle,
         pub callbacks: AzNodeGraphCallbacks,
         pub add_node_str: AzString,
+        pub scale_factor: f32,
     }
 
     /// Re-export of rust-allocated (stack based) `StyledDom` struct

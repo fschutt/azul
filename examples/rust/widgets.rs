@@ -30,7 +30,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         ].into()))
     ].into()))
     .with_inline_style(if enable_padding {
-        "padding: 50px"
+        "padding: 10px"
     } else {
         ""
     }.into())
@@ -79,32 +79,12 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                     Dom::div()
                     .with_inline_style("flex-direction: row;padding:10px;".into())
                     .with_children(vec![
-                        Dom::div().with_inline_style("
-                            width:200px;
-                            height:200px;
-                            background:linear-gradient(black, white);
-                            border-radius: 10px 5px;
-                            border: 5px dotted salmon;
-                            margin: 50px;
-                        ".into()),
-                        Dom::div().with_inline_style("
-                            width:200px;
-                            height:200px;
-                            background: radial-gradient(ellipse at top, #e66465, transparent);
-                            border-radius: 10px 5px;
-                            border: 3px dashed blue;
-                            margin: 50px;
-                        ".into()),
-                        Dom::div().with_inline_style("
-                            width:200px;
-                            height:200px;
-                            background:conic-gradient(black, white);
-                            border-radius: 10px 5px;
-                            border: 4px solid red;
-                            margin: 50px;
-                        ".into()),
-                        Dom::div().with_children(vec![
-                            Dom::text("This is a text 1".into())
+                        Dom::div()
+                        .with_children(vec![
+                            Dom::text("This is a text 1 placerat urna, tristique sodales nisi. Fusce \
+                              at commodo ipsum. Etiam consequat, metus rutrum porttitor tempor,  \
+                              metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
+                              cursus, dolor semper ultricies ele".into())
                             .with_inline_style("
                                 font-family:Courier New Bold;
                                 font-size:25px;
@@ -117,33 +97,19 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                               metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
                               cursus, dolor semper ultricies eleifend, erat magna faucibus nisl, ut \
                               interdum velit magna quis neque. Integer mollis eros nec leo faucibus, \
-                              nec tincidunt dolor posuere. Donec molestie massa neque, ac \
-                              tempor lacus rutrum sit amet. Quisque viverra leo sit amet consequat \
-                              feugiat. Morbi turpis purus, auctor ac enim euismod, dignissim porttitor nisi. \
-                              Mauris at purus et augue suscipit porta ac in ex. Nullam sagittis interdum sodales. \
-                              Duis eu sapien eget leo eleifend aliquam vel eu nunc. Pellentesque sed cursus elit. \
-                              Interdum et malesuada fames ac ante ipsum primis in faucibus. Fusce vitae elit ligula.\
-                              \
-                              Praesent finibus consequat consectetur. Proin et erat dictum erat \
-                              tristique tempor ac vel velit. Ut sit amet ultrices purus. Etiam vel \
-                              convallis diam. Sed lobortis convallis ante a eleifend. Suspendisse \
-                              eu rhoncus orci, vel consequat risus. Nam at sodales massa. Aliquam \
-                              sit amet condimentum ex, non cursus neque. Lorem ipsum dolor sit \
-                              amet, consectetur adipiscing elit. \
-                               \
-                              In hac habitasse platea dictumst. Maecenas egestas mi sed mi \
-                              vestibulum, ut malesuada nibh tincidunt. Lorem ipsum dolor sit amet, \
-                              consectetur adipiscing elit. Proin at aliquet risus. Nulla elementum \
-                              venenatis diam, et viverra nunc fermentum quis. Vestibulum porta \
-                              sagittis diam vel malesuada. Nam pellentesque elementum lorem, quis \
-                              euismod ipsum semper ut.".into())
+                              nec tincidunt dolor posuere.".into())
                             .with_inline_style("
                                 font-family:serif;
-                                font-size:16px;
+                                font-size:26px;
                                 display:inline;
-                                max-width: 500px;
-                                color:#ccc;
-                            ".into()),
+                                background: red;
+                                color:white;
+                            ".into())
+                            .with_callback(
+                                On::LeftMouseDown.into_event_filter(),
+                                data.clone(),
+                                text_mouse_down
+                            ),
                             Dom::text("3".into())
                             .with_inline_style("font-size:10px".into()),
                             Dom::text("2".into())
@@ -158,6 +124,27 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         .with_padding(enable_padding)
         .dom()
     ).style(Css::empty())
+}
+
+extern "C" fn text_mouse_down(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+
+    use azul::option::OptionInlineText;
+
+    let cursor_relative_to_node = match info.get_cursor_relative_to_node().into_option() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
+    println!("cursor_relative_to_node: {:?}", cursor_relative_to_node);
+
+    let inline_text = match info.get_inline_text(info.get_hit_node()) {
+        OptionInlineText::Some(s) => s,
+        OptionInlineText::None => return Update::DoNothing,
+    };
+
+    let _ = inline_text.hit_test(cursor_relative_to_node);
+
+    Update::DoNothing
 }
 
 extern "C" fn switch_active_tab(data: &mut RefAny, _: &mut CallbackInfo, h: &TabHeaderState) -> Update {

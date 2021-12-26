@@ -1180,7 +1180,11 @@ fn process_window_event(
             current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
         },
         GlutinWindowEvent::CursorLeft { .. } => {
-            current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
+            let last_seen = match current_window_state.mouse_state.cursor_position {
+                CursorPosition::InWindow(p) => p.clone(),
+                _ => LogicalPosition::zero()
+            };
+            current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow(last_seen);
         },
         GlutinWindowEvent::CursorEntered { .. } => {
             current_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));

@@ -415,7 +415,7 @@ pub struct ScrollResult {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
 pub enum CursorPosition {
-    OutOfWindow,
+    OutOfWindow(LogicalPosition),
     Uninitialized,
     InWindow(LogicalPosition),
 }
@@ -430,7 +430,7 @@ impl CursorPosition {
     pub fn get_position(&self) -> Option<LogicalPosition> {
         match self {
             CursorPosition::InWindow(logical_pos) => Some(*logical_pos),
-            CursorPosition::OutOfWindow | CursorPosition::Uninitialized => None,
+            CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => None,
         }
     }
 

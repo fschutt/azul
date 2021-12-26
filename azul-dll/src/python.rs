@@ -3604,7 +3604,7 @@ pub struct AzWindowFlags {
 /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
 #[repr(C, u8)]
 pub enum AzCursorPosition {
-    OutOfWindow,
+    OutOfWindow(AzLogicalPosition),
     Uninitialized,
     InWindow(AzLogicalPosition),
 }
@@ -7803,6 +7803,7 @@ pub struct AzNodeGraph {
     pub style: AzNodeGraphStyleEnumWrapper,
     pub callbacks: AzNodeGraphCallbacks,
     pub add_node_str: AzString,
+    pub scale_factor: f32,
 }
 
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
@@ -12392,8 +12393,8 @@ impl PyObjectProtocol for AzMouseCursorTypeEnumWrapper {
 
 #[pymethods]
 impl AzCursorPositionEnumWrapper {
-    #[classattr]
-    fn OutOfWindow() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::OutOfWindow } }
+    #[staticmethod]
+    fn OutOfWindow(v: AzLogicalPosition) -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::OutOfWindow(v) } }
     #[classattr]
     fn Uninitialized() -> AzCursorPositionEnumWrapper { AzCursorPositionEnumWrapper { inner: AzCursorPosition::Uninitialized } }
     #[staticmethod]
@@ -12405,7 +12406,7 @@ impl AzCursorPositionEnumWrapper {
         let gil = Python::acquire_gil();
         let py = gil.python();
         match &self.inner {
-            AzCursorPosition::OutOfWindow => Ok(vec!["OutOfWindow".into_py(py), ().into_py(py)]),
+            AzCursorPosition::OutOfWindow(v) => Ok(vec!["OutOfWindow".into_py(py), v.clone().into_py(py)]),
             AzCursorPosition::Uninitialized => Ok(vec!["Uninitialized".into_py(py), ().into_py(py)]),
             AzCursorPosition::InWindow(v) => Ok(vec!["InWindow".into_py(py), v.clone().into_py(py)]),
         }
@@ -23490,7 +23491,7 @@ impl PyObjectProtocol for AzFrame {
 #[pymethods]
 impl AzNodeGraph {
     #[new]
-    fn __new__(node_types: AzNodeTypeIdInfoMapVec, input_output_types: AzInputOutputTypeIdInfoMapVec, nodes: AzNodeIdNodeMapVec, allow_multiple_root_nodes: bool, offset: AzLogicalPosition, style: AzNodeGraphStyleEnumWrapper, callbacks: AzNodeGraphCallbacks, add_node_str: AzString) -> Self {
+    fn __new__(node_types: AzNodeTypeIdInfoMapVec, input_output_types: AzInputOutputTypeIdInfoMapVec, nodes: AzNodeIdNodeMapVec, allow_multiple_root_nodes: bool, offset: AzLogicalPosition, style: AzNodeGraphStyleEnumWrapper, callbacks: AzNodeGraphCallbacks, add_node_str: AzString, scale_factor: f32) -> Self {
         Self {
             node_types,
             input_output_types,
@@ -23500,6 +23501,7 @@ impl AzNodeGraph {
             style,
             callbacks,
             add_node_str,
+            scale_factor,
         }
     }
 

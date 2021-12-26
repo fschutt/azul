@@ -2060,7 +2060,7 @@ impl Window {
             y: cursor_pos.y as f32 / dpi_factor,
         };
         internal.current_window_state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
-            CursorPosition::OutOfWindow
+            CursorPosition::Uninitialized
         } else {
             CursorPosition::InWindow(cursor_pos_logical)
         };
@@ -3094,7 +3094,8 @@ unsafe extern "system" fn WindowProc(
 
                 use winapi::um::winuser::{SetClassLongPtrW, GCLP_HCURSOR};
                 use azul_core::window::{
-                    FullHitTest, OptionMouseCursorType, CursorPosition,
+                    FullHitTest, OptionMouseCursorType,
+                    CursorPosition, LogicalPosition,
                 };
 
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
@@ -3102,7 +3103,11 @@ unsafe extern "system" fn WindowProc(
                     let current_focus = current_window.internal.current_window_state.focused_node;
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
-                    current_window.internal.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
+                    let last_seen = match current_window.internal.current_window_state.mouse_state.cursor_position {
+                        CursorPosition::InWindow(i) => i,
+                        _ => LogicalPosition::zero(),
+                    };
+                    current_window.internal.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow(last_seen);
                     current_window.internal.current_window_state.last_hit_test = FullHitTest::empty(current_focus);
                     current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
 

@@ -774,7 +774,7 @@
                     "external": "azul_core::window::CursorPosition",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "enum_fields": [
-                        {"OutOfWindow": {"doc": "The cursor is out of bound of the window. For security reasons, tracking the cursor is not permitted by the library"}},
+                        {"OutOfWindow": {"type": "LogicalPosition", "doc": "The cursor is out of bound of the window. For security reasons, tracking the cursor is not permitted by the library. The payload is set to the position where the cursor left the window."}},
                         {"Uninitialized": {"doc": "The cursor position is unknown because the app hasn't yet been started. This is the default value and should generally only be set on startup."}},
                         {"InWindow": {"type": "LogicalPosition", "doc": "Cursor position relative to the top left corner of the window"}}
                     ],
@@ -6546,7 +6546,8 @@
                         {"offset": {"type": "LogicalPosition"}},
                         {"style": {"type": "NodeGraphStyle"}},
                         {"callbacks": {"type": "NodeGraphCallbacks"}},
-                        {"add_node_str": {"type": "String"}}
+                        {"add_node_str": {"type": "String"}},
+                        {"scale_factor": {"type": "f32"}}
                     ],
                     "functions": {
                         "dom": {

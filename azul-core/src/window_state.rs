@@ -519,6 +519,10 @@ impl StyleAndLayoutChanges {
             }
         }
 
+        if let Some(n) = layout_changes.as_ref() {
+            println!("layout_changes: {:?}", n);
+        }
+
         StyleAndLayoutChanges {
             style_changes,
             layout_changes,
@@ -1084,11 +1088,11 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
     // match mouse move events first since they are the most common
 
     match (previous_window_state.mouse_state.cursor_position, current_window_state.mouse_state.cursor_position) {
-        (InWindow(_), OutOfWindow) |
+        (InWindow(_), OutOfWindow(_)) |
         (InWindow(_), Uninitialized) => {
             events.push(WindowEventFilter::MouseLeave);
         },
-        (OutOfWindow, InWindow(_)) |
+        (OutOfWindow(_), InWindow(_)) |
         (Uninitialized, InWindow(_)) => {
             events.push(WindowEventFilter::MouseEnter);
         },

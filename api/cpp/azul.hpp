@@ -3436,7 +3436,7 @@ namespace dll {
        InWindow,
     };
     
-    struct CursorPositionVariant_OutOfWindow { CursorPositionTag tag; };
+    struct CursorPositionVariant_OutOfWindow { CursorPositionTag tag; LogicalPosition payload; };
     struct CursorPositionVariant_Uninitialized { CursorPositionTag tag; };
     struct CursorPositionVariant_InWindow { CursorPositionTag tag; LogicalPosition payload; };
     union CursorPosition {
@@ -9790,6 +9790,7 @@ namespace dll {
         NodeGraphStyle style;
         NodeGraphCallbacks callbacks;
         String add_node_str;
+        float scale_factor;
         NodeGraph& operator=(const NodeGraph&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         NodeGraph(const NodeGraph&) = delete; /* disable copy constructor, use explicit .clone() */
         NodeGraph() = delete; /* disable default constructor, use C++20 designated initializer instead */

@@ -735,7 +735,7 @@ pub(crate) fn fullhittest_new_webrender(
     use azul_core::styled_dom::{DomId, NodeHierarchyItemId};
 
     let mut cursor_location = match cursor_position {
-        CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
+        CursorPosition::OutOfWindow(_) | CursorPosition::Uninitialized => return FullHitTest::empty(old_focus_node),
         CursorPosition::InWindow(pos) => LogicalPosition::new(pos.x, pos.y),
     };
 

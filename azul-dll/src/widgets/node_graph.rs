@@ -49,6 +49,7 @@ pub struct NodeGraph {
     pub style: NodeGraphStyle,
     pub callbacks: NodeGraphCallbacks,
     pub add_node_str: AzString,
+    pub scale_factor: f32,
 }
 
 impl Default for NodeGraph {
@@ -62,6 +63,7 @@ impl Default for NodeGraph {
             style: NodeGraphStyle::Default,
             callbacks: NodeGraphCallbacks::default(),
             add_node_str: AzString::from_const_str(""),
+            scale_factor: 1.0,
         }
     }
 }
@@ -684,28 +686,35 @@ impl NodeGraph {
            ].into())
            .with_children({
                 vec![
-                        // connections
-                        render_connections(&self, node_connection_marker),
+                    // connections
+                    render_connections(&self, node_connection_marker),
 
-                        // nodes
-                        self.nodes.iter()
-                        .filter_map(|NodeIdNodeMap { node_id, node }| {
+                    // nodes
+                    self.nodes.iter()
+                    .filter_map(|NodeIdNodeMap { node_id, node }| {
 
-                           let node_type_info = self.node_types.iter().find(|i| i.node_type_id == node.node_type)?;
-                           let node_local_dataset = NodeLocalDataset {
-                               node_id: *node_id,
-                               backref: node_graph_local_dataset.clone(),
-                           };
+                        let node_type_info = self.node_types.iter().find(|i| i.node_type_id == node.node_type)?;
+                        let node_local_dataset = NodeLocalDataset {
+                            node_id: *node_id,
+                            backref: node_graph_local_dataset.clone(),
+                        };
 
-                           Some(render_node(node, (self.offset.x, self.offset.y), &node_type_info.node_type_info, node_local_dataset))
-                        })
-                        .collect::<Dom>()
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_CLASS))
-                        .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_PROPS)),
+                        Some(render_node(
+                            node,
+                            (self.offset.x, self.offset.y),
+                            &node_type_info.node_type_info,
+                            node_local_dataset,
+                            self.scale_factor,
+                        ))
+                    })
+                    .collect::<Dom>()
+                    .with_ids_and_classes(IdOrClassVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_CLASS))
+                    .with_inline_css_props(NodeDataInlineCssPropertyVec::from_const_slice(NODEGRAPH_NODES_CONTAINER_PROPS)),
 
                 ].into()
             })
         ].into())
+        .with_dataset(Some(node_graph_local_dataset).into())
     }
 }
 
@@ -759,7 +768,13 @@ struct ConnectionLocalDataset {
     color: ColorU,
 }
 
-fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, mut node_local_dataset: NodeLocalDataset) -> Dom {
+fn render_node(
+    node: &Node,
+    graph_offset: (f32, f32),
+    node_info: &NodeTypeInfo,
+    mut node_local_dataset: NodeLocalDataset,
+    scale_factor: f32,
+) -> Dom {
 
     use azul_desktop::css::*;
     use azul_desktop::dom::{
@@ -2022,7 +2037,17 @@ fn render_node(node: &Node, graph_offset: (f32, f32), node_info: &NodeTypeInfo, 
                }),
            )),
            NodeDataInlineCssProperty::Normal(CssProperty::Transform(StyleTransformVecValue::Exact(
-               vec![StyleTransform::Translate(node_transform)].into(),
+               if scale_factor != 1.0 {
+                    vec![
+                         StyleTransform::Translate(node_transform),
+                         StyleTransform::ScaleX(PercentageValue::new(scale_factor * 100.0)),
+                         StyleTransform::ScaleY(PercentageValue::new(scale_factor * 100.0)),
+                    ]
+               } else {
+                    vec![
+                         StyleTransform::Translate(node_transform)
+                    ]
+               }.into()
            ))),
            NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
                LayoutWidth {
@@ -2454,10 +2479,13 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
                         .with_inline_css_props(vec![
                             NodeDataInlineCssProperty::Normal(CssProperty::Transform(
                                 StyleTransformVecValue::Exact(vec![
-                                StyleTransform::Translate(StyleTransformTranslate2D {
-                                    x: PixelValue::px(node_graph.offset.x + rect.origin.x),
-                                    y: PixelValue::px(node_graph.offset.y + rect.origin.y),
-                                })].into())
+                                    StyleTransform::Translate(StyleTransformTranslate2D {
+                                        x: PixelValue::px(node_graph.offset.x + rect.origin.x),
+                                        y: PixelValue::px(node_graph.offset.y + rect.origin.y),
+                                    }),
+                                    StyleTransform::ScaleX(PercentageValue::new(node_graph.scale_factor * 100.0)),
+                                    StyleTransform::ScaleY(PercentageValue::new(node_graph.scale_factor * 100.0)),
+                                ].into()),
                             )),
                             NodeDataInlineCssProperty::Normal(CssProperty::Width(LayoutWidthValue::Exact(
                                 LayoutWidth { inner: PixelValue::px(rect.size.width) },
@@ -2665,8 +2693,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
         _ => return Update::DoNothing,
     };
 
-    let dx = current_mouse_pos.x - previous_mouse_pos.x;
-    let dy = current_mouse_pos.y - previous_mouse_pos.y;
+    let dx = (current_mouse_pos.x - previous_mouse_pos.x) * (1.0 / data.node_graph.scale_factor);
+    let dy = (current_mouse_pos.y - previous_mouse_pos.y) * (1.0 / data.node_graph.scale_factor);
     let nodegraph_node = info.get_hit_node();
 
     let should_update = match data.active_node_being_dragged.clone() {
@@ -2696,12 +2724,24 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                 None => return Update::DoNothing,
             };
 
-            info.set_css_property(visual_node_id, CssProperty::transform(vec![
-                StyleTransform::Translate(StyleTransformTranslate2D {
-                    x: PixelValue::px(node_position.x + data.node_graph.offset.x),
-                    y: PixelValue::px(node_position.y + data.node_graph.offset.y),
-                })
-            ].into()));
+            let node_transform = StyleTransformTranslate2D {
+                x: PixelValue::px(node_position.x + data.node_graph.offset.x),
+                y: PixelValue::px(node_position.y + data.node_graph.offset.y),
+            };
+
+            info.set_css_property(visual_node_id, CssProperty::transform(
+                if data.node_graph.scale_factor != 1.0 {
+                     vec![
+                         StyleTransform::Translate(node_transform),
+                         StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                         StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                     ]
+                } else {
+                     vec![
+                          StyleTransform::Translate(node_transform)
+                     ]
+                }.into())
+            );
 
             // get the NodeId of the node containing all the connection lines
             let connection_container_nodeid = match info.get_node_id_of_root_dataset(node_connection_marker.clone()) {
@@ -2744,12 +2784,24 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                 cld.swap_vert = swap_vert;
                 cld.swap_horz = swap_horz;
 
-                info.set_css_property(first_child, CssProperty::transform(vec![
-                    StyleTransform::Translate(StyleTransformTranslate2D {
-                        x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
-                        y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
-                    })
-                ].into()));
+                let node_transform = StyleTransformTranslate2D {
+                    x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
+                    y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
+                };
+
+                info.set_css_property(first_child, CssProperty::transform(
+                    if data.node_graph.scale_factor != 1.0 {
+                         vec![
+                             StyleTransform::Translate(node_transform),
+                             StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                             StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                         ]
+                    } else {
+                         vec![
+                              StyleTransform::Translate(node_transform)
+                         ]
+                    }.into())
+                );
 
                 info.set_css_property(first_child, CssProperty::Width(LayoutWidthValue::Exact(
                     LayoutWidth { inner: PixelValue::px(new_rect.size.width) },
@@ -2812,14 +2864,24 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     None => continue,
                 };
 
-                let node_transform = CssProperty::transform(vec![
-                    StyleTransform::Translate(StyleTransformTranslate2D {
-                        x: PixelValue::px(node_position.x + data.node_graph.offset.x),
-                        y: PixelValue::px(node_position.y + data.node_graph.offset.y),
-                    })
-                ].into());
+                let node_transform = StyleTransformTranslate2D {
+                    x: PixelValue::px(node_position.x + data.node_graph.offset.x),
+                    y: PixelValue::px(node_position.y + data.node_graph.offset.y),
+                };
 
-                info.set_css_property(node_first_child, node_transform);
+                info.set_css_property(node_first_child, CssProperty::transform(
+                    if data.node_graph.scale_factor != 1.0 {
+                         vec![
+                             StyleTransform::Translate(node_transform),
+                             StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                             StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                         ]
+                    } else {
+                         vec![
+                              StyleTransform::Translate(node_transform)
+                         ]
+                    }.into())
+                );
 
                 node = match info.get_next_sibling(node) {
                     Some(s) => s,
@@ -2865,7 +2927,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(data: &mut RefAny, info: &mut Callba
                     StyleTransform::Translate(StyleTransformTranslate2D {
                         x: PixelValue::px(data.node_graph.offset.x + new_rect.origin.x),
                         y: PixelValue::px(data.node_graph.offset.y + new_rect.origin.y),
-                    })
+                    }),
+                    StyleTransform::ScaleX(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
+                    StyleTransform::ScaleY(PercentageValue::new(data.node_graph.scale_factor * 100.0)),
                 ].into()));
             }
 
@@ -2912,6 +2976,8 @@ extern "C" fn nodegraph_delete_node(data: &mut RefAny, info: &mut CallbackInfo) 
 
 extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
 
+    use azul_core::window::CursorPosition;
+
     let mut data = match data.downcast_mut::<ContextMenuEntryLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
@@ -2919,17 +2985,37 @@ extern "C" fn nodegraph_context_menu_click(data: &mut RefAny, info: &mut Callbac
 
     let new_node_type = data.node_type.clone();
 
+    let node_graph_wrapper_id = match info.get_node_id_of_root_dataset(data.backref.clone()) {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+
     let mut backref = match data.backref.downcast_mut::<NodeGraphLocalDataset>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
 
-    let new_node_position = info.get_cursor_relative_to_node().map(|p| (p.x, p.y)).unwrap_or((0.0, 0.0));
+    let node_wrapper_offset = info
+        .get_node_position(node_graph_wrapper_id)
+        .map(|p| p.get_static_offset())
+        .map(|p| (p.x, p.y))
+        .unwrap_or((0.0, 0.0));
+
+    let cursor_in_viewport = match info.get_current_mouse_state().cursor_position {
+        CursorPosition::InWindow(i) => i,
+        CursorPosition::OutOfWindow(i) => i,
+        _ => LogicalPosition::zero(),
+    };
+
+    let new_node_pos = NodePosition {
+        x: (cursor_in_viewport.x - node_wrapper_offset.0) * (1.0 / backref.node_graph.scale_factor) - backref.node_graph.offset.x,
+        y: (cursor_in_viewport.y - node_wrapper_offset.1) * (1.0 / backref.node_graph.scale_factor) - backref.node_graph.offset.y,
+    };
 
     let new_node_id = backref.node_graph.generate_unique_node_id();
 
     let result = match backref.callbacks.on_node_added.as_mut() {
-        Some(OnNodeAdded { callback, data }) => (callback.cb)(data, info, new_node_type, new_node_id, NodePosition { x: new_node_position.0, y: new_node_position.1 }),
+        Some(OnNodeAdded { callback, data }) => (callback.cb)(data, info, new_node_type, new_node_id, new_node_pos),
         None => Update::DoNothing,
     };
 

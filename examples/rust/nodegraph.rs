@@ -244,6 +244,7 @@ fn translate_node_graph(ng: &MyNodeGraph, data: RefAny) -> azul::widgets::NodeGr
             }).into()
         },
         style: NodeGraphStyle::Default,
+        scale_factor: 0.6,
     }
 }
 
