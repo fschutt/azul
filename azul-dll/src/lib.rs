@@ -2018,7 +2018,15 @@ pub type AzTextInputTT = crate::widgets::text_input::TextInput;
 pub use AzTextInputTT as AzTextInput;
 /// Creates a new `TextInput` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `TextInput::new()` constructor.
-#[no_mangle] pub extern "C" fn AzTextInput_new(initial_text: AzString) -> AzTextInput { AzTextInput::new(initial_text) }
+#[no_mangle] pub extern "C" fn AzTextInput_new() -> AzTextInput { AzTextInput::new() }
+/// Equivalent to the Rust `TextInput::set_text()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setText(textinput: &mut AzTextInput, text: AzString) { textinput.set_text(text) }
+/// Equivalent to the Rust `TextInput::with_text()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withText(textinput: &mut AzTextInput, text: AzString) -> AzTextInput { textinput.with_text(text) }
+/// Equivalent to the Rust `TextInput::set_placeholder()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_setPlaceholder(textinput: &mut AzTextInput, text: AzString) { textinput.set_placeholder(text) }
+/// Equivalent to the Rust `TextInput::with_placeholder()` function.
+#[no_mangle] pub extern "C" fn AzTextInput_withPlaceholder(textinput: &mut AzTextInput, text: AzString) -> AzTextInput { textinput.with_placeholder(text) }
 /// Equivalent to the Rust `TextInput::set_on_text_input()` function.
 #[no_mangle] pub extern "C" fn AzTextInput_setOnTextInput(textinput: &mut AzTextInput, data: AzRefAny, callback: AzTextInputOnTextInputCallbackType) { textinput.set_on_text_input(data, callback) }
 /// Equivalent to the Rust `TextInput::with_on_text_input()` function.
@@ -2572,6 +2580,8 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn AzStyledDom_fromFile(xml_file_path: AzString) -> AzStyledDom { azul_impl::app::extra::styled_dom_from_file(xml_file_path.as_str()) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
 #[no_mangle] pub extern "C" fn AzStyledDom_appendChild(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styleddom.append_child(dom); }
+/// Same as `append_child()`, but as a builder method
+#[no_mangle] pub extern "C" fn AzStyledDom_withChild(styleddom: &mut AzStyledDom, dom: AzStyledDom) -> AzStyledDom { styleddom.with_child(dom) }
 /// Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style
 #[no_mangle] pub extern "C" fn AzStyledDom_restyle(styleddom: &mut AzStyledDom, css: AzCss) { styleddom.restyle(css); }
 /// Returns the number of nodes in the styled DOM

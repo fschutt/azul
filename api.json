@@ -5852,13 +5852,41 @@
                     ],
                     "constructors": {
                         "new": {
-                            "fn_args": [
-                                {"initial_text": "String"}
-                            ],
-                            "fn_body": "AzTextInput::new(initial_text)"
+                            "fn_args": [],
+                            "fn_body": "AzTextInput::new()"
                         }
                     },
                     "functions": {
+                        "set_text": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"text": "String"}
+                            ],
+                            "fn_body": "textinput.set_text(text)"
+                        },
+                        "with_text": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"text": "String"}
+                            ],
+                            "returns": {"type": "TextInput"},
+                            "fn_body": "textinput.with_text(text)"
+                        },
+                        "set_placeholder": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"text": "String"}
+                            ],
+                            "fn_body": "textinput.set_placeholder(text)"
+                        },
+                        "with_placeholder": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"text": "String"}
+                            ],
+                            "returns": {"type": "TextInput"},
+                            "fn_body": "textinput.with_placeholder(text)"
+                        },
                         "set_on_text_input": {
                             "fn_args": [
                                 {"self": "refmut"},
@@ -7145,6 +7173,15 @@
                                 {"dom": "StyledDom"}
                             ],
                             "fn_body": "styleddom.append_child(dom);"
+                        },
+                        "with_child": {
+                            "doc": "Same as `append_child()`, but as a builder method",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"dom": "StyledDom"}
+                            ],
+                            "returns": {"type": "StyledDom"},
+                            "fn_body": "styleddom.with_child(dom)"
                         },
                         "restyle": {
                             "doc": "Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style",

@@ -10255,7 +10255,11 @@ namespace dll {
         void ColorInput_delete(ColorInput* restrict instance);
         void ColorInputStateWrapper_delete(ColorInputStateWrapper* restrict instance);
         void ColorInputOnValueChange_delete(ColorInputOnValueChange* restrict instance);
-        TextInput TextInput_new(AzString  initial_text);
+        TextInput TextInput_new();
+        void TextInput_setText(TextInput* restrict textinput, AzString  text);
+        TextInput TextInput_withText(TextInput* restrict textinput, AzString  text);
+        void TextInput_setPlaceholder(TextInput* restrict textinput, AzString  text);
+        TextInput TextInput_withPlaceholder(TextInput* restrict textinput, AzString  text);
         void TextInput_setOnTextInput(TextInput* restrict textinput, AzRefAny  data, AzTextInputOnTextInputCallbackType  callback);
         TextInput TextInput_withOnTextInput(TextInput* restrict textinput, AzRefAny  data, AzTextInputOnTextInputCallbackType  callback);
         void TextInput_setOnVirtualKeyDown(TextInput* restrict textinput, AzRefAny  data, AzTextInputOnVirtualKeyDownCallbackType  callback);
@@ -10363,6 +10367,7 @@ namespace dll {
         StyledDom StyledDom_fromXml(AzString  xml_string);
         StyledDom StyledDom_fromFile(AzString  xml_file_path);
         void StyledDom_appendChild(StyledDom* restrict styleddom, AzStyledDom  dom);
+        StyledDom StyledDom_withChild(StyledDom* restrict styleddom, AzStyledDom  dom);
         void StyledDom_restyle(StyledDom* restrict styleddom, AzCss  css);
         size_t StyledDom_nodeCount(const StyledDom* styleddom);
         String StyledDom_getHtmlString(const StyledDom* styleddom);

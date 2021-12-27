@@ -172,6 +172,10 @@ impl LayoutRect {
     pub const fn max_y(&self) -> isize { self.origin.y + self.size.height }
     #[inline(always)]
     pub const fn min_y(&self) -> isize { self.origin.y }
+    #[inline(always)]
+    pub const fn width(&self) -> isize { self.max_x() - self.min_x() }
+    #[inline(always)]
+    pub const fn height(&self) -> isize { self.max_y() - self.min_y() }
 
     pub const fn contains(&self, other: &LayoutPoint) -> bool {
         self.min_x() <= other.x && other.x < self.max_x() &&

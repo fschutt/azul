@@ -2252,7 +2252,8 @@ fn render_node(
 
                                    match &field.value {
                                        NodeTypeFieldValue::TextInput(initial_text) => {
-                                           TextInput::new(initial_text.clone())
+                                           TextInput::new()
+                                           .with_text(initial_text.clone())
                                            .with_on_focus_lost(field_local_dataset, nodegraph_on_textinput_focus_lost)
                                            .dom()
                                        },

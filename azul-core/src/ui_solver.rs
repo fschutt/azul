@@ -2126,31 +2126,8 @@ impl ComputedTransform3D {
         out
     }
 
-    /*
-
-    #[inline]
-    #[must_use]
-    pub unsafe fn inverse_sse(&self, x: f32) -> Self { }
-    #[inline]
-    #[must_use]
-    pub unsafe fn inverse_avx4(&self, x: f32) -> Self { }
-    #[inline]
-    #[must_use]
-    pub unsafe fn inverse_avx8(&self, x: f32) -> Self { }
-
-    #[inline]
-    #[must_use]
-    pub unsafe fn determinant_sse(&self) -> f32 { }
-    #[inline]
-    #[must_use]
-    pub unsafe fn determinant_avx4(&self) -> f32 { }
-    #[inline]
-    #[must_use]
-    pub unsafe fn determinant_avx8(&self) -> f32 { }
-
-    */
-
-    // NOTE: webrenders RENDERING has a different rotat
+    // NOTE: webrenders RENDERING has a different
+    // rotation mode (positive / negative angle)
     #[inline]
     pub fn make_rotation(
         rotation_origin: (f32, f32),

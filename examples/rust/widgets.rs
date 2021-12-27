@@ -63,7 +63,9 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                     ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
 
-                    TextInput::new("Input text...".into()).dom()
+                    TextInput::new()
+                    .with_placeholder("Input text...".into())
+                    .dom()
                     .with_inline_style("margin-bottom: 5px;".into()),
 
                     NumberInput::new(5.0).dom()
@@ -76,6 +78,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                         ListView::new(Vec::<AzString>::new().into()).dom(),
                     ].into()),
 
+                    /*
                     Dom::div()
                     .with_inline_style("flex-direction: row;padding:10px;".into())
                     .with_children(vec![
@@ -115,7 +118,7 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                             Dom::text("2".into())
                             .with_inline_style("font-size:5px".into()),
                         ].into())
-                    ].into())
+                    ].into())*/
 
                 ].into())
             ).dom(),
@@ -142,7 +145,9 @@ extern "C" fn text_mouse_down(data: &mut RefAny, info: &mut CallbackInfo) -> Upd
         OptionInlineText::None => return Update::DoNothing,
     };
 
-    let _ = inline_text.hit_test(cursor_relative_to_node);
+    let hit = inline_text.hit_test(cursor_relative_to_node);
+
+    println!("hit: {:#?}", hit);
 
     Update::DoNothing
 }

@@ -97,14 +97,12 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
                 if let Some(gsettings_pref) = linux_get_gsettings_font("monospace-font-name") {
                     patterns.push(FcPattern {
                         name: Some(gsettings_pref),
-                        monospace: PatternMatch::True,
                         .. FcPattern::default()
                     });
                 }
                 if let Some(fontconfig_pref) = linux_get_fc_match_font("monospace") {
                     patterns.push(FcPattern {
                         name: Some(fontconfig_pref),
-                        monospace: PatternMatch::True,
                         .. FcPattern::default()
                     });
                 }
@@ -113,7 +111,6 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
             for monospace_font_name in KNOWN_SYSTEM_MONOSPACE_FONTS.iter() {
                 patterns.push(FcPattern {
                     name: Some(monospace_font_name.to_string()),
-                    monospace: PatternMatch::True,
                     .. FcPattern::default()
                 });
             }

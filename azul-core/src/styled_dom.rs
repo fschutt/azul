@@ -1535,6 +1535,13 @@ impl StyledDom {
 
     }
 
+    /// Same as `append_child()`, but as a builder method
+    pub fn with_child(&mut self, other: Self) -> Self {
+        let mut s = self.swap_with_default();
+        s.append_child(other);
+        s
+    }
+
     pub fn restyle(&mut self, mut css: CssApiWrapper) {
 
         use rayon::prelude::*;

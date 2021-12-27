@@ -124,6 +124,7 @@ pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
         // Windows does REALLY not like quotes in messages
         // otherwise the displayed message is just "INVALID MESSAGE WITH QUOTES"
         msg = msg.replace("\"", "");
+        msg = msg.replace("\'", "");
     }
 
     ::tinyfiledialogs::message_box_ok(title, &msg, icon)

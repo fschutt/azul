@@ -22718,10 +22718,35 @@ impl PyObjectProtocol for AzColorInputOnValueChangeCallback {
 #[pymethods]
 impl AzTextInput {
     #[new]
-    fn new(initial_text: String) -> AzTextInput {
-        let initial_text = pystring_to_azstring(&initial_text);
-        unsafe { mem::transmute(crate::AzTextInput_new(
-            mem::transmute(initial_text),
+    fn new() -> AzTextInput {
+        unsafe { mem::transmute(crate::AzTextInput_new()) }
+    }
+    fn set_text(&mut self, text: String) -> () {
+        let text = pystring_to_azstring(&text);
+        unsafe { mem::transmute(crate::AzTextInput_setText(
+            mem::transmute(self),
+            mem::transmute(text),
+        )) }
+    }
+    fn with_text(&mut self, text: String) -> AzTextInput {
+        let text = pystring_to_azstring(&text);
+        unsafe { mem::transmute(crate::AzTextInput_withText(
+            mem::transmute(self),
+            mem::transmute(text),
+        )) }
+    }
+    fn set_placeholder(&mut self, text: String) -> () {
+        let text = pystring_to_azstring(&text);
+        unsafe { mem::transmute(crate::AzTextInput_setPlaceholder(
+            mem::transmute(self),
+            mem::transmute(text),
+        )) }
+    }
+    fn with_placeholder(&mut self, text: String) -> AzTextInput {
+        let text = pystring_to_azstring(&text);
+        unsafe { mem::transmute(crate::AzTextInput_withPlaceholder(
+            mem::transmute(self),
+            mem::transmute(text),
         )) }
     }
     fn set_placeholder_style(&mut self, placeholder_style: AzNodeDataInlineCssPropertyVec) -> () {
@@ -24675,6 +24700,12 @@ impl AzStyledDom {
     }
     fn append_child(&mut self, dom: AzStyledDom) -> () {
         unsafe { mem::transmute(crate::AzStyledDom_appendChild(
+            mem::transmute(self),
+            mem::transmute(dom),
+        )) }
+    }
+    fn with_child(&mut self, dom: AzStyledDom) -> AzStyledDom {
+        unsafe { mem::transmute(crate::AzStyledDom_withChild(
             mem::transmute(self),
             mem::transmute(dom),
         )) }

@@ -10250,7 +10250,11 @@ mod dll {
         pub(crate) fn AzColorInput_setOnValueChange(_:  &mut AzColorInput, _:  AzRefAny, _:  AzColorInputOnValueChangeCallbackType);
         pub(crate) fn AzColorInput_withOnValueChange(_:  &mut AzColorInput, _:  AzRefAny, _:  AzColorInputOnValueChangeCallbackType) -> AzColorInput;
         pub(crate) fn AzColorInput_dom(_:  &mut AzColorInput) -> AzDom;
-        pub(crate) fn AzTextInput_new(_:  AzString) -> AzTextInput;
+        pub(crate) fn AzTextInput_new() -> AzTextInput;
+        pub(crate) fn AzTextInput_setText(_:  &mut AzTextInput, _:  AzString);
+        pub(crate) fn AzTextInput_withText(_:  &mut AzTextInput, _:  AzString) -> AzTextInput;
+        pub(crate) fn AzTextInput_setPlaceholder(_:  &mut AzTextInput, _:  AzString);
+        pub(crate) fn AzTextInput_withPlaceholder(_:  &mut AzTextInput, _:  AzString) -> AzTextInput;
         pub(crate) fn AzTextInput_setOnTextInput(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType);
         pub(crate) fn AzTextInput_withOnTextInput(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnTextInputCallbackType) -> AzTextInput;
         pub(crate) fn AzTextInput_setOnVirtualKeyDown(_:  &mut AzTextInput, _:  AzRefAny, _:  AzTextInputOnVirtualKeyDownCallbackType);
@@ -10317,6 +10321,7 @@ mod dll {
         pub(crate) fn AzStyledDom_fromXml(_:  AzString) -> AzStyledDom;
         pub(crate) fn AzStyledDom_fromFile(_:  AzString) -> AzStyledDom;
         pub(crate) fn AzStyledDom_appendChild(_:  &mut AzStyledDom, _:  AzStyledDom);
+        pub(crate) fn AzStyledDom_withChild(_:  &mut AzStyledDom, _:  AzStyledDom) -> AzStyledDom;
         pub(crate) fn AzStyledDom_restyle(_:  &mut AzStyledDom, _:  AzCss);
         pub(crate) fn AzStyledDom_nodeCount(_:  &AzStyledDom) -> usize;
         pub(crate) fn AzStyledDom_getHtmlString(_:  &AzStyledDom) -> AzString;
@@ -14568,7 +14573,15 @@ pub mod widgets {
     impl TextInput {
 
         /// Creates a new `TextInput` instance.
-        pub fn new(initial_text: String) -> Self { unsafe { crate::dll::AzTextInput_new(initial_text) } }
+        pub fn new() -> Self { unsafe { crate::dll::AzTextInput_new() } }
+        /// Calls the `TextInput::set_text` function.
+        pub fn set_text(&mut self, text: String)  { unsafe { crate::dll::AzTextInput_setText(self, text) } }
+        /// Calls the `TextInput::with_text` function.
+        pub fn with_text(&mut self, text: String)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withText(self, text) } }
+        /// Calls the `TextInput::set_placeholder` function.
+        pub fn set_placeholder(&mut self, text: String)  { unsafe { crate::dll::AzTextInput_setPlaceholder(self, text) } }
+        /// Calls the `TextInput::with_placeholder` function.
+        pub fn with_placeholder(&mut self, text: String)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withPlaceholder(self, text) } }
         /// Calls the `TextInput::set_on_text_input` function.
         pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzTextInput_setOnTextInput(self, data, callback) } }
         /// Calls the `TextInput::with_on_text_input` function.
@@ -15080,6 +15093,8 @@ pub mod style {
         pub fn from_file(xml_file_path: String) -> Self { unsafe { crate::dll::AzStyledDom_fromFile(xml_file_path) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
         pub fn append_child(&mut self, dom: StyledDom)  { unsafe { crate::dll::AzStyledDom_appendChild(self, dom) } }
+        /// Same as `append_child()`, but as a builder method
+        pub fn with_child(&mut self, dom: StyledDom)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withChild(self, dom) } }
         /// Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style
         pub fn restyle(&mut self, css: Css)  { unsafe { crate::dll::AzStyledDom_restyle(self, css) } }
         /// Returns the number of nodes in the styled DOM

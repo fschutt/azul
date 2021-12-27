@@ -2244,7 +2244,7 @@ fn position_nodes<'a>(
                 None
             };
 
-            positioned_rects[child_node_id] = PositionedRectangle {
+            let positioned_rect = PositionedRectangle {
                 size: LogicalSize::new(width.total(), height.total()),
                 position: child_position,
                 padding: child_padding,
@@ -2256,6 +2256,8 @@ fn position_nodes<'a>(
                 overflow_x: child_offsets.overflow_x,
                 overflow_y: child_offsets.overflow_y,
             };
+
+            positioned_rects[child_node_id] = positioned_rect;
         }
 
         // NOTE: Intentionally do not set text_layout_options,
@@ -2541,10 +2543,25 @@ fn get_nodes_that_need_scroll_clip(
     let mut all_direct_overflows = parents
     .par_iter()
     .filter_map(|ParentWithNodeDepth { depth: _, node_id }| {
+
         let parent_id = node_id.into_crate_internal()?;
         let parent_rect = layouted_rects[parent_id].get_approximate_static_bounds();
+
+        // cannot create scroll clips if the parent is less than 1px wide
+        if parent_rect.width() < 1 {
+            return None;
+        }
+
         let children_sum_rect = LayoutRect::union(
-            parent_id.az_children(node_hierarchy)
+            parent_id
+            .az_children(node_hierarchy)
+            .filter(|child_id| {
+                use azul_core::ui_solver::PositionInfo;
+                match layouted_rects[*child_id].position {
+                    PositionInfo::Absolute(_) => false,
+                    _ => true,
+                }
+            })
             .map(|child_id| layouted_rects[child_id].get_approximate_static_bounds())
         )?;
 
@@ -2599,6 +2616,7 @@ fn get_nodes_that_need_scroll_clip(
 
     // Insert all rectangles that need to scroll
     for (parent_id, (parent_rect, children_sum_rect)) in all_direct_overflows {
+
         use azul_core::callbacks::PipelineId;
 
         let parent_dom_hash = dom_rects[parent_id].calculate_node_data_hash();
@@ -2666,7 +2684,7 @@ pub fn do_the_relayout(
     }
 
     // merge the nodes to relayout by type so that we don't relayout twice
-    let nodes_to_relayout = nodes_to_relayout.map(|n| {
+    let mut nodes_to_relayout = nodes_to_relayout.map(|n| {
         n.iter()
         .filter_map(|(node_id, changed_properties)| {
             let mut properties = BTreeMap::new();
@@ -2765,6 +2783,16 @@ pub fn do_the_relayout(
     }
     */
 
+    if root_size_changed {
+        let all_parents_btreeset = layout_result.styled_dom.non_leaf_nodes.iter().filter_map(|p| {
+            Some(p.node_id.into_crate_internal()?)
+        }).collect::<BTreeSet<_>>();
+        layout_result.root_size = root_size;
+        parents_that_need_to_recalc_width_of_children.extend(all_parents_btreeset.clone().into_iter());
+        parents_that_need_to_recalc_height_of_children.extend(all_parents_btreeset.into_iter());
+
+    }
+
     if root_size.width != layout_result.root_size.width {
         let root_id = layout_result.styled_dom.root.into_crate_internal().unwrap();
         parents_that_need_to_recalc_width_of_children.insert(root_id);
@@ -2775,7 +2803,7 @@ pub fn do_the_relayout(
         parents_that_need_to_recalc_height_of_children.insert(root_id);
     }
 
-    let mut node_ids_that_changed_text_content = Vec::new();
+    let mut node_ids_that_changed_text_content = BTreeSet::new();
 
     // Update words cache and shaped words cache
     if let Some(words_to_relayout) = words_to_relayout {
@@ -2799,10 +2827,6 @@ pub fn do_the_relayout(
                 Some(s) => s.0.clone(),
             };
 
-            let text_max_width = text_layout_options.max_horizontal_width.clone();
-
-            println!("new string: {:?}", new_string);
-            println!("text_layout_options max width: {:?}", text_layout_options.max_horizontal_width);
             let new_words = split_text_into_words(new_string.as_str());
 
             let css_property_cache = layout_result.styled_dom.get_css_property_cache();
@@ -2859,15 +2883,12 @@ pub fn do_the_relayout(
 
             let new_word_dimensions = new_word_positions.content_size;
 
-            println!("old word dimensions: {:?}", old_word_dimensions);
-            println!("new word dimensions: {:?}", new_word_dimensions);
-
             layout_result.preferred_widths.as_ref_mut()[*node_id] = Some(new_word_positions.content_size.width);
             *layout_result.words_cache.get_mut(node_id).unwrap() = new_words;
             *layout_result.shaped_words_cache.get_mut(node_id).unwrap() = new_shaped_words;
             layout_result.positioned_words_cache.get_mut(node_id).unwrap().0 = new_word_positions;
             layout_result.rects.as_ref_mut().get_mut(*node_id).unwrap().resolved_text_layout_options = Some((text_layout_options, new_inline_text_layout));
-            node_ids_that_changed_text_content.push(*node_id);
+            node_ids_that_changed_text_content.insert(*node_id);
         }
     }
 
@@ -2877,11 +2898,20 @@ pub fn do_the_relayout(
         macro_rules! detect_changes {($node_id:expr, $parent_id:expr) => (
 
             let node_data = &layout_result.styled_dom.node_data.as_container()[$node_id];
-            let changes_for_this_node = nodes_to_relayout.as_ref().and_then(|n| n.get(&$node_id));
-            let has_word_positions = layout_result.positioned_words_cache.get(&$node_id).is_some();
+            let text_content_has_changed = node_ids_that_changed_text_content.contains(&$node_id);
+            let default_changes = BTreeMap::new();
+            let changes_for_this_node = match nodes_to_relayout.as_ref().and_then(|n| n.get(&$node_id)) {
+                Some(s) => Some(s),
+                None => if text_content_has_changed {
+                    Some(&default_changes)
+                } else {
+                    None
+                }
+            };
 
+            let has_word_positions = layout_result.positioned_words_cache.get(&$node_id).is_some();
             if let Some(changes_for_this_node) = changes_for_this_node.as_ref() {
-                if !changes_for_this_node.is_empty() || has_word_positions {
+                if !changes_for_this_node.is_empty() || has_word_positions || text_content_has_changed{
 
                     let mut preferred_width_changed = None;
                     let mut preferred_height_changed = None;
@@ -2899,7 +2929,8 @@ pub fn do_the_relayout(
                     if changes_for_this_node.contains_key(&CssPropertyType::Width) ||
                        changes_for_this_node.contains_key(&CssPropertyType::MinWidth) ||
                        changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) ||
-                       has_word_positions {
+                       has_word_positions ||
+                       text_content_has_changed {
 
                         let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[$node_id].state;
 
@@ -2942,7 +2973,8 @@ pub fn do_the_relayout(
                     if changes_for_this_node.contains_key(&CssPropertyType::MinHeight) ||
                        changes_for_this_node.contains_key(&CssPropertyType::MaxHeight) ||
                        changes_for_this_node.contains_key(&CssPropertyType::Height) ||
-                       has_word_positions {
+                       has_word_positions ||
+                       text_content_has_changed {
                         let styled_node_state = &layout_result.styled_dom.styled_nodes.as_container()[$node_id].state;
                         let wh_config = WhConfig {
                             width: WidthConfig::default(),
@@ -3109,7 +3141,9 @@ pub fn do_the_relayout(
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
             let change = new_preferred_width.min_needed_space().unwrap_or(0.0) -
                          old_preferred_width.min_needed_space().unwrap_or(0.0);
+            layout_result.width_calculated_rects.as_ref_mut()[*node_id].min_inner_size_px = new_preferred_width.min_needed_space().unwrap_or(0.0);
             layout_result.width_calculated_rects.as_ref_mut()[parent_id].min_inner_size_px += change;
+            layout_result.width_calculated_rects.as_ref_mut()[parent_id].flex_grow_px = 0.0;
             if change != 0.0 {
                 *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0.0) += change;
                 parents_that_need_to_recalc_width_of_children.insert(parent_id);
@@ -3121,7 +3155,9 @@ pub fn do_the_relayout(
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
             let change = new_preferred_height.min_needed_space().unwrap_or(0.0) -
                          old_preferred_height.min_needed_space().unwrap_or(0.0);
+            layout_result.height_calculated_rects.as_ref_mut()[*node_id].min_inner_size_px = new_preferred_height.min_needed_space().unwrap_or(0.0);
             layout_result.height_calculated_rects.as_ref_mut()[parent_id].min_inner_size_px += change;
+            layout_result.height_calculated_rects.as_ref_mut()[parent_id].flex_grow_px = 0.0;
             if change != 0.0 {
                 *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0.0) += change;
                 parents_that_need_to_recalc_height_of_children.insert(parent_id);
@@ -3134,6 +3170,16 @@ pub fn do_the_relayout(
 
     // propagate width / height change from the inside out
     while !parents_that_need_to_recalc_width_of_children.is_empty() {
+
+        // width_calculated_rect_arena_apply_flex_grow also
+        // needs the parents parent to work correctly
+        let parents_to_extend = parents_that_need_to_recalc_width_of_children.iter().map(|p| {
+            layout_result.styled_dom.node_hierarchy
+            .as_container()[*p].parent_id()
+            .unwrap_or(NodeId::ZERO)
+        }).collect::<BTreeSet<_>>();
+
+        parents_that_need_to_recalc_width_of_children.extend(parents_to_extend.into_iter());
 
         let previous_widths = parents_that_need_to_recalc_width_of_children.iter()
         .filter_map(|node_id| {
@@ -3173,12 +3219,20 @@ pub fn do_the_relayout(
 
     while !parents_that_need_to_recalc_height_of_children.is_empty() {
 
-        subtree_needs_relayout_height.extend(parents_that_need_to_recalc_height_of_children.iter().cloned());
+        let parents_to_extend = parents_that_need_to_recalc_height_of_children.iter().map(|p| {
+            layout_result.styled_dom.node_hierarchy
+            .as_container()[*p].parent_id()
+            .unwrap_or(NodeId::ZERO)
+        }).collect::<BTreeSet<_>>();
+
+        parents_that_need_to_recalc_height_of_children.extend(parents_to_extend.into_iter());
 
         let previous_heights = parents_that_need_to_recalc_height_of_children.iter()
         .filter_map(|node_id| {
             layout_result.height_calculated_rects.as_ref().get(*node_id).map(|s| (node_id, *s))
         }).collect::<BTreeMap<_, _>>();
+
+        subtree_needs_relayout_height.extend(parents_that_need_to_recalc_height_of_children.iter().cloned());
 
         height_calculated_rect_arena_apply_flex_grow(
             &mut layout_result.height_calculated_rects,
@@ -3305,7 +3359,6 @@ pub fn do_the_relayout(
 
     updated_word_caches.extend(node_ids_that_changed_text_content.clone().into_iter());
 
-    println!("do_the_relayout");
     #[cfg(feature = "text_layout")]
     create_word_positions(
         &mut layout_result.positioned_words_cache,
@@ -3316,7 +3369,6 @@ pub fn do_the_relayout(
         &layout_result.styled_dom,
         Some(&layout_result.width_calculated_rects.as_ref()),
     );
-    println!("do_the_relayout donde");
 
     // determine which nodes changed their size and return
     let mut nodes_that_changed_size = BTreeSet::new();
@@ -3331,6 +3383,12 @@ pub fn do_the_relayout(
         for child_id in parent_id.az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
             nodes_that_changed_size.insert(child_id);
         }
+    }
+    for node_text_content_changed in &node_ids_that_changed_text_content {
+        let parent = layout_result.styled_dom.node_hierarchy.as_container()[*node_text_content_changed]
+        .parent_id()
+        .unwrap_or(NodeId::ZERO);
+        nodes_that_changed_size.insert(parent);
     }
     nodes_that_changed_size.extend(node_ids_that_changed_text_content.into_iter());
 
