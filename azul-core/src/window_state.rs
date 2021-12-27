@@ -519,10 +519,6 @@ impl StyleAndLayoutChanges {
             }
         }
 
-        if let Some(n) = layout_changes.as_ref() {
-            println!("layout_changes: {:?}", n);
-        }
-
         StyleAndLayoutChanges {
             style_changes,
             layout_changes,

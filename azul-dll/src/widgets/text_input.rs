@@ -582,7 +582,7 @@ fn default_on_focus_received(
         );
     }
 
-    println!("default_on_focus_received");
+    text_input.inner.cursor_pos = text_input.inner.text.len();
 
     Update::DoNothing
 }
@@ -613,8 +613,6 @@ fn default_on_focus_lost(
         );
     }
 
-    println!("default_on_focus_lost");
-
     Update::DoNothing
 }
 
@@ -640,24 +638,49 @@ fn default_on_text_input_inner(
     let label_node_id = info.get_next_sibling(placeholder_node_id)?;
     let cursor_node_id = info.get_first_child(label_node_id)?;
 
-    // hide the placeholder text
-    info.set_css_property(
-        placeholder_node_id,
-        CssProperty::const_opacity(StyleOpacity::const_new(0))
-    );
 
-    // append to the text
-    text_input.inner.text = {
-        let mut internal = text_input.inner.text.clone().into_library_owned_vec();
-        internal.push(c);
-        internal.into()
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_input = &mut *text_input;
+        let ontextinput = &mut text_input.on_text_input;
+
+        // inner_clone has the new text
+        let mut inner_clone = text_input.inner.clone();
+        inner_clone.cursor_pos = inner_clone.cursor_pos.saturating_add(1);
+        inner_clone.text = {
+            let mut internal = inner_clone.text.clone().into_library_owned_vec();
+            internal.push(c);
+            internal.into()
+        };
+
+        match ontextinput.as_mut() {
+            Some(TextInputOnTextInput { callback, data }) => (callback.cb)(data, info, &inner_clone),
+            None => OnTextInputReturn {
+                update: Update::DoNothing,
+                valid: TextInputValid::Yes,
+            },
+        }
     };
-    text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_add(1);
 
-    info.set_string_contents(label_node_id, text_input.inner.get_text().into());
-    println!("text cursor is now: {}", text_input.inner.cursor_pos);
+    if result.valid == TextInputValid::Yes {
+        // hide the placeholder text
+        info.set_css_property(
+            placeholder_node_id,
+            CssProperty::const_opacity(StyleOpacity::const_new(0))
+        );
 
-    None
+        // append to the text
+        text_input.inner.text = {
+            let mut internal = text_input.inner.text.clone().into_library_owned_vec();
+            internal.push(c);
+            internal.into()
+        };
+        text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_add(1);
+
+        info.set_string_contents(label_node_id, text_input.inner.get_text().into());
+    }
+
+    Some(result.update)
 }
 
 extern "C"
@@ -694,7 +717,6 @@ fn default_on_virtual_key_down_inner(
     text_input.inner.cursor_pos = text_input.inner.cursor_pos.saturating_sub(1);
 
     info.set_string_contents(label_node_id, text_input.inner.get_text().into());
-    println!("text cursor is now: {}", text_input.inner.cursor_pos);
 
     None
 }
