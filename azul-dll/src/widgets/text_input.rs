@@ -613,7 +613,19 @@ fn default_on_focus_lost(
         );
     }
 
-    Update::DoNothing
+    let result = {
+        // rustc doesn't understand the borrowing lifetime here
+        let text_input = &mut *text_input;
+        let onfocuslost = &mut text_input.on_focus_lost;
+        let inner = &text_input.inner;
+
+        match onfocuslost.as_mut() {
+            Some(TextInputOnFocusLost { callback, data }) => (callback.cb)(data, info, &inner),
+            None => Update::DoNothing,
+        }
+    };
+
+    result
 }
 
 extern "C"
