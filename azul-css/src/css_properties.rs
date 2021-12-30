@@ -1439,8 +1439,8 @@ pub struct SvgRect {
 impl SvgRect {
     pub fn union_with(&mut self, other: &Self) {
 
-        let self_max_x = self.x + other.width;
-        let self_max_y = self.y + other.height;
+        let self_max_x = self.x + self.width;
+        let self_max_y = self.y + self.height;
         let self_min_x = self.x;
         let self_min_y = self.y;
 

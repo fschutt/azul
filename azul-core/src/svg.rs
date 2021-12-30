@@ -263,6 +263,7 @@ pub struct SvgMultiPolygon {
 
 impl SvgMultiPolygon {
     pub fn get_bounds(&self) -> SvgRect {
+
         let mut first_bounds = match self.rings.get(0).and_then(|b| b.items.get(0).map(|i| i.get_bounds())) {
             Some(s) => s,
             None => return SvgRect::default(), // TODO: error?
