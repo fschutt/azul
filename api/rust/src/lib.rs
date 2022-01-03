@@ -10664,6 +10664,7 @@ mod dll {
         pub(crate) fn AzSvgPathElement_getYAtT(_:  &AzSvgPathElement, _:  f64) -> f64;
         pub(crate) fn AzSvgPathElement_getTangentVectorAtT(_:  &AzSvgPathElement, _:  f64) -> AzSvgVector;
         pub(crate) fn AzSvgPathElement_tessellateStroke(_:  &AzSvgPathElement, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgPoint_distance(_:  &AzSvgPoint, _:  AzSvgPoint) -> f64;
         pub(crate) fn AzSvgVector_angleDegrees(_:  &AzSvgVector) -> f64;
         pub(crate) fn AzSvgVector_normalize(_:  &AzSvgVector) -> AzSvgVector;
         pub(crate) fn AzSvgVector_rotate90DegCcw(_:  &AzSvgVector) -> AzSvgVector;
@@ -17957,6 +17958,13 @@ pub mod svg {
     /// `SvgPoint` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
+    #[cfg(not(feature = "link_static"))]
+    impl SvgPoint {
+
+        /// Returns the euclidean distance to some other point
+        pub fn distance(&self, other: SvgPoint)  -> f64 { unsafe { crate::dll::AzSvgPoint_distance(self, other) } }
+    }
+
     /// `SvgVector` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgVector as SvgVector;

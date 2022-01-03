@@ -30965,6 +30965,12 @@ impl AzSvgPoint {
         }
     }
 
+    fn distance(&self, other: AzSvgPoint) -> f64 {
+        unsafe { mem::transmute(crate::AzSvgPoint_distance(
+            mem::transmute(self),
+            mem::transmute(other),
+        )) }
+    }
 }
 
 #[pyproto]

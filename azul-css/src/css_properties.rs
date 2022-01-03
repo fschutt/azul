@@ -1416,7 +1416,7 @@ pub struct SvgPoint {
 
 impl SvgPoint {
     #[inline]
-    pub fn distance(&self, other: &Self) -> f64 {
+    pub fn distance(&self, other: Self) -> f64 {
         let dx = other.x - self.x;
         let dy = other.y - self.y;
         libm::hypotf(dx, dy) as f64
@@ -1580,7 +1580,7 @@ impl SvgCubicCurve {
                 x: self.get_x_at_t(t_next) as f32,
                 y: self.get_y_at_t(t_next) as f32,
             };
-            arc_length += prev_point.distance(&next_point);
+            arc_length += prev_point.distance(next_point);
             prev_point = next_point;
         }
 
@@ -1604,7 +1604,7 @@ impl SvgCubicCurve {
                 y: self.get_y_at_t(t_next) as f32,
             };
 
-            let distance = prev_point.distance(&next_point);
+            let distance = prev_point.distance(next_point);
 
             arc_length += distance;
 

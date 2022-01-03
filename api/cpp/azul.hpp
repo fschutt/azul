@@ -10725,6 +10725,7 @@ namespace dll {
         double SvgPathElement_getYAtT(const SvgPathElement* svgpathelement, double t);
         SvgVector SvgPathElement_getTangentVectorAtT(const SvgPathElement* svgpathelement, double t);
         TessellatedSvgNode SvgPathElement_tessellateStroke(const SvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
+        double SvgPoint_distance(const SvgPoint* svgpoint, AzSvgPoint  other);
         double SvgVector_angleDegrees(const SvgVector* svgvector);
         SvgVector SvgVector_normalize(const SvgVector* svgvector);
         SvgVector SvgVector_rotate90DegCcw(const SvgVector* svgvector);

@@ -12022,7 +12022,18 @@
                     "struct_fields": [
                         {"x": {"type": "f32"}},
                         {"y": {"type": "f32"}}
-                    ]
+                    ],
+                    "functions": {
+                        "distance": {
+                           "doc": "Returns the euclidean distance to some other point",
+                           "fn_args": [
+                               {"self": "ref"},
+                               {"other": "SvgPoint"}
+                           ],
+                           "returns": {"type": "f64"},
+                           "fn_body": "svgpoint.distance(other)"
+                        }
+                    }
                 },
                 "SvgVector": {
                     "external": "azul_impl::svg::SvgVector",

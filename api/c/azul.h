@@ -12823,6 +12823,7 @@ extern DLLIMPORT double AzSvgPathElement_getXAtT(const AzSvgPathElement* svgpath
 extern DLLIMPORT double AzSvgPathElement_getYAtT(const AzSvgPathElement* svgpathelement, double t);
 extern DLLIMPORT AzSvgVector AzSvgPathElement_getTangentVectorAtT(const AzSvgPathElement* svgpathelement, double t);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPathElement_tessellateStroke(const AzSvgPathElement* svgpathelement, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT double AzSvgPoint_distance(const AzSvgPoint* svgpoint, AzSvgPoint  other);
 extern DLLIMPORT double AzSvgVector_angleDegrees(const AzSvgVector* svgvector);
 extern DLLIMPORT AzSvgVector AzSvgVector_normalize(const AzSvgVector* svgvector);
 extern DLLIMPORT AzSvgVector AzSvgVector_rotate90DegCcw(const AzSvgVector* svgvector);

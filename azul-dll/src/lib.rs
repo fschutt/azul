@@ -3499,6 +3499,8 @@ pub use AzSvgPathElementTT as AzSvgPathElement;
 /// Re-export of rust-allocated (stack based) `SvgPoint` struct
 pub type AzSvgPointTT = azul_impl::svg::SvgPoint;
 pub use AzSvgPointTT as AzSvgPoint;
+/// Returns the euclidean distance to some other point
+#[no_mangle] pub extern "C" fn AzSvgPoint_distance(svgpoint: &AzSvgPoint, other: AzSvgPoint) -> f64 { svgpoint.distance(other) }
 
 /// Re-export of rust-allocated (stack based) `SvgVector` struct
 pub type AzSvgVectorTT = azul_impl::svg::SvgVector;
