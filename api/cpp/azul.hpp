@@ -84,6 +84,13 @@ namespace dll {
     union NodeTypeFieldValue;
     using NodeGraphOnNodeFieldEditedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, NodeGraphNodeId, size_t, NodeTypeId, NodeTypeFieldValue);
     
+    struct ListViewState;
+    using ListViewOnLazyLoadScrollCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, ListViewState* const);
+    
+    using ListViewOnColumnClickCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, ListViewState* const, size_t);
+    
+    using ListViewOnRowClickCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, ListViewState* const, size_t);
+    
     using DropDownOnChoiceChangeCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, size_t);
     
     using ParsedFontDestructorFnType = void(*)(void* restrict);
@@ -122,6 +129,9 @@ namespace dll {
     
     struct StyleFontFamilyVec;
     using StyleFontFamilyVecDestructorType = void(*)(StyleFontFamilyVec* restrict);
+    
+    struct ListViewRowVec;
+    using ListViewRowVecDestructorType = void(*)(ListViewRowVec* restrict);
     
     struct StyleFilterVec;
     using StyleFilterVecDestructorType = void(*)(StyleFilterVec* restrict);
@@ -1615,6 +1625,27 @@ namespace dll {
         NodeDragAmount() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ListViewOnLazyLoadScrollCallback {
+        ListViewOnLazyLoadScrollCallbackType cb;
+        ListViewOnLazyLoadScrollCallback& operator=(const ListViewOnLazyLoadScrollCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewOnLazyLoadScrollCallback(const ListViewOnLazyLoadScrollCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewOnLazyLoadScrollCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct ListViewOnColumnClickCallback {
+        ListViewOnColumnClickCallbackType cb;
+        ListViewOnColumnClickCallback& operator=(const ListViewOnColumnClickCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewOnColumnClickCallback(const ListViewOnColumnClickCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewOnColumnClickCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct ListViewOnRowClickCallback {
+        ListViewOnRowClickCallbackType cb;
+        ListViewOnRowClickCallback& operator=(const ListViewOnRowClickCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewOnRowClickCallback(const ListViewOnRowClickCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewOnRowClickCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct DropDownOnChoiceChangeCallback {
         DropDownOnChoiceChangeCallbackType cb;
         DropDownOnChoiceChangeCallback& operator=(const DropDownOnChoiceChangeCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
@@ -2212,6 +2243,22 @@ namespace dll {
         StyleFontFamilyVecDestructorVariant_DefaultRust DefaultRust;
         StyleFontFamilyVecDestructorVariant_NoDestructor NoDestructor;
         StyleFontFamilyVecDestructorVariant_External External;
+    };
+    
+    
+    enum class ListViewRowVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct ListViewRowVecDestructorVariant_DefaultRust { ListViewRowVecDestructorTag tag; };
+    struct ListViewRowVecDestructorVariant_NoDestructor { ListViewRowVecDestructorTag tag; };
+    struct ListViewRowVecDestructorVariant_External { ListViewRowVecDestructorTag tag; ListViewRowVecDestructorType payload; };
+    union ListViewRowVecDestructor {
+        ListViewRowVecDestructorVariant_DefaultRust DefaultRust;
+        ListViewRowVecDestructorVariant_NoDestructor NoDestructor;
+        ListViewRowVecDestructorVariant_External External;
     };
     
     
@@ -5676,6 +5723,30 @@ namespace dll {
         InputNodeAndIndex() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ListViewOnLazyLoadScroll {
+        RefAny data;
+        ListViewOnLazyLoadScrollCallback callback;
+        ListViewOnLazyLoadScroll& operator=(const ListViewOnLazyLoadScroll&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewOnLazyLoadScroll(const ListViewOnLazyLoadScroll&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewOnLazyLoadScroll() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct ListViewOnColumnClick {
+        RefAny data;
+        ListViewOnColumnClickCallback callback;
+        ListViewOnColumnClick& operator=(const ListViewOnColumnClick&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewOnColumnClick(const ListViewOnColumnClick&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewOnColumnClick() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct ListViewOnRowClick {
+        RefAny data;
+        ListViewOnRowClickCallback callback;
+        ListViewOnRowClick& operator=(const ListViewOnRowClick&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewOnRowClick(const ListViewOnRowClick&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewOnRowClick() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct DropDownOnChoiceChange {
         RefAny data;
         DropDownOnChoiceChangeCallback callback;
@@ -6172,6 +6243,58 @@ namespace dll {
         ParentWithNodeDepthVec(const ParentWithNodeDepthVec&) = delete; /* disable copy constructor, use explicit .clone() */
         ParentWithNodeDepthVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
+    
+    enum class OptionListViewOnRowClickTag {
+       None,
+       Some,
+    };
+    
+    struct OptionListViewOnRowClickVariant_None { OptionListViewOnRowClickTag tag; };
+    struct OptionListViewOnRowClickVariant_Some { OptionListViewOnRowClickTag tag; ListViewOnRowClick payload; };
+    union OptionListViewOnRowClick {
+        OptionListViewOnRowClickVariant_None None;
+        OptionListViewOnRowClickVariant_Some Some;
+    };
+    
+    
+    enum class OptionListViewOnColumnClickTag {
+       None,
+       Some,
+    };
+    
+    struct OptionListViewOnColumnClickVariant_None { OptionListViewOnColumnClickTag tag; };
+    struct OptionListViewOnColumnClickVariant_Some { OptionListViewOnColumnClickTag tag; ListViewOnColumnClick payload; };
+    union OptionListViewOnColumnClick {
+        OptionListViewOnColumnClickVariant_None None;
+        OptionListViewOnColumnClickVariant_Some Some;
+    };
+    
+    
+    enum class OptionListViewOnLazyLoadScrollTag {
+       None,
+       Some,
+    };
+    
+    struct OptionListViewOnLazyLoadScrollVariant_None { OptionListViewOnLazyLoadScrollTag tag; };
+    struct OptionListViewOnLazyLoadScrollVariant_Some { OptionListViewOnLazyLoadScrollTag tag; ListViewOnLazyLoadScroll payload; };
+    union OptionListViewOnLazyLoadScroll {
+        OptionListViewOnLazyLoadScrollVariant_None None;
+        OptionListViewOnLazyLoadScrollVariant_Some Some;
+    };
+    
+    
+    enum class OptionPixelValueNoPercentTag {
+       None,
+       Some,
+    };
+    
+    struct OptionPixelValueNoPercentVariant_None { OptionPixelValueNoPercentTag tag; };
+    struct OptionPixelValueNoPercentVariant_Some { OptionPixelValueNoPercentTag tag; PixelValueNoPercent payload; };
+    union OptionPixelValueNoPercent {
+        OptionPixelValueNoPercentVariant_None None;
+        OptionPixelValueNoPercentVariant_Some Some;
+    };
+    
     
     enum class OptionDropDownOnChoiceChangeTag {
        None,
@@ -7444,6 +7567,14 @@ namespace dll {
         OutputConnection() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ListViewRow {
+        DomVec cells;
+        OptionPixelValueNoPercent height;
+        ListViewRow& operator=(const ListViewRow&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewRow(const ListViewRow&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewRow() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct StyledNode {
         StyledNodeState state;
         OptionTagId tag_id;
@@ -7606,6 +7737,16 @@ namespace dll {
         String() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct ListViewRowVec {
+        ListViewRow* ptr;
+        size_t len;
+        size_t cap;
+        ListViewRowVecDestructor destructor;
+        ListViewRowVec& operator=(const ListViewRowVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewRowVec(const ListViewRowVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewRowVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct StyleFilterVec {
         StyleFilter* ptr;
         size_t len;
@@ -7695,6 +7836,19 @@ namespace dll {
         TagIdToNodeIdMappingVec(const TagIdToNodeIdMappingVec&) = delete; /* disable copy constructor, use explicit .clone() */
         TagIdToNodeIdMappingVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
+    
+    enum class OptionMenuTag {
+       None,
+       Some,
+    };
+    
+    struct OptionMenuVariant_None { OptionMenuTag tag; };
+    struct OptionMenuVariant_Some { OptionMenuTag tag; Menu payload; };
+    union OptionMenu {
+        OptionMenuVariant_None None;
+        OptionMenuVariant_Some Some;
+    };
+    
     
     enum class OptionResolvedTextLayoutOptionsTag {
        None,
@@ -8305,9 +8459,29 @@ namespace dll {
     
     struct ListView {
         StringVec columns;
+        ListViewRowVec rows;
+        OptionUsize sorted_by;
+        PixelValueNoPercent scroll_offset;
+        OptionPixelValueNoPercent content_height;
+        OptionMenu column_context_menu;
+        OptionListViewOnLazyLoadScroll on_lazy_load_scroll;
+        OptionListViewOnColumnClick on_column_click;
+        OptionListViewOnRowClick on_row_click;
         ListView& operator=(const ListView&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         ListView(const ListView&) = delete; /* disable copy constructor, use explicit .clone() */
         ListView() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct ListViewState {
+        StringVec columns;
+        OptionUsize sorted_by;
+        size_t current_row_count;
+        PixelValueNoPercent scroll_offset;
+        LogicalPosition current_scroll_position;
+        LogicalSize current_content_height;
+        ListViewState& operator=(const ListViewState&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        ListViewState(const ListViewState&) = delete; /* disable copy constructor, use explicit .clone() */
+        ListViewState() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct TreeView {
@@ -10349,8 +10523,14 @@ namespace dll {
         void NodeTypeInfo_delete(NodeTypeInfo* restrict instance);
         void InputOutputInfo_delete(InputOutputInfo* restrict instance);
         ListView ListView_new(AzStringVec  columns);
+        ListView ListView_withRows(ListView* restrict listview, AzListViewRowVec  rows);
         Dom ListView_dom(ListView* restrict listview);
         void ListView_delete(ListView* restrict instance);
+        void ListViewRow_delete(ListViewRow* restrict instance);
+        void ListViewState_delete(ListViewState* restrict instance);
+        void ListViewOnLazyLoadScroll_delete(ListViewOnLazyLoadScroll* restrict instance);
+        void ListViewOnColumnClick_delete(ListViewOnColumnClick* restrict instance);
+        void ListViewOnRowClick_delete(ListViewOnRowClick* restrict instance);
         TreeView TreeView_new(AzString  root);
         Dom TreeView_dom(TreeView* restrict treeview);
         void TreeView_delete(TreeView* restrict instance);
@@ -10833,6 +11013,7 @@ namespace dll {
         String String_trim(const String* string);
         Refstr String_asRefstr(const String* string);
         void String_delete(String* restrict instance);
+        void ListViewRowVec_delete(ListViewRowVec* restrict instance);
         void StyleFilterVec_delete(StyleFilterVec* restrict instance);
         void LogicalRectVec_delete(LogicalRectVec* restrict instance);
         void NodeTypeIdInfoMapVec_delete(NodeTypeIdInfoMapVec* restrict instance);
@@ -10899,6 +11080,10 @@ namespace dll {
         void TagIdToNodeIdMappingVec_delete(TagIdToNodeIdMappingVec* restrict instance);
         void ParentWithNodeDepthVec_delete(ParentWithNodeDepthVec* restrict instance);
         void NodeDataVec_delete(NodeDataVec* restrict instance);
+        void OptionListViewOnRowClick_delete(OptionListViewOnRowClick* restrict instance);
+        void OptionListViewOnColumnClick_delete(OptionListViewOnColumnClick* restrict instance);
+        void OptionListViewOnLazyLoadScroll_delete(OptionListViewOnLazyLoadScroll* restrict instance);
+        void OptionMenu_delete(OptionMenu* restrict instance);
         void OptionDropDownOnChoiceChange_delete(OptionDropDownOnChoiceChange* restrict instance);
         void OptionResolvedTextLayoutOptions_delete(OptionResolvedTextLayoutOptions* restrict instance);
         void OptionNodeGraphOnNodeAdded_delete(OptionNodeGraphOnNodeAdded* restrict instance);

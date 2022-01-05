@@ -3067,6 +3067,8 @@ pub struct Menu {
     pub context_mouse_btn: ContextMenuMouseButton,
 }
 
+impl_option!(Menu, OptionMenu, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+
 impl Menu {
     pub fn new(items: MenuItemVec) -> Self {
         Self {

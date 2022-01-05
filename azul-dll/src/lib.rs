@@ -2485,10 +2485,57 @@ pub use AzListViewTT as AzListView;
 /// Creates a new `ListView` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `ListView::new()` constructor.
 #[no_mangle] pub extern "C" fn AzListView_new(columns: AzStringVec) -> AzListView { AzListView::new(columns) }
+/// Equivalent to the Rust `ListView::with_rows()` function.
+#[no_mangle] pub extern "C" fn AzListView_withRows(listview: &mut AzListView, rows: AzListViewRowVec) -> AzListView { listview.with_rows(rows) }
 /// Equivalent to the Rust `ListView::dom()` function.
 #[no_mangle] pub extern "C" fn AzListView_dom(listview: &mut AzListView) -> AzDom { listview.swap_with_default().dom() }
 /// Destructor: Takes ownership of the `ListView` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzListView_delete(object: &mut AzListView) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `ListViewRow` struct
+pub type AzListViewRowTT = crate::widgets::list_view::ListViewRow;
+pub use AzListViewRowTT as AzListViewRow;
+/// Destructor: Takes ownership of the `ListViewRow` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzListViewRow_delete(object: &mut AzListViewRow) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `ListViewState` struct
+pub type AzListViewStateTT = crate::widgets::list_view::ListViewState;
+pub use AzListViewStateTT as AzListViewState;
+/// Destructor: Takes ownership of the `ListViewState` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzListViewState_delete(object: &mut AzListViewState) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzListViewOnLazyLoadScrollCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScrollCallback` struct
+pub type AzListViewOnLazyLoadScrollCallbackTT = crate::widgets::list_view::ListViewOnLazyLoadScrollCallback;
+pub use AzListViewOnLazyLoadScrollCallbackTT as AzListViewOnLazyLoadScrollCallback;
+
+/// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScroll` struct
+pub type AzListViewOnLazyLoadScrollTT = crate::widgets::list_view::ListViewOnLazyLoadScroll;
+pub use AzListViewOnLazyLoadScrollTT as AzListViewOnLazyLoadScroll;
+/// Destructor: Takes ownership of the `ListViewOnLazyLoadScroll` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzListViewOnLazyLoadScroll_delete(object: &mut AzListViewOnLazyLoadScroll) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzListViewOnColumnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `ListViewOnColumnClickCallback` struct
+pub type AzListViewOnColumnClickCallbackTT = crate::widgets::list_view::ListViewOnColumnClickCallback;
+pub use AzListViewOnColumnClickCallbackTT as AzListViewOnColumnClickCallback;
+
+/// Re-export of rust-allocated (stack based) `ListViewOnColumnClick` struct
+pub type AzListViewOnColumnClickTT = crate::widgets::list_view::ListViewOnColumnClick;
+pub use AzListViewOnColumnClickTT as AzListViewOnColumnClick;
+/// Destructor: Takes ownership of the `ListViewOnColumnClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzListViewOnColumnClick_delete(object: &mut AzListViewOnColumnClick) {  unsafe { core::ptr::drop_in_place(object); } }
+
+pub type AzListViewOnRowClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+/// Re-export of rust-allocated (stack based) `ListViewOnRowClickCallback` struct
+pub type AzListViewOnRowClickCallbackTT = crate::widgets::list_view::ListViewOnRowClickCallback;
+pub use AzListViewOnRowClickCallbackTT as AzListViewOnRowClickCallback;
+
+/// Re-export of rust-allocated (stack based) `ListViewOnRowClick` struct
+pub type AzListViewOnRowClickTT = crate::widgets::list_view::ListViewOnRowClick;
+pub use AzListViewOnRowClickTT as AzListViewOnRowClick;
+/// Destructor: Takes ownership of the `ListViewOnRowClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzListViewOnRowClick_delete(object: &mut AzListViewOnRowClick) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TreeView` struct
 pub type AzTreeViewTT = crate::widgets::tree_view::TreeView;
@@ -4006,6 +4053,12 @@ pub use AzStringTT as AzString;
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzString_delete(object: &mut AzString) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<ListViewRow>`
+pub type AzListViewRowVecTT = crate::widgets::list_view::ListViewRowVec;
+pub use AzListViewRowVecTT as AzListViewRowVec;
+/// Destructor: Takes ownership of the `ListViewRowVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzListViewRowVec_delete(object: &mut AzListViewRowVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
 pub type AzStyleFilterVecTT = azul_impl::css::StyleFilterVec;
 pub use AzStyleFilterVecTT as AzStyleFilterVec;
@@ -4395,6 +4448,11 @@ pub type AzStyleFontFamilyVecDestructorTT = azul_impl::css::StyleFontFamilyVecDe
 pub use AzStyleFontFamilyVecDestructorTT as AzStyleFontFamilyVecDestructor;
 
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+/// Re-export of rust-allocated (stack based) `ListViewRowVecDestructor` struct
+pub type AzListViewRowVecDestructorTT = crate::widgets::list_view::ListViewRowVecDestructor;
+pub use AzListViewRowVecDestructorTT as AzListViewRowVecDestructor;
+
+pub type AzListViewRowVecDestructorType = extern "C" fn(&mut AzListViewRowVec);
 /// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
 pub type AzStyleFilterVecDestructorTT = azul_impl::css::StyleFilterVecDestructor;
 pub use AzStyleFilterVecDestructorTT as AzStyleFilterVecDestructor;
@@ -4705,6 +4763,34 @@ pub type AzNodeDataVecDestructorTT = azul_impl::dom::NodeDataVecDestructor;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
+pub type AzOptionListViewOnRowClickTT = crate::widgets::list_view::OptionListViewOnRowClick;
+pub use AzOptionListViewOnRowClickTT as AzOptionListViewOnRowClick;
+/// Destructor: Takes ownership of the `OptionListViewOnRowClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionListViewOnRowClick_delete(object: &mut AzOptionListViewOnRowClick) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionListViewOnColumnClick` struct
+pub type AzOptionListViewOnColumnClickTT = crate::widgets::list_view::OptionListViewOnColumnClick;
+pub use AzOptionListViewOnColumnClickTT as AzOptionListViewOnColumnClick;
+/// Destructor: Takes ownership of the `OptionListViewOnColumnClick` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionListViewOnColumnClick_delete(object: &mut AzOptionListViewOnColumnClick) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionListViewOnLazyLoadScroll` struct
+pub type AzOptionListViewOnLazyLoadScrollTT = crate::widgets::list_view::OptionListViewOnLazyLoadScroll;
+pub use AzOptionListViewOnLazyLoadScrollTT as AzOptionListViewOnLazyLoadScroll;
+/// Destructor: Takes ownership of the `OptionListViewOnLazyLoadScroll` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionListViewOnLazyLoadScroll_delete(object: &mut AzOptionListViewOnLazyLoadScroll) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionMenu` struct
+pub type AzOptionMenuTT = azul_core::window::OptionMenu;
+pub use AzOptionMenuTT as AzOptionMenu;
+/// Destructor: Takes ownership of the `OptionMenu` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzOptionMenu_delete(object: &mut AzOptionMenu) {  unsafe { core::ptr::drop_in_place(object); } }
+
+/// Re-export of rust-allocated (stack based) `OptionPixelValueNoPercent` struct
+pub type AzOptionPixelValueNoPercentTT = azul_impl::css::OptionPixelValueNoPercent;
+pub use AzOptionPixelValueNoPercentTT as AzOptionPixelValueNoPercent;
+
 /// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
 pub type AzOptionDropDownOnChoiceChangeTT = crate::widgets::drop_down::OptionDropDownOnChoiceChange;
 pub use AzOptionDropDownOnChoiceChangeTT as AzOptionDropDownOnChoiceChange;
@@ -6829,6 +6915,33 @@ mod test_sizes {
         pub y: f32,
     }
 
+    /// `AzListViewOnLazyLoadScrollCallbackType` struct
+    pub type AzListViewOnLazyLoadScrollCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScrollCallback` struct
+    #[repr(C)]
+    pub struct AzListViewOnLazyLoadScrollCallback {
+        pub cb: AzListViewOnLazyLoadScrollCallbackType,
+    }
+
+    /// `AzListViewOnColumnClickCallbackType` struct
+    pub type AzListViewOnColumnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnColumnClickCallback` struct
+    #[repr(C)]
+    pub struct AzListViewOnColumnClickCallback {
+        pub cb: AzListViewOnColumnClickCallbackType,
+    }
+
+    /// `AzListViewOnRowClickCallbackType` struct
+    pub type AzListViewOnRowClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnRowClickCallback` struct
+    #[repr(C)]
+    pub struct AzListViewOnRowClickCallback {
+        pub cb: AzListViewOnRowClickCallbackType,
+    }
+
     /// `AzDropDownOnChoiceChangeCallbackType` struct
     pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
 
@@ -7448,6 +7561,17 @@ mod test_sizes {
 
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+
+    /// Re-export of rust-allocated (stack based) `ListViewRowVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzListViewRowVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzListViewRowVecDestructorType),
+    }
+
+    /// `AzListViewRowVecDestructorType` struct
+    pub type AzListViewRowVecDestructorType = extern "C" fn(&mut AzListViewRowVec);
 
     /// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
     #[repr(C, u8)]
@@ -9683,6 +9807,27 @@ mod test_sizes {
         pub input_index: usize,
     }
 
+    /// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScroll` struct
+    #[repr(C)]
+    pub struct AzListViewOnLazyLoadScroll {
+        pub data: AzRefAny,
+        pub callback: AzListViewOnLazyLoadScrollCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnColumnClick` struct
+    #[repr(C)]
+    pub struct AzListViewOnColumnClick {
+        pub data: AzRefAny,
+        pub callback: AzListViewOnColumnClickCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnRowClick` struct
+    #[repr(C)]
+    pub struct AzListViewOnRowClick {
+        pub data: AzRefAny,
+        pub callback: AzListViewOnRowClickCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
     #[repr(C)]
     pub struct AzDropDownOnChoiceChange {
@@ -10126,6 +10271,34 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
+    #[repr(C, u8)]
+    pub enum AzOptionListViewOnRowClick {
+        None,
+        Some(AzListViewOnRowClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionListViewOnColumnClick` struct
+    #[repr(C, u8)]
+    pub enum AzOptionListViewOnColumnClick {
+        None,
+        Some(AzListViewOnColumnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionListViewOnLazyLoadScroll` struct
+    #[repr(C, u8)]
+    pub enum AzOptionListViewOnLazyLoadScroll {
+        None,
+        Some(AzListViewOnLazyLoadScroll),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionPixelValueNoPercent` struct
+    #[repr(C, u8)]
+    pub enum AzOptionPixelValueNoPercent {
+        None,
+        Some(AzPixelValueNoPercent),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
@@ -10889,6 +11062,13 @@ mod test_sizes {
         pub connects_to: AzInputNodeAndIndexVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `ListViewRow` struct
+    #[repr(C)]
+    pub struct AzListViewRow {
+        pub cells: AzDomVec,
+        pub height: AzOptionPixelValueNoPercent,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)]
     pub struct AzStyledNode {
@@ -11014,6 +11194,15 @@ mod test_sizes {
         pub vec: AzU8Vec,
     }
 
+    /// Wrapper over a Rust-allocated `Vec<ListViewRow>`
+    #[repr(C)]
+    pub struct AzListViewRowVec {
+        pub(crate) ptr: *const AzListViewRow,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzListViewRowVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
     #[repr(C)]
     pub struct AzStyleFilterVec {
@@ -11093,6 +11282,13 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdToNodeIdMappingVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionMenu` struct
+    #[repr(C, u8)]
+    pub enum AzOptionMenu {
+        None,
+        Some(AzMenu),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
@@ -11504,6 +11700,25 @@ mod test_sizes {
     #[repr(C)]
     pub struct AzListView {
         pub columns: AzStringVec,
+        pub rows: AzListViewRowVec,
+        pub sorted_by: AzOptionUsize,
+        pub scroll_offset: AzPixelValueNoPercent,
+        pub content_height: AzOptionPixelValueNoPercent,
+        pub column_context_menu: AzOptionMenu,
+        pub on_lazy_load_scroll: AzOptionListViewOnLazyLoadScroll,
+        pub on_column_click: AzOptionListViewOnColumnClick,
+        pub on_row_click: AzOptionListViewOnRowClick,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ListViewState` struct
+    #[repr(C)]
+    pub struct AzListViewState {
+        pub columns: AzStringVec,
+        pub sorted_by: AzOptionUsize,
+        pub current_row_count: usize,
+        pub scroll_offset: AzPixelValueNoPercent,
+        pub current_scroll_position: AzLogicalPosition,
+        pub current_content_height: AzLogicalSize,
     }
 
     /// Re-export of rust-allocated (stack based) `TreeView` struct
@@ -12736,6 +12951,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodePosition>(), "AzNodePosition"), (Layout::new::<AzNodePosition>(), "AzNodePosition"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::GraphDragAmount>(), "AzGraphDragAmount"), (Layout::new::<AzGraphDragAmount>(), "AzGraphDragAmount"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeDragAmount>(), "AzNodeDragAmount"), (Layout::new::<AzNodeDragAmount>(), "AzNodeDragAmount"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewOnLazyLoadScrollCallback>(), "AzListViewOnLazyLoadScrollCallback"), (Layout::new::<AzListViewOnLazyLoadScrollCallback>(), "AzListViewOnLazyLoadScrollCallback"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewOnColumnClickCallback>(), "AzListViewOnColumnClickCallback"), (Layout::new::<AzListViewOnColumnClickCallback>(), "AzListViewOnColumnClickCallback"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewOnRowClickCallback>(), "AzListViewOnRowClickCallback"), (Layout::new::<AzListViewOnRowClickCallback>(), "AzListViewOnRowClickCallback"));
         assert_eq!((Layout::new::<crate::widgets::drop_down::DropDownOnChoiceChangeCallback>(), "AzDropDownOnChoiceChangeCallback"), (Layout::new::<AzDropDownOnChoiceChangeCallback>(), "AzDropDownOnChoiceChangeCallback"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeHierarchyItem>(), "AzNodeHierarchyItem"), (Layout::new::<AzNodeHierarchyItem>(), "AzNodeHierarchyItem"));
         assert_eq!((Layout::new::<azul_impl::style::CascadeInfo>(), "AzCascadeInfo"), (Layout::new::<AzCascadeInfo>(), "AzCascadeInfo"));
@@ -12813,6 +13031,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiverDestructorCallback>(), "AzThreadReceiverDestructorFn"), (Layout::new::<AzThreadReceiverDestructorFn>(), "AzThreadReceiverDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadSenderDestructorCallback>(), "AzThreadSenderDestructorFn"), (Layout::new::<AzThreadSenderDestructorFn>(), "AzThreadSenderDestructorFn"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"), (Layout::new::<AzStyleFontFamilyVecDestructor>(), "AzStyleFontFamilyVecDestructor"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewRowVecDestructor>(), "AzListViewRowVecDestructor"), (Layout::new::<AzListViewRowVecDestructor>(), "AzListViewRowVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFilterVecDestructor>(), "AzStyleFilterVecDestructor"), (Layout::new::<AzStyleFilterVecDestructor>(), "AzStyleFilterVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::LogicalRectVecDestructor>(), "AzLogicalRectVecDestructor"), (Layout::new::<AzLogicalRectVecDestructor>(), "AzLogicalRectVecDestructor"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"), (Layout::new::<AzNodeTypeIdInfoMapVecDestructor>(), "AzNodeTypeIdInfoMapVecDestructor"));
@@ -13062,6 +13281,9 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::OnNodeFieldEdited>(), "AzNodeGraphOnNodeFieldEdited"), (Layout::new::<AzNodeGraphOnNodeFieldEdited>(), "AzNodeGraphOnNodeFieldEdited"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputNodeAndIndex>(), "AzOutputNodeAndIndex"), (Layout::new::<AzOutputNodeAndIndex>(), "AzOutputNodeAndIndex"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputNodeAndIndex>(), "AzInputNodeAndIndex"), (Layout::new::<AzInputNodeAndIndex>(), "AzInputNodeAndIndex"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewOnLazyLoadScroll>(), "AzListViewOnLazyLoadScroll"), (Layout::new::<AzListViewOnLazyLoadScroll>(), "AzListViewOnLazyLoadScroll"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewOnColumnClick>(), "AzListViewOnColumnClick"), (Layout::new::<AzListViewOnColumnClick>(), "AzListViewOnColumnClick"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewOnRowClick>(), "AzListViewOnRowClick"), (Layout::new::<AzListViewOnRowClick>(), "AzListViewOnRowClick"));
         assert_eq!((Layout::new::<crate::widgets::drop_down::DropDownOnChoiceChange>(), "AzDropDownOnChoiceChange"), (Layout::new::<AzDropDownOnChoiceChange>(), "AzDropDownOnChoiceChange"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepth>(), "AzParentWithNodeDepth"), (Layout::new::<AzParentWithNodeDepth>(), "AzParentWithNodeDepth"));
         assert_eq!((Layout::new::<azul_impl::gl::GlContextPtr>(), "AzGl"), (Layout::new::<AzGl>(), "AzGl"));
@@ -13107,6 +13329,10 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"), (Layout::new::<AzNodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::OptionListViewOnRowClick>(), "AzOptionListViewOnRowClick"), (Layout::new::<AzOptionListViewOnRowClick>(), "AzOptionListViewOnRowClick"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::OptionListViewOnColumnClick>(), "AzOptionListViewOnColumnClick"), (Layout::new::<AzOptionListViewOnColumnClick>(), "AzOptionListViewOnColumnClick"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::OptionListViewOnLazyLoadScroll>(), "AzOptionListViewOnLazyLoadScroll"), (Layout::new::<AzOptionListViewOnLazyLoadScroll>(), "AzOptionListViewOnLazyLoadScroll"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionPixelValueNoPercent>(), "AzOptionPixelValueNoPercent"), (Layout::new::<AzOptionPixelValueNoPercent>(), "AzOptionPixelValueNoPercent"));
         assert_eq!((Layout::new::<crate::widgets::drop_down::OptionDropDownOnChoiceChange>(), "AzOptionDropDownOnChoiceChange"), (Layout::new::<AzOptionDropDownOnChoiceChange>(), "AzOptionDropDownOnChoiceChange"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeAdded>(), "AzOptionNodeGraphOnNodeAdded"), (Layout::new::<AzOptionNodeGraphOnNodeAdded>(), "AzOptionNodeGraphOnNodeAdded"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OptionOnNodeRemoved>(), "AzOptionNodeGraphOnNodeRemoved"), (Layout::new::<AzOptionNodeGraphOnNodeRemoved>(), "AzOptionNodeGraphOnNodeRemoved"));
@@ -13200,6 +13426,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeGraphCallbacks>(), "AzNodeGraphCallbacks"), (Layout::new::<AzNodeGraphCallbacks>(), "AzNodeGraphCallbacks"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnection>(), "AzInputConnection"), (Layout::new::<AzInputConnection>(), "AzInputConnection"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnection>(), "AzOutputConnection"), (Layout::new::<AzOutputConnection>(), "AzOutputConnection"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewRow>(), "AzListViewRow"), (Layout::new::<AzListViewRow>(), "AzListViewRow"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNode>(), "AzStyledNode"), (Layout::new::<AzStyledNode>(), "AzStyledNode"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"), (Layout::new::<AzTagIdToNodeIdMapping>(), "AzTagIdToNodeIdMapping"));
         assert_eq!((Layout::new::<azul_impl::gl::Texture>(), "AzTexture"), (Layout::new::<AzTexture>(), "AzTexture"));
@@ -13215,6 +13442,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::task::Instant>(), "AzInstant"), (Layout::new::<AzInstant>(), "AzInstant"));
         assert_eq!((Layout::new::<azul_impl::task::ThreadReceiveMsg>(), "AzThreadReceiveMsg"), (Layout::new::<AzThreadReceiveMsg>(), "AzThreadReceiveMsg"));
         assert_eq!((Layout::new::<azul_impl::css::AzString>(), "AzString"), (Layout::new::<AzString>(), "AzString"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewRowVec>(), "AzListViewRowVec"), (Layout::new::<AzListViewRowVec>(), "AzListViewRowVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleFilterVec>(), "AzStyleFilterVec"), (Layout::new::<AzStyleFilterVec>(), "AzStyleFilterVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnectionVec>(), "AzInputConnectionVec"), (Layout::new::<AzInputConnectionVec>(), "AzInputConnectionVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnectionVec>(), "AzOutputConnectionVec"), (Layout::new::<AzOutputConnectionVec>(), "AzOutputConnectionVec"));
@@ -13224,6 +13452,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::StyledNodeVec>(), "AzStyledNodeVec"), (Layout::new::<AzStyledNodeVec>(), "AzStyledNodeVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::TagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"), (Layout::new::<AzTagIdToNodeIdMappingVec>(), "AzTagIdToNodeIdMappingVec"));
+        assert_eq!((Layout::new::<azul_core::window::OptionMenu>(), "AzOptionMenu"), (Layout::new::<AzOptionMenu>(), "AzOptionMenu"));
         assert_eq!((Layout::new::<azul_impl::ui_solver::OptionResolvedTextLayoutOptions>(), "AzOptionResolvedTextLayoutOptions"), (Layout::new::<AzOptionResolvedTextLayoutOptions>(), "AzOptionResolvedTextLayoutOptions"));
         assert_eq!((Layout::new::<azul_core::window::OptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"), (Layout::new::<AzOptionVirtualKeyCodeCombo>(), "AzOptionVirtualKeyCodeCombo"));
         assert_eq!((Layout::new::<azul_core::window::OptionMouseState>(), "AzOptionMouseState"), (Layout::new::<AzOptionMouseState>(), "AzOptionMouseState"));
@@ -13268,6 +13497,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeInfo>(), "AzNodeTypeInfo"), (Layout::new::<AzNodeTypeInfo>(), "AzNodeTypeInfo"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputOutputInfo>(), "AzInputOutputInfo"), (Layout::new::<AzInputOutputInfo>(), "AzInputOutputInfo"));
         assert_eq!((Layout::new::<crate::widgets::list_view::ListView>(), "AzListView"), (Layout::new::<AzListView>(), "AzListView"));
+        assert_eq!((Layout::new::<crate::widgets::list_view::ListViewState>(), "AzListViewState"), (Layout::new::<AzListViewState>(), "AzListViewState"));
         assert_eq!((Layout::new::<crate::widgets::tree_view::TreeView>(), "AzTreeView"), (Layout::new::<AzTreeView>(), "AzTreeView"));
         assert_eq!((Layout::new::<crate::widgets::drop_down::DropDown>(), "AzDropDown"), (Layout::new::<AzDropDown>(), "AzDropDown"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttribute>(), "AzVertexAttribute"), (Layout::new::<AzVertexAttribute>(), "AzVertexAttribute"));

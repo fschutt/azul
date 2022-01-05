@@ -6951,7 +6951,15 @@
                 "ListView": {
                     "external": "crate::widgets::list_view::ListView",
                     "struct_fields": [
-                        {"columns": {"type": "StringVec"}}
+                        {"columns": {"type": "StringVec", "doc": "Column names"}},
+                        {"rows": {"type": "ListViewRowVec", "doc": "Currently rendered rows. Note that the ListView does not have to render all rows at once, usually you'd only render the top 100 rows and then lazy-load once the user has scrolled to the end"}},
+                        {"sorted_by": {"type": "OptionUsize", "doc": "Which column is the list view sorted by (default = None)?"}},
+                        {"scroll_offset": {"type": "PixelValueNoPercent", "doc": "Offset to add to the rows used when layouting row positions during lazy-loaded scrolling. Also affects the scroll position"}},
+                        {"content_height": {"type": "OptionPixelValueNoPercent", "doc": "Height of the content, if not all rows are loaded"}},
+                        {"column_context_menu": {"type": "OptionMenu", "doc": "Context menu for the columns (usually opens a context menu to select which columns to show)"}},
+                        {"on_lazy_load_scroll": {"type": "OptionListViewOnLazyLoadScroll", "doc": "Indicates that this ListView is being lazily loaded, allows control over what happens when the user scrolls the ListView."}},
+                        {"on_column_click": {"type": "OptionListViewOnColumnClick", "doc": "What to do when the user left-clicks the column (usually used for storing which column to sort by)"}},
+                        {"on_row_click": {"type": "OptionListViewOnRowClick", "doc": "What to do when the user left-clicks a row (usually used for selecting the row depending on the state)"}}
                     ],
                     "constructors": {
                         "new": {
@@ -6962,6 +6970,14 @@
                         }
                     },
                     "functions": {
+                        "with_rows": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"rows": "ListViewRowVec"}
+                            ],
+                            "returns": {"type": "ListView"},
+                            "fn_body": "listview.with_rows(rows)"
+                        },
                         "dom": {
                             "fn_args": [
                                 {"self": "refmut"}
@@ -6970,6 +6986,96 @@
                             "fn_body": "listview.swap_with_default().dom()"
                         }
                     }
+                },
+                "ListViewRow": {
+                    "external": "crate::widgets::list_view::ListViewRow",
+                    "struct_fields": [
+                        {"cells": {"type": "DomVec", "doc": "Each cell is an opaque Dom object"}},
+                        {"height": {"type": "OptionPixelValueNoPercent", "doc": "Height of the row, if known beforehand"}}
+                    ]
+                },
+                "ListViewState": {
+                    "external": "crate::widgets::list_view::ListViewState",
+                    "struct_fields": [
+                        {"columns": {"type": "StringVec", "doc": "Copy of the current column names"}},
+                        {"sorted_by": {"type": "OptionUsize", "doc": "Which column the rows are currently sorted by"}},
+                        {"current_row_count": {"type": "usize", "doc": "Row count of rows currently loaded in the DOM"}},
+                        {"scroll_offset": {"type": "PixelValueNoPercent", "doc": "Y-offset currently applied to the rows"}},
+                        {"current_scroll_position": {"type": "LogicalPosition", "doc": "Current position where the user has scrolled the ListView to"}},
+                        {"current_content_height": {"type": "LogicalSize", "doc": "Current height of the row container"}}
+                    ]
+                },
+                "ListViewOnLazyLoadScrollCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "ListViewState", "ref": "ref"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "ListViewOnLazyLoadScrollCallback": {
+                    "external": "crate::widgets::list_view::ListViewOnLazyLoadScrollCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "ListViewOnLazyLoadScrollCallbackType"}}
+                    ]
+                },
+                "ListViewOnLazyLoadScroll": {
+                    "external": "crate::widgets::list_view::ListViewOnLazyLoadScroll",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "ListViewOnLazyLoadScrollCallback"}}
+                    ]
+                },
+                "ListViewOnColumnClickCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "ListViewState", "ref": "ref"},
+                            {"type": "usize", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "ListViewOnColumnClickCallback": {
+                    "external": "crate::widgets::list_view::ListViewOnColumnClickCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "ListViewOnColumnClickCallbackType"}}
+                    ]
+                },
+                "ListViewOnColumnClick": {
+                    "external": "crate::widgets::list_view::ListViewOnColumnClick",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "ListViewOnColumnClickCallback"}}
+                    ]
+                },
+
+                "ListViewOnRowClickCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "ListViewState", "ref": "ref"},
+                            {"type": "usize", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
+                "ListViewOnRowClickCallback": {
+                    "external": "crate::widgets::list_view::ListViewOnRowClickCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "ListViewOnRowClickCallbackType"}}
+                    ]
+                },
+                "ListViewOnRowClick": {
+                    "external": "crate::widgets::list_view::ListViewOnRowClick",
+                    "struct_fields": [
+                        {"data": {"type": "RefAny"}},
+                        {"callback": {"type": "ListViewOnRowClickCallback"}}
+                    ]
                 },
                 "TreeView": {
                     "external": "crate::widgets::tree_view::TreeView",
@@ -13453,6 +13559,17 @@
         "vec": {
             "doc": "Definition of azuls internal `Vec<*>` wrappers",
             "classes": {
+                "ListViewRowVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<ListViewRow>`",
+                    "custom_destructor": true,
+                    "external": "crate::widgets::list_view::ListViewRowVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const ListViewRow" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "ListViewRowVecDestructor" } }
+                    ]
+                },
                 "StyleFilterVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<StyleFilter>`",
                     "custom_destructor": true,
@@ -14190,6 +14307,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "StyleFontFamilyVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "ListViewRowVecDestructor": {
+                    "external": "crate::widgets::list_view::ListViewRowVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "ListViewRowVecDestructorType"}}
+                    ]
+                },
+                "ListViewRowVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "ListViewRowVec", "ref": "refmut"}
                         ]
                     }
                 },
@@ -15190,6 +15323,41 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionListViewOnRowClick": {
+                    "external": "crate::widgets::list_view::OptionListViewOnRowClick",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "ListViewOnRowClick"}}
+                    ]
+                },
+                "OptionListViewOnColumnClick": {
+                    "external": "crate::widgets::list_view::OptionListViewOnColumnClick",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "ListViewOnColumnClick"}}
+                    ]
+                },
+                "OptionListViewOnLazyLoadScroll": {
+                    "external": "crate::widgets::list_view::OptionListViewOnLazyLoadScroll",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "ListViewOnLazyLoadScroll"}}
+                    ]
+                },
+                "OptionMenu": {
+                    "external": "azul_core::window::OptionMenu",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "Menu"}}
+                    ]
+                },
+                "OptionPixelValueNoPercent": {
+                    "external": "azul_impl::css::OptionPixelValueNoPercent",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "PixelValueNoPercent"}}
+                    ]
+                },
                 "OptionDropDownOnChoiceChange": {
                     "external": "crate::widgets::drop_down::OptionDropDownOnChoiceChange",
                     "enum_fields": [

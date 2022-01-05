@@ -140,6 +140,14 @@ union AzNodeTypeFieldValue;
 typedef union AzNodeTypeFieldValue AzNodeTypeFieldValue;
 typedef AzUpdate (*AzNodeGraphOnNodeFieldEditedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzNodeGraphNodeId C, size_t D, AzNodeTypeId E, AzNodeTypeFieldValue F);
 
+struct AzListViewState;
+typedef struct AzListViewState AzListViewState;
+typedef AzUpdate (*AzListViewOnLazyLoadScrollCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzListViewState* const C);
+
+typedef AzUpdate (*AzListViewOnColumnClickCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzListViewState* const C, size_t D);
+
+typedef AzUpdate (*AzListViewOnRowClickCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzListViewState* const C, size_t D);
+
 typedef AzUpdate (*AzDropDownOnChoiceChangeCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, size_t C);
 
 typedef void (*AzParsedFontDestructorFnType)(void* restrict A);
@@ -187,6 +195,10 @@ typedef void (*AzThreadSenderDestructorFnType)(AzThreadSender* restrict A);
 struct AzStyleFontFamilyVec;
 typedef struct AzStyleFontFamilyVec AzStyleFontFamilyVec;
 typedef void (*AzStyleFontFamilyVecDestructorType)(AzStyleFontFamilyVec* restrict A);
+
+struct AzListViewRowVec;
+typedef struct AzListViewRowVec AzListViewRowVec;
+typedef void (*AzListViewRowVecDestructorType)(AzListViewRowVec* restrict A);
 
 struct AzStyleFilterVec;
 typedef struct AzStyleFilterVec AzStyleFilterVec;
@@ -1713,6 +1725,21 @@ struct AzNodeDragAmount {
 };
 typedef struct AzNodeDragAmount AzNodeDragAmount;
 
+struct AzListViewOnLazyLoadScrollCallback {
+    AzListViewOnLazyLoadScrollCallbackType cb;
+};
+typedef struct AzListViewOnLazyLoadScrollCallback AzListViewOnLazyLoadScrollCallback;
+
+struct AzListViewOnColumnClickCallback {
+    AzListViewOnColumnClickCallbackType cb;
+};
+typedef struct AzListViewOnColumnClickCallback AzListViewOnColumnClickCallback;
+
+struct AzListViewOnRowClickCallback {
+    AzListViewOnRowClickCallbackType cb;
+};
+typedef struct AzListViewOnRowClickCallback AzListViewOnRowClickCallback;
+
 struct AzDropDownOnChoiceChangeCallback {
     AzDropDownOnChoiceChangeCallbackType cb;
 };
@@ -2248,6 +2275,26 @@ union AzStyleFontFamilyVecDestructor {
     AzStyleFontFamilyVecDestructorVariant_External External;
 };
 typedef union AzStyleFontFamilyVecDestructor AzStyleFontFamilyVecDestructor;
+
+enum AzListViewRowVecDestructorTag {
+   AzListViewRowVecDestructorTag_DefaultRust,
+   AzListViewRowVecDestructorTag_NoDestructor,
+   AzListViewRowVecDestructorTag_External,
+};
+typedef enum AzListViewRowVecDestructorTag AzListViewRowVecDestructorTag;
+
+struct AzListViewRowVecDestructorVariant_DefaultRust { AzListViewRowVecDestructorTag tag; };
+typedef struct AzListViewRowVecDestructorVariant_DefaultRust AzListViewRowVecDestructorVariant_DefaultRust;
+struct AzListViewRowVecDestructorVariant_NoDestructor { AzListViewRowVecDestructorTag tag; };
+typedef struct AzListViewRowVecDestructorVariant_NoDestructor AzListViewRowVecDestructorVariant_NoDestructor;
+struct AzListViewRowVecDestructorVariant_External { AzListViewRowVecDestructorTag tag; AzListViewRowVecDestructorType payload; };
+typedef struct AzListViewRowVecDestructorVariant_External AzListViewRowVecDestructorVariant_External;
+union AzListViewRowVecDestructor {
+    AzListViewRowVecDestructorVariant_DefaultRust DefaultRust;
+    AzListViewRowVecDestructorVariant_NoDestructor NoDestructor;
+    AzListViewRowVecDestructorVariant_External External;
+};
+typedef union AzListViewRowVecDestructor AzListViewRowVecDestructor;
 
 enum AzStyleFilterVecDestructorTag {
    AzStyleFilterVecDestructorTag_DefaultRust,
@@ -6281,6 +6328,24 @@ struct AzInputNodeAndIndex {
 };
 typedef struct AzInputNodeAndIndex AzInputNodeAndIndex;
 
+struct AzListViewOnLazyLoadScroll {
+    AzRefAny data;
+    AzListViewOnLazyLoadScrollCallback callback;
+};
+typedef struct AzListViewOnLazyLoadScroll AzListViewOnLazyLoadScroll;
+
+struct AzListViewOnColumnClick {
+    AzRefAny data;
+    AzListViewOnColumnClickCallback callback;
+};
+typedef struct AzListViewOnColumnClick AzListViewOnColumnClick;
+
+struct AzListViewOnRowClick {
+    AzRefAny data;
+    AzListViewOnRowClickCallback callback;
+};
+typedef struct AzListViewOnRowClick AzListViewOnRowClick;
+
 struct AzDropDownOnChoiceChange {
     AzRefAny data;
     AzDropDownOnChoiceChangeCallback callback;
@@ -6706,6 +6771,70 @@ struct AzParentWithNodeDepthVec {
     AzParentWithNodeDepthVecDestructor destructor;
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
+
+enum AzOptionListViewOnRowClickTag {
+   AzOptionListViewOnRowClickTag_None,
+   AzOptionListViewOnRowClickTag_Some,
+};
+typedef enum AzOptionListViewOnRowClickTag AzOptionListViewOnRowClickTag;
+
+struct AzOptionListViewOnRowClickVariant_None { AzOptionListViewOnRowClickTag tag; };
+typedef struct AzOptionListViewOnRowClickVariant_None AzOptionListViewOnRowClickVariant_None;
+struct AzOptionListViewOnRowClickVariant_Some { AzOptionListViewOnRowClickTag tag; AzListViewOnRowClick payload; };
+typedef struct AzOptionListViewOnRowClickVariant_Some AzOptionListViewOnRowClickVariant_Some;
+union AzOptionListViewOnRowClick {
+    AzOptionListViewOnRowClickVariant_None None;
+    AzOptionListViewOnRowClickVariant_Some Some;
+};
+typedef union AzOptionListViewOnRowClick AzOptionListViewOnRowClick;
+
+enum AzOptionListViewOnColumnClickTag {
+   AzOptionListViewOnColumnClickTag_None,
+   AzOptionListViewOnColumnClickTag_Some,
+};
+typedef enum AzOptionListViewOnColumnClickTag AzOptionListViewOnColumnClickTag;
+
+struct AzOptionListViewOnColumnClickVariant_None { AzOptionListViewOnColumnClickTag tag; };
+typedef struct AzOptionListViewOnColumnClickVariant_None AzOptionListViewOnColumnClickVariant_None;
+struct AzOptionListViewOnColumnClickVariant_Some { AzOptionListViewOnColumnClickTag tag; AzListViewOnColumnClick payload; };
+typedef struct AzOptionListViewOnColumnClickVariant_Some AzOptionListViewOnColumnClickVariant_Some;
+union AzOptionListViewOnColumnClick {
+    AzOptionListViewOnColumnClickVariant_None None;
+    AzOptionListViewOnColumnClickVariant_Some Some;
+};
+typedef union AzOptionListViewOnColumnClick AzOptionListViewOnColumnClick;
+
+enum AzOptionListViewOnLazyLoadScrollTag {
+   AzOptionListViewOnLazyLoadScrollTag_None,
+   AzOptionListViewOnLazyLoadScrollTag_Some,
+};
+typedef enum AzOptionListViewOnLazyLoadScrollTag AzOptionListViewOnLazyLoadScrollTag;
+
+struct AzOptionListViewOnLazyLoadScrollVariant_None { AzOptionListViewOnLazyLoadScrollTag tag; };
+typedef struct AzOptionListViewOnLazyLoadScrollVariant_None AzOptionListViewOnLazyLoadScrollVariant_None;
+struct AzOptionListViewOnLazyLoadScrollVariant_Some { AzOptionListViewOnLazyLoadScrollTag tag; AzListViewOnLazyLoadScroll payload; };
+typedef struct AzOptionListViewOnLazyLoadScrollVariant_Some AzOptionListViewOnLazyLoadScrollVariant_Some;
+union AzOptionListViewOnLazyLoadScroll {
+    AzOptionListViewOnLazyLoadScrollVariant_None None;
+    AzOptionListViewOnLazyLoadScrollVariant_Some Some;
+};
+typedef union AzOptionListViewOnLazyLoadScroll AzOptionListViewOnLazyLoadScroll;
+
+enum AzOptionPixelValueNoPercentTag {
+   AzOptionPixelValueNoPercentTag_None,
+   AzOptionPixelValueNoPercentTag_Some,
+};
+typedef enum AzOptionPixelValueNoPercentTag AzOptionPixelValueNoPercentTag;
+
+struct AzOptionPixelValueNoPercentVariant_None { AzOptionPixelValueNoPercentTag tag; };
+typedef struct AzOptionPixelValueNoPercentVariant_None AzOptionPixelValueNoPercentVariant_None;
+struct AzOptionPixelValueNoPercentVariant_Some { AzOptionPixelValueNoPercentTag tag; AzPixelValueNoPercent payload; };
+typedef struct AzOptionPixelValueNoPercentVariant_Some AzOptionPixelValueNoPercentVariant_Some;
+union AzOptionPixelValueNoPercent {
+    AzOptionPixelValueNoPercentVariant_None None;
+    AzOptionPixelValueNoPercentVariant_Some Some;
+};
+typedef union AzOptionPixelValueNoPercent AzOptionPixelValueNoPercent;
 
 enum AzOptionDropDownOnChoiceChangeTag {
    AzOptionDropDownOnChoiceChangeTag_None,
@@ -8174,6 +8303,12 @@ struct AzOutputConnection {
 };
 typedef struct AzOutputConnection AzOutputConnection;
 
+struct AzListViewRow {
+    AzDomVec cells;
+    AzOptionPixelValueNoPercent height;
+};
+typedef struct AzListViewRow AzListViewRow;
+
 struct AzStyledNode {
     AzStyledNodeState state;
     AzOptionTagId tag_id;
@@ -8329,6 +8464,14 @@ struct AzString {
 };
 typedef struct AzString AzString;
 
+struct AzListViewRowVec {
+    AzListViewRow* ptr;
+    size_t len;
+    size_t cap;
+    AzListViewRowVecDestructor destructor;
+};
+typedef struct AzListViewRowVec AzListViewRowVec;
+
 struct AzStyleFilterVec {
     AzStyleFilter* ptr;
     size_t len;
@@ -8400,6 +8543,22 @@ struct AzTagIdToNodeIdMappingVec {
     AzTagIdToNodeIdMappingVecDestructor destructor;
 };
 typedef struct AzTagIdToNodeIdMappingVec AzTagIdToNodeIdMappingVec;
+
+enum AzOptionMenuTag {
+   AzOptionMenuTag_None,
+   AzOptionMenuTag_Some,
+};
+typedef enum AzOptionMenuTag AzOptionMenuTag;
+
+struct AzOptionMenuVariant_None { AzOptionMenuTag tag; };
+typedef struct AzOptionMenuVariant_None AzOptionMenuVariant_None;
+struct AzOptionMenuVariant_Some { AzOptionMenuTag tag; AzMenu payload; };
+typedef struct AzOptionMenuVariant_Some AzOptionMenuVariant_Some;
+union AzOptionMenu {
+    AzOptionMenuVariant_None None;
+    AzOptionMenuVariant_Some Some;
+};
+typedef union AzOptionMenu AzOptionMenu;
 
 enum AzOptionResolvedTextLayoutOptionsTag {
    AzOptionResolvedTextLayoutOptionsTag_None,
@@ -9061,8 +9220,26 @@ typedef struct AzInputOutputInfo AzInputOutputInfo;
 
 struct AzListView {
     AzStringVec columns;
+    AzListViewRowVec rows;
+    AzOptionUsize sorted_by;
+    AzPixelValueNoPercent scroll_offset;
+    AzOptionPixelValueNoPercent content_height;
+    AzOptionMenu column_context_menu;
+    AzOptionListViewOnLazyLoadScroll on_lazy_load_scroll;
+    AzOptionListViewOnColumnClick on_column_click;
+    AzOptionListViewOnRowClick on_row_click;
 };
 typedef struct AzListView AzListView;
+
+struct AzListViewState {
+    AzStringVec columns;
+    AzOptionUsize sorted_by;
+    size_t current_row_count;
+    AzPixelValueNoPercent scroll_offset;
+    AzLogicalPosition current_scroll_position;
+    AzLogicalSize current_content_height;
+};
+typedef struct AzListViewState AzListViewState;
 
 struct AzTreeView {
     AzString root;
@@ -10765,6 +10942,9 @@ typedef struct AzCss AzCss;
 #define AzStyleFontFamilyVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFontFamilyVecDestructorTag_DefaultRust } }
 #define AzStyleFontFamilyVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFontFamilyVecDestructorTag_NoDestructor } }
 #define AzStyleFontFamilyVecDestructor_External(v) { .External = { .tag = AzStyleFontFamilyVecDestructorTag_External, .payload = v } }
+#define AzListViewRowVecDestructor_DefaultRust { .DefaultRust = { .tag = AzListViewRowVecDestructorTag_DefaultRust } }
+#define AzListViewRowVecDestructor_NoDestructor { .NoDestructor = { .tag = AzListViewRowVecDestructorTag_NoDestructor } }
+#define AzListViewRowVecDestructor_External(v) { .External = { .tag = AzListViewRowVecDestructorTag_External, .payload = v } }
 #define AzStyleFilterVecDestructor_DefaultRust { .DefaultRust = { .tag = AzStyleFilterVecDestructorTag_DefaultRust } }
 #define AzStyleFilterVecDestructor_NoDestructor { .NoDestructor = { .tag = AzStyleFilterVecDestructorTag_NoDestructor } }
 #define AzStyleFilterVecDestructor_External(v) { .External = { .tag = AzStyleFilterVecDestructorTag_External, .payload = v } }
@@ -11328,6 +11508,14 @@ typedef struct AzCss AzCss;
 #define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
 #define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
 #define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
+#define AzOptionListViewOnRowClick_None { .None = { .tag = AzOptionListViewOnRowClickTag_None } }
+#define AzOptionListViewOnRowClick_Some(v) { .Some = { .tag = AzOptionListViewOnRowClickTag_Some, .payload = v } }
+#define AzOptionListViewOnColumnClick_None { .None = { .tag = AzOptionListViewOnColumnClickTag_None } }
+#define AzOptionListViewOnColumnClick_Some(v) { .Some = { .tag = AzOptionListViewOnColumnClickTag_Some, .payload = v } }
+#define AzOptionListViewOnLazyLoadScroll_None { .None = { .tag = AzOptionListViewOnLazyLoadScrollTag_None } }
+#define AzOptionListViewOnLazyLoadScroll_Some(v) { .Some = { .tag = AzOptionListViewOnLazyLoadScrollTag_Some, .payload = v } }
+#define AzOptionPixelValueNoPercent_None { .None = { .tag = AzOptionPixelValueNoPercentTag_None } }
+#define AzOptionPixelValueNoPercent_Some(v) { .Some = { .tag = AzOptionPixelValueNoPercentTag_Some, .payload = v } }
 #define AzOptionDropDownOnChoiceChange_None { .None = { .tag = AzOptionDropDownOnChoiceChangeTag_None } }
 #define AzOptionDropDownOnChoiceChange_Some(v) { .Some = { .tag = AzOptionDropDownOnChoiceChangeTag_Some, .payload = v } }
 #define AzOptionNodeGraphOnNodeAdded_None { .None = { .tag = AzOptionNodeGraphOnNodeAddedTag_None } }
@@ -11519,6 +11707,8 @@ typedef struct AzCss AzCss;
 #define AzInstant_Tick(v) { .Tick = { .tag = AzInstantTag_Tick, .payload = v } }
 #define AzThreadReceiveMsg_WriteBack(v) { .WriteBack = { .tag = AzThreadReceiveMsgTag_WriteBack, .payload = v } }
 #define AzThreadReceiveMsg_Update(v) { .Update = { .tag = AzThreadReceiveMsgTag_Update, .payload = v } }
+#define AzOptionMenu_None { .None = { .tag = AzOptionMenuTag_None } }
+#define AzOptionMenu_Some(v) { .Some = { .tag = AzOptionMenuTag_Some, .payload = v } }
 #define AzOptionResolvedTextLayoutOptions_None { .None = { .tag = AzOptionResolvedTextLayoutOptionsTag_None } }
 #define AzOptionResolvedTextLayoutOptions_Some(v) { .Some = { .tag = AzOptionResolvedTextLayoutOptionsTag_Some, .payload = v } }
 #define AzOptionVirtualKeyCodeCombo_None { .None = { .tag = AzOptionVirtualKeyCodeComboTag_None } }
@@ -11785,6 +11975,10 @@ typedef struct AzCss AzCss;
 #define AzResultSvgXmlNodeSvgParseError_Err(v) { .Err = { .tag = AzResultSvgXmlNodeSvgParseErrorTag_Err, .payload = v } }
 #define AzResultSvgSvgParseError_Ok(v) { .Ok = { .tag = AzResultSvgSvgParseErrorTag_Ok, .payload = v } }
 #define AzResultSvgSvgParseError_Err(v) { .Err = { .tag = AzResultSvgSvgParseErrorTag_Err, .payload = v } }
+AzListViewRow AzListViewRowVecArray[] = {};
+#define AzListViewRowVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzListViewRow), .cap = sizeof(v) / sizeof(AzListViewRow), .destructor = { .NoDestructor = { .tag = AzListViewRowVecDestructorTag_NoDestructor, }, }, }
+#define AzListViewRowVec_empty { .ptr = &AzListViewRowVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzListViewRowVecDestructorTag_NoDestructor, }, }, }
+
 AzStyleFilter AzStyleFilterVecArray[] = {};
 #define AzStyleFilterVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzStyleFilter), .cap = sizeof(v) / sizeof(AzStyleFilter), .destructor = { .NoDestructor = { .tag = AzStyleFilterVecDestructorTag_NoDestructor, }, }, }
 #define AzStyleFilterVec_empty { .ptr = &AzStyleFilterVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzStyleFilterVecDestructorTag_NoDestructor, }, }, }
@@ -12447,8 +12641,14 @@ extern DLLIMPORT void AzOutputConnection_delete(AzOutputConnection* restrict ins
 extern DLLIMPORT void AzNodeTypeInfo_delete(AzNodeTypeInfo* restrict instance);
 extern DLLIMPORT void AzInputOutputInfo_delete(AzInputOutputInfo* restrict instance);
 extern DLLIMPORT AzListView AzListView_new(AzStringVec  columns);
+extern DLLIMPORT AzListView AzListView_withRows(AzListView* restrict listview, AzListViewRowVec  rows);
 extern DLLIMPORT AzDom AzListView_dom(AzListView* restrict listview);
 extern DLLIMPORT void AzListView_delete(AzListView* restrict instance);
+extern DLLIMPORT void AzListViewRow_delete(AzListViewRow* restrict instance);
+extern DLLIMPORT void AzListViewState_delete(AzListViewState* restrict instance);
+extern DLLIMPORT void AzListViewOnLazyLoadScroll_delete(AzListViewOnLazyLoadScroll* restrict instance);
+extern DLLIMPORT void AzListViewOnColumnClick_delete(AzListViewOnColumnClick* restrict instance);
+extern DLLIMPORT void AzListViewOnRowClick_delete(AzListViewOnRowClick* restrict instance);
 extern DLLIMPORT AzTreeView AzTreeView_new(AzString  root);
 extern DLLIMPORT AzDom AzTreeView_dom(AzTreeView* restrict treeview);
 extern DLLIMPORT void AzTreeView_delete(AzTreeView* restrict instance);
@@ -12931,6 +13131,7 @@ extern DLLIMPORT AzString AzString_copyFromBytes(uint8_t ptr, size_t start, size
 extern DLLIMPORT AzString AzString_trim(const AzString* string);
 extern DLLIMPORT AzRefstr AzString_asRefstr(const AzString* string);
 extern DLLIMPORT void AzString_delete(AzString* restrict instance);
+extern DLLIMPORT void AzListViewRowVec_delete(AzListViewRowVec* restrict instance);
 extern DLLIMPORT void AzStyleFilterVec_delete(AzStyleFilterVec* restrict instance);
 extern DLLIMPORT void AzLogicalRectVec_delete(AzLogicalRectVec* restrict instance);
 extern DLLIMPORT void AzNodeTypeIdInfoMapVec_delete(AzNodeTypeIdInfoMapVec* restrict instance);
@@ -12997,6 +13198,10 @@ extern DLLIMPORT void AzStyledNodeVec_delete(AzStyledNodeVec* restrict instance)
 extern DLLIMPORT void AzTagIdToNodeIdMappingVec_delete(AzTagIdToNodeIdMappingVec* restrict instance);
 extern DLLIMPORT void AzParentWithNodeDepthVec_delete(AzParentWithNodeDepthVec* restrict instance);
 extern DLLIMPORT void AzNodeDataVec_delete(AzNodeDataVec* restrict instance);
+extern DLLIMPORT void AzOptionListViewOnRowClick_delete(AzOptionListViewOnRowClick* restrict instance);
+extern DLLIMPORT void AzOptionListViewOnColumnClick_delete(AzOptionListViewOnColumnClick* restrict instance);
+extern DLLIMPORT void AzOptionListViewOnLazyLoadScroll_delete(AzOptionListViewOnLazyLoadScroll* restrict instance);
+extern DLLIMPORT void AzOptionMenu_delete(AzOptionMenu* restrict instance);
 extern DLLIMPORT void AzOptionDropDownOnChoiceChange_delete(AzOptionDropDownOnChoiceChange* restrict instance);
 extern DLLIMPORT void AzOptionResolvedTextLayoutOptions_delete(AzOptionResolvedTextLayoutOptions* restrict instance);
 extern DLLIMPORT void AzOptionNodeGraphOnNodeAdded_delete(AzOptionNodeGraphOnNodeAdded* restrict instance);
@@ -18547,6 +18752,20 @@ bool AzStyleFontFamilyVecDestructor_matchMutExternal(AzStyleFontFamilyVecDestruc
     return valid;
 }
 
+bool AzListViewRowVecDestructor_matchRefExternal(const AzListViewRowVecDestructor* value, const AzListViewRowVecDestructorType** restrict out) {
+    const AzListViewRowVecDestructorVariant_External* casted = (const AzListViewRowVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzListViewRowVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzListViewRowVecDestructor_matchMutExternal(AzListViewRowVecDestructor* restrict value, AzListViewRowVecDestructorType* restrict * restrict out) {
+    AzListViewRowVecDestructorVariant_External* restrict casted = (AzListViewRowVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzListViewRowVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
 bool AzStyleFilterVecDestructor_matchRefExternal(const AzStyleFilterVecDestructor* value, const AzStyleFilterVecDestructorType** restrict out) {
     const AzStyleFilterVecDestructorVariant_External* casted = (const AzStyleFilterVecDestructorVariant_External*)value;
     bool valid = casted->tag == AzStyleFilterVecDestructorTag_External;
@@ -19411,6 +19630,76 @@ bool AzNodeDataVecDestructor_matchRefExternal(const AzNodeDataVecDestructor* val
 bool AzNodeDataVecDestructor_matchMutExternal(AzNodeDataVecDestructor* restrict value, AzNodeDataVecDestructorType* restrict * restrict out) {
     AzNodeDataVecDestructorVariant_External* restrict casted = (AzNodeDataVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionListViewOnRowClick_matchRefSome(const AzOptionListViewOnRowClick* value, const AzListViewOnRowClick** restrict out) {
+    const AzOptionListViewOnRowClickVariant_Some* casted = (const AzOptionListViewOnRowClickVariant_Some*)value;
+    bool valid = casted->tag == AzOptionListViewOnRowClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionListViewOnRowClick_matchMutSome(AzOptionListViewOnRowClick* restrict value, AzListViewOnRowClick* restrict * restrict out) {
+    AzOptionListViewOnRowClickVariant_Some* restrict casted = (AzOptionListViewOnRowClickVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionListViewOnRowClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionListViewOnColumnClick_matchRefSome(const AzOptionListViewOnColumnClick* value, const AzListViewOnColumnClick** restrict out) {
+    const AzOptionListViewOnColumnClickVariant_Some* casted = (const AzOptionListViewOnColumnClickVariant_Some*)value;
+    bool valid = casted->tag == AzOptionListViewOnColumnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionListViewOnColumnClick_matchMutSome(AzOptionListViewOnColumnClick* restrict value, AzListViewOnColumnClick* restrict * restrict out) {
+    AzOptionListViewOnColumnClickVariant_Some* restrict casted = (AzOptionListViewOnColumnClickVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionListViewOnColumnClickTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionListViewOnLazyLoadScroll_matchRefSome(const AzOptionListViewOnLazyLoadScroll* value, const AzListViewOnLazyLoadScroll** restrict out) {
+    const AzOptionListViewOnLazyLoadScrollVariant_Some* casted = (const AzOptionListViewOnLazyLoadScrollVariant_Some*)value;
+    bool valid = casted->tag == AzOptionListViewOnLazyLoadScrollTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionListViewOnLazyLoadScroll_matchMutSome(AzOptionListViewOnLazyLoadScroll* restrict value, AzListViewOnLazyLoadScroll* restrict * restrict out) {
+    AzOptionListViewOnLazyLoadScrollVariant_Some* restrict casted = (AzOptionListViewOnLazyLoadScrollVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionListViewOnLazyLoadScrollTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMenu_matchRefSome(const AzOptionMenu* value, const AzMenu** restrict out) {
+    const AzOptionMenuVariant_Some* casted = (const AzOptionMenuVariant_Some*)value;
+    bool valid = casted->tag == AzOptionMenuTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionMenu_matchMutSome(AzOptionMenu* restrict value, AzMenu* restrict * restrict out) {
+    AzOptionMenuVariant_Some* restrict casted = (AzOptionMenuVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionMenuTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPixelValueNoPercent_matchRefSome(const AzOptionPixelValueNoPercent* value, const AzPixelValueNoPercent** restrict out) {
+    const AzOptionPixelValueNoPercentVariant_Some* casted = (const AzOptionPixelValueNoPercentVariant_Some*)value;
+    bool valid = casted->tag == AzOptionPixelValueNoPercentTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionPixelValueNoPercent_matchMutSome(AzOptionPixelValueNoPercent* restrict value, AzPixelValueNoPercent* restrict * restrict out) {
+    AzOptionPixelValueNoPercentVariant_Some* restrict casted = (AzOptionPixelValueNoPercentVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionPixelValueNoPercentTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

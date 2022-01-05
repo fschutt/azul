@@ -2165,6 +2165,33 @@ pub struct AzNodeDragAmount {
     pub y: f32,
 }
 
+/// `AzListViewOnLazyLoadScrollCallbackType` struct
+pub type AzListViewOnLazyLoadScrollCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScrollCallback` struct
+#[repr(C)]
+pub struct AzListViewOnLazyLoadScrollCallback {
+    pub cb: AzListViewOnLazyLoadScrollCallbackType,
+}
+
+/// `AzListViewOnColumnClickCallbackType` struct
+pub type AzListViewOnColumnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `ListViewOnColumnClickCallback` struct
+#[repr(C)]
+pub struct AzListViewOnColumnClickCallback {
+    pub cb: AzListViewOnColumnClickCallbackType,
+}
+
+/// `AzListViewOnRowClickCallbackType` struct
+pub type AzListViewOnRowClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+
+/// Re-export of rust-allocated (stack based) `ListViewOnRowClickCallback` struct
+#[repr(C)]
+pub struct AzListViewOnRowClickCallback {
+    pub cb: AzListViewOnRowClickCallbackType,
+}
+
 /// `AzDropDownOnChoiceChangeCallbackType` struct
 pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
 
@@ -2780,6 +2807,17 @@ pub enum AzStyleFontFamilyVecDestructor {
 
 /// `AzStyleFontFamilyVecDestructorType` struct
 pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+
+/// Re-export of rust-allocated (stack based) `ListViewRowVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzListViewRowVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzListViewRowVecDestructorType),
+}
+
+/// `AzListViewRowVecDestructorType` struct
+pub type AzListViewRowVecDestructorType = extern "C" fn(&mut AzListViewRowVec);
 
 /// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
 #[repr(C, u8)]
@@ -4990,6 +5028,27 @@ pub struct AzInputNodeAndIndex {
     pub input_index: usize,
 }
 
+/// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScroll` struct
+#[repr(C)]
+pub struct AzListViewOnLazyLoadScroll {
+    pub data: AzRefAny,
+    pub callback: AzListViewOnLazyLoadScrollCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `ListViewOnColumnClick` struct
+#[repr(C)]
+pub struct AzListViewOnColumnClick {
+    pub data: AzRefAny,
+    pub callback: AzListViewOnColumnClickCallback,
+}
+
+/// Re-export of rust-allocated (stack based) `ListViewOnRowClick` struct
+#[repr(C)]
+pub struct AzListViewOnRowClick {
+    pub data: AzRefAny,
+    pub callback: AzListViewOnRowClickCallback,
+}
+
 /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
 #[repr(C)]
 pub struct AzDropDownOnChoiceChange {
@@ -5430,6 +5489,34 @@ pub struct AzParentWithNodeDepthVec {
     pub len: usize,
     pub cap: usize,
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
+#[repr(C, u8)]
+pub enum AzOptionListViewOnRowClick {
+    None,
+    Some(AzListViewOnRowClick),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionListViewOnColumnClick` struct
+#[repr(C, u8)]
+pub enum AzOptionListViewOnColumnClick {
+    None,
+    Some(AzListViewOnColumnClick),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionListViewOnLazyLoadScroll` struct
+#[repr(C, u8)]
+pub enum AzOptionListViewOnLazyLoadScroll {
+    None,
+    Some(AzListViewOnLazyLoadScroll),
+}
+
+/// Re-export of rust-allocated (stack based) `OptionPixelValueNoPercent` struct
+#[repr(C, u8)]
+pub enum AzOptionPixelValueNoPercent {
+    None,
+    Some(AzPixelValueNoPercent),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
@@ -6189,6 +6276,13 @@ pub struct AzOutputConnection {
     pub connects_to: AzInputNodeAndIndexVec,
 }
 
+/// Re-export of rust-allocated (stack based) `ListViewRow` struct
+#[repr(C)]
+pub struct AzListViewRow {
+    pub cells: AzDomVec,
+    pub height: AzOptionPixelValueNoPercentEnumWrapper,
+}
+
 /// Re-export of rust-allocated (stack based) `StyledNode` struct
 #[repr(C)]
 pub struct AzStyledNode {
@@ -6313,6 +6407,15 @@ pub struct AzString {
     pub vec: AzU8Vec,
 }
 
+/// Wrapper over a Rust-allocated `Vec<ListViewRow>`
+#[repr(C)]
+pub struct AzListViewRowVec {
+    pub(crate) ptr: *const AzListViewRow,
+    pub len: usize,
+    pub cap: usize,
+    pub destructor: AzListViewRowVecDestructorEnumWrapper,
+}
+
 /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
 #[repr(C)]
 pub struct AzStyleFilterVec {
@@ -6392,6 +6495,13 @@ pub struct AzTagIdToNodeIdMappingVec {
     pub len: usize,
     pub cap: usize,
     pub destructor: AzTagIdToNodeIdMappingVecDestructorEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `OptionMenu` struct
+#[repr(C, u8)]
+pub enum AzOptionMenu {
+    None,
+    Some(AzMenu),
 }
 
 /// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
@@ -6798,6 +6908,25 @@ pub struct AzInputOutputInfo {
 #[repr(C)]
 pub struct AzListView {
     pub columns: AzStringVec,
+    pub rows: AzListViewRowVec,
+    pub sorted_by: AzOptionUsizeEnumWrapper,
+    pub scroll_offset: AzPixelValueNoPercent,
+    pub content_height: AzOptionPixelValueNoPercentEnumWrapper,
+    pub column_context_menu: AzOptionMenuEnumWrapper,
+    pub on_lazy_load_scroll: AzOptionListViewOnLazyLoadScrollEnumWrapper,
+    pub on_column_click: AzOptionListViewOnColumnClickEnumWrapper,
+    pub on_row_click: AzOptionListViewOnRowClickEnumWrapper,
+}
+
+/// Re-export of rust-allocated (stack based) `ListViewState` struct
+#[repr(C)]
+pub struct AzListViewState {
+    pub columns: AzStringVec,
+    pub sorted_by: AzOptionUsizeEnumWrapper,
+    pub current_row_count: usize,
+    pub scroll_offset: AzPixelValueNoPercent,
+    pub current_scroll_position: AzLogicalPosition,
+    pub current_content_height: AzLogicalSize,
 }
 
 /// Re-export of rust-allocated (stack based) `TreeView` struct
@@ -8352,6 +8481,12 @@ pub struct AzStyleFontFamilyVecDestructorEnumWrapper {
     pub inner: AzStyleFontFamilyVecDestructor,
 }
 
+/// `AzListViewRowVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzListViewRowVecDestructorEnumWrapper {
+    pub inner: AzListViewRowVecDestructor,
+}
+
 /// `AzStyleFilterVecDestructorEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzStyleFilterVecDestructorEnumWrapper {
@@ -9240,6 +9375,30 @@ pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
+/// `AzOptionListViewOnRowClickEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionListViewOnRowClickEnumWrapper {
+    pub inner: AzOptionListViewOnRowClick,
+}
+
+/// `AzOptionListViewOnColumnClickEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionListViewOnColumnClickEnumWrapper {
+    pub inner: AzOptionListViewOnColumnClick,
+}
+
+/// `AzOptionListViewOnLazyLoadScrollEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionListViewOnLazyLoadScrollEnumWrapper {
+    pub inner: AzOptionListViewOnLazyLoadScroll,
+}
+
+/// `AzOptionPixelValueNoPercentEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionPixelValueNoPercentEnumWrapper {
+    pub inner: AzOptionPixelValueNoPercent,
+}
+
 /// `AzOptionDropDownOnChoiceChangeEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionDropDownOnChoiceChangeEnumWrapper {
@@ -9654,6 +9813,12 @@ pub struct AzThreadReceiveMsgEnumWrapper {
     pub inner: AzThreadReceiveMsg,
 }
 
+/// `AzOptionMenuEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionMenuEnumWrapper {
+    pub inner: AzOptionMenu,
+}
+
 /// `AzOptionResolvedTextLayoutOptionsEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionResolvedTextLayoutOptionsEnumWrapper {
@@ -10028,6 +10193,7 @@ unsafe impl Send for AzRenderImageCallbackInfo { }
 unsafe impl Send for AzLayoutCallbackInfo { }
 unsafe impl Send for AzTexture { }
 unsafe impl Send for AzTessellatedSvgNodeVecRef { }
+unsafe impl Send for AzListViewRowVec { }
 unsafe impl Send for AzStyleFilterVec { }
 unsafe impl Send for AzInputConnectionVec { }
 unsafe impl Send for AzOutputConnectionVec { }
@@ -10189,6 +10355,9 @@ impl Clone for AzNodeGraphNodeId { fn clone(&self) -> Self { let r: &crate::widg
 impl Clone for AzNodePosition { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodePosition = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGraphDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::GraphDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeDragAmount { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeDragAmount = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewOnLazyLoadScrollCallback { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewOnLazyLoadScrollCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewOnColumnClickCallback { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewOnColumnClickCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewOnRowClickCallback { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewOnRowClickCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDropDownOnChoiceChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::DropDownOnChoiceChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeHierarchyItem { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItem = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCascadeInfo { fn clone(&self) -> Self { let r: &azul_impl::style::CascadeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10266,6 +10435,7 @@ impl Clone for AzThreadDestructorFn { fn clone(&self) -> Self { let r: &azul_imp
 impl Clone for AzThreadReceiverDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiverDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadSenderDestructorFn { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadSenderDestructorCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFontFamilyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewRowVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewRowVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFilterVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFilterVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzLogicalRectVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::LogicalRectVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeIdInfoMapVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMapVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10515,6 +10685,9 @@ impl Clone for AzNodeGraphOnNodeOutputDisconnected { fn clone(&self) -> Self { l
 impl Clone for AzNodeGraphOnNodeFieldEdited { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OnNodeFieldEdited = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOutputNodeAndIndex { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputNodeAndIndex { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputNodeAndIndex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewOnLazyLoadScroll { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewOnLazyLoadScroll = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewOnColumnClick { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewOnColumnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewOnRowClick { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewOnRowClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDropDownOnChoiceChange { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::DropDownOnChoiceChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepth { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepth = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzGl { fn clone(&self) -> Self { let r: &azul_impl::gl::GlContextPtr = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10560,6 +10733,10 @@ impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r:
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeHierarchyItemVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionListViewOnRowClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::OptionListViewOnRowClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionListViewOnColumnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::OptionListViewOnColumnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionListViewOnLazyLoadScrollEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::OptionListViewOnLazyLoadScroll = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionPixelValueNoPercentEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionPixelValueNoPercent = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionDropDownOnChoiceChangeEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::OptionDropDownOnChoiceChange = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeAddedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeAdded = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionNodeGraphOnNodeRemovedEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OptionOnNodeRemoved = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10653,6 +10830,7 @@ impl Clone for AzNumberInputStateWrapper { fn clone(&self) -> Self { let r: &cra
 impl Clone for AzNodeGraphCallbacks { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeGraphCallbacks = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputConnection { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOutputConnection { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnection = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewRow { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewRow = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNode { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMapping { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMapping = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTexture { fn clone(&self) -> Self { let r: &azul_impl::gl::Texture = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10668,6 +10846,7 @@ impl Clone for AzXml { fn clone(&self) -> Self { let r: &azul_impl::xml::Xml = u
 impl Clone for AzInstantEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::Instant = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzThreadReceiveMsgEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::task::ThreadReceiveMsg = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzString { fn clone(&self) -> Self { let r: &azul_impl::css::AzString = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewRowVec { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewRowVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleFilterVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleFilterVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOutputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10677,6 +10856,7 @@ impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl
 impl Clone for AzStringVec { fn clone(&self) -> Self { let r: &azul_impl::css::StringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyledNodeVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::StyledNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTagIdToNodeIdMappingVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::TagIdToNodeIdMappingVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionMenuEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMenu = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionResolvedTextLayoutOptionsEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::ui_solver::OptionResolvedTextLayoutOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionVirtualKeyCodeComboEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionVirtualKeyCodeCombo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionMouseStateEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::OptionMouseState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10721,6 +10901,7 @@ impl Clone for AzNodeTypeFieldValueEnumWrapper { fn clone(&self) -> Self { let r
 impl Clone for AzNodeTypeInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInputOutputInfo { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputOutputInfo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzListView { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListView = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzListViewState { fn clone(&self) -> Self { let r: &crate::widgets::list_view::ListViewState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTreeView { fn clone(&self) -> Self { let r: &crate::widgets::tree_view::TreeView = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzDropDown { fn clone(&self) -> Self { let r: &crate::widgets::drop_down::DropDown = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexAttribute { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexAttribute = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10879,6 +11060,7 @@ impl Drop for AzNodeIdVec { fn drop(&mut self) { crate::AzNodeIdVec_delete(unsaf
 impl Drop for AzNodeHierarchyItemVec { fn drop(&mut self) { crate::AzNodeHierarchyItemVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzParentWithNodeDepthVec { fn drop(&mut self) { crate::AzParentWithNodeDepthVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzTexture { fn drop(&mut self) { crate::AzTexture_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzListViewRowVec { fn drop(&mut self) { crate::AzListViewRowVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStyleFilterVec { fn drop(&mut self) { crate::AzStyleFilterVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzInputConnectionVec { fn drop(&mut self) { crate::AzInputConnectionVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzOutputConnectionVec { fn drop(&mut self) { crate::AzOutputConnectionVec_delete(unsafe { mem::transmute(self) }); } }
@@ -24359,6 +24541,12 @@ impl AzListView {
             mem::transmute(columns),
         )) }
     }
+    fn with_rows(&mut self, rows: AzListViewRowVec) -> AzListView {
+        unsafe { mem::transmute(crate::AzListView_withRows(
+            mem::transmute(self),
+            mem::transmute(rows),
+        )) }
+    }
     fn dom(&mut self) -> AzDom {
         unsafe { mem::transmute(crate::AzListView_dom(
             mem::transmute(self),
@@ -24373,6 +24561,180 @@ impl PyObjectProtocol for AzListView {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &crate::widgets::list_view::ListView = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewRow {
+    #[new]
+    fn __new__(cells: AzDomVec, height: AzOptionPixelValueNoPercentEnumWrapper) -> Self {
+        Self {
+            cells,
+            height,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewRow {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewRow = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewRow = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewState {
+    #[new]
+    fn __new__(columns: AzStringVec, sorted_by: AzOptionUsizeEnumWrapper, current_row_count: usize, scroll_offset: AzPixelValueNoPercent, current_scroll_position: AzLogicalPosition, current_content_height: AzLogicalSize) -> Self {
+        Self {
+            columns,
+            sorted_by,
+            current_row_count,
+            scroll_offset,
+            current_scroll_position,
+            current_content_height,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewState {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewState = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewOnLazyLoadScrollCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewOnLazyLoadScrollCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnLazyLoadScrollCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnLazyLoadScrollCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewOnLazyLoadScroll {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzListViewOnLazyLoadScrollCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewOnLazyLoadScroll {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnLazyLoadScroll = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnLazyLoadScroll = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewOnColumnClickCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewOnColumnClickCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnColumnClickCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnColumnClickCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewOnColumnClick {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzListViewOnColumnClickCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewOnColumnClick {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnColumnClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnColumnClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewOnRowClickCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewOnRowClickCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnRowClickCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnRowClickCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewOnRowClick {
+    #[new]
+    fn __new__(data: AzRefAny, callback: AzListViewOnRowClickCallback) -> Self {
+        Self {
+            data,
+            callback,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewOnRowClick {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnRowClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewOnRowClick = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -32940,6 +33302,31 @@ impl PyObjectProtocol for AzString {
 }
 
 #[pymethods]
+impl AzListViewRowVec {
+    /// Creates a new `ListViewRowVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzListViewRow>) -> Self {
+        let m: crate::widgets::list_view::ListViewRowVec = crate::widgets::list_view::ListViewRowVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the ListViewRow as a Python array
+    fn array(&self) -> Vec<AzListViewRow> {
+        let m: &crate::widgets::list_view::ListViewRowVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewRowVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewRowVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewRowVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzStyleFilterVec {
     /// Creates a new `StyleFilterEnumWrapperVec` from a Python array
     #[new]
@@ -34535,6 +34922,36 @@ impl PyObjectProtocol for AzStyleFontFamilyVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::StyleFontFamilyVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzListViewRowVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzListViewRowVecDestructorEnumWrapper { AzListViewRowVecDestructorEnumWrapper { inner: AzListViewRowVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzListViewRowVecDestructorEnumWrapper { AzListViewRowVecDestructorEnumWrapper { inner: AzListViewRowVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzListViewRowVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzListViewRowVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzListViewRowVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzListViewRowVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzListViewRowVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewRowVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::ListViewRowVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -36395,6 +36812,151 @@ impl PyObjectProtocol for AzNodeDataVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::dom::NodeDataVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionListViewOnRowClickEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionListViewOnRowClickEnumWrapper { AzOptionListViewOnRowClickEnumWrapper { inner: AzOptionListViewOnRowClick::None } }
+    #[staticmethod]
+    fn Some(v: AzListViewOnRowClick) -> AzOptionListViewOnRowClickEnumWrapper { AzOptionListViewOnRowClickEnumWrapper { inner: AzOptionListViewOnRowClick::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionListViewOnRowClick;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionListViewOnRowClick::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionListViewOnRowClick::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionListViewOnRowClickEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::OptionListViewOnRowClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::OptionListViewOnRowClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionListViewOnColumnClickEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionListViewOnColumnClickEnumWrapper { AzOptionListViewOnColumnClickEnumWrapper { inner: AzOptionListViewOnColumnClick::None } }
+    #[staticmethod]
+    fn Some(v: AzListViewOnColumnClick) -> AzOptionListViewOnColumnClickEnumWrapper { AzOptionListViewOnColumnClickEnumWrapper { inner: AzOptionListViewOnColumnClick::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionListViewOnColumnClick;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionListViewOnColumnClick::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionListViewOnColumnClick::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionListViewOnColumnClickEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::OptionListViewOnColumnClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::OptionListViewOnColumnClick = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionListViewOnLazyLoadScrollEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionListViewOnLazyLoadScrollEnumWrapper { AzOptionListViewOnLazyLoadScrollEnumWrapper { inner: AzOptionListViewOnLazyLoadScroll::None } }
+    #[staticmethod]
+    fn Some(v: AzListViewOnLazyLoadScroll) -> AzOptionListViewOnLazyLoadScrollEnumWrapper { AzOptionListViewOnLazyLoadScrollEnumWrapper { inner: AzOptionListViewOnLazyLoadScroll::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionListViewOnLazyLoadScroll;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionListViewOnLazyLoadScroll::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionListViewOnLazyLoadScroll::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionListViewOnLazyLoadScrollEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::OptionListViewOnLazyLoadScroll = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::list_view::OptionListViewOnLazyLoadScroll = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionMenuEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionMenuEnumWrapper { AzOptionMenuEnumWrapper { inner: AzOptionMenu::None } }
+    #[staticmethod]
+    fn Some(v: AzMenu) -> AzOptionMenuEnumWrapper { AzOptionMenuEnumWrapper { inner: AzOptionMenu::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionMenu;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionMenu::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionMenu::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionMenuEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_core::window::OptionMenu = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_core::window::OptionMenu = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzOptionPixelValueNoPercentEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionPixelValueNoPercentEnumWrapper { AzOptionPixelValueNoPercentEnumWrapper { inner: AzOptionPixelValueNoPercent::None } }
+    #[staticmethod]
+    fn Some(v: AzPixelValueNoPercent) -> AzOptionPixelValueNoPercentEnumWrapper { AzOptionPixelValueNoPercentEnumWrapper { inner: AzOptionPixelValueNoPercent::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionPixelValueNoPercent;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionPixelValueNoPercent::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionPixelValueNoPercent::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionPixelValueNoPercentEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::OptionPixelValueNoPercent = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::OptionPixelValueNoPercent = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -39887,6 +40449,14 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzGraphDragAmount>()?;
     m.add_class::<AzNodeDragAmount>()?;
     m.add_class::<AzListView>()?;
+    m.add_class::<AzListViewRow>()?;
+    m.add_class::<AzListViewState>()?;
+    m.add_class::<AzListViewOnLazyLoadScrollCallback>()?;
+    m.add_class::<AzListViewOnLazyLoadScroll>()?;
+    m.add_class::<AzListViewOnColumnClickCallback>()?;
+    m.add_class::<AzListViewOnColumnClick>()?;
+    m.add_class::<AzListViewOnRowClickCallback>()?;
+    m.add_class::<AzListViewOnRowClick>()?;
     m.add_class::<AzTreeView>()?;
     m.add_class::<AzDropDown>()?;
     m.add_class::<AzDropDownOnChoiceChangeCallback>()?;
@@ -40031,6 +40601,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzFmtArg>()?;
     m.add_class::<AzString>()?;
 
+    m.add_class::<AzListViewRowVec>()?;
     m.add_class::<AzStyleFilterVec>()?;
     m.add_class::<AzLogicalRectVec>()?;
     m.add_class::<AzNodeTypeIdInfoMapVec>()?;
@@ -40095,6 +40666,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVec>()?;
     m.add_class::<AzNodeDataVec>()?;
     m.add_class::<AzStyleFontFamilyVecDestructorEnumWrapper>()?;
+    m.add_class::<AzListViewRowVecDestructorEnumWrapper>()?;
     m.add_class::<AzStyleFilterVecDestructorEnumWrapper>()?;
     m.add_class::<AzLogicalRectVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeTypeIdInfoMapVecDestructorEnumWrapper>()?;
@@ -40158,6 +40730,11 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
+    m.add_class::<AzOptionListViewOnRowClickEnumWrapper>()?;
+    m.add_class::<AzOptionListViewOnColumnClickEnumWrapper>()?;
+    m.add_class::<AzOptionListViewOnLazyLoadScrollEnumWrapper>()?;
+    m.add_class::<AzOptionMenuEnumWrapper>()?;
+    m.add_class::<AzOptionPixelValueNoPercentEnumWrapper>()?;
     m.add_class::<AzOptionDropDownOnChoiceChangeEnumWrapper>()?;
     m.add_class::<AzOptionResolvedTextLayoutOptionsEnumWrapper>()?;
     m.add_class::<AzOptionNodeGraphOnNodeAddedEnumWrapper>()?;

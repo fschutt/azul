@@ -333,6 +333,12 @@ mod dll {
     impl ::core::fmt::Debug for AzDropDownOnChoiceChangeCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     #[cfg(not(feature = "link_static"))]
     impl ::core::fmt::Debug for AzTabOnClickCallback                        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    #[cfg(not(feature = "link_static"))]
+    impl ::core::fmt::Debug for AzListViewOnRowClickCallback                { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    #[cfg(not(feature = "link_static"))]
+    impl ::core::fmt::Debug for AzListViewOnColumnClickCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    #[cfg(not(feature = "link_static"))]
+    impl ::core::fmt::Debug for AzListViewOnLazyLoadScrollCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
     #[cfg(not(feature = "link_static"))]
     impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
@@ -409,6 +415,12 @@ mod dll {
     impl PartialEq for AzDropDownOnChoiceChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
     #[cfg(not(feature = "link_static"))]
     impl PartialEq for AzTabOnClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialEq for AzListViewOnLazyLoadScrollCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialEq for AzListViewOnColumnClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialEq for AzListViewOnRowClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
     #[cfg(not(feature = "link_static"))]
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
@@ -485,6 +497,12 @@ mod dll {
     impl PartialOrd for AzDropDownOnChoiceChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     #[cfg(not(feature = "link_static"))]
     impl PartialOrd for AzTabOnClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialOrd for AzListViewOnLazyLoadScrollCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialOrd for AzListViewOnColumnClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
+    #[cfg(not(feature = "link_static"))]
+    impl PartialOrd for AzListViewOnRowClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
     #[cfg(not(feature = "link_static"))]
     mod dynamic_link {
     use core::ffi::c_void;
@@ -2377,6 +2395,36 @@ mod dll {
         pub y: f32,
     }
 
+    /// `AzListViewOnLazyLoadScrollCallbackType` struct
+    pub type AzListViewOnLazyLoadScrollCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScrollCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzListViewOnLazyLoadScrollCallback {
+        pub cb: AzListViewOnLazyLoadScrollCallbackType,
+    }
+
+    /// `AzListViewOnColumnClickCallbackType` struct
+    pub type AzListViewOnColumnClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnColumnClickCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzListViewOnColumnClickCallback {
+        pub cb: AzListViewOnColumnClickCallbackType,
+    }
+
+    /// `AzListViewOnRowClickCallbackType` struct
+    pub type AzListViewOnRowClickCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, &AzListViewState, usize) -> AzUpdate;
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnRowClickCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzListViewOnRowClickCallback {
+        pub cb: AzListViewOnRowClickCallbackType,
+    }
+
     /// `AzDropDownOnChoiceChangeCallbackType` struct
     pub type AzDropDownOnChoiceChangeCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, usize) -> AzUpdate;
 
@@ -3222,6 +3270,19 @@ mod dll {
 
     /// `AzStyleFontFamilyVecDestructorType` struct
     pub type AzStyleFontFamilyVecDestructorType = extern "C" fn(&mut AzStyleFontFamilyVec);
+
+    /// Re-export of rust-allocated (stack based) `ListViewRowVecDestructor` struct
+    #[repr(C, u8)]
+    #[derive(Clone)]
+    #[derive(Copy)]
+    pub enum AzListViewRowVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzListViewRowVecDestructorType),
+    }
+
+    /// `AzListViewRowVecDestructorType` struct
+    pub type AzListViewRowVecDestructorType = extern "C" fn(&mut AzListViewRowVec);
 
     /// Re-export of rust-allocated (stack based) `StyleFilterVecDestructor` struct
     #[repr(C, u8)]
@@ -6292,6 +6353,36 @@ mod dll {
         pub input_index: usize,
     }
 
+    /// Re-export of rust-allocated (stack based) `ListViewOnLazyLoadScroll` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzListViewOnLazyLoadScroll {
+        pub data: AzRefAny,
+        pub callback: AzListViewOnLazyLoadScrollCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnColumnClick` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzListViewOnColumnClick {
+        pub data: AzRefAny,
+        pub callback: AzListViewOnColumnClickCallback,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ListViewOnRowClick` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzListViewOnRowClick {
+        pub data: AzRefAny,
+        pub callback: AzListViewOnRowClickCallback,
+    }
+
     /// Re-export of rust-allocated (stack based) `DropDownOnChoiceChange` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -6784,6 +6875,46 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzParentWithNodeDepthVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionListViewOnRowClick {
+        None,
+        Some(AzListViewOnRowClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionListViewOnColumnClick` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionListViewOnColumnClick {
+        None,
+        Some(AzListViewOnColumnClick),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionListViewOnLazyLoadScroll` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionListViewOnLazyLoadScroll {
+        None,
+        Some(AzListViewOnLazyLoadScroll),
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionPixelValueNoPercent` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionPixelValueNoPercent {
+        None,
+        Some(AzPixelValueNoPercent),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionDropDownOnChoiceChange` struct
@@ -7858,6 +7989,16 @@ mod dll {
         pub connects_to: AzInputNodeAndIndexVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `ListViewRow` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzListViewRow {
+        pub cells: AzDomVec,
+        pub height: AzOptionPixelValueNoPercent,
+    }
+
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)]
     #[derive(Debug)]
@@ -8028,6 +8169,15 @@ mod dll {
         pub vec: AzU8Vec,
     }
 
+    /// Wrapper over a Rust-allocated `Vec<ListViewRow>`
+    #[repr(C)]
+    pub struct AzListViewRowVec {
+        pub(crate) ptr: *const AzListViewRow,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzListViewRowVecDestructor,
+    }
+
     /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
     #[repr(C)]
     pub struct AzStyleFilterVec {
@@ -8107,6 +8257,16 @@ mod dll {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTagIdToNodeIdMappingVecDestructor,
+    }
+
+    /// Re-export of rust-allocated (stack based) `OptionMenu` struct
+    #[repr(C, u8)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub enum AzOptionMenu {
+        None,
+        Some(AzMenu),
     }
 
     /// Re-export of rust-allocated (stack based) `OptionResolvedTextLayoutOptions` struct
@@ -8650,6 +8810,28 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub struct AzListView {
         pub columns: AzStringVec,
+        pub rows: AzListViewRowVec,
+        pub sorted_by: AzOptionUsize,
+        pub scroll_offset: AzPixelValueNoPercent,
+        pub content_height: AzOptionPixelValueNoPercent,
+        pub column_context_menu: AzOptionMenu,
+        pub on_lazy_load_scroll: AzOptionListViewOnLazyLoadScroll,
+        pub on_column_click: AzOptionListViewOnColumnClick,
+        pub on_row_click: AzOptionListViewOnRowClick,
+    }
+
+    /// Re-export of rust-allocated (stack based) `ListViewState` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzListViewState {
+        pub columns: AzStringVec,
+        pub sorted_by: AzOptionUsize,
+        pub current_row_count: usize,
+        pub scroll_offset: AzPixelValueNoPercent,
+        pub current_scroll_position: AzLogicalPosition,
+        pub current_content_height: AzLogicalSize,
     }
 
     /// Re-export of rust-allocated (stack based) `TreeView` struct
@@ -10309,6 +10491,7 @@ mod dll {
         pub(crate) fn AzFrame_dom(_:  &mut AzFrame) -> AzDom;
         pub(crate) fn AzNodeGraph_dom(_:  &mut AzNodeGraph) -> AzDom;
         pub(crate) fn AzListView_new(_:  AzStringVec) -> AzListView;
+        pub(crate) fn AzListView_withRows(_:  &mut AzListView, _:  AzListViewRowVec) -> AzListView;
         pub(crate) fn AzListView_dom(_:  &mut AzListView) -> AzDom;
         pub(crate) fn AzTreeView_new(_:  AzString) -> AzTreeView;
         pub(crate) fn AzTreeView_dom(_:  &mut AzTreeView) -> AzDom;
@@ -10757,6 +10940,7 @@ mod dll {
         pub(crate) fn AzString_copyFromBytes(_:  *const u8, _:  usize, _:  usize) -> AzString;
         pub(crate) fn AzString_trim(_:  &AzString) -> AzString;
         pub(crate) fn AzString_asRefstr(_:  &AzString) -> AzRefstr;
+        pub(crate) fn AzListViewRowVec_delete(_:  &mut AzListViewRowVec);
         pub(crate) fn AzStyleFilterVec_delete(_:  &mut AzStyleFilterVec);
         pub(crate) fn AzLogicalRectVec_delete(_:  &mut AzLogicalRectVec);
         pub(crate) fn AzNodeTypeIdInfoMapVec_delete(_:  &mut AzNodeTypeIdInfoMapVec);
@@ -14401,6 +14585,28 @@ pub mod widgets {
     #[cfg(feature = "link_static")]
     pub use azul::AzListView as ListView;
     #[cfg(feature = "link_static")]
+    pub use azul::AzListViewRow as ListViewRow;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewState as ListViewState;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnLazyLoadScrollCallbackType as ListViewOnLazyLoadScrollCallbackType;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnLazyLoadScrollCallback as ListViewOnLazyLoadScrollCallback;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnLazyLoadScroll as ListViewOnLazyLoadScroll;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnColumnClickCallbackType as ListViewOnColumnClickCallbackType;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnColumnClickCallback as ListViewOnColumnClickCallback;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnColumnClick as ListViewOnColumnClick;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnRowClickCallbackType as ListViewOnRowClickCallbackType;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnRowClickCallback as ListViewOnRowClickCallback;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewOnRowClick as ListViewOnRowClick;
+    #[cfg(feature = "link_static")]
     pub use azul::AzTreeView as TreeView;
     #[cfg(feature = "link_static")]
     pub use azul::AzDropDown as DropDown;
@@ -14432,7 +14638,9 @@ pub mod widgets {
     #[cfg(feature = "link_static")]
     use azul::AzPixelValue as PixelValue;
     #[cfg(not(feature = "link_static"))]
-    use crate::vec::{NodeDataInlineCssPropertyVec, StringVec, StyleBackgroundContentVec};
+    use crate::vec::{ListViewRowVec, NodeDataInlineCssPropertyVec, StringVec, StyleBackgroundContentVec};
+    #[cfg(feature = "link_static")]
+    use azul::AzListViewRowVec as ListViewRowVec;
     #[cfg(feature = "link_static")]
     use azul::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
     #[cfg(feature = "link_static")]
@@ -14968,10 +15176,45 @@ pub mod widgets {
 
         /// Creates a new `ListView` instance.
         pub fn new(columns: StringVec) -> Self { unsafe { crate::dll::AzListView_new(columns) } }
+        /// Calls the `ListView::with_rows` function.
+        pub fn with_rows(&mut self, rows: ListViewRowVec)  -> crate::widgets::ListView { unsafe { crate::dll::AzListView_withRows(self, rows) } }
         /// Calls the `ListView::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzListView_dom(self) } }
     }
 
+    /// `ListViewRow` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRow as ListViewRow;
+    /// `ListViewState` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewState as ListViewState;
+    /// `ListViewOnLazyLoadScrollCallbackType` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScrollCallbackType as ListViewOnLazyLoadScrollCallbackType;
+    /// `ListViewOnLazyLoadScrollCallback` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScrollCallback as ListViewOnLazyLoadScrollCallback;
+    /// `ListViewOnLazyLoadScroll` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScroll as ListViewOnLazyLoadScroll;
+    /// `ListViewOnColumnClickCallbackType` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClickCallbackType as ListViewOnColumnClickCallbackType;
+    /// `ListViewOnColumnClickCallback` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClickCallback as ListViewOnColumnClickCallback;
+    /// `ListViewOnColumnClick` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClick as ListViewOnColumnClick;
+    /// `ListViewOnRowClickCallbackType` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClickCallbackType as ListViewOnRowClickCallbackType;
+    /// `ListViewOnRowClickCallback` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClickCallback as ListViewOnRowClickCallback;
+    /// `ListViewOnRowClick` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClick as ListViewOnRowClick;
     /// `TreeView` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTreeView as TreeView;
@@ -18783,6 +19026,8 @@ pub mod vec {
     #[cfg(not(feature = "link_static"))]
     use crate::dll::*;
     #[cfg(feature = "link_static")]
+    pub use azul::AzListViewRowVec as ListViewRowVec;
+    #[cfg(feature = "link_static")]
     pub use azul::AzStyleFilterVec as StyleFilterVec;
     #[cfg(feature = "link_static")]
     pub use azul::AzLogicalRectVec as LogicalRectVec;
@@ -18912,6 +19157,10 @@ pub mod vec {
     pub use azul::AzStyleFontFamilyVecDestructor as StyleFontFamilyVecDestructor;
     #[cfg(feature = "link_static")]
     pub use azul::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewRowVecDestructor as ListViewRowVecDestructor;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzListViewRowVecDestructorType as ListViewRowVecDestructorType;
     #[cfg(feature = "link_static")]
     pub use azul::AzStyleFilterVecDestructor as StyleFilterVecDestructor;
     #[cfg(feature = "link_static")]
@@ -19537,6 +19786,8 @@ pub mod vec {
     impl_vec_clone!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor);
     impl_vec!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor, az_style_filter_vec_destructor, AzStyleFilterVec_delete);
     impl_vec_clone!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor);
+    impl_vec!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor, az_list_view_vec_destructor, AzListViewRowVec_delete);
+    impl_vec_clone!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
@@ -19570,7 +19821,10 @@ pub mod vec {
             let s = Vec::<crate::prelude::SvgPathElement>::deserialize(deserializer)?;
             Ok(s.into())
         }
-    }    /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
+    }    /// Wrapper over a Rust-allocated `Vec<ListViewRow>`
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVec as ListViewRowVec;
+    /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVec as StyleFilterVec;
     /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
@@ -19781,6 +20035,12 @@ pub mod vec {
     /// `StyleFontFamilyVecDestructorType` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    /// `ListViewRowVecDestructor` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVecDestructor as ListViewRowVecDestructor;
+    /// `ListViewRowVecDestructorType` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVecDestructorType as ListViewRowVecDestructorType;
     /// `StyleFilterVecDestructor` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructor as StyleFilterVecDestructor;
@@ -20161,6 +20421,16 @@ pub mod option {
     #[cfg(not(feature = "link_static"))]
     use crate::dll::*;
     #[cfg(feature = "link_static")]
+    pub use azul::AzOptionListViewOnRowClick as OptionListViewOnRowClick;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzOptionListViewOnColumnClick as OptionListViewOnColumnClick;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzOptionListViewOnLazyLoadScroll as OptionListViewOnLazyLoadScroll;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzOptionMenu as OptionMenu;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzOptionPixelValueNoPercent as OptionPixelValueNoPercent;
+    #[cfg(feature = "link_static")]
     pub use azul::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
     #[cfg(feature = "link_static")]
     pub use azul::AzOptionResolvedTextLayoutOptions as OptionResolvedTextLayoutOptions;
@@ -20510,7 +20780,24 @@ pub mod option {
     impl_option!(AzNodeGraphOnNodeInputDisconnected, AzOptionNodeGraphOnNodeInputDisconnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeOutputDisconnected, AzOptionNodeGraphOnNodeOutputDisconnected, [Debug, Copy, Clone]);
     impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);
-    impl_option!(AzGl, AzOptionGl, copy = false, [Debug, Clone]);    /// `OptionDropDownOnChoiceChange` struct
+    impl_option!(AzGl, AzOptionGl, copy = false, [Debug, Clone]);
+    impl_option!(AzPixelValueNoPercent, AzOptionPixelValueNoPercent, copy = false, [Debug, Copy, Clone]);
+    /// `OptionListViewOnRowClick` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnRowClick as OptionListViewOnRowClick;
+    /// `OptionListViewOnColumnClick` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnColumnClick as OptionListViewOnColumnClick;
+    /// `OptionListViewOnLazyLoadScroll` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnLazyLoadScroll as OptionListViewOnLazyLoadScroll;
+    /// `OptionMenu` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionMenu as OptionMenu;
+    /// `OptionPixelValueNoPercent` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionPixelValueNoPercent as OptionPixelValueNoPercent;
+    /// `OptionDropDownOnChoiceChange` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
     /// `OptionResolvedTextLayoutOptions` struct

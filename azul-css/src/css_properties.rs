@@ -2579,6 +2579,8 @@ const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 #[repr(C)]
 pub struct PixelValueNoPercent { pub inner: PixelValue }
 
+impl_option!(PixelValueNoPercent, OptionPixelValueNoPercent, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 impl fmt::Display for PixelValueNoPercent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.inner)

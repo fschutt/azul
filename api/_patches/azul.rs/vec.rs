@@ -374,6 +374,8 @@
     impl_vec_clone!(AzLogicalRect, AzLogicalRectVec, AzLogicalRectVecDestructor);
     impl_vec!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor, az_style_filter_vec_destructor, AzStyleFilterVec_delete);
     impl_vec_clone!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor);
+    impl_vec!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor, az_list_view_vec_destructor, AzListViewRowVec_delete);
+    impl_vec_clone!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor);
 
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);

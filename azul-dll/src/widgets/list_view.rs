@@ -1,6 +1,14 @@
 use alloc::vec::Vec;
 use azul_desktop::css::*;
 use azul_desktop::css::AzString;
+use azul_core::window::{
+    Menu, OptionMenu,
+    LogicalPosition, LogicalSize
+};
+use azul_desktop::gl::OptionUsize;
+use azul_desktop::callbacks::{
+    CallbackInfo, RefAny, Update
+};
 use azul_desktop::dom::{
     Dom, IdOrClass, TabIndex,
     IdOrClass::{Id, Class},
@@ -420,36 +428,141 @@ const CSS_MATCH_8793836789597026811_PROPERTIES: &[NodeDataInlineCssProperty] = &
 ];
 const CSS_MATCH_8793836789597026811: NodeDataInlineCssPropertyVec = NodeDataInlineCssPropertyVec::from_const_slice(CSS_MATCH_8793836789597026811_PROPERTIES);
 
+const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul_native-list-rows-row")),
+];
+const ROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605);
+
+
+const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
+];
+const CELL_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699);
+
+
+const IDS_AND_CLASSES_6012478019077291002: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul_native-list-rows")),
+];
+const ROW_CONTAINER_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6012478019077291002);
+
+
+const IDS_AND_CLASSES_10742579426112804392: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul_native-list-header")),
+];
+const HEADER_CONTAINER_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10742579426112804392);
+
+
+const IDS_AND_CLASSES_9205819539370539587: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul_native_list-container")),
+];
+const LIST_VIEW_CONTAINER_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9205819539370539587);
+
+
+const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[
+    Class(AzString::from_const_str("__azul_native-list-header-item")),
+];
+const COLUMN_NAME_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422);
+
+
+pub type ListViewOnLazyLoadScrollCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &ListViewState) -> Update;
+impl_callback!(ListViewOnLazyLoadScroll, OptionListViewOnLazyLoadScroll, ListViewOnLazyLoadScrollCallback, ListViewOnLazyLoadScrollCallbackType);
+
+pub type ListViewOnColumnClickCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &ListViewState, column_clicked: usize) -> Update;
+impl_callback!(ListViewOnColumnClick, OptionListViewOnColumnClick, ListViewOnColumnClickCallback, ListViewOnColumnClickCallbackType);
+
+pub type ListViewOnRowClickCallbackType = extern "C" fn(&mut RefAny, &mut CallbackInfo, &ListViewState, row_clicked: usize) -> Update;
+impl_callback!(ListViewOnRowClick, OptionListViewOnRowClick, ListViewOnRowClickCallback, ListViewOnRowClickCallbackType);
+
+/// State of the ListView, but without row data
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct ListViewState {
+    /// Copy of the current column names
+    pub columns: StringVec,
+    /// Which column the rows are currently sorted by
+    pub sorted_by: OptionUsize,
+    /// Row count of rows currently loaded in the DOM
+    pub current_row_count: usize,
+    /// Y-offset currently applied to the rows
+    pub scroll_offset: PixelValueNoPercent,
+    /// Current position where the user has scrolled the ListView to
+    pub current_scroll_position: LogicalPosition,
+    /// Current height of the row container
+    pub current_content_height: LogicalSize,
+}
+
+/// List view, optionally able to lazy-load data
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ListView {
+    /// Column names
     pub columns: StringVec,
-    // pub content: IFrameCallback,
+    /// Currently rendered rows. Note that the ListView does not
+    /// have to render all rows at once, usually you'd only render
+    /// the top 100 rows
+    pub rows: ListViewRowVec,
+    /// Which column is the list view sorted by (default = None)?
+    pub sorted_by: OptionUsize,
+    /// Offset to add to the rows used when layouting row positions
+    /// during lazy-loaded scrolling. Also affects the scroll position
+    pub scroll_offset: PixelValueNoPercent,
+    /// Height of the content, if not all rows are loaded
+    pub content_height: OptionPixelValueNoPercent,
+    /// Context menu for the columns (usually opens a context menu
+    /// to select which columns to show)
+    pub column_context_menu: OptionMenu,
+    /// Indicates that this ListView is being lazily loaded, allows
+    /// control over what happens when the user scrolls the ListView.
+    pub on_lazy_load_scroll: OptionListViewOnLazyLoadScroll,
+    /// What to do when the user left-clicks the column
+    /// (usually used for storing which column to sort by)
+    pub on_column_click: OptionListViewOnColumnClick,
+    /// What to do when the user left-clicks a row
+    /// (usually used for selecting the row depending on the state)
+    pub on_row_click: OptionListViewOnRowClick,
 }
 
 impl Default for ListView {
     fn default() -> Self {
         Self {
             columns: StringVec::from_const_slice(&[]),
+            rows: ListViewRowVec::from_const_slice(&[]),
+            sorted_by: None.into(),
+            scroll_offset: PixelValueNoPercent {
+                inner: PixelValue::const_px(0)
+            },
+            content_height: None.into(),
+            column_context_menu: None.into(),
+            on_lazy_load_scroll: None.into(),
+            on_column_click: None.into(),
+            on_row_click: None.into(),
         }
     }
 }
 
+/// Row of the ListView
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ListViewRow {
-    pub cells: StringVec,
+    /// Each cell is an opaque Dom object
+    pub cells: DomVec,
+    /// Height of the row, if known beforehand
+    pub height: OptionPixelValueNoPercent,
 }
 
-#[repr(C, u8)]
-pub enum ListViewCellContent {
-    StaticString(AzString),
-    TextInput(AzString),
-    ColorInput(ColorU),
-    CheckBox(bool),
-}
+impl_vec!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor);
+impl_vec_clone!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor);
+impl_vec_mut!(ListViewRow, ListViewRowVec);
+impl_vec_debug!(ListViewRow, ListViewRowVec);
+
 
 impl ListView {
+
     pub fn new(columns: StringVec) -> Self {
-        ListView { columns }
+        Self {
+            columns,
+            .. Default::default()
+        }
     }
 
     pub fn swap_with_default(&mut self) -> Self {
@@ -458,429 +571,128 @@ impl ListView {
         m
     }
 
+    pub fn with_columns(&mut self, columns: StringVec) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_columns(columns);
+        m
+    }
+
+    pub fn set_columns(&mut self, columns: StringVec) {
+        self.columns = columns;
+    }
+
+    pub fn with_rows(&mut self, rows: ListViewRowVec) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_rows(rows);
+        m
+    }
+
+    pub fn set_rows(&mut self, rows: ListViewRowVec) {
+        self.rows = rows;
+    }
+
+    pub fn with_sorted_by(&mut self, sorted_by: OptionUsize) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_sorted_by(sorted_by);
+        m
+    }
+
+    pub fn set_sorted_by(&mut self, sorted_by: OptionUsize) {
+        self.sorted_by = sorted_by;
+    }
+
+    pub fn with_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_scroll_offset(scroll_offset);
+        m
+    }
+
+    pub fn set_scroll_offset(&mut self, scroll_offset: PixelValueNoPercent) {
+        self.scroll_offset = scroll_offset;
+    }
+
+    pub fn with_content_height(&mut self, content_height: PixelValueNoPercent) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_content_height(content_height);
+        m
+    }
+
+    pub fn set_content_height(&mut self, content_height: PixelValueNoPercent) {
+        self.content_height = Some(content_height).into();
+    }
+
+    pub fn with_column_context_menu(&mut self, context_menu: Menu) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_column_context_menu(context_menu);
+        m
+    }
+
+    pub fn set_column_context_menu(&mut self, column_context_menu: Menu) {
+        self.column_context_menu = Some(column_context_menu).into();
+    }
+
+    pub fn with_on_column_click(&mut self, data: RefAny, on_column_click: ListViewOnColumnClickCallbackType) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_on_column_click(data, on_column_click);
+        m
+    }
+
+    pub fn set_on_column_click(&mut self, data: RefAny, on_column_click: ListViewOnColumnClickCallbackType) {
+        self.on_column_click = Some(ListViewOnColumnClick {
+            data,
+            callback: ListViewOnColumnClickCallback { cb: on_column_click }
+        }).into();
+    }
+
+    pub fn with_on_row_click(&mut self, data: RefAny, on_row_click: ListViewOnRowClickCallbackType) -> Self {
+        let mut m = self.swap_with_default();
+        m.set_on_row_click(data, on_row_click);
+        m
+    }
+
+    pub fn set_on_row_click(&mut self, data: RefAny, on_row_click: ListViewOnRowClickCallbackType) {
+        self.on_row_click = Some(ListViewOnRowClick {
+            data,
+            callback: ListViewOnRowClickCallback { cb: on_row_click }
+        }).into();
+    }
+
     pub fn dom(self) -> Dom {
         Dom::div()
         .with_inline_css_props(CSS_MATCH_17553577885456905601)
-        .with_ids_and_classes({
-            const IDS_AND_CLASSES_9205819539370539587: &[IdOrClass] = &[
-                Class(AzString::from_const_str("__azul_native_list-container")),
-            ];
-            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_9205819539370539587)
-        })
+        .with_ids_and_classes(LIST_VIEW_CONTAINER_CLASS)
         .with_children(DomVec::from_vec(vec![
+
+            // header
             Dom::div()
             .with_inline_css_props(CSS_MATCH_15315949193378715186)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_10742579426112804392: &[IdOrClass] = &[
-                    Class(AzString::from_const_str("__azul_native-list-header")),
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10742579426112804392)
-            })
-            .with_children(DomVec::from_vec(vec![
+            .with_ids_and_classes(HEADER_CONTAINER_CLASS)
+            .with_children(self.columns.iter().map(|col| {
                 Dom::div()
                 .with_inline_css_props(CSS_MATCH_12498280255863106397)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul_native-list-header-item")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("Name"))
+                .with_ids_and_classes(COLUMN_NAME_CLASS)
+                .with_child({
+                    Dom::text(col.clone())
                     .with_inline_css_props(CSS_MATCH_15673486787900743642)
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_6002662151290653203)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_12994132510473144861: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul_native-list-header-dragwidth")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12994132510473144861)
                 })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_15295293133676720691)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_8310527934462917253: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul_native-list-header-dragwidth-drag")),
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_8310527934462917253)
-                    })
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_12498280255863106397)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul_native-list-header-item")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_1085706216385961159)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3976305383432953403: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul_native-list-header-arrow-down")),
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3976305383432953403)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::div()
-                        .with_inline_css_props(CSS_MATCH_13758717721055992976)
-                        .with_ids_and_classes({
-                            const IDS_AND_CLASSES_2783291116377660812: &[IdOrClass] = &[
-                                Class(AzString::from_const_str("__azul_native-list-header-arrow-down-inner")),
-                            ];
-                            IdOrClassVec::from_const_slice(IDS_AND_CLASSES_2783291116377660812)
-                        })
-                        .with_children(DomVec::from_vec(vec![
-                            Dom::div()
-                            .with_inline_css_props(CSS_MATCH_1574792189506859253)
-                            .with_ids_and_classes({
-                                const IDS_AND_CLASSES_1647599740783303526: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-list-header-arrow-down-inner-deco")),
-                                ];
-                                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_1647599740783303526)
-                            })
-                        ]))
-                    ])),
-                    Dom::text(AzString::from_const_str("Breed"))
-                    .with_inline_css_props(CSS_MATCH_15673486787900743642)
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_12498280255863106397)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul_native-list-header-item")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("Gender"))
-                    .with_inline_css_props(CSS_MATCH_15673486787900743642)
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_12498280255863106397)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul_native-list-header-item")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422)
-                })
-                .with_children(DomVec::from_vec(vec![
-                    Dom::text(AzString::from_const_str("Price"))
-                    .with_inline_css_props(CSS_MATCH_15673486787900743642)
-                ]))
-            ])),
+            }).collect::<Vec<_>>().into()),
+
+            // rows
             Dom::div()
             .with_inline_css_props(CSS_MATCH_4852927511892172364)
-            .with_ids_and_classes({
-                const IDS_AND_CLASSES_6012478019077291002: &[IdOrClass] = &[
-                    Class(AzString::from_const_str("__azul_native-list-rows")),
-                ];
-                IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6012478019077291002)
-            })
-            .with_children(DomVec::from_vec(vec![
+            .with_ids_and_classes(ROW_CONTAINER_CLASS)
+            .with_children(self.rows.into_iter().map(|row| {
                 Dom::div()
                 .with_inline_css_props(CSS_MATCH_7894335449545988724)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[
-                        Class(AzString::from_const_str("__azul_native-list-rows-row")),
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605)
-                })
-                    .with_tab_index(TabIndex::Auto)
-                .with_children(DomVec::from_vec(vec![
+                .with_ids_and_classes(ROW_CLASS.clone())
+                .with_tab_index(TabIndex::Auto)
+                .with_children(row.cells.as_ref().iter().map(|cell| {
                     Dom::div()
                     .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_6827198030119836081)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_12400284507819476404: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-list-rows-row")),
-                    Class(AzString::from_const_str("selected")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_12400284507819476404)
-                })
-                    .with_tab_index(TabIndex::Auto)
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_8793836789597026811)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("widgets.exe"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_8793836789597026811)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_8793836789597026811)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_8793836789597026811)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_16730007321218551135)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_5514228343186538819: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-list-rows-row")),
-                    Class(AzString::from_const_str("focused")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_5514228343186538819)
-                })
-                    .with_tab_index(TabIndex::Auto)
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_7937682281721781688)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_7937682281721781688)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_7937682281721781688)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_7937682281721781688)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_7894335449545988724)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-list-rows-row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605)
-                })
-                    .with_tab_index(TabIndex::Auto)
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ])),
-                Dom::div()
-                .with_inline_css_props(CSS_MATCH_7894335449545988724)
-                .with_ids_and_classes({
-                    const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] = &[
-                                    Class(AzString::from_const_str("__azul_native-list-rows-row")),
-
-                    ];
-                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605)
-                })
-                    .with_tab_index(TabIndex::Auto)
-                .with_children(DomVec::from_vec(vec![
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ])),
-                    Dom::div()
-                    .with_inline_css_props(CSS_MATCH_12980082330151137475)
-                    .with_ids_and_classes({
-                        const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[
-                                            Class(AzString::from_const_str("__azul_native-list-rows-row-cell")),
-
-                        ];
-                        IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699)
-                    })
-                    .with_children(DomVec::from_vec(vec![
-                        Dom::text(AzString::from_const_str("Hello"))
-                    ]))
-                ]))
-            ]))
+                    .with_ids_and_classes(CELL_CLASS)
+                    .with_child(cell.clone())
+                }).collect::<Vec<_>>().into())
+            }).collect::<Vec<_>>().into())
         ]))
     }
 }

@@ -74,8 +74,19 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                     Dom::div()
                     .with_inline_style("flex-direction: row;".into())
                     .with_children(vec![
-                        TreeView::new("".into()).dom(),
-                        ListView::new(Vec::<AzString>::new().into()).dom(),
+                        ListView::new(vec![
+                            format!("Column 1"),
+                            format!("Column 2"),
+                            format!("Column 3"),
+                            format!("Column 4"),
+                        ].into())
+                        .with_rows((0..100).map(|i| {
+                            ListViewRow {
+                                cells: vec![Dom::text(format!("{}", i).into())].into(),
+                                height: None.into(),
+                            }
+                        }).collect::<Vec<_>>().into())
+                        .dom(),
                     ].into()),
 
                     /*
