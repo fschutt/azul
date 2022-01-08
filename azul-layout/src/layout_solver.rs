@@ -43,25 +43,25 @@ use azul_core::callbacks::{InlineText, DomNodeId, CallbackInfo};
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 0.0;
 
 #[derive(Debug)]
-struct WhConfig {
-    width: WidthConfig,
-    height: HeightConfig,
+pub struct WhConfig {
+    pub width: WidthConfig,
+    pub height: HeightConfig,
 }
 
 #[derive(Debug, Default)]
-struct WidthConfig {
-    exact: Option<LayoutWidth>,
-    max: Option<LayoutMaxWidth>,
-    min: Option<LayoutMinWidth>,
-    overflow: Option<LayoutOverflow>,
+pub struct WidthConfig {
+    pub exact: Option<LayoutWidth>,
+    pub max: Option<LayoutMaxWidth>,
+    pub min: Option<LayoutMinWidth>,
+    pub overflow: Option<LayoutOverflow>,
 }
 
 #[derive(Debug, Default)]
-struct HeightConfig {
-    exact: Option<LayoutHeight>,
-    max: Option<LayoutMaxHeight>,
-    min: Option<LayoutMinHeight>,
-    overflow: Option<LayoutOverflow>,
+pub struct HeightConfig {
+    pub exact: Option<LayoutHeight>,
+    pub max: Option<LayoutMaxHeight>,
+    pub min: Option<LayoutMinHeight>,
+    pub overflow: Option<LayoutOverflow>,
 }
 
 fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig> {
@@ -367,6 +367,7 @@ macro_rules! typed_arena {(
         node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
         layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
+        wh_configs: &NodeDataContainerRef<'a, WhConfig>,
         node_depths: &[ParentWithNodeDepth],
         root_size_width: f32,
     ) {
@@ -396,7 +397,7 @@ macro_rules! typed_arena {(
             parent_id
             .az_children(node_hierarchy)
             .filter(|child_id| layout_positions[*child_id] != LayoutPosition::Absolute)
-            .map(|child_id| (child_id, node_data[child_id].min_inner_size_px))
+            .map(|child_id| (child_id, node_data[child_id].min_inner_size_px + node_data[child_id].$get_margin_fn(parent_width)))
             .for_each(|(_, flex_basis)| {
                 if flex_axis == LayoutAxis::$main_axis {
                     children_flex_basis += flex_basis;
@@ -419,7 +420,7 @@ macro_rules! typed_arena {(
         }
 
         // Now, the width of all elements should be filled,
-        // but they aren't flex-growed or flex-shrinked yet
+        // but they aren't flex-grown yet
     }
 
     /// Go from the root down and flex_grow the children if
@@ -823,6 +824,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
+    wh_configs: &NodeDataContainerRef<'a, WhConfig>,
     node_depths: &[ParentWithNodeDepth],
     window_width: f32,
     parents_to_recalc: &BTreeSet<NodeId>,
@@ -832,6 +834,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
         node_hierarchy,
         layout_positions,
         layout_directions,
+        wh_configs,
         node_depths,
         window_width,
     );
@@ -856,6 +859,7 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, NodeHierarchyItem>,
+    wh_configs: &NodeDataContainerRef<'a, WhConfig>,
     node_depths: &[ParentWithNodeDepth],
     window_height: f32,
     parents_to_recalc: &BTreeSet<NodeId>,
@@ -865,6 +869,7 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
         node_hierarchy,
         layout_positions,
         layout_directions,
+        wh_configs,
         node_depths,
         window_height
     );
@@ -1815,6 +1820,7 @@ pub fn do_the_layout_internal(
         &layout_position_info.as_ref(),
         &layout_directions_info.as_ref(),
         &styled_dom.node_hierarchy.as_container(),
+        &layout_width_heights.as_ref(),
         styled_dom.non_leaf_nodes.as_ref(),
         rect_size.width,
         &all_parents_btreeset,
@@ -1895,6 +1901,7 @@ pub fn do_the_layout_internal(
         &layout_position_info.as_ref(),
         &layout_directions_info.as_ref(),
         &styled_dom.node_hierarchy.as_container(),
+        &layout_width_heights.as_ref(),
         styled_dom.non_leaf_nodes.as_ref(),
         rect_size.height,
         &all_parents_btreeset,
