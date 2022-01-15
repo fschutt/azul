@@ -3468,7 +3468,7 @@ pub type AzSvgMultiPolygonTT = azul_impl::svg::SvgMultiPolygon;
 pub use AzSvgMultiPolygonTT as AzSvgMultiPolygon;
 /// Returns the bounds of the polygon
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_getBounds(svgmultipolygon: &AzSvgMultiPolygon) -> AzSvgRect { svgmultipolygon.get_bounds() }
-/// Returns the bounds of the polygon
+/// Returns whether the polygon contains a point
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_containsPoint(svgmultipolygon: &AzSvgMultiPolygon, point: AzSvgPoint, fill_rule: AzSvgFillRule, tolerance: f32) -> bool { azul_impl::svg::polygon_contains_point(svgmultipolygon, point, fill_rule, tolerance) }
 /// Equivalent to the Rust `SvgMultiPolygon::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_fill(svgmultipolygon, fill_style) }
@@ -3484,6 +3484,12 @@ pub use AzSvgNodeTT as AzSvgNode;
 #[no_mangle] pub extern "C" fn AzSvgNode_tessellateFill(svgnode: &AzSvgNode, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_node_fill(svgnode, fill_style) }
 /// Equivalent to the Rust `SvgNode::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgNode_tessellateStroke(svgnode: &AzSvgNode, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_node_stroke(svgnode, stroke_style) }
+/// Returns whether the shape is closed
+#[no_mangle] pub extern "C" fn AzSvgNode_isClosed(svgnode: &AzSvgNode) -> bool { svgnode.is_closed() }
+/// Returns the bounds of the polygon
+#[no_mangle] pub extern "C" fn AzSvgNode_containsPoint(svgnode: &AzSvgNode, point: AzSvgPoint, fill_rule: AzSvgFillRule, tolerance: f32) -> bool { azul_impl::svg::svg_node_contains_point(svgnode, point, fill_rule, tolerance) }
+/// Equivalent to the Rust `SvgNode::get_bounds()` function.
+#[no_mangle] pub extern "C" fn AzSvgNode_getBounds(svgnode: &AzSvgNode) -> AzSvgRect { svgnode.get_bounds() }
 /// Destructor: Takes ownership of the `SvgNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgNode_delete(object: &mut AzSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 

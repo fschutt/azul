@@ -207,6 +207,37 @@ pub fn tessellate_multi_polygon_fill(polygon: &SvgMultiPolygon, fill_style: SvgF
     TessellatedSvgNode::default()
 }
 
+pub fn svg_node_contains_point(node: &SvgNode, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
+    match node {
+        SvgNode::MultiPolygonCollection(a) => a.as_ref().iter().any(|e| polygon_contains_point(e, point, fill_rule, tolerance)),
+        SvgNode::MultiPolygon(a) => polygon_contains_point(a, point, fill_rule, tolerance),
+        SvgNode::Path(a) => {
+            if !a.is_closed() { return false; }
+            path_contains_point(a, point, fill_rule, tolerance)
+        },
+        SvgNode::Circle(a) => a.contains_point(point.x, point.y),
+        SvgNode::Rect(a) => a.contains_point(point.x, point.y),
+    }
+}
+
+#[cfg(feature = "svg")]
+pub fn path_contains_point(path: &SvgPath, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
+    use lyon::{math::Point as LyonPoint, path::FillRule as LyonFillRule};
+    use lyon::algorithms::hit_test::hit_test_path;
+    let path = svg_path_to_lyon_path_events(path);
+    let fill_rule = match fill_rule {
+        SvgFillRule::Winding => LyonFillRule::NonZero,
+        SvgFillRule::EvenOdd => LyonFillRule::EvenOdd,
+    };
+    let point = LyonPoint::new(point.x, point.y);
+    hit_test_path(&point, path.iter(), fill_rule, tolerance)
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn path_contains_point(path: &SvgPath, point: SvgPoint, tolerance: f32, fill_rule: SvgFillRule) -> bool {
+    false
+}
+
 #[cfg(feature = "svg")]
 pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
     use lyon::{math::Point as LyonPoint, path::FillRule as LyonFillRule};

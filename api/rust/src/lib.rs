@@ -10829,6 +10829,9 @@ mod dll {
         pub(crate) fn AzSvgMultiPolygon_tessellateStroke(_:  &AzSvgMultiPolygon, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgNode_tessellateFill(_:  &AzSvgNode, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgNode_tessellateStroke(_:  &AzSvgNode, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+        pub(crate) fn AzSvgNode_isClosed(_:  &AzSvgNode) -> bool;
+        pub(crate) fn AzSvgNode_containsPoint(_:  &AzSvgNode, _:  AzSvgPoint, _:  AzSvgFillRule, _:  f32) -> bool;
+        pub(crate) fn AzSvgNode_getBounds(_:  &AzSvgNode) -> AzSvgRect;
         pub(crate) fn AzSvgStyledNode_tessellate(_:  &AzSvgStyledNode) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
         pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
@@ -18110,7 +18113,7 @@ pub mod svg {
 
         /// Returns the bounds of the polygon
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgMultiPolygon_getBounds(self) } }
-        /// Returns the bounds of the polygon
+        /// Returns whether the polygon contains a point
         pub fn contains_point(&self, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgMultiPolygon_containsPoint(self, point, fill_rule, tolerance) } }
         /// Calls the `SvgMultiPolygon::tessellate_fill` function.
         pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateFill(self, fill_style) } }
@@ -18128,6 +18131,12 @@ pub mod svg {
         pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateFill(self, fill_style) } }
         /// Calls the `SvgNode::tessellate_stroke` function.
         pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateStroke(self, stroke_style) } }
+        /// Returns whether the shape is closed
+        pub fn is_closed(&self)  -> bool { unsafe { crate::dll::AzSvgNode_isClosed(self) } }
+        /// Returns the bounds of the polygon
+        pub fn contains_point(&self, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgNode_containsPoint(self, point, fill_rule, tolerance) } }
+        /// Calls the `SvgNode::get_bounds` function.
+        pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgNode_getBounds(self) } }
     }
 
     /// `SvgStyledNode` struct

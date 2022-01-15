@@ -252,6 +252,20 @@ impl SvgPath {
 
         Some(())
     }
+    pub fn get_bounds(&self) -> SvgRect {
+
+        let mut first_bounds = match self.items.as_ref().get(0) {
+            Some(s) => s.get_bounds(),
+            None => return SvgRect::default(),
+        };
+
+        for mp in self.items.as_ref().iter().skip(1) {
+            let mp_bounds = mp.get_bounds();
+            first_bounds.union_with(&mp_bounds);
+        }
+
+        first_bounds
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -303,6 +317,52 @@ pub enum SvgNode {
     Rect(SvgRect),
 }
 
+impl SvgNode {
+    pub fn get_bounds(&self) -> SvgRect {
+        match self {
+            SvgNode::MultiPolygonCollection(a) => {
+                let mut first_mp_bounds = match a.get(0) {
+                    Some(s) => s.get_bounds(),
+                    None => return SvgRect::default(),
+                };
+                for mp in a.iter().skip(1) {
+                    let mp_bounds = mp.get_bounds();
+                    first_mp_bounds.union_with(&mp_bounds);
+                }
+
+                first_mp_bounds
+            },
+            SvgNode::MultiPolygon(a) => a.get_bounds(),
+            SvgNode::Path(a) => a.get_bounds(),
+            SvgNode::Circle(a) => a.get_bounds(),
+            SvgNode::Rect(a) => a.clone(),
+        }
+    }
+    pub fn is_closed(&self) -> bool {
+        match self {
+            SvgNode::MultiPolygonCollection(a) => {
+                for mp in a.iter() {
+                    for p in mp.rings.as_ref().iter() {
+                        if !p.is_closed() { return false; }
+                    }
+                }
+
+                true
+            },
+            SvgNode::MultiPolygon(a) => {
+                for p in a.rings.as_ref().iter() {
+                    if !p.is_closed() { return false; }
+                }
+
+                true
+            },
+            SvgNode::Path(a) => a.is_closed(),
+            SvgNode::Circle(a) => true,
+            SvgNode::Rect(a) => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 #[repr(C)]
 pub struct SvgStyledNode {
@@ -330,6 +390,18 @@ impl SvgCircle {
         let x_diff = libm::fabsf(x - self.center_x);
         let y_diff = libm::fabsf(y - self.center_y);
         (x_diff * x_diff) + (y_diff * y_diff) < (self.radius * self.radius)
+    }
+    pub fn get_bounds(&self) -> SvgRect {
+        SvgRect {
+            width: self.radius * 2.0,
+            height: self.radius * 2.0,
+            x: self.center_x - self.radius,
+            y: self.center_y - self.radius,
+            radius_top_left: 0.0,
+            radius_top_right: 0.0,
+            radius_bottom_left: 0.0,
+            radius_bottom_right: 0.0,
+        }
     }
 }
 

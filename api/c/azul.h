@@ -13002,6 +13002,9 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgMultiPolygon_tessellateStroke(const A
 extern DLLIMPORT void AzSvgMultiPolygon_delete(AzSvgMultiPolygon* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgNode_tessellateFill(const AzSvgNode* svgnode, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgNode_tessellateStroke(const AzSvgNode* svgnode, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT bool  AzSvgNode_isClosed(const AzSvgNode* svgnode);
+extern DLLIMPORT bool  AzSvgNode_containsPoint(const AzSvgNode* svgnode, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
+extern DLLIMPORT AzSvgRect AzSvgNode_getBounds(const AzSvgNode* svgnode);
 extern DLLIMPORT void AzSvgNode_delete(AzSvgNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgStyledNode_tessellate(const AzSvgStyledNode* svgstylednode);
 extern DLLIMPORT void AzSvgStyledNode_delete(AzSvgStyledNode* restrict instance);

@@ -10884,6 +10884,9 @@ namespace dll {
         void SvgMultiPolygon_delete(SvgMultiPolygon* restrict instance);
         TessellatedSvgNode SvgNode_tessellateFill(const SvgNode* svgnode, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgNode_tessellateStroke(const SvgNode* svgnode, AzSvgStrokeStyle  stroke_style);
+        bool  SvgNode_isClosed(const SvgNode* svgnode);
+        bool  SvgNode_containsPoint(const SvgNode* svgnode, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
+        SvgRect SvgNode_getBounds(const SvgNode* svgnode);
         void SvgNode_delete(SvgNode* restrict instance);
         TessellatedSvgNode SvgStyledNode_tessellate(const SvgStyledNode* svgstylednode);
         void SvgStyledNode_delete(SvgStyledNode* restrict instance);
