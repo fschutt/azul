@@ -22557,6 +22557,20 @@ impl AzFileInput {
             mem::transmute(path),
         )) }
     }
+    fn set_default_text(&mut self, default_text: String) -> () {
+        let default_text = pystring_to_azstring(&default_text);
+        unsafe { mem::transmute(crate::AzFileInput_setDefaultText(
+            mem::transmute(self),
+            mem::transmute(default_text),
+        )) }
+    }
+    fn with_default_text(&mut self, default_text: String) -> AzFileInput {
+        let default_text = pystring_to_azstring(&default_text);
+        unsafe { mem::transmute(crate::AzFileInput_withDefaultText(
+            mem::transmute(self),
+            mem::transmute(default_text),
+        )) }
+    }
     fn dom(&mut self) -> AzDom {
         unsafe { mem::transmute(crate::AzFileInput_dom(
             mem::transmute(self),

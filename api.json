@@ -5595,6 +5595,21 @@
                         }
                     },
                     "functions": {
+                        "set_default_text": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"default_text": "String"}
+                            ],
+                            "fn_body": "fileinput.set_default_text(default_text);"
+                        },
+                        "with_default_text": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"default_text": "String"}
+                            ],
+                            "returns": {"type": "FileInput"},
+                            "fn_body": "let mut fileinput = fileinput.swap_with_default(); fileinput.set_default_text(default_text); fileinput"
+                        },
                         "set_on_path_change": {
                             "fn_args": [
                                 {"self": "refmut"},

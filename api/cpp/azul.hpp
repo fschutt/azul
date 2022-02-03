@@ -10405,6 +10405,8 @@ namespace dll {
         void Button_delete(Button* restrict instance);
         void ButtonOnClick_delete(ButtonOnClick* restrict instance);
         FileInput FileInput_new(AzOptionString  path);
+        void FileInput_setDefaultText(FileInput* restrict fileinput, AzString  default_text);
+        FileInput FileInput_withDefaultText(FileInput* restrict fileinput, AzString  default_text);
         void FileInput_setOnPathChange(FileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
         FileInput FileInput_withOnPathChange(FileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
         Dom FileInput_dom(FileInput* restrict fileinput);

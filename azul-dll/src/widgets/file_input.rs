@@ -115,6 +115,17 @@ impl FileInput {
     }
 
     #[inline]
+    pub fn set_default_text(&mut self, default_text: AzString) {
+        self.default_text = default_text;
+    }
+
+    #[inline]
+    pub fn with_default_text(mut self, default_text: AzString) -> Self {
+        self.set_default_text(default_text);
+        self
+    }
+
+    #[inline]
     pub fn set_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType) {
         self.state.on_path_change = Some(FileInputOnPathChange {
             data,

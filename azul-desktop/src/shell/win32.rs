@@ -187,6 +187,14 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             dwm,
         }));
 
+        let w = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() })?;
+
+        active_hwnds.try_borrow_mut()?.insert(w.hwnd);
+        app_data_inner
+            .try_borrow_mut()?
+            .windows
+            .insert(w.get_id(), w);
+
         for opts in windows {
             if let Ok(w) = Window::create(hinstance, opts, SharedApplicationData { inner: app_data_inner.clone() }) {
                 active_hwnds.try_borrow_mut()?.insert(w.hwnd);
@@ -196,14 +204,6 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
                     .insert(w.get_id(), w);
             }
         }
-
-        let w = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() })?;
-
-        active_hwnds.try_borrow_mut()?.insert(w.hwnd);
-        app_data_inner
-            .try_borrow_mut()?
-            .windows
-            .insert(w.get_id(), w);
     }
 
     // Process the window messages one after another

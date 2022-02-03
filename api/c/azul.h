@@ -12523,6 +12523,8 @@ extern DLLIMPORT AzDom AzButton_dom(AzButton* restrict button);
 extern DLLIMPORT void AzButton_delete(AzButton* restrict instance);
 extern DLLIMPORT void AzButtonOnClick_delete(AzButtonOnClick* restrict instance);
 extern DLLIMPORT AzFileInput AzFileInput_new(AzOptionString  path);
+extern DLLIMPORT void AzFileInput_setDefaultText(AzFileInput* restrict fileinput, AzString  default_text);
+extern DLLIMPORT AzFileInput AzFileInput_withDefaultText(AzFileInput* restrict fileinput, AzString  default_text);
 extern DLLIMPORT void AzFileInput_setOnPathChange(AzFileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
 extern DLLIMPORT AzFileInput AzFileInput_withOnPathChange(AzFileInput* restrict fileinput, AzRefAny  data, AzFileInputOnPathChangeCallbackType  callback);
 extern DLLIMPORT AzDom AzFileInput_dom(AzFileInput* restrict fileinput);

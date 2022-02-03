@@ -1899,6 +1899,10 @@ pub type AzFileInputTT = crate::widgets::file_input::FileInput;
 pub use AzFileInputTT as AzFileInput;
 /// Creates a new file input button
 #[no_mangle] pub extern "C" fn AzFileInput_new(path: AzOptionString) -> AzFileInput { AzFileInput::new(path) }
+/// Equivalent to the Rust `FileInput::set_default_text()` function.
+#[no_mangle] pub extern "C" fn AzFileInput_setDefaultText(fileinput: &mut AzFileInput, default_text: AzString) { fileinput.set_default_text(default_text); }
+/// Equivalent to the Rust `FileInput::with_default_text()` function.
+#[no_mangle] pub extern "C" fn AzFileInput_withDefaultText(fileinput: &mut AzFileInput, default_text: AzString) -> AzFileInput { let mut fileinput = fileinput.swap_with_default(); fileinput.set_default_text(default_text); fileinput }
 /// Equivalent to the Rust `FileInput::set_on_path_change()` function.
 #[no_mangle] pub extern "C" fn AzFileInput_setOnPathChange(fileinput: &mut AzFileInput, data: AzRefAny, callback: AzFileInputOnPathChangeCallbackType) { fileinput.set_on_path_change(data, callback); }
 /// Equivalent to the Rust `FileInput::with_on_path_change()` function.

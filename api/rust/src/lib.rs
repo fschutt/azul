@@ -10419,6 +10419,8 @@ mod dll {
         pub(crate) fn AzButton_withOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType) -> AzButton;
         pub(crate) fn AzButton_dom(_:  &mut AzButton) -> AzDom;
         pub(crate) fn AzFileInput_new(_:  AzOptionString) -> AzFileInput;
+        pub(crate) fn AzFileInput_setDefaultText(_:  &mut AzFileInput, _:  AzString);
+        pub(crate) fn AzFileInput_withDefaultText(_:  &mut AzFileInput, _:  AzString) -> AzFileInput;
         pub(crate) fn AzFileInput_setOnPathChange(_:  &mut AzFileInput, _:  AzRefAny, _:  AzFileInputOnPathChangeCallbackType);
         pub(crate) fn AzFileInput_withOnPathChange(_:  &mut AzFileInput, _:  AzRefAny, _:  AzFileInputOnPathChangeCallbackType) -> AzFileInput;
         pub(crate) fn AzFileInput_dom(_:  &mut AzFileInput) -> AzDom;
@@ -14681,6 +14683,10 @@ pub mod widgets {
 
         /// Creates a new file input button
         pub fn new(path: OptionString) -> Self { unsafe { crate::dll::AzFileInput_new(path) } }
+        /// Calls the `FileInput::set_default_text` function.
+        pub fn set_default_text(&mut self, default_text: String)  { unsafe { crate::dll::AzFileInput_setDefaultText(self, default_text) } }
+        /// Calls the `FileInput::with_default_text` function.
+        pub fn with_default_text(&mut self, default_text: String)  -> crate::widgets::FileInput { unsafe { crate::dll::AzFileInput_withDefaultText(self, default_text) } }
         /// Calls the `FileInput::set_on_path_change` function.
         pub fn set_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType)  { unsafe { crate::dll::AzFileInput_setOnPathChange(self, data, callback) } }
         /// Calls the `FileInput::with_on_path_change` function.
