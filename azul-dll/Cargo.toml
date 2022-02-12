@@ -56,7 +56,7 @@ azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features =
 
 [build-dependencies]
 tar = "0.4"
-flate2 = "1.0.14"
+flate2 = "1.0.22"
 
 [features]
 default = [
