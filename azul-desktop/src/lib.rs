@@ -17,15 +17,8 @@ extern crate alloc;
 
 extern crate libm;
 
-#[cfg(not(target_os = "windows"))]
-extern crate glutin;
-#[cfg(not(target_os = "windows"))]
-extern crate gleam;
-#[cfg(not(target_os = "windows"))]
-extern crate coarsetime;
 #[cfg(target_os = "windows")]
 extern crate winapi;
-#[cfg(target_os = "windows")]
 extern crate gl_context_loader;
 
 #[macro_use]
@@ -72,9 +65,6 @@ pub use azul_core::dom;
 pub use azul_core::gl;
 pub use azul_core::styled_dom;
 pub use azul_core::style;
-/// Window state handling and window-related information
-#[cfg(not(target_os = "windows"))]
-pub mod window;
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     pub use azul_core::app_resources::*;
@@ -125,6 +115,4 @@ pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
     pub use azulc_lib::font_loading::FontReloadError;
-    #[cfg(not(target_os = "windows"))]
-    pub use glutin::CreationError;
 }

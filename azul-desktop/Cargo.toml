@@ -30,9 +30,6 @@ libm                    = { version = "0.2.1", default-features = false }
 gl-context-loader       = { version ="0.1.7", default-features = false }
 webrender               = { version = "0.62.2", package = "azul-webrender", default-features = false, features = ["freetype-lib"] }
 
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-coarsetime              = { version = "0.1.19", default-features = false }
-
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi                  = { version = "0.3.9", default-features = false, features = ["windowsx", "libloaderapi", "errhandlingapi", "winuser", "uxtheme", "dwmapi", "wingdi", "commdlg"] }
 

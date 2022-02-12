@@ -87,9 +87,6 @@ pub struct App {
     pub windows: Vec<WindowCreateOptions>,
     /// Initial cache of images that are loaded before the first frame is rendered
     pub image_cache: ImageCache,
-    /// Glutin / winit event loop: Win32 uses raw Win32 API to prevent flickering
-    #[cfg(not(target_os = "windows"))]
-    pub event_loop: GlutinEventLoop<UserEvent>,
     /// Font configuration cache - already start building the font cache
     /// while the app is starting
     pub fc_cache: LazyFcCache,
@@ -110,26 +107,15 @@ impl App {
         #[cfg(miri)]
         let fc_cache = LazyFcCache::Resolved(FcFontCache::default());
 
-        #[cfg(feature = "logging")]
-        {
-            #[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
-            {
-                const fn translate_log_level(
-                    log_level: azul_core::app_resources::AppLogLevel,
-                ) -> log::LevelFilter {
-                    match log_level {
-                        azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
-                        azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
-                        azul_core::app_resources::AppLogLevel::Warn => log::LevelFilter::Warn,
-                        azul_core::app_resources::AppLogLevel::Info => log::LevelFilter::Info,
-                        azul_core::app_resources::AppLogLevel::Debug => log::LevelFilter::Debug,
-                        azul_core::app_resources::AppLogLevel::Trace => log::LevelFilter::Trace,
-                    }
-                }
+        #[cfg(all(
+            feature = "logging",
+            feature = "use_fern_logger",
+            not(feature = "use_pyo3_logger"))
+        )] {
+            crate::logging::set_up_logging(translate_log_level(app_config.log_level));
+        }
 
-                crate::logging::set_up_logging(translate_log_level(app_config.log_level));
-            }
-
+        #[cfg(feature = "logging")] {
             if app_config.enable_logging_on_panic {
                 crate::logging::set_up_panic_hooks();
             }
@@ -140,45 +126,10 @@ impl App {
             }
         }
 
-        // NOTE: Usually when the program is started, it's started on the main thread
-        // However, if a debugger (such as RenderDoc) is attached, it can happen that the
-        // event loop isn't created on the main thread.
-        //
-        // While it's discouraged to call new_any_thread(), it's necessary to do so here.
-        // Do NOT create an application from a non-main thread!
-        #[cfg(not(target_os = "windows"))]
-        let event_loop = {
-            #[cfg(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd",
-                target_os = "openbsd"
-            ))]
-            {
-                use glutin::platform::unix::EventLoopExtUnix;
-                GlutinEventLoop::<UserEvent>::new_any_thread()
-            }
-
-            #[cfg(not(any(
-                target_os = "linux",
-                target_os = "dragonfly",
-                target_os = "freebsd",
-                target_os = "netbsd",
-                target_os = "openbsd",
-                target_os = "windows",
-            )))]
-            {
-                GlutinEventLoop::<UserEvent>::new()
-            }
-        };
-
         Self {
             windows: Vec::new(),
             data: initial_data,
             config: app_config,
-            #[cfg(not(target_os = "windows"))]
-            event_loop,
             image_cache: ImageCache::new(),
             fc_cache,
         }
@@ -198,13 +149,12 @@ impl App {
 
     /// Returns a list of monitors available on the system
     pub fn get_monitors(&self) -> MonitorVec {
-        #[cfg(target_os = "windows")]
-        {
+        #[cfg(target_os = "windows")] {
             crate::shell::win32::get_monitors(self)
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            crate::shell::other::get_monitors(self)
+
+        #[cfg(target_os = "linux")] {
+            crate::shell::x11::get_monitors(self)
         }
     }
 
@@ -213,17 +163,30 @@ impl App {
     /// the main application window.
     #[cfg(all(not(test), feature = "std"))]
     pub fn run(mut self, root_window: WindowCreateOptions) {
+
         #[cfg(target_os = "windows")]
-        {
-            if let Err(e) = crate::shell::win32::run(self, root_window) {
-                crate::dialogs::msg_box(&format!("{:?}", e));
-                println!("{:?}", e);
-            }
+        let err = crate::shell::win32::run(self, root_window);
+
+        #[cfg(target_os = "linux")]
+        let err = crate::shell::x11::run(self, root_window);
+
+        if let Err(e) = err {
+            crate::dialogs::msg_box(&format!("{:?}", e));
+            println!("{:?}", e);
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            crate::shell::other::run(self, root_window)
-        }
+    }
+}
+
+#[cfg(all(feature = "use_fern_logger", not(feature = "use_pyo3_logger")))]
+const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel)
+-> log::LevelFilter {
+    match log_level {
+        azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
+        azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
+        azul_core::app_resources::AppLogLevel::Warn => log::LevelFilter::Warn,
+        azul_core::app_resources::AppLogLevel::Info => log::LevelFilter::Info,
+        azul_core::app_resources::AppLogLevel::Debug => log::LevelFilter::Debug,
+        azul_core::app_resources::AppLogLevel::Trace => log::LevelFilter::Trace,
     }
 }
 

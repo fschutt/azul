@@ -12,6 +12,7 @@ use crate::{
         synchronize_gpu_values,
         scroll_all_nodes,
         wr_synchronize_updated_images,
+        AsyncHitTester,
     }
 };
 use alloc::{
@@ -81,7 +82,6 @@ use winapi::{
     um::uxtheme::MARGINS,
     um::winuser::WM_APP,
 };
-use crate::wr_translate::AsyncHitTester;
 
 type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
 
@@ -2971,8 +2971,8 @@ unsafe extern "system" fn WindowProc(
                         // TODO: unset previous cursor?
                         current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
                         SetClassLongPtrW(
-                                current_window.hwnd, 
-                                GCLP_HCURSOR, 
+                                current_window.hwnd,
+                                GCLP_HCURSOR,
                                 (win32_translate_cursor(cht.cursor_icon) as isize)
                                 .try_into().unwrap_or(0)
                         );
@@ -3112,8 +3112,8 @@ unsafe extern "system" fn WindowProc(
                     current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
 
                     SetClassLongPtrW(
-                        hwnd, 
-                        GCLP_HCURSOR, 
+                        hwnd,
+                        GCLP_HCURSOR,
                         (win32_translate_cursor(MouseCursorType::Default) as isize)
                         .try_into().unwrap_or(0)
                     );

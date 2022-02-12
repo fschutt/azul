@@ -1417,11 +1417,14 @@ impl RawImage {
                     return None;
                 }
 
-                let px = pixels
-                    .as_ref()
-                    .iter()
-                    .flat_map(|r| [*r, *r, *r, 0xff])
-                    .collect::<Vec<u8>>();
+                let pixels_ref = pixels.as_ref();
+                let mut px = vec![0;pixels_ref.len() * 4];
+                for (i,r) in pixels_ref.iter().enumerate() {
+                    px[i * 4 + 0] = *r;
+                    px[i * 4 + 1] = *r;
+                    px[i * 4 + 2] = *r;
+                    px[i * 4 + 3] = 0xff;
+                }
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
