@@ -1837,35 +1837,18 @@ pub enum GlyphOrigin {
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C)]
-pub enum Placement {
-    None,
-    Distance(PlacementDistance),
-}
-
-#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
-#[repr(C)]
 pub struct PlacementDistance {
     pub x: i32,
     pub y: i32,
-}
-
-impl Placement {
-    #[inline]
-    pub fn get_placement_relative(&self, units_per_em: u16, target_font_size: f32) -> LogicalPosition {
-        let font_metrics_divisor = units_per_em as f32 / target_font_size;
-        match self {
-            Placement::None => LogicalPosition::new(0.0, 0.0),
-            Placement::Distance(PlacementDistance { x, y }) => LogicalPosition::new(*x as f32 / font_metrics_divisor, *y as f32 / font_metrics_divisor),
-        }
-    }
 }
 
 /// When not Attachment::None indicates that this glyph
 /// is an attachment with placement indicated by the variant.
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C, u8)]
-pub enum Attachment {
+pub enum Placement {
     None,
+    Distance(PlacementDistance),
     MarkAnchor(MarkAnchorPlacement),
     /// An overprint mark.
     ///
@@ -1884,6 +1867,8 @@ pub enum Attachment {
 pub struct CursiveAnchorPlacement {
     /// exit glyph index in the `Vec<GlyphInfo>`
     pub exit_glyph_index: usize,
+    /// RIGHT_TO_LEFT flag from lookup table
+    pub right_to_left: bool,
     /// exit glyph anchor
     pub exit_glyph_anchor: Anchor,
     /// entry glyph anchor
@@ -1902,20 +1887,6 @@ pub struct MarkAnchorPlacement {
     pub base_glyph_anchor: Anchor,
     /// mark anchor
     pub mark_anchor: Anchor,
-}
-
-impl Attachment {
-    #[inline]
-    pub fn get_placement_relative(&self, units_per_em: u16, target_font_size: f32) -> (f32, f32) {
-        match self {
-            Attachment::None => (0.0, 0.0),
-            Attachment::MarkAnchor(anchor) => {
-                let font_metrics_divisor = units_per_em as f32 / target_font_size;
-                (anchor.mark_anchor.x as f32 / font_metrics_divisor, anchor.mark_anchor.y as f32 / font_metrics_divisor)
-            },
-            Attachment::MarkOverprint(_) | Attachment::CursiveAnchor(_) => (0.0, 0.0),
-        }
-    }
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
@@ -1956,8 +1927,8 @@ impl RawGlyph {
 pub struct GlyphInfo {
     pub glyph: RawGlyph,
     pub size: Advance,
+    pub kerning: i16,
     pub placement: Placement,
-    pub attachment: Attachment,
 }
 
 #[cfg(feature = "multithreading")]
@@ -2014,23 +1985,31 @@ pub fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions
                     for glyph_info in shaped_word.glyph_infos.iter() {
 
                         // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
-                        let displacement = glyph_info.placement.get_placement_relative(units_per_em, font_size_px);
+                        let mut displacement = LogicalPosition::zero();
 
                         // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
                         // the origin should be relative to the word, not the final text
-                        let (letter_spacing_for_glyph, origin) = match glyph_info.attachment {
-                            Attachment::None => {
+                        let (letter_spacing_for_glyph, origin) = match glyph_info.placement {
+                            Placement::None => {
                                 (letter_spacing_px, LogicalPosition::new(x_pos_in_word_px + displacement.x, displacement.y))
                             },
-                            Attachment::MarkAnchor(MarkAnchorPlacement { base_glyph_index, .. }) => {
+                            Placement::Distance(PlacementDistance { x, y }) => {
+                                let font_metrics_divisor = units_per_em as f32 / font_size_px;
+                                displacement = LogicalPosition {
+                                    x: x as f32 / font_metrics_divisor,
+                                    y: y as f32 / font_metrics_divisor,
+                                };
+                                (letter_spacing_px, LogicalPosition::new(x_pos_in_word_px + displacement.x, displacement.y))
+                            },
+                            Placement::MarkAnchor(MarkAnchorPlacement { base_glyph_index, .. }) => {
                                 let anchor = &all_glyphs_in_this_word[base_glyph_index];
                                 (0.0, anchor.bounds.origin + displacement) // TODO: wrong
                             },
-                            Attachment::MarkOverprint(index) => {
+                            Placement::MarkOverprint(index) => {
                                 let anchor = &all_glyphs_in_this_word[index];
                                 (0.0, anchor.bounds.origin + displacement)
                             },
-                            Attachment::CursiveAnchor(CursiveAnchorPlacement { exit_glyph_index, .. }) => {
+                            Placement::CursiveAnchor(CursiveAnchorPlacement { exit_glyph_index, .. }) => {
                                 let anchor = &all_glyphs_in_this_word[exit_glyph_index];
                                 (0.0, anchor.bounds.origin + displacement) // TODO: wrong
                             },
@@ -2163,7 +2142,7 @@ impl ShapedWord {
     }
     /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
     pub fn number_of_glyphs(&self) -> usize {
-        self.glyph_infos.iter().filter(|i| i.attachment == Attachment::None).count()
+        self.glyph_infos.iter().filter(|i| i.placement == Placement::None).count()
     }
 }
 

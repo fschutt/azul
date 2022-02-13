@@ -1,6 +1,6 @@
 use azul_core::app_resources::{
     FontMetrics, VariationSelector, Anchor,
-    GlyphOrigin, RawGlyph, Placement, Attachment,
+    GlyphOrigin, RawGlyph, Placement,
     GlyphInfo, Advance,
 };
 use tinyvec::tiny_vec;
@@ -8,7 +8,7 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
-use allsorts_no_std::{
+use allsorts::{
     binary::read::ReadScope,
     font_data::FontData,
     layout::{LayoutCache, GDEFTable, GPOS, GSUB},
@@ -74,7 +74,7 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
         Ok(o) => o,
         Err(_) => return FontMetrics::default(),
     };
-    let font = match allsorts_no_std::font::Font::new(provider).ok() {
+    let font = match allsorts::font::Font::new(provider).ok() {
         Some(Some(s)) => s,
         _ => return FontMetrics::default(),
     };
@@ -331,7 +331,7 @@ impl ParsedFont {
 
     pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_glyph_outlines: bool) -> Option<Self> {
 
-        use allsorts_no_std::tag;
+        use allsorts::tag;
         use rayon::iter::IntoParallelIterator;
         use rayon::iter::IndexedParallelIterator;
         use rayon::iter::ParallelIterator;
@@ -403,7 +403,7 @@ impl ParsedFont {
                         }
 
                         let glyph_index = glyph_index as u16;
-                        let horz_advance = allsorts_no_std::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
+                        let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
                         let mut outline = GlyphOutlineBuilder::default();
                         let bounding_rect = ttf_face_tables.outline_glyph(ttf_parser::GlyphId(glyph_index), &mut outline)?;
 
@@ -432,9 +432,10 @@ impl ParsedFont {
                 }
                 glyph_record.parse().ok()?;
                 let glyph_index = glyph_index as u16;
-                let horz_advance = allsorts_no_std::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
+                let horz_advance = allsorts::glyph_info::advance(&maxp_table, &hhea_table, &hmtx_data, glyph_index).unwrap_or_default();
                 match glyph_record {
-                    GlyfRecord::Empty | GlyfRecord::Present(_) => None,
+                    GlyfRecord::Empty |
+                    GlyfRecord::Present { .. } => None,
                     GlyfRecord::Parsed(g) => {
                         Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
                     }
@@ -445,7 +446,7 @@ impl ParsedFont {
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
 
-        let mut font_data_impl = allsorts_no_std::font::Font::new(provider).ok()??;
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok()??;
@@ -477,7 +478,7 @@ impl ParsedFont {
 
     fn get_space_width_internal(&mut self) -> Option<usize> {
         let glyph_index = self.lookup_glyph_index(' ' as u32)?;
-        allsorts_no_std::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
+        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
     }
 
     /// Returns the width of the space " " character
@@ -767,8 +768,9 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) -> Option<ShapedTextBufferUnsized> {
 
     use core::convert::TryFrom;
-    use allsorts_no_std::gpos::apply as gpos_apply;
-    use allsorts_no_std::gsub::apply as gsub_apply;
+    use allsorts::gpos::apply as gpos_apply;
+    use allsorts::gsub::apply as gsub_apply;
+    use allsorts::gsub::{Features, FeatureMask};
 
     // Map glyphs
     //
@@ -779,12 +781,12 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     let mut glyphs = Vec::with_capacity(text.len());
 
     while let Some((ch, ch_as_char)) = chars_iter.next().and_then(|c| Some((c, core::char::from_u32(*c)?))) {
-        match allsorts_no_std::unicode::VariationSelector::try_from(ch_as_char) {
+        match allsorts::unicode::VariationSelector::try_from(ch_as_char) {
             Ok(_) => {} // filter out variation selectors
             Err(()) => {
                 let vs = chars_iter
                     .peek()
-                    .and_then(|&next| allsorts_no_std::unicode::VariationSelector::try_from(core::char::from_u32(*next)?).ok());
+                    .and_then(|&next| allsorts::unicode::VariationSelector::try_from(core::char::from_u32(*next)?).ok());
 
                 let glyph_index = font.lookup_glyph_index(*ch).unwrap_or(0);
                 glyphs.push(make_raw_glyph(ch_as_char, glyph_index, vs));
@@ -802,7 +804,7 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
         font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
         script,
         lang,
-        &allsorts_no_std::gsub::Features::Mask(allsorts_no_std::gsub::GsubFeatureMask::default()),
+        &Features::Mask(FeatureMask::all()),
         font.num_glyphs,
         &mut glyphs,
     ).ok()?;
@@ -810,7 +812,7 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     // Apply glyph positioning if table is present
 
     let kerning = true;
-    let mut infos = allsorts_no_std::gpos::Info::init_from_glyphs(
+    let mut infos = allsorts::gpos::Info::init_from_glyphs(
         font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
         glyphs
     );
@@ -819,6 +821,7 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
         &font.gpos_cache,
         font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
         kerning,
+        &Features::Mask(FeatureMask::all()),
         script,
         lang,
         &mut infos,
@@ -838,21 +841,21 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
 }
 
 #[inline]
-fn translate_info(i: &allsorts_no_std::gpos::Info, size: Advance) -> GlyphInfo {
+fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> GlyphInfo {
     GlyphInfo {
         glyph: translate_raw_glyph(&i.glyph),
         size,
+        kerning: i.kerning,
         placement: translate_placement(&i.placement),
-        attachment: translate_attachment(&i.attachment),
     }
 }
 
-fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts_no_std::unicode::VariationSelector>) -> allsorts_no_std::gsub::RawGlyph<()> {
-    allsorts_no_std::gsub::RawGlyph {
+fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicode::VariationSelector>) -> allsorts::gsub::RawGlyph<()> {
+    allsorts::gsub::RawGlyph {
         unicodes: tiny_vec![[char; 1] => ch],
         glyph_index: glyph_index,
         liga_component_pos: 0,
-        glyph_origin: allsorts_no_std::gsub::GlyphOrigin::Char(ch),
+        glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
         small_caps: false,
         multi_subst_dup: false,
         is_vert_alt: false,
@@ -864,7 +867,7 @@ fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts_no_std:
 }
 
 #[inline]
-fn translate_raw_glyph(rg: &allsorts_no_std::gsub::RawGlyph<()>) -> RawGlyph {
+fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
     RawGlyph {
         unicode_codepoint: rg.unicodes.get(0).map(|s| (*s) as u32).into(),
         glyph_index: rg.glyph_index,
@@ -880,8 +883,8 @@ fn translate_raw_glyph(rg: &allsorts_no_std::gsub::RawGlyph<()>) -> RawGlyph {
 }
 
 #[inline]
-const fn translate_glyph_origin(g: &allsorts_no_std::gsub::GlyphOrigin) -> GlyphOrigin {
-    use allsorts_no_std::gsub::GlyphOrigin::*;
+const fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin {
+    use allsorts::gsub::GlyphOrigin::*;
     match g {
         Char(c) => GlyphOrigin::Char(*c),
         Direct => GlyphOrigin::Direct,
@@ -889,37 +892,34 @@ const fn translate_glyph_origin(g: &allsorts_no_std::gsub::GlyphOrigin) -> Glyph
 }
 
 #[inline]
-const fn translate_placement(p: &allsorts_no_std::gpos::Placement) -> Placement {
-    use allsorts_no_std::gpos::Placement::*;
-    use azul_core::app_resources::PlacementDistance;
+const fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
+    use allsorts::gpos::Placement::*;
+    use azul_core::app_resources::{
+        MarkAnchorPlacement,
+        CursiveAnchorPlacement,
+        PlacementDistance,
+    };
+
     match p {
         None => Placement::None,
         Distance(x, y) => Placement::Distance(PlacementDistance { x: *x, y: *y }),
-    }
-}
-
-#[inline]
-const fn translate_attachment(a: &allsorts_no_std::gpos::Attachment) -> Attachment {
-    use allsorts_no_std::gpos::Attachment::*;
-    use azul_core::app_resources::{MarkAnchorPlacement, CursiveAnchorPlacement};
-    match a {
-        None => Attachment::None,
-        MarkOverprint(a) => Attachment::MarkOverprint(*a),
-        MarkAnchor(a, b, c) => Attachment::MarkAnchor(MarkAnchorPlacement {
-            base_glyph_index: *a,
-            base_glyph_anchor: translate_anchor(b),
-            mark_anchor: translate_anchor(c),
+        MarkAnchor(i, a1, a2) => Placement::MarkAnchor(MarkAnchorPlacement {
+            base_glyph_index: *i,
+            base_glyph_anchor: translate_anchor(a1),
+            mark_anchor: translate_anchor(a2),
         }),
-        CursiveAnchor(a, b, c) => Attachment::CursiveAnchor(CursiveAnchorPlacement {
-            exit_glyph_index: *a,
-            exit_glyph_anchor: translate_anchor(b),
-            entry_glyph_anchor: translate_anchor(c),
+        MarkOverprint(i) => Placement::MarkOverprint(*i),
+        CursiveAnchor(i, b, a1, a2) => Placement::CursiveAnchor(CursiveAnchorPlacement {
+            exit_glyph_index: *i,
+            right_to_left: *b,
+            exit_glyph_anchor: translate_anchor(a1),
+            entry_glyph_anchor: translate_anchor(a2),
         }),
     }
 }
 
-const fn translate_variation_selector(v: &allsorts_no_std::unicode::VariationSelector) -> VariationSelector {
-    use allsorts_no_std::unicode::VariationSelector::*;
+const fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) -> VariationSelector {
+    use allsorts::unicode::VariationSelector::*;
     match v {
         VS01 => VariationSelector::VS01,
         VS02 => VariationSelector::VS02,
@@ -930,4 +930,4 @@ const fn translate_variation_selector(v: &allsorts_no_std::unicode::VariationSel
 }
 
 #[inline]
-const fn translate_anchor(anchor: &allsorts_no_std::layout::Anchor) -> Anchor { Anchor { x: anchor.x, y: anchor.y } }
+const fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor { Anchor { x: anchor.x, y: anchor.y } }
