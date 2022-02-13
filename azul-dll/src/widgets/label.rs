@@ -76,7 +76,7 @@ impl Label {
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_LINUX),
             #[cfg(target_os = "macos")]
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(LABEL_STYLE_OTHER),
         }
     }

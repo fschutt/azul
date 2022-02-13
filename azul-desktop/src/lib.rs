@@ -116,3 +116,7 @@ pub mod errors {
     pub use clipboard2::ClipboardError;
     pub use azulc_lib::font_loading::FontReloadError;
 }
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreText", kind = "framework")]
+fn __macos() {}

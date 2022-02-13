@@ -156,6 +156,10 @@ impl App {
         #[cfg(target_os = "linux")] {
             crate::shell::x11::get_monitors(self)
         }
+        
+        #[cfg(target_os = "macos")] {
+            crate::shell::cocoa::get_monitors(self)
+        }
     }
 
     /// Start the rendering loop for the currently added windows. The run() function
@@ -169,6 +173,9 @@ impl App {
 
         #[cfg(target_os = "linux")]
         let err = crate::shell::x11::run(self, root_window);
+
+        #[cfg(target_os = "macos")]
+        let err = crate::shell::cocoa::run(self, root_window);
 
         if let Err(e) = err {
             crate::dialogs::msg_box(&format!("{:?}", e));

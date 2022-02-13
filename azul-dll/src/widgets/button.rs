@@ -245,7 +245,7 @@ impl Button {
             container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_LINUX),
             #[cfg(target_os = "macos")]
             container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
             container_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_CONTAINER_OTHER),
 
             #[cfg(target_os = "windows")]
@@ -254,7 +254,7 @@ impl Button {
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_LINUX),
             #[cfg(target_os = "macos")]
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
             label_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
 
             #[cfg(target_os = "windows")]
@@ -263,7 +263,7 @@ impl Button {
             image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_LINUX),
             #[cfg(target_os = "macos")]
             image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_MAC),
-            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "mac")))]
+            #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
             image_style: NodeDataInlineCssPropertyVec::from_const_slice(BUTTON_LABEL_OTHER),
         }
     }

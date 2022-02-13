@@ -67,7 +67,7 @@ use webrender::{
 };
 
 #[derive(Debug)]
-pub enum LinuxWindowCreateError {
+pub enum CocoaWindowCreateError {
     FailedToCreateHWND(u32),
     NoHDC,
     NoGlContext,
@@ -76,7 +76,7 @@ pub enum LinuxWindowCreateError {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum LinuxOpenGlError {
+pub enum CocoaOpenGlError {
     OpenGL32DllNotFound(u32),
     FailedToGetDC(u32),
     FailedToCreateHiddenHWND(u32),
@@ -87,13 +87,13 @@ pub enum LinuxOpenGlError {
 }
 
 #[derive(Debug)]
-pub enum LinuxStartupError {
+pub enum CocoaStartupError {
     NoAppInstance(u32),
     WindowCreationFailed,
     Borrow(BorrowError),
     BorrowMut(BorrowMutError),
-    Create(LinuxWindowCreateError),
-    Gl(LinuxOpenGlError),
+    Create(CocoaWindowCreateError),
+    Gl(CocoaOpenGlError),
 }
 
 pub fn get_monitors(app: &App) -> MonitorVec {
@@ -101,7 +101,7 @@ pub fn get_monitors(app: &App) -> MonitorVec {
 }
 
 /// Main function that starts when app.run() is invoked
-pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxStartupError> {
+pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, CocoaStartupError> {
     println!("azul.App.run(x11)");
     Ok(0)
 }
