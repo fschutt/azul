@@ -8,7 +8,7 @@
 [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.45%20stable-blue.svg)]()
 <!-- [END badges] -->
 
-> Azul is a free, functional, reactive GUI framework for Rust and C++,
+> Azul is a free, functional, reactive GUI framework for Rust, C and C++,
 built using the WebRender rendering engine and a CSS / HTML-like document
 object model for rapid development of beautiful, native desktop applications
 
@@ -16,7 +16,7 @@ object model for rapid development of beautiful, native desktop applications
 
 ## About
 
-Azul is a library for creating graphical user interfaces in Rust and C. It mixes
+Azul is a library for creating graphical user interfaces in Rust, C and C++. It mixes
 paradigms from functional, reactive and data-oriented programming with an API
 suitable for developing cross-platform desktop applications. The two core principles
 of Azul is to not render objects that aren't visible and to use composition of DOM
@@ -42,7 +42,10 @@ property can be used to store widget data.
 
 The latest release for Windows can be found [here](https://github.com/fschutt/azul/releases/tag/1.0.0-alpha1).
 
-Currenly I am using this framework to build cross-platform GUI applications: while the framework
+The C bindings and Python are not yet stabilized and might not work depending
+on the branch you're using. They will be stabilized before the release.
+
+Currently I am using this framework to build cross-platform GUI applications: while the framework
 isn't finished yet, it is at least possible to build native, good-looking applications
 for Windows - for example, here is an Excel clone that 
 [I am working on](https://gist.github.com/fschutt/8c8a139a772031bed2c4d5d62668c234):
