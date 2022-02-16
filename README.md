@@ -1,11 +1,11 @@
 # Azul - Desktop GUI framework
 
 <!-- [START badges] -->
-[![Build Status Linux / macOS](https://travis-ci.org/fschutt/azul.svg?branch=master)](https://travis-ci.org/fschutt/azul)
+[![Build Status Linux / macOS](https://travis-ci.org/fschutt/azul.svg?branch=master)](https://travis-ci.com/fschutt/azul)
 [![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
 [![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
-[![LICENSE](https://img.shields.io/badge/license-LGPL%203.0%20+%20static%20linking-blue.svg)](LICENSE)
-[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.45%20stable-blue.svg)]()
+[![LICENSE](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
+[![Rust Compiler Version](https://img.shields.io/badge/rustc-1.58%20stable-blue.svg)]()
 <!-- [END badges] -->
 
 > Azul is a free, functional, reactive GUI framework for Rust, C and C++,
