@@ -3,7 +3,7 @@ name: Rust
 on: [push]
 
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
 
     steps:
@@ -16,6 +16,9 @@ jobs:
           toolchain: stable
           default: true
           override: true
+          
+      - name: Install dependencies
+        run: sudo apt install -y libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Build
         run: cd azul-dll && cargo build --verbose --release
