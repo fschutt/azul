@@ -58,6 +58,37 @@ on the branch you're using. They will be stabilized before the release.
 
 ## Hello World
 
+### Python
+
+```py
+from azul import *
+
+class DataModel:
+    def __init__(self, counter):
+        self.counter = counter
+
+def render_dom(data, info):
+    
+    label = Dom.text("{}".format(data.counter))
+    label.set_inline_style("font-size: 50px;")
+    
+    button = Button("Increment counter")
+    button.set_on_click(data, increment_counter)
+
+    dom = Dom.body()
+    dom.add_child(label)
+    dom.add_child(button.dom())
+
+    return dom.style(Css.empty())
+
+def increment_counter(data, info):
+    data.counter += 1;
+    return Update.RefreshDom
+
+app = App(DataModel(5), AppConfig(LayoutSolver.Default))
+app.run(WindowCreateOptions(render_dom))
+```
+
 ### Rust
 
 ```rust
@@ -76,7 +107,7 @@ fn render_dom(data: &mut RefAny, _: &mut LayoutInfo) -> StyledDom {
     let label = Dom::text(format!("{}", data.counter))
         .with_inline_style("font-size: 50px;");
         
-    let button = Button::new("Update counter")
+    let button = Button::new("Increment counter")
         .onmouseup(increment_counter, data.clone());
 
     Dom::body()
@@ -125,7 +156,7 @@ AzStyledDom render_dom(AzRefAny* data, AzLayoutInfo* info) {
     AzString const inline_css = AzString_fromConstStr("font-size: 50px;");
     AzDom_setInlineStyle(&label, inline_css);
     
-    AzString const buttontext = AzString_fromConstStr("Increase counter");
+    AzString const buttontext = AzString_fromConstStr("Increment counter");
     AzButton button = AzButton_new(buttontext, AzRefAny_clone(data));
     AzButton_setOnClick(&button, incrementCounter);
 
