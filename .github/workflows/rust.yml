@@ -19,7 +19,12 @@ jobs:
 
       - name: Build
         run: cd azul-dll && cargo build --verbose --release
-
+      
+      - name: Coveralls GitHub Action
+        uses: coverallsapp/github-action@1.1.3
+        env:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        
   build-win:
     runs-on: windows-latest
 
@@ -36,7 +41,12 @@ jobs:
 
       - name: Build
         run: cd azul-dll && cargo build --verbose --release
-
+      
+      - name: Coveralls GitHub Action
+        uses: coverallsapp/github-action@1.1.3
+        env:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          
   build-mac:
     runs-on: macos-latest
 
@@ -54,4 +64,8 @@ jobs:
 
       - name: Build for mac
         run: cd azul-dll && cargo build --verbose --release
-  
+      
+      - name: Coveralls GitHub Action
+        uses: coverallsapp/github-action@1.1.3
+        env:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
