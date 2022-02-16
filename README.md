@@ -1,8 +1,7 @@
 # Azul - Desktop GUI framework
 
 <!-- [START badges] -->
-[![Build Status Linux / macOS](https://travis-ci.org/fschutt/azul.svg?branch=master)](https://travis-ci.com/fschutt/azul)
-[![Build status Windows](https://ci.appveyor.com/api/projects/status/p487hewqh6bxeucv?svg=true)](https://ci.appveyor.com/project/fschutt/azul)
+[![Rust](https://github.com/fschutt/azul/actions/workflows/rust.yml/badge.svg)](https://github.com/fschutt/azul/actions/workflows/rust.yml)
 [![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
 [![LICENSE](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.58%20stable-blue.svg)]()
