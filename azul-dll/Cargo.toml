@@ -2,7 +2,7 @@
 name = "azul-dll"
 version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
+license = "MPL-2.0"
 description = "C-API of Azul GUI"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]

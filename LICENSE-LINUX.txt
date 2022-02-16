@@ -78,8 +78,6 @@ cfg-if v1.0.0 licensed Apache-2.0 OR MIT
     by Alex Crichton
 chrono v0.4.19 licensed Apache-2.0 OR MIT
     by Kang Seonghoon, Brandon W Maister
-clipboard-win v2.2.0 licensed MIT
-    by Douman
 clipboard2 v0.1.1 licensed MIT
     by Avi Weinstock, Felix Schütt
 color_quant v1.1.0 licensed MIT
@@ -100,8 +98,6 @@ deflate v0.8.6 licensed Apache-2.0 OR MIT
     by oyvindln
 derive_more v0.99.17 licensed MIT
     by Jelte Fennema
-dwrote v0.11.0 licensed MPL-2.0
-    by The Servo Project Developers, Vladimir Vukicevic
 either v1.6.1 licensed Apache-2.0 OR MIT
     by bluss
 etagere v0.2.6 licensed Apache-2.0 OR MIT
@@ -116,6 +112,10 @@ float-cmp v0.5.3 licensed MIT
     by Mike Dilger
 float_next_after v0.1.5 licensed MIT
     by Bronson Brown-deVost
+freetype v0.7.0 licensed Apache-2.0 OR MIT
+    by The Servo Project Developers
+freetype-sys v0.13.1 licensed MIT
+    by Coeuvre
 fxhash v0.2.1 licensed Apache-2.0 OR MIT
     by cbreeden
 gif v0.11.3 licensed Apache-2.0 OR MIT
@@ -286,10 +286,12 @@ usvg v0.14.1 licensed MPL-2.0
     by Evgeniy Reizner
 weezl v0.1.5 licensed Apache-2.0 OR MIT
     by HeroicKatora
-winapi v0.3.9 licensed Apache-2.0 OR MIT
-    by Peter Atashian
-wio v0.2.2 licensed Apache-2.0 OR MIT
-    by Peter Atashian
+x11-clipboard v0.3.3 licensed MIT
+    by quininer kel
+x11-dl v2.19.1 licensed MIT
+    by daggerbot, Erle Pereira, AltF02
+xcb v0.8.2 licensed MIT
+    by Remi Thebault
 xmlparser v0.13.3 licensed Apache-2.0 OR MIT
     by Evgeniy Reizner
 xmlwriter v0.1.0 licensed MIT

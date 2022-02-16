@@ -3749,7 +3749,22 @@ def build_azulc():
     os.system('cd "' + root_folder + '/azulc" && cargo build --bin azulc --no-default-features --features="xml std font_loading image_loading text_layout" --release')
 
 def generate_license():
-    # windows
+
+    default_license_text = "\r\n".join([
+        "[program] is based in part on the AZUL GUI toolkit (https://azul.rs),",
+        "licensed under the Mozilla Public License Version 2.0.",
+        "The AZUL GUI toolkit itself uses the following libraries:",
+        "",
+        ""
+    ])
+
+    license_posttext = "\r\n".join([
+        "",
+        "To generate the full text of the license for the license, please visit",
+        "https://spdx.org/licenses/ and replace the license author in the source",
+        "text in any given license with the name of the author listed above."
+    ])
+
     try:
         os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json')
         license_template = read_file(root_folder + "/LICENSE")
@@ -3757,26 +3772,58 @@ def generate_license():
         license_json = json.loads(license_authors)
         license_authors_formatted = format_license_authors(license_json)
         remove_unused_crates(license_json, root_folder + "/../azul-v1.0-beta1")
-        final_license_text = license_template.replace("$$CONTRIBUTORS_AND_LICENSES_SEE_PYTHON_SCRIPT$$", license_authors_formatted)
+        final_license_text = default_license_text + license_authors_formatted + license_posttext
         write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
         remove_path(root_folder + "/LICENSE-WINDOWS.json")
-    except:
-        print("could not generate license: no cargo-license installed? continuing.")
+
+        os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-unknown-linux-gnu --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-LINUX.json')
+        license_template = read_file(root_folder + "/LICENSE")
+        license_authors = read_file(root_folder + "/LICENSE-LINUX.json")
+        license_json = json.loads(license_authors)
+        license_authors_formatted = format_license_authors(license_json)
+        remove_unused_crates(license_json, root_folder + "/../azul-v1.0-beta1")
+        final_license_text = default_license_text + license_authors_formatted + license_posttext
+        write_file(final_license_text, root_folder + "/LICENSE-LINUX.txt")
+        remove_path(root_folder + "/LICENSE-LINUX.json")
+
+        os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-apple-darwin --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-MAC.json')
+        license_template = read_file(root_folder + "/LICENSE")
+        license_authors = read_file(root_folder + "/LICENSE-MAC.json")
+        license_json = json.loads(license_authors)
+        license_authors_formatted = format_license_authors(license_json)
+        remove_unused_crates(license_json, root_folder + "/../azul-v1.0-beta1")
+        final_license_text = default_license_text + license_authors_formatted + license_posttext
+        write_file(final_license_text, root_folder + "/LICENSE-MAC.txt")
+        remove_path(root_folder + "/LICENSE-MAC.json")
+    except e:
+        print("could not generate license: " + str(e))
+        print("help: no cargo-license installed?")
+        print("continuing build script.")
 
 def format_license_authors(license_json):
     license_txt = ""
 
     for crate in license_json:
         name = crate["name"]
+        if name is None:
+            continue
         version = crate["version"]
+        if version is None:
+            continue
         license = crate["license"]
+        if license is None:
+            continue
         a = crate["authors"]
+        if a is None:
+            continue
+
         authors = []
         for author in a.split("|"):
             # strip email for privacy reasons
             authors.append(re.sub("<.*>", "", author).strip())
 
         license_txt += name + " v" + version + " licensed " + license + "\r\n    by " + ", ".join(authors) + "\r\n"
+
     return license_txt
 
 # cargo vendor vendors a lot of unused crates for some reason
@@ -3796,7 +3843,7 @@ def remove_unused_crates(license_json, vendor_path):
     ]
 
     # early exit if path does not exist
-    if (not(path.isdir(vendor_path)) and not(path.isfile(vendor_path))):
+    if (not(os.path.isdir(vendor_path)) and not(os.path.isfile(vendor_path))):
         return
 
     vendored_crates = os.listdir(vendor_path)

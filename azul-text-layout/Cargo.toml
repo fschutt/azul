@@ -2,7 +2,7 @@
 name = "azul-text-layout"
 version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
-license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
+license = "MPL-2.0"
 description = '''
     Text layout algorithms Azul desktop GUI framework
 '''

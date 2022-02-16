@@ -2,7 +2,7 @@
 name = "azul-desktop"
 version = "0.0.5"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>", "The winit contributors"]
-license = "LGPL-3.0-only WITH LGPL-3.0-linking-exception"
+license = "MPL-2.0"
 description = "Desktop rendering API for azul"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
@@ -32,9 +32,10 @@ gl-context-loader       = { version ="0.1.7", default-features = false }
 webrender               = { version = "0.62.2", package = "azul-webrender", default-features = false, features = ["freetype-lib"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi                  = { version = "0.3.9", default-features = false, features = ["windowsx", "libloaderapi", "errhandlingapi", "winuser", "uxtheme", "dwmapi", "wingdi", "commdlg"] }
+winapi = { version = "0.3.9", default-features = false, features = ["windowsx", "libloaderapi", "errhandlingapi", "winuser", "uxtheme", "dwmapi", "wingdi", "commdlg"] }
 
-# x11-dl
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = { version = "2.19.1", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }
