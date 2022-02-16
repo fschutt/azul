@@ -27,7 +27,9 @@ jobs:
         uses: coverallsapp/github-action@1.1.3
         env:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-        
+        with:
+          github-token: ${{ github.token }}
+    
   build-win:
     runs-on: windows-latest
 
@@ -49,6 +51,9 @@ jobs:
         uses: coverallsapp/github-action@1.1.3
         env:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ github.token }}
+          
           
   build-mac:
     runs-on: macos-latest
@@ -72,3 +77,5 @@ jobs:
         uses: coverallsapp/github-action@1.1.3
         env:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ github.token }}
