@@ -385,7 +385,7 @@ dependencies = [
  "roxmltree",
  "rust-fontconfig",
  "tiny-skia",
- "usvg",
+ "usvg 0.22.0",
  "xmlparser",
 ]
 
@@ -788,6 +788,12 @@ name = "float-cmp"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75224bec9bfe1a65e2d34132933f2de7fe79900c96a0174307554244ece8150e"
+
+[[package]]
+name = "float-cmp"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
 
 [[package]]
 name = "float_next_after"
@@ -1555,6 +1561,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be9e29cb19c8fe84169fcb07f8f11e66bc9e6e0280efd4715c54818296f8a4a8"
 
 [[package]]
+name = "rctree"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae028b272a6e99d9f8260ceefa3caa09300a8d6c8d2b2001316474bc52122e9"
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1587,7 +1599,7 @@ dependencies = [
  "rgb",
  "svgfilters",
  "tiny-skia",
- "usvg",
+ "usvg 0.14.1",
 ]
 
 [[package]]
@@ -1739,6 +1751,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b8de496cf83d4ed58b6be86c3a275b8602f6ffe98d3024a869e124147a9a3ac"
 
 [[package]]
+name = "siphasher"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a86232ab60fa71287d7f2ddae4a7073f6b7aac33631c3015abb556f08c6d0a3e"
+
+[[package]]
 name = "smallvec"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1768,7 +1786,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb0dce2fee79ac40c21dafba48565ff7a5fa275e23ffe9ce047a40c9574ba34e"
 dependencies = [
- "float-cmp",
+ "float-cmp 0.5.3",
  "rgb",
 ]
 
@@ -1778,8 +1796,17 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c536faaff1a10837cfe373142583f6e27d81e96beba339147e77b67c9f260ff"
 dependencies = [
- "float-cmp",
- "siphasher",
+ "float-cmp 0.5.3",
+ "siphasher 0.2.3",
+]
+
+[[package]]
+name = "svgtypes"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dabb3eb59a457c56d5282ab4545609e2cc382b41f6af239bb8d59a7267ef94b3"
+dependencies = [
+ "siphasher 0.3.9",
 ]
 
 [[package]]
@@ -1953,12 +1980,32 @@ dependencies = [
  "kurbo",
  "log",
  "pico-args",
- "rctree",
+ "rctree 0.3.3",
  "roxmltree",
  "simplecss",
- "siphasher",
- "svgtypes",
+ "siphasher 0.2.3",
+ "svgtypes 0.5.0",
  "xmlwriter",
+]
+
+[[package]]
+name = "usvg"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a261d60a7215fa339482047cc3dafd4e22e2bf34396aaebef2b707355bbb39c0"
+dependencies = [
+ "base64",
+ "data-url",
+ "flate2",
+ "float-cmp 0.9.0",
+ "kurbo",
+ "log",
+ "pico-args",
+ "rctree 0.4.0",
+ "roxmltree",
+ "simplecss",
+ "siphasher 0.3.9",
+ "svgtypes 0.8.0",
 ]
 
 [[package]]
