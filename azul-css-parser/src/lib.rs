@@ -1,5 +1,6 @@
 //! Provides a reference implementation of a style parser for Azul, capable of parsing CSS
 //! stylesheets into their respective `Css` counterparts.
+#![allow(warnings)]
 
 // #![no_std]
 

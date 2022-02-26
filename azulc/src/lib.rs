@@ -6,6 +6,7 @@
 )]
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(warnings)]
 
 extern crate core;
 #[macro_use]

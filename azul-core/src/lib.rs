@@ -1,6 +1,7 @@
 //! Shared datatypes for azul-* crates
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(warnings)]
 
 #[macro_use]
 extern crate core;

@@ -10,6 +10,7 @@
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
 #![deny(clippy::all)]
+#![allow(warnings)]
 
 extern crate core;
 #[macro_use]

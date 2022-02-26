@@ -68,6 +68,7 @@
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
 )]
+#![allow(warnings)]
 
 // #![no_std] // doable once allsorts PR is merged
 

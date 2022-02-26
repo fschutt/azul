@@ -25,15 +25,6 @@ required-features = [
     "gif", "jpeg", "png", "tiff", "bmp", "text_layout"
 ]
 
-[profile.release]
-opt-level = 3
-lto = "fat"
-panic = "abort"
-codegen-units = 1
-debug = false
-overflow-checks = false
-incremental = false
-
 [dependencies]
 gl-context-loader       = { version ="0.1.7", default-features = false }
 xmlparser               = { version = "0.13.3",          default-features = false }
