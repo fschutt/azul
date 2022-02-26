@@ -16,16 +16,13 @@ jobs:
           toolchain: stable
           default: true
           override: true
-          
+
       - name: Install dependencies
         run: sudo apt install -y libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Check (Linux)
-        run: cd azul-dll && cargo check
-        
-      - name: Build
-        run: cd azul-dll && cargo build --verbose --release
-    
+        run: cd azul-dll && cargo check --verbose --release
+
   build-win:
     runs-on: windows-latest
 
@@ -39,13 +36,10 @@ jobs:
           toolchain: stable
           default: true
           override: true
-      
+
       - name: Check (Windows)
-        run: cd azul-dll && cargo check
-        
-      - name: Build (Windows)
-        run: cd azul-dll && cargo build --verbose --release
-             
+        run: cd azul-dll && cargo check  --verbose --release
+
   build-mac:
     runs-on: macos-latest
 
@@ -62,7 +56,5 @@ jobs:
           override: true
 
       - name: Check (Mac)
-        run: cd azul-dll && cargo check
+        run: cd azul-dll && cargo check  --verbose --release
 
-      - name: Build (Mac)
-        run: cd azul-dll && cargo build --verbose --release

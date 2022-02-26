@@ -127,6 +127,11 @@ pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
         msg = msg.replace("\'", "");
     }
 
+    #[cfg(target_os = "linux")] {
+        msg = msg.replace("\"", "");
+        msg = msg.replace("\'", "");
+    }
+
     ::tinyfiledialogs::message_box_ok(title, &msg, icon)
 }
 

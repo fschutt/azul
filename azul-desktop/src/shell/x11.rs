@@ -1,5 +1,6 @@
 use crate::{
     app::{App, LazyFcCache},
+    gl::{c_char, c_int},
     wr_translate::{
         rebuild_display_list,
         generate_frame,
@@ -68,6 +69,7 @@ use webrender::{
 use std::ffi::{CString, OsStr};
 use std::os::raw;
 use gl_context_loader::gl;
+use x11_dl::xlib::{Xlib, Display};
 
 extern { // syscalls
     fn dlopen(filename: *const raw::c_char, flags: raw::c_int) -> *mut raw::c_void;
@@ -79,6 +81,7 @@ extern { // syscalls
 #[derive(Debug)]
 pub enum LinuxWindowCreateError {
     X(String),
+    Egl(String),
     NoGlContext,
     Renderer(WrRendererError),
     BorrowMut(BorrowMutError),
@@ -115,73 +118,214 @@ pub fn get_monitors(app: &App) -> MonitorVec {
     MonitorVec::from_const_slice(&[]) // TODO
 }
 
+// Minimal typedefs from <EGL/egl.h>
+
+type EGLDisplay = *mut c_void;
+type EGLNativeDisplayType = *mut c_void;
+type EGLNativeWindowType = *mut c_void;
+type EGLint = i32;
+type EGLBoolean = u32;
+type EGLenum = u32;
+type EGLConfig = *mut c_void;
+type EGLContext = *mut c_void;
+type EGLSurface = *mut c_void;
+
+type eglGetDisplayFuncType = extern "C" fn(EGLNativeDisplayType) -> EGLDisplay;
+type eglInitializeFuncType = extern "C" fn(EGLDisplay, *mut EGLint, *mut EGLint) -> EGLBoolean;
+type eglBindAPIFuncType = extern "C" fn(EGLenum) -> EGLBoolean;
+type eglChooseConfigFuncType = extern "C" fn(EGLDisplay, *const EGLint,*mut EGLConfig, EGLint, *mut EGLint) -> EGLBoolean;
+type eglCreateWindowSurfaceFuncType = extern "C" fn(EGLDisplay, EGLConfig, EGLNativeWindowType, *const EGLint) -> EGLSurface;
+type eglSwapIntervalFuncType = extern "C" fn(EGLDisplay, EGLint) -> EGLBoolean;
+type eglCreateContextFuncType = extern "C" fn(EGLDisplay, EGLConfig, EGLContext, *const EGLint) -> EGLContext;
+type eglMakeCurrentFuncType = extern "C" fn(EGLDisplay, EGLSurface, EGLSurface, EGLContext) -> EGLBoolean;
+type eglSwapBuffersFuncType = extern "C" fn(EGLDisplay, EGLSurface) -> EGLBoolean;
+type eglGetErrorFuncType = extern "C" fn () -> EGLint;
+
+const EGL_NO_DISPLAY: EGLDisplay = 0 as *mut c_void;
+const EGL_OPENGL_API: EGLenum = 0x30A2;
+const EGL_SURFACE_TYPE: EGLint = 0x3033;
+const EGL_WINDOW_BIT: EGLint = 0x0004;
+const EGL_CONFORMANT: EGLint = 0x3042;
+const EGL_OPENGL_BIT: EGLint = 0x0008;
+const EGL_RENDERABLE_TYPE: EGLint = 0x3040;
+const EGL_COLOR_BUFFER_TYPE: EGLint = 0x303F;
+const EGL_RGB_BUFFER: EGLint = 0x308E;
+const EGL_BLUE_SIZE: EGLint = 0x3022;
+const EGL_GREEN_SIZE: EGLint = 0x3023;
+const EGL_RED_SIZE: EGLint = 0x3024;
+const EGL_DEPTH_SIZE: EGLint = 0x3025;
+const EGL_STENCIL_SIZE: EGLint = 0x3026;
+const EGL_NONE: EGLint = 0x3038;
+const EGL_GL_COLORSPACE: EGLint = 0x3087;
+const EGL_GL_COLORSPACE_LINEAR: EGLint = 0x308A;
+const EGL_RENDER_BUFFER: EGLint = 0x3086;
+const EGL_BACK_BUFFER: EGLint = 0x3084;
+const EGL_NO_SURFACE: EGLSurface = 0 as *mut c_void;
+const EGL_NO_CONTEXT: EGLContext = 0 as *mut c_void;
+const EGL_FALSE: EGLBoolean = 0;
+const EGL_TRUE: EGLBoolean = 1;
+
+const EGL_CONTEXT_MAJOR_VERSION: EGLint = 0x00003098;
+const EGL_CONTEXT_MINOR_VERSION: EGLint = 0x000030fb;
+const EGL_CONTEXT_OPENGL_PROFILE_MASK: EGLint = 0x000030fd;
+const EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT: EGLint = 0x00000001;
+
+const WM_PROTOCOLS: u64 = 0;
+
+fn display_egl_status(e: EGLint) -> &'static str {
+
+    const BAD_ACCESS: EGLint = 0x3002;
+    const BAD_ALLOC: EGLint = 0x3003;
+    const BAD_ATTRIBUTE: EGLint = 0x3004;
+    const BAD_CONFIG: EGLint = 0x3005;
+    const BAD_CONTEXT: EGLint = 0x3006;
+    const BAD_CURRENT_SURFACE: EGLint = 0x3007;
+    const BAD_DISPLAY: EGLint = 0x3008;
+    const BAD_MATCH: EGLint = 0x3009;
+    const BAD_NATIVE_PIXMAP: EGLint = 0x300A;
+    const BAD_NATIVE_WINDOW: EGLint = 0x300B;
+    const BAD_PARAMETER: EGLint = 0x300C;
+    const BAD_SURFACE: EGLint = 0x300D;
+
+    match e {
+        0x3001 => "not initialized",
+        BAD_ACCESS => "bad access",
+        BAD_ALLOC => "bad alloc",
+        BAD_ATTRIBUTE => "bad attribute",
+        BAD_CONTEXT => "bad context",
+        BAD_CONFIG => "bad config",
+        BAD_CURRENT_SURFACE => "bad current surface",
+        BAD_DISPLAY => "bad display",
+        BAD_SURFACE => "bad surface",
+        BAD_MATCH => "bad match",
+        BAD_PARAMETER => "bad parameter",
+        BAD_NATIVE_PIXMAP => "bad native pixmap",
+        BAD_NATIVE_WINDOW => "bad native window",
+        0x300E => "context lost",
+        _ => "unknown status code",
+    }
+}
+
 /// Main function that starts when app.run() is invoked
 pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxStartupError> {
 
-    use self::LinuxWindowCreateError::*;
-    use x11_dl::xlib::{self, InputOutput, CopyFromParent, False};
+    use self::LinuxStartupError::Create;
+    use self::LinuxWindowCreateError::{X, Egl};
+    use x11_dl::xlib::{
+        self, Xlib, XEvent,
+        InputOutput, CopyFromParent,
+        False, XSetWindowAttributes,
+        StructureNotifyMask,
+        CWEventMask, XWindowAttributes
+    };
 
     let xlib = Xlib::open()
         .map_err(|e| X(format!("Could not load libX11: {}", e.detail())))?;
 
-    let egl = Library::load("EGL")
-        .ok_or(X(format!("Could not load libEGL")))?;
+    let egl = Library::load("libEGL.so")
+        .map_err(|e| X(format!("Could not load libEGL: {}", e)))?;
 
-    let mut dpy = X11Display::open()
+    let eglMakeCurrent: eglMakeCurrentFuncType = egl.get("eglMakeCurrent")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglMakeCurrent"))))?;
+    let eglSwapBuffers: eglSwapBuffersFuncType = egl.get("eglSwapBuffers")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglSwapBuffers"))))?;
+    let eglGetDisplay: eglGetDisplayFuncType = egl.get("eglGetDisplay")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglGetDisplay"))))?;
+    let eglInitialize: eglInitializeFuncType = egl.get("eglInitialize")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglInitialize"))))?;
+    let eglBindAPI: eglBindAPIFuncType = egl.get("eglBindAPI")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglBindAPI"))))?;
+    let eglChooseConfig: eglChooseConfigFuncType = egl.get("eglChooseConfig")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglChooseConfig"))))?;
+    let eglCreateWindowSurface: eglCreateWindowSurfaceFuncType = egl.get("eglCreateWindowSurface")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglCreateWindowSurface"))))?;
+    let eglSwapInterval: eglSwapIntervalFuncType = egl.get("eglSwapInterval")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglSwapInterval"))))?;
+    let eglCreateContext: eglCreateContextFuncType = egl.get("eglCreateContext")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglCreateContext"))))?;
+    let eglGetError: eglGetErrorFuncType = egl.get("eglGetError")
+        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+        .ok_or(Create(Egl(format!("EGL: no function eglGetError"))))?;
+
+    let mut dpy = X11Display::open(&xlib)
         .ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
 
     // DefaultRootWindow shim
     let scrnum = unsafe { (xlib.XDefaultScreen)(dpy.get()) };
     let root = unsafe { (xlib.XRootWindow)(dpy.get(), scrnum) };
 
-    let xattr = XSetWindowAttributes {
-        event_mask: StructureNotifyMask,
-    };
+    let mut xattr: XSetWindowAttributes = unsafe { mem::zeroed() };
+    xattr.event_mask = StructureNotifyMask;
 
     let window = unsafe { (xlib.XCreateWindow)(
         dpy.get(), root,
         0, 0,
-        u32::MAX, u32::MAX, 0,
-        CopyFromParent as u32,
+        800, 600, 0,
+        CopyFromParent,
         InputOutput as u32,
-        CopyFromParent as u32,
+        ptr::null_mut(), // = CopyFromParent
         CWEventMask,
-        &xattr
+        &mut xattr,
     ) };
 
-    if window.is_null() {
-        return Err(X(format!("X11: XCreateWindow failed")));
+    if window == 0 {
+        return Err(Create(X(format!("X11: XCreateWindow failed"))));
     }
 
     let window_title = encode_ascii(&root_window.state.title);
-    unsafe { (xlib.XStoreName)(dpy.get(), window, window_title.as_ptr()) };
+    unsafe { (xlib.XStoreName)(dpy.get(), window, window_title.as_ptr() as *const i8) };
 
     // subscribe to window close notification
-    let wm_protocols_atom = XInternAtom(dpy, encode_ascii("WM_PROTOCOLS").as_ptr(), False);
-    let wm_delete_window = XInternAtom(dpy , encode_ascii("WM_DELETE_WINDOW").as_ptr(), False);
-    unsafe { (xlib.XSetWMProtocols)(dpy.get(), window, &wm_delete_window, 1) };
+    let wm_protocols_atom = unsafe { (xlib.XInternAtom)(
+        dpy.get(),
+        encode_ascii("WM_PROTOCOLS").as_ptr() as *const i8,
+        False
+    ) };
 
-    let egl_display = (eglGetDisplay)((EGLNativeDisplayType)dpy);
+    let mut wm_delete_window = unsafe { (xlib.XInternAtom)(
+        dpy.get(),
+        encode_ascii("WM_DELETE_WINDOW").as_ptr() as *const i8,
+        False
+    ) };
+
+    unsafe { (xlib.XSetWMProtocols)(
+        dpy.get(),
+        window,
+        &mut wm_delete_window,
+        1
+    ) };
+
+    let egl_display = (eglGetDisplay)(dpy.display as *mut c_void);
     if egl_display == EGL_NO_DISPLAY {
-        return Err(Egl(format!("EGL: eglGetDisplay(): no display")));
+        return Err(Create(Egl(format!("EGL: eglGetDisplay(): no display"))));
     }
 
     let mut major = 0;
     let mut minor = 0;
 
     let init_result = (eglInitialize)(egl_display, &mut major, &mut minor);
-    if egl_display != 0 {
-        return Err(Egl(format!("EGL: eglInitialize(): cannot initialize display")));
+    if init_result != EGL_TRUE {
+        return Err(Create(Egl(format!("EGL: eglInitialize(): cannot initialize display: {}", init_result))));
     }
 
+    /*
     if (major < 1 || (major == 1 && minor < 5)) {
-        return Err(Egl(format!("EGL: eglInitialize(): EGL version 1.5 or higher required")));
-    }
+        return Err(Create(Egl(format!("EGL: eglInitialize(): EGL version 1.5 or higher required, got {}.{}", major, minor))));
+    }*/
 
     // choose OpenGL API for EGL, by default it uses OpenGL ES
     let egl_bound = (eglBindAPI)(EGL_OPENGL_API);
-    if egl_bound != 0 {
-        return Err(Egl(format!("EGL: eglBindAPI(): Failed to select OpenGL API for EGL")));
+    if egl_bound != EGL_TRUE {
+        return Err(Create(Egl(format!("EGL: eglBindAPI(): Failed to select OpenGL API for EGL: {}", egl_bound))));
     }
 
     let egl_attr = [
@@ -200,13 +344,15 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxSta
         EGL_NONE,
     ];
 
+    let mut config: EGLConfig = unsafe { mem::zeroed() };
     let mut count = 0;
-    if (eglChooseConfig)() != 0 {
-        return Err(Egl(format!("EGL: eglChooseConfig(): Cannot choose EGL config")));
+    let egl_config_chosen = (eglChooseConfig)(egl_display, egl_attr.as_ptr(), &mut config, 1, &mut count);
+    if egl_config_chosen != EGL_TRUE {
+        return Err(Create(Egl(format!("EGL: eglChooseConfig(): Cannot choose EGL config: {}", egl_config_chosen))));
     }
 
     if count != 1 {
-        return Err(Egl(format!("EGL: eglChooseConfig(): Expected 1 EglConfig, got {}", count)));
+        return Err(Create(Egl(format!("EGL: eglChooseConfig(): Expected 1 EglConfig, got {}", count))));
     }
 
     let egl_surface_attr = [
@@ -215,10 +361,15 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxSta
         EGL_NONE,
     ];
 
-    let egl_surface = (eglCreateWindowSurface)(display, config, window, attr);
+    let egl_surface = (eglCreateWindowSurface)(
+        egl_display,
+        config,
+        unsafe { mem::transmute(window as usize) },
+        egl_surface_attr.as_ptr()
+    );
 
     if egl_surface == EGL_NO_SURFACE {
-        return Err(Egl(format!("EGL: eglCreateWindowSurface(): no surface found")));
+        return Err(Create(Egl(format!("EGL: eglCreateWindowSurface(): no surface found"))));
     }
 
     let egl_context_attr = [
@@ -228,30 +379,30 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxSta
         EGL_NONE,
     ];
 
-    let context = (eglCreateContext)(display, config, EGL_NO_CONTEXT, egl_context_attr.as_ptr());
+    let context = (eglCreateContext)(egl_display, config, EGL_NO_CONTEXT, egl_context_attr.as_ptr());
     if context == EGL_NO_CONTEXT {
-        return Err(Egl(format!("EGL: eglCreateContext(): no context")));
+        let err = (eglGetError)();
+        return Err(Create(Egl(format!("EGL: eglCreateContext() failed with status {} = {}", err, display_egl_status(err)))));
     }
 
 
-    let egl_is_current = (eglMakeCurrent)(display, surface, surface, context);
-    if egl_is_current != 0 {
-        return Err(Egl(format!("EGL: eglMakeCurrent(): failed to make context current")));
+    let egl_is_current = (eglMakeCurrent)(egl_display, egl_surface, egl_surface, context);
+    if egl_is_current != EGL_TRUE {
+        return Err(Create(Egl(format!("EGL: eglMakeCurrent(): failed to make context current: {}", egl_is_current))));
     }
 
     let mut gl_functions = GlFunctions::initialize();
-    gl_functions.load()
-    .ok_or(Egl(format!("EGL: could not load OpenGL functions")));
+    gl_functions.load();
 
-
+    /*
     // use 0 to disable vsync
     int vsync = 1;
     ok = eglSwapInterval(display, vsync);
     Assert(ok && "Failed to set vsync for EGL");
-
+    */
 
     // show the window
-    (xlib.XMapWindow)(dpy.get(), window);
+    unsafe { (xlib.XMapWindow)(dpy.get(), window) };
 
     let mut cur_xevent = XEvent { pad: [0;24] };
     let mut cur_window_attributes: XWindowAttributes = unsafe { mem::zeroed() };
@@ -259,8 +410,8 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxSta
     loop {
 
         // process all incoming X11 events
-        if !(xlib.XPending)(dpy.get()) {
-            usleep(10 * 1000);
+        if unsafe { (xlib.XPending)(dpy.get()) } == 0 {
+            /// usleep(10 * 1000);
             continue;
         }
 
@@ -271,43 +422,46 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxSta
         match cur_event_type {
             // window shown
             xlib::Expose => {
-                let expose_data = cur_xevent.expose;
+                let expose_data = unsafe { cur_xevent.expose };
+                let width = expose_data.width;
+                let height = expose_data.height;
 
-                gl_functions.viewport(0, 0, width, height);
-                gl_functions.clear_color(0.392, 0.584, 0.929, 1.0);
-                gl_functions.clear(
+                gl_functions.functions.viewport(0, 0, width, height);
+                gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
+                gl_functions.functions.clear(
                     gl::COLOR_BUFFER_BIT |
                     gl::DEPTH_BUFFER_BIT |
                     gl::STENCIL_BUFFER_BIT
                 );
 
-                let swap_result = (eglSwapBuffers)(display, surface);
-                if swap_result != 0 {
-                    return Err(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers")));
+                let swap_result = (eglSwapBuffers)(egl_display, egl_surface);
+                if swap_result != EGL_TRUE {
+                    return Err(Create(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
                 }
             },
             // window resized
             xlib::ResizeRequest => {
-                let resize_request_data = cur_xevent.resize_request;
+                let resize_request_data = unsafe { cur_xevent.resize_request };
+                let width = resize_request_data.width;
+                let height = resize_request_data.height;
 
-                gl_functions.viewport(0, 0, width, height);
-                gl_functions.clear_color(0.392, 0.584, 0.929, 1.0);
-                gl_functions.clear(
+                gl_functions.functions.viewport(0, 0, width, height);
+                gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
+                gl_functions.functions.clear(
                     gl::COLOR_BUFFER_BIT |
                     gl::DEPTH_BUFFER_BIT |
                     gl::STENCIL_BUFFER_BIT
                 );
 
-                let swap_result = (eglSwapBuffers)(display, surface);
-                if swap_result != 0 {
-                    return Err(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers")));
+                let swap_result = (eglSwapBuffers)(egl_display, egl_surface);
+                if swap_result != EGL_TRUE {
+                    return Err(Create(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
                 }
             },
             // window closed
             xlib::ClientMessage => {
-                let xclient_data = cur_xevent.xclient;
-                if xclient_data.message_type == WM_PROTOCOLS &&
-                   xclient_data.data.l[0] == WM_DELETE_WINDOW {
+                let xclient_data = unsafe { cur_xevent.client_message };
+                if (xclient_data.data.as_longs().get(0).copied() == Some(wm_delete_window as i64)) {
                     break;
                 }
             },
@@ -319,15 +473,15 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxSta
 }
 
 pub struct X11Display {
-    pub display: *mut x11::Display,
-    pub xopen_display: unsafe extern "C" fn(_: *const c_char) -> *mut x11::Display,
+    pub display: *mut Display,
+    pub xopen_display: unsafe extern "C" fn(_: *const c_char) -> *mut Display,
     pub xclose_display:  unsafe extern "C" fn(_: *mut Display) -> c_int,
 }
 
 impl X11Display {
 
-    pub fn get<'a>(&'a mut self) -> &'a mut x11::Display {
-        unsafe { &*mut self.display }
+    pub fn get<'a>(&'a mut self) -> &'a mut Display {
+        unsafe { &mut *self.display }
     }
 
     pub fn open(xlib: &Xlib) -> Option<Self> {
@@ -365,25 +519,29 @@ unsafe impl Sync for Library {}
 impl Library {
 
     /// Dynamically load an arbitrary library by its name (dlopen)
-    pub fn load(name: &'static str) -> Option<Self> {
+    pub fn load(name: &'static str) -> Result<Self, String> {
 
         use alloc::borrow::Cow;
-        use std::ffi::CStr;
+        use std::ffi::{CString, CStr};
 
         const RTLD_NOW: raw::c_int = 2;
 
-        let cow = Cow::Owned(CString::new(name.as_bytes()).ok()?);
+        let cow = CString::new(name.as_bytes()).map_err(|e| String::new())?;
         let ptr = unsafe { dlopen(cow.as_ptr(), RTLD_NOW) };
 
         if ptr.is_null() {
-            None
+            let dlerr = unsafe { CStr::from_ptr(dlerror()) };
+            Err(dlerr.to_str().ok().map(|s| s.to_string()).unwrap_or_default())
         } else {
-            Some(Self { name, ptr })
+            Ok(Self { name, ptr })
         }
     }
 
-    pub fn get(&self, symbol: &[u8]) -> Option<*mut raw::c_void> {
-        let symbol_name_new = cstr_cow_from_bytes(symbol)?;
+    pub fn get(&self, symbol: &str) -> Option<*mut raw::c_void> {
+
+        use std::ffi::CString;
+
+        let symbol_name_new = CString::new(symbol.as_bytes()).ok()?;
         let symbol_new = unsafe { dlsym(self.ptr, symbol_name_new.as_ptr()) };
         let error = unsafe { dlerror() };
         if error.is_null() {
@@ -396,19 +554,19 @@ impl Library {
 
 impl fmt::Debug for Library {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.name.write(f)
+        self.name.fmt(f)
     }
 }
 
 impl fmt::Display for Library {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.name.write(f)
+        self.name.fmt(f)
     }
 }
 
 impl Drop for Library {
     fn drop(&mut self) {
-        unsafe { dlclose(self.0) };
+        unsafe { dlclose(self.ptr) };
     }
 }
 
@@ -421,7 +579,7 @@ struct GlFunctions {
 
 impl fmt::Debug for GlFunctions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self._opengl32_dll_handle.map(|f| f.0 as usize).fmt(f)?;
+        self._opengl32_dll_handle.as_ref().map(|f| f.ptr as usize).fmt(f)?;
         Ok(())
     }
 }
@@ -443,7 +601,7 @@ impl GlFunctions {
 
         // zero-initialize all function pointers
         let context: GenericGlContext = unsafe { mem::zeroed() };
-        let opengl32_dll = Library::load("GL");
+        let opengl32_dll = Library::load("GL").ok();
 
         Self {
             _opengl32_dll_handle: opengl32_dll,
@@ -454,12 +612,10 @@ impl GlFunctions {
     // Assuming the OpenGL context is current, loads the OpenGL function pointers
     fn load(&mut self) {
 
-        fn get_func(s: &str, opengl32_dll: &Option<Library>) -> *mut gl_context_loader::c_void {
-            let mut func_name = encode_ascii(s);
-
+        fn get_func(s: &'static str, opengl32_dll: &Option<Library>) -> *mut gl_context_loader::c_void {
             opengl32_dll
             .as_ref()
-            .and_then(|l| l.get(func_name.as_slice()))
+            .and_then(|l| l.get(s))
             .unwrap_or(core::ptr::null_mut())
             as *mut gl_context_loader::c_void
         }
