@@ -15,10 +15,6 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [[bin]]
-name = "table"
-path = "rust/table.rs"
-
-[[bin]]
 name = "async"
 path = "rust/async.rs"
 
@@ -55,9 +51,13 @@ path = "rust/svg.rs"
 name = "xml"
 path = "rust/xml.rs"
 
-[[bin]]
-name = "udp-chat"
-path = "rust/udp-chat.rs"
+# [[bin]]
+# name = "table"
+# path = "rust/table.rs"
+
+# [[bin]]
+# name = "udp-chat"
+# path = "rust/udp-chat.rs"
 
 [dependencies]
 azul = { path = "../api/rust", default-features = false }

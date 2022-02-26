@@ -86,7 +86,8 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
             Dom::div()
             .with_children(vec![
                 Dom::text("Enter database to connect to:".into()),
-                TextInput::new(database.clone().into())
+                TextInput::new()
+                .with_text(database.clone().into())
                 .with_on_text_input(data_clone.clone(), edit_database_input)
                 .dom(),
                 Button::new("Connect".into())

@@ -76,18 +76,24 @@ cdylib = []
 rlib = []
 staticlib = []
 
-# predefined target configurations, additional to default config
-desktop-cdylib = [
-    "cdylib", "use_fern_logger" # use fern, build as DLL
-]
-desktop-staticlib = [
-    "staticlib", "use_fern_logger" # use fern, build as staticlib
-]
-rust-static = [
-    "rlib", "use_fern_logger" # use fern, build as rust dependency (rlib)
-]
-python-extension = [
-    "cdylib", "pyo3", "use_pyo3_logger" # use pyo3-log, build as DLL, enable python
+# Predefined target configurations
+desktop-cdylib = ["cdylib", "use_fern_logger"]
+desktop-staticlib = ["staticlib", "use_fern_logger"]
+rust-static = ["rlib", "use_fern_logger"]
+python-extension = ["cdylib", "pyo3", "use_pyo3_logger"]
+
+[package.metadata.deb]
+maintainer = "Felix Schütt <felix.schuett@maps4print.com>"
+extended-description = """
+    AZUL GUI Toolkit (https://azul.rs).
+    Cross-platform GUI toolkit written in Rust
+    built using the WebRender rendering engine
+"""
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/libazul.so", "usr/lib/", "755"]
 ]
 
 [package.metadata.docs.rs]
