@@ -1,6 +1,6 @@
 use crate::{
     app::{App, LazyFcCache},
-    gl::{c_char, c_int, c_uint, c_long, c_ulong},
+    gl::{c_char, c_uchar, c_int, c_uint, c_long, c_ulong},
     wr_translate::{
         rebuild_display_list,
         generate_frame,
@@ -155,6 +155,7 @@ type XOpenDisplayFuncType = extern "C" fn(*const c_char) -> *mut Display;
 type XCloseDisplayFuncType = extern "C" fn(*mut Display) -> c_int;
 type XPendingFuncType = extern "C" fn(*mut Display) -> c_int;
 type XNextEventFuncType = extern "C" fn(*mut Display, *mut XEvent) -> c_int;
+type XSelectInputFuncType = extern "C" fn(_: *mut Display, _: c_ulong, _: c_long) -> c_int;
 
 const EGL_NO_DISPLAY: EGLDisplay = 0 as *mut c_void;
 const EGL_OPENGL_API: EGLenum = 0x30A2;
@@ -188,13 +189,579 @@ const EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT: EGLint = 0x00000001;
 const WM_PROTOCOLS: u64 = 0;
 
 // minimal typedefs from X11.h
+
+#[derive(Copy, Clone)]
+pub enum _XDisplay {}
+pub type Display = _XDisplay;
+
+#[repr(C)]
+struct XExtData {
+    number: c_int,
+    next: *mut XExtData,
+    free_private: Option<unsafe extern "C" fn() -> c_int>,
+    private_data: *mut c_char,
+}
+
+#[repr(C)]
+struct Visual {
+    ext_data: *mut XExtData,
+    visualid: XID,
+    class: c_int,
+    red_mask: c_ulong,
+    green_mask: c_ulong,
+    blue_mask: c_ulong,
+    bits_per_rgb: c_int,
+    map_entries: c_int,
+}
+
+type Atom = XID;
+type Time = c_ulong;
+type Drawable = XID;
+type Colormap = XID;
+
 use x11_dl::xlib::XEvent;
-use x11_dl::xlib::{Display, Visual};
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+union MyXEvent {
+    type_: c_int,
+    any: XAnyEvent,
+    button: XButtonEvent,
+    circulate: XCirculateEvent,
+    circulate_request: XCirculateRequestEvent,
+    client_message: XClientMessageEvent,
+    colormap: XColormapEvent,
+    configure: XConfigureEvent,
+    configure_request: XConfigureRequestEvent,
+    create_window: XCreateWindowEvent,
+    crossing: XCrossingEvent,
+    destroy_window: XDestroyWindowEvent,
+    error: XErrorEvent,
+    expose: XExposeEvent,
+    focus_change: XFocusChangeEvent,
+    generic_event_cookie: XGenericEventCookie,
+    graphics_expose: XGraphicsExposeEvent,
+    gravity: XGravityEvent,
+    key: XKeyEvent,
+    keymap: XKeymapEvent,
+    map: XMapEvent,
+    mapping: XMappingEvent,
+    map_request: XMapRequestEvent,
+    motion: XMotionEvent,
+    no_expose: XNoExposeEvent,
+    property: XPropertyEvent,
+    reparent: XReparentEvent,
+    resize_request: XResizeRequestEvent,
+    selection_clear: XSelectionClearEvent,
+    selection: XSelectionEvent,
+    selection_request: XSelectionRequestEvent,
+    unmap: XUnmapEvent,
+    visibility: XVisibilityEvent,
+    pad: [c_long; 24],
+    pad2: [u8;188],
+    /*
+    // xf86vidmode
+    xf86vm_notify: xf86vmode::XF86VidModeNotifyEvent,
+    // xrandr
+    xrr_screen_change_notify: xrandr::XRRScreenChangeNotifyEvent,
+    xrr_notify: xrandr::XRRNotifyEvent,
+    xrr_output_change_notify: xrandr::XRROutputChangeNotifyEvent,
+    xrr_crtc_change_notify: xrandr::XRRCrtcChangeNotifyEvent,
+    xrr_output_property_notify: xrandr::XRROutputPropertyNotifyEvent,
+    xrr_provider_change_notify: xrandr::XRRProviderChangeNotifyEvent,
+    xrr_provider_property_notify: xrandr::XRRProviderPropertyNotifyEvent,
+    xrr_resource_change_notify: xrandr::XRRResourceChangeNotifyEvent,
+    // xscreensaver
+    xss_notify: xss::XScreenSaverNotifyEvent,
+    */
+}
+
+
+impl MyXEvent {
+    pub fn get_type(&self) -> c_int {
+        unsafe { self.type_ }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XAnyEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XButtonEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    root: XID,
+    subwindow: XID,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    button: c_uint,
+    same_screen: X11Bool,
+}
+type XButtonPressedEvent = XButtonEvent;
+type XButtonReleasedEvent = XButtonEvent;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XCirculateEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+    place: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XCirculateRequestEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    parent: XID,
+    window: XID,
+    place: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XClientMessageEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    message_type: Atom,
+    format: c_int,
+    data: ClientMessageData,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[repr(C)]
+pub struct ClientMessageData {
+    longs: [i64; 5],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct XGenericEventCookie {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: X11Bool,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub cookie: c_uint,
+    pub data: *mut c_void,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XColormapEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    colormap: Colormap,
+    new: X11Bool,
+    state: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XConfigureEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    border_width: c_int,
+    above: XID,
+    override_redirect: X11Bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XConfigureRequestEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    parent: XID,
+    window: XID,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    border_width: c_int,
+    above: XID,
+    detail: c_int,
+    value_mask: c_ulong,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XCreateWindowEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    parent: XID,
+    window: XID,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    border_width: c_int,
+    override_redirect: X11Bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XCrossingEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    root: XID,
+    subwindow: XID,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    mode: c_int,
+    detail: c_int,
+    same_screen: X11Bool,
+    focus: X11Bool,
+    state: c_uint,
+}
+type XEnterWindowEvent = XCrossingEvent;
+type XLeaveWindowEvent = XCrossingEvent;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XDestroyWindowEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XErrorEvent {
+    type_: c_int,
+    display: *mut Display,
+    resourceid: XID,
+    serial: c_ulong,
+    error_code: c_uchar,
+    request_code: c_uchar,
+    minor_code: c_uchar,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XExposeEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    count: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XFocusChangeEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    mode: c_int,
+    detail: c_int,
+}
+type XFocusInEvent = XFocusChangeEvent;
+type XFocusOutEvent = XFocusChangeEvent;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XGraphicsExposeEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    drawable: Drawable,
+    x: c_int,
+    y: c_int,
+    width: c_int,
+    height: c_int,
+    count: c_int,
+    major_code: c_int,
+    minor_code: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XGravityEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+    x: c_int,
+    y: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XKeyEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    root: XID,
+    subwindow: XID,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    keycode: c_uint,
+    same_screen: X11Bool,
+}
+type XKeyPressedEvent = XKeyEvent;
+type XKeyReleasedEvent = XKeyEvent;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XKeymapEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    key_vector: [c_char; 32],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XMapEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+    override_redirect: X11Bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XMappingEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    request: c_int,
+    first_keycode: c_int,
+    count: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XMapRequestEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    parent: XID,
+    window: XID,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XMotionEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    root: XID,
+    subwindow: XID,
+    time: Time,
+    x: c_int,
+    y: c_int,
+    x_root: c_int,
+    y_root: c_int,
+    state: c_uint,
+    is_hint: c_char,
+    same_screen: X11Bool,
+}
+type XPointerMovedEvent = XMotionEvent;
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XNoExposeEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    drawable: Drawable,
+    major_code: c_int,
+    minor_code: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XPropertyEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    atom: Atom,
+    time: Time,
+    state: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XReparentEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+    parent: XID,
+    x: c_int,
+    y: c_int,
+    override_redirect: X11Bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XResizeRequestEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    width: c_int,
+    height: c_int,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XSelectionClearEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    selection: Atom,
+    time: Time,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XSelectionEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    requestor: XID,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    time: Time,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XSelectionRequestEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    owner: XID,
+    requestor: XID,
+    selection: Atom,
+    target: Atom,
+    property: Atom,
+    time: Time,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XUnmapEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    event: XID,
+    window: XID,
+    from_configure: X11Bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct XVisibilityEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: X11Bool,
+    display: *mut Display,
+    window: XID,
+    state: c_int,
+}
 
 const X11_INPUT_OUTPUT: c_int = 1;
 const X11_COPY_FROM_PARENT: c_int = 0;
 const X11_CW_EVENT_MASK: c_ulong = 0x0800;
 const X11_STRUCTURE_NOTIFY_MASK: c_long = 0x0002_0000;
+const X11_EXPOSURE_MASK: c_long = 0x0000_8000;
+const X11_RESIZE_REDIRECT_MASK: c_long = 0x0004_0000;
+const X11_KEY_PRESS_MASK: c_long = 0x0000_0001;
+const X11_KEY_RELEASE_MASK: c_long = 0x0000_0002;
+const X11_POINTER_MOTION_MASK: c_long = 0x0000_0040;
+const X11_BUTTON_PRESS_MASK: c_long = 0x0000_0004;
+const X11_BUTTON_RELEASE_MASK: c_long = 0x0000_0008;
+
 const X11_FALSE: X11Bool = 0;
 
 const X11_EXPOSE: c_int = 12;
@@ -243,9 +810,6 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
     let xlib = Rc::new(Xlib::new()?);
     let egl = Rc::new(Egl::new()?);
 
-    let mut dpy = X11Display::open(xlib.clone())
-        .ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
-
     let mut active_windows = BTreeMap::new();
 
     let app_data_inner = Rc::new(RefCell::new(ApplicationData {
@@ -256,42 +820,38 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
     }));
 
     for options in windows.iter_mut() {
-        let window = X11Window::new(
+        let mut window = X11Window::new(
             xlib.clone(),
             egl.clone(),
-            &mut dpy,
             options,
             SharedApplicationData { inner: app_data_inner.clone() }
         )?;
-        window.show(&mut dpy);
+        window.show();
         active_windows.insert(window.id, window);
     }
 
-    let window = X11Window::new(
+    let mut window = X11Window::new(
         xlib.clone(),
         egl.clone(),
-        &mut dpy,
         &mut root_window,
         SharedApplicationData { inner: app_data_inner.clone() }
     )?;
-    window.show(&mut dpy);
+    window.show();
     active_windows.insert(window.id, window);
 
     let mut cur_xevent = XEvent { pad: [0;24] };
+
+    println!("xevent size: {:?}", std::alloc::Layout::new::<x11_dl::xlib::XEvent>());
+    println!("xevent now: {:?}", std::alloc::Layout::new::<XEvent>());
 
     loop {
 
         let mut windows_to_close = Vec::new();
 
-        // process all incoming X11 events
-        if unsafe { (xlib.XPending)(dpy.get()) } == 0 {
-            /// usleep(10 * 1000);
-            continue;
-        }
+        for (window_id, window) in active_windows.iter_mut() {
 
-        unsafe { (xlib.XNextEvent)(dpy.get(), &mut cur_xevent) };
-
-        for (window_id, window) in active_windows.iter() {
+            // blocks until next event
+            unsafe { (xlib.XNextEvent)(window.dpy.get(), &mut cur_xevent) };
 
             let cur_event_type = cur_xevent.get_type();
 
@@ -303,33 +863,78 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
                     let height = expose_data.height;
 
                     window.make_current();
+                    window.render_api.flush_scene_builder();
+
+                    window.gl_functions.functions.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    window.gl_functions.functions.disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
+                    window.gl_functions.functions.disable(gl_context_loader::gl::MULTISAMPLE);
+
                     window.gl_functions.functions.viewport(0, 0, width, height);
-                    window.gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
+                    window.gl_functions.functions.clear_color(0.0, 0.0, 0.0, 1.0);
                     window.gl_functions.functions.clear(
                         gl::COLOR_BUFFER_BIT |
                         gl::DEPTH_BUFFER_BIT |
                         gl::STENCIL_BUFFER_BIT
                     );
+
+                    let mut current_program = [0_i32];
+                    unsafe {
+                        window.gl_functions.functions.get_integer_v(
+                            gl_context_loader::gl::CURRENT_PROGRAM,
+                            (&mut current_program[..]).into()
+                        );
+                    }
+
+                    if let Some(r) = window.renderer.as_mut() {
+                        let framebuffer_size = WrDeviceIntSize::new(width, height);
+                        r.update();
+                        let _ = r.render(framebuffer_size, 0);
+                    }
 
                     let swap_result = (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
                     if swap_result != EGL_TRUE {
                         return Err(Create(EglError(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
                     }
+
+                    window.gl_functions.functions.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    window.gl_functions.functions.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+                    window.gl_functions.functions.use_program(current_program[0] as u32);
                 },
                 // window resized
                 X11_RESIZE_REQUEST => {
+
                     let resize_request_data = unsafe { cur_xevent.resize_request };
                     let width = resize_request_data.width;
                     let height = resize_request_data.height;
 
                     window.make_current();
+                    window.render_api.flush_scene_builder();
+
+                    window.gl_functions.functions.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+                    window.gl_functions.functions.disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
+                    window.gl_functions.functions.disable(gl_context_loader::gl::MULTISAMPLE);
+
                     window.gl_functions.functions.viewport(0, 0, width, height);
-                    window.gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
+                    window.gl_functions.functions.clear_color(0.0, 0.0, 0.0, 1.0);
                     window.gl_functions.functions.clear(
                         gl::COLOR_BUFFER_BIT |
                         gl::DEPTH_BUFFER_BIT |
                         gl::STENCIL_BUFFER_BIT
                     );
+
+                    let mut current_program = [0_i32];
+                    unsafe {
+                        window.gl_functions.functions.get_integer_v(
+                            gl_context_loader::gl::CURRENT_PROGRAM,
+                            (&mut current_program[..]).into()
+                        );
+                    }
+
+                    if let Some(r) = window.renderer.as_mut() {
+                        let framebuffer_size = WrDeviceIntSize::new(width, height);
+                        r.update();
+                        let _ = r.render(framebuffer_size, 0);
+                    }
 
                     let swap_result = (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
                     if swap_result != EGL_TRUE {
@@ -339,7 +944,7 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
                 // window closed
                 X11_CLIENT_MESSAGE => {
                     let xclient_data = unsafe { cur_xevent.client_message };
-                    if (xclient_data.data.as_longs().get(0).copied() == Some(window.wm_delete_window_atom as i64)) {
+                    if (xclient_data.data.as_longs().get(0).copied() == Some(window.wm_delete_window_atom)) {
                         windows_to_close.push(*window_id);
                     }
                 },
@@ -428,6 +1033,7 @@ impl WrRenderNotifier for Notifier {
 struct X11Window {
     // X11 raw window handle
     pub id: u32,
+    pub dpy: X11Display,
     // EGL OpenGL 3.2 context
     pub egl_surface: EGLSurface,
     pub egl_display: EGLDisplay,
@@ -465,6 +1071,7 @@ struct Xlib {
     pub XCloseDisplay: XCloseDisplayFuncType,
     pub XPending: XPendingFuncType,
     pub XNextEvent: XNextEventFuncType,
+    pub XSelectInput: XSelectInputFuncType,
 }
 
 impl Xlib {
@@ -521,6 +1128,10 @@ impl Xlib {
             .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
             .ok_or(Create(Egl(format!("X11: no function XNextEvent"))))?;
 
+        let XSelectInput: XSelectInputFuncType = x11.get("XSelectInput")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) })})
+            .ok_or(Create(Egl(format!("X11: no function XSelectInput"))))?;
+
         Ok(Xlib {
             library: x11,
             XDefaultScreen,
@@ -534,6 +1145,7 @@ impl Xlib {
             XCloseDisplay,
             XPending,
             XNextEvent,
+            XSelectInput,
         })
     }
 }
@@ -617,7 +1229,6 @@ impl X11Window {
     fn new(
         xlib: Rc<Xlib>,
         egl: Rc<Egl>,
-        dpy: &mut X11Display,
         options: &mut WindowCreateOptions,
         shared_application_data: SharedApplicationData
     ) -> Result<Self, LinuxStartupError> {
@@ -639,12 +1250,23 @@ impl X11Window {
         };
         use azul_core::callbacks::PipelineId;
 
+        let mut dpy = X11Display::open(xlib.clone())
+            .ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
+
         // DefaultRootWindow shim
         let scrnum = unsafe { (xlib.XDefaultScreen)(dpy.get()) };
         let root = unsafe { (xlib.XRootWindow)(dpy.get(), scrnum) };
 
+        let mask = X11_EXPOSURE_MASK |
+            X11_KEY_PRESS_MASK |
+            X11_KEY_RELEASE_MASK |
+            X11_POINTER_MOTION_MASK |
+            X11_BUTTON_PRESS_MASK |
+            X11_BUTTON_RELEASE_MASK |
+            X11_STRUCTURE_NOTIFY_MASK;
+
         let mut xattr: XSetWindowAttributes = unsafe { mem::zeroed() };
-        xattr.event_mask = X11_STRUCTURE_NOTIFY_MASK;
+        xattr.event_mask = mask;
 
         let dpi_scale_factor = dpy.get_dpi_scale_factor();
         options.state.size.dpi = (dpi_scale_factor.max(0.0) * 96.0).round() as u32;
@@ -670,6 +1292,8 @@ impl X11Window {
         if window == 0 {
             return Err(Create(X(format!("X11: XCreateWindow failed"))));
         }
+
+        unsafe { (xlib.XSelectInput)(dpy.get(), window, mask); }
 
         let window_title = encode_ascii(&options.state.title);
         unsafe { (xlib.XStoreName)(dpy.get(), window, window_title.as_ptr() as *const i8) };
@@ -943,6 +1567,7 @@ impl X11Window {
             egl_context,
             wm_delete_window_atom: wm_delete_window_atom as i64,
             id: window,
+            dpy,
             xlib,
             egl,
             render_api,
@@ -963,8 +1588,8 @@ impl X11Window {
         );
     }
 
-    fn show(&self, dpy: &mut X11Display) {
-        unsafe { (self.xlib.XMapWindow)(dpy.get(), self.id) };
+    fn show(&mut self) {
+        unsafe { (self.xlib.XMapWindow)(self.dpy.get(), self.id) };
     }
 }
 
@@ -1132,7 +1757,6 @@ impl fmt::Debug for GlFunctions {
         Ok(())
     }
 }
-
 
 fn encode_ascii(input: &str) -> Vec<u8> {
     input
