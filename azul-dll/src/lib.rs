@@ -4,7 +4,7 @@
 #![cfg_attr(feature ="staticlib", crate_type = "staticlib")]
 #![cfg_attr(feature ="rlib", crate_type = "rlib")]
 #![deny(improper_ctypes_definitions)]
-#![allow(warnings)]
+
 
 #[macro_use]
 extern crate alloc;

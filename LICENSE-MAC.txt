@@ -100,7 +100,7 @@ crc32fast v1.3.2 licensed Apache-2.0 OR MIT
     by Sam Rijs, Alex Crichton
 crossbeam-deque v0.8.1 licensed Apache-2.0 OR MIT
     by The Crossbeam Project Developers
-cstr v0.2.9 licensed MIT
+cstr v0.2.10 licensed MIT
     by Xidorn Quan
 cty v0.2.2 licensed Apache-2.0 OR MIT
     by Jorge Aparicio
@@ -148,7 +148,7 @@ kurbo v0.8.3 licensed Apache-2.0 OR MIT
     by Raph Levien
 lazy_static v1.4.0 licensed Apache-2.0 OR MIT
     by Marvin Löbel
-libc v0.2.117 licensed Apache-2.0 OR MIT
+libc v0.2.119 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 libm v0.2.2 licensed Apache-2.0 OR MIT
     by Jorge Aparicio
