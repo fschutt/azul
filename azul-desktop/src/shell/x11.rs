@@ -71,6 +71,9 @@ use std::os::raw;
 use gl_context_loader::gl;
 use x11_dl::xlib::{Xlib, Display};
 
+// TODO: Cache compiled shaders between renderers
+const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
+
 extern { // syscalls
     fn dlopen(filename: *const raw::c_char, flags: raw::c_int) -> *mut raw::c_void;
     fn dlsym(handle: *mut raw::c_void, symbol: *const raw::c_char) -> *mut raw::c_void;
@@ -172,6 +175,157 @@ const EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT: EGLint = 0x00000001;
 
 const WM_PROTOCOLS: u64 = 0;
 
+/// Main function that starts when app.run() is invoked
+pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, LinuxStartupError> {
+
+    use self::LinuxStartupError::Create;
+    use self::LinuxWindowCreateError::{X, Egl};
+    use x11_dl::xlib::{
+        self, Xlib, XEvent,
+        InputOutput, CopyFromParent,
+        False, XSetWindowAttributes,
+        StructureNotifyMask,
+        CWEventMask, XWindowAttributes
+    };
+
+    let App {
+        data,
+        config,
+        mut windows,
+        image_cache,
+        fc_cache,
+    } = app;
+
+    let xlib = Xlib::open()
+        .map_err(|e| X(format!("Could not load libX11: {}", e.detail())))?;
+
+    let mut dpy = X11Display::open(&xlib)
+        .ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
+
+    let mut active_windows = BTreeMap::new();
+
+    let app_data_inner = Rc::new(RefCell::new(ApplicationData {
+        data,
+        config,
+        image_cache,
+        fc_cache,
+    }));
+
+    for options in windows.iter_mut() {
+        let window = X11Window::new(
+            &mut dpy,
+            options,
+            SharedApplicationData { inner: app_data_inner.clone() }
+        )?;
+        window.show(&mut dpy);
+        active_windows.insert(window.id, window);
+    }
+
+    let window = X11Window::new(
+        &mut dpy,
+        &mut root_window,
+        SharedApplicationData { inner: app_data_inner.clone() }
+    )?;
+    window.show(&mut dpy);
+    active_windows.insert(window.id, window);
+
+    let mut cur_xevent = XEvent { pad: [0;24] };
+
+    loop {
+
+        let mut windows_to_close = Vec::new();
+
+        // process all incoming X11 events
+        if unsafe { (xlib.XPending)(dpy.get()) } == 0 {
+            /// usleep(10 * 1000);
+            continue;
+        }
+
+        unsafe { (xlib.XNextEvent)(dpy.get(), &mut cur_xevent) };
+
+        for (window_id, window) in active_windows.iter() {
+
+            let cur_event_type = cur_xevent.get_type();
+
+            match cur_event_type {
+                // window shown
+                xlib::Expose => {
+                    let expose_data = unsafe { cur_xevent.expose };
+                    let width = expose_data.width;
+                    let height = expose_data.height;
+
+                    window.make_current();
+                    window.gl_functions.functions.viewport(0, 0, width, height);
+                    window.gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
+                    window.gl_functions.functions.clear(
+                        gl::COLOR_BUFFER_BIT |
+                        gl::DEPTH_BUFFER_BIT |
+                        gl::STENCIL_BUFFER_BIT
+                    );
+
+                    let swap_result = (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
+                    if swap_result != EGL_TRUE {
+                        return Err(Create(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
+                    }
+                },
+                // window resized
+                xlib::ResizeRequest => {
+                    let resize_request_data = unsafe { cur_xevent.resize_request };
+                    let width = resize_request_data.width;
+                    let height = resize_request_data.height;
+
+                    window.make_current();
+                    window.gl_functions.functions.viewport(0, 0, width, height);
+                    window.gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
+                    window.gl_functions.functions.clear(
+                        gl::COLOR_BUFFER_BIT |
+                        gl::DEPTH_BUFFER_BIT |
+                        gl::STENCIL_BUFFER_BIT
+                    );
+
+                    let swap_result = (window.egl.eglSwapBuffers)(window.egl_display, window.egl_surface);
+                    if swap_result != EGL_TRUE {
+                        return Err(Create(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
+                    }
+                },
+                // window closed
+                xlib::ClientMessage => {
+                    let xclient_data = unsafe { cur_xevent.client_message };
+                    if (xclient_data.data.as_longs().get(0).copied() == Some(window.wm_delete_window_atom as i64)) {
+                        windows_to_close.push(*window_id);
+                    }
+                },
+                _ => { },
+            }
+
+        }
+
+        for w in windows_to_close {
+            active_windows.remove(&w);
+        }
+
+        if active_windows.is_empty() {
+            break;
+        }
+    }
+
+    Ok(0)
+}
+
+#[derive(Debug, Clone)]
+struct SharedApplicationData {
+    inner: Rc<RefCell<ApplicationData>>,
+}
+
+// ApplicationData struct that is shared across windows
+#[derive(Debug)]
+struct ApplicationData {
+    data: RefAny,
+    config: AppConfig,
+    image_cache: ImageCache,
+    fc_cache: LazyFcCache,
+}
+
 fn display_egl_status(e: EGLint) -> &'static str {
 
     const BAD_ACCESS: EGLint = 0x3002;
@@ -206,270 +360,483 @@ fn display_egl_status(e: EGLint) -> &'static str {
     }
 }
 
-/// Main function that starts when app.run() is invoked
-pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, LinuxStartupError> {
+struct Notifier {}
 
-    use self::LinuxStartupError::Create;
-    use self::LinuxWindowCreateError::{X, Egl};
-    use x11_dl::xlib::{
-        self, Xlib, XEvent,
-        InputOutput, CopyFromParent,
-        False, XSetWindowAttributes,
-        StructureNotifyMask,
-        CWEventMask, XWindowAttributes
-    };
-
-    let xlib = Xlib::open()
-        .map_err(|e| X(format!("Could not load libX11: {}", e.detail())))?;
-
-    let egl = Library::load("libEGL.so")
-        .map_err(|e| X(format!("Could not load libEGL: {}", e)))?;
-
-    let eglMakeCurrent: eglMakeCurrentFuncType = egl.get("eglMakeCurrent")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglMakeCurrent"))))?;
-    let eglSwapBuffers: eglSwapBuffersFuncType = egl.get("eglSwapBuffers")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglSwapBuffers"))))?;
-    let eglGetDisplay: eglGetDisplayFuncType = egl.get("eglGetDisplay")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglGetDisplay"))))?;
-    let eglInitialize: eglInitializeFuncType = egl.get("eglInitialize")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglInitialize"))))?;
-    let eglBindAPI: eglBindAPIFuncType = egl.get("eglBindAPI")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglBindAPI"))))?;
-    let eglChooseConfig: eglChooseConfigFuncType = egl.get("eglChooseConfig")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglChooseConfig"))))?;
-    let eglCreateWindowSurface: eglCreateWindowSurfaceFuncType = egl.get("eglCreateWindowSurface")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglCreateWindowSurface"))))?;
-    let eglSwapInterval: eglSwapIntervalFuncType = egl.get("eglSwapInterval")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglSwapInterval"))))?;
-    let eglCreateContext: eglCreateContextFuncType = egl.get("eglCreateContext")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglCreateContext"))))?;
-    let eglGetError: eglGetErrorFuncType = egl.get("eglGetError")
-        .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
-        .ok_or(Create(Egl(format!("EGL: no function eglGetError"))))?;
-
-    let mut dpy = X11Display::open(&xlib)
-        .ok_or(X(format!("X11: XOpenDisplay(0) failed")))?;
-
-    // DefaultRootWindow shim
-    let scrnum = unsafe { (xlib.XDefaultScreen)(dpy.get()) };
-    let root = unsafe { (xlib.XRootWindow)(dpy.get(), scrnum) };
-
-    let mut xattr: XSetWindowAttributes = unsafe { mem::zeroed() };
-    xattr.event_mask = StructureNotifyMask;
-
-    let window = unsafe { (xlib.XCreateWindow)(
-        dpy.get(), root,
-        0, 0,
-        800, 600, 0,
-        CopyFromParent,
-        InputOutput as u32,
-        ptr::null_mut(), // = CopyFromParent
-        CWEventMask,
-        &mut xattr,
-    ) };
-
-    if window == 0 {
-        return Err(Create(X(format!("X11: XCreateWindow failed"))));
+impl WrRenderNotifier for Notifier {
+    fn clone(&self) -> Box<dyn WrRenderNotifier> {
+        Box::new(Notifier {})
     }
-
-    let window_title = encode_ascii(&root_window.state.title);
-    unsafe { (xlib.XStoreName)(dpy.get(), window, window_title.as_ptr() as *const i8) };
-
-    // subscribe to window close notification
-    let wm_protocols_atom = unsafe { (xlib.XInternAtom)(
-        dpy.get(),
-        encode_ascii("WM_PROTOCOLS").as_ptr() as *const i8,
-        False
-    ) };
-
-    let mut wm_delete_window = unsafe { (xlib.XInternAtom)(
-        dpy.get(),
-        encode_ascii("WM_DELETE_WINDOW").as_ptr() as *const i8,
-        False
-    ) };
-
-    unsafe { (xlib.XSetWMProtocols)(
-        dpy.get(),
-        window,
-        &mut wm_delete_window,
-        1
-    ) };
-
-    let egl_display = (eglGetDisplay)(dpy.display as *mut c_void);
-    if egl_display == EGL_NO_DISPLAY {
-        return Err(Create(Egl(format!("EGL: eglGetDisplay(): no display"))));
+    fn wake_up(&self, composite_needed: bool) {}
+    fn new_frame_ready(
+        &self,
+        _: WrDocumentId,
+        _scrolled: bool,
+        composite_needed: bool,
+        _render_time: Option<u64>,
+    ) {
     }
+}
 
-    let mut major = 0;
-    let mut minor = 0;
+struct X11Window {
+    // X11 raw window handle
+    pub id: u64,
+    // EGL OpenGL 3.2 context
+    pub egl_surface: EGLSurface,
+    pub egl_display: EGLDisplay,
+    pub egl_context: EGLContext,
+    // XAtom fired when the window close button is hit
+    pub wm_delete_window_atom: i64,
+    // X11 library (dynamically loaded)
+    pub xlib: Xlib,
+    // libEGL.so library (dynamically loaded)
+    pub egl: Egl,
+    // OpenGL functions, loaded from libEGL.so
+    pub gl_functions: GlFunctions,
+    /// See azul-core, stores the entire UI (DOM, CSS styles, layout results, etc.)
+    pub internal: WindowInternal,
+    /// OpenGL context pointer with compiled SVG and FXAA shaders
+    pub gl_context_ptr: OptionGlContextPtr,
+    /// Main render API that can be used to register and un-register fonts and images
+    pub render_api: WrRenderApi,
+    /// WebRender renderer implementation (software or hardware)
+    pub renderer: Option<WrRenderer>,
+    /// Hit-tester, lazily initialized and updated every time the display list changes layout
+    pub hit_tester: AsyncHitTester,
+}
 
-    let init_result = (eglInitialize)(egl_display, &mut major, &mut minor);
-    if init_result != EGL_TRUE {
-        return Err(Create(Egl(format!("EGL: eglInitialize(): cannot initialize display: {}", init_result))));
+struct Egl {
+    pub library: Library,
+    pub eglMakeCurrent: eglMakeCurrentFuncType,
+    pub eglSwapBuffers: eglSwapBuffersFuncType,
+    pub eglGetDisplay: eglGetDisplayFuncType,
+    pub eglInitialize: eglInitializeFuncType,
+    pub eglBindAPI: eglBindAPIFuncType,
+    pub eglChooseConfig: eglChooseConfigFuncType,
+    pub eglCreateWindowSurface: eglCreateWindowSurfaceFuncType,
+    pub eglSwapInterval: eglSwapIntervalFuncType,
+    pub eglCreateContext: eglCreateContextFuncType,
+    pub eglGetError: eglGetErrorFuncType,
+}
+
+impl Egl {
+    fn new() -> Result<Self, LinuxStartupError> {
+
+        use self::LinuxStartupError::Create;
+        use self::LinuxWindowCreateError::{X, Egl};
+
+        let egl = Library::load("libEGL.so")
+            .map_err(|e| X(format!("Could not load libEGL: {}", e)))?;
+
+        let eglMakeCurrent: eglMakeCurrentFuncType = egl.get("eglMakeCurrent")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglMakeCurrent"))))?;
+        let eglSwapBuffers: eglSwapBuffersFuncType = egl.get("eglSwapBuffers")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglSwapBuffers"))))?;
+        let eglGetDisplay: eglGetDisplayFuncType = egl.get("eglGetDisplay")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglGetDisplay"))))?;
+        let eglInitialize: eglInitializeFuncType = egl.get("eglInitialize")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglInitialize"))))?;
+        let eglBindAPI: eglBindAPIFuncType = egl.get("eglBindAPI")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglBindAPI"))))?;
+        let eglChooseConfig: eglChooseConfigFuncType = egl.get("eglChooseConfig")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglChooseConfig"))))?;
+        let eglCreateWindowSurface: eglCreateWindowSurfaceFuncType = egl.get("eglCreateWindowSurface")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglCreateWindowSurface"))))?;
+        let eglSwapInterval: eglSwapIntervalFuncType = egl.get("eglSwapInterval")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglSwapInterval"))))?;
+        let eglCreateContext: eglCreateContextFuncType = egl.get("eglCreateContext")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglCreateContext"))))?;
+        let eglGetError: eglGetErrorFuncType = egl.get("eglGetError")
+            .and_then(|ptr| if ptr.is_null() { None } else { Some(unsafe { mem::transmute(ptr) }) })
+            .ok_or(Create(Egl(format!("EGL: no function eglGetError"))))?;
+
+        Ok(Self {
+            library: egl,
+            eglMakeCurrent,
+            eglSwapBuffers,
+            eglGetDisplay,
+            eglInitialize,
+            eglBindAPI,
+            eglChooseConfig,
+            eglCreateWindowSurface,
+            eglSwapInterval,
+            eglCreateContext,
+            eglGetError,
+        })
     }
+}
 
-    /*
-    if (major < 1 || (major == 1 && minor < 5)) {
-        return Err(Create(Egl(format!("EGL: eglInitialize(): EGL version 1.5 or higher required, got {}.{}", major, minor))));
-    }*/
+impl X11Window {
+    fn new(
+        dpy: &mut X11Display,
+        options: &mut WindowCreateOptions,
+        shared_application_data: SharedApplicationData
+    ) -> Result<Self, LinuxStartupError> {
 
-    // choose OpenGL API for EGL, by default it uses OpenGL ES
-    let egl_bound = (eglBindAPI)(EGL_OPENGL_API);
-    if egl_bound != EGL_TRUE {
-        return Err(Create(Egl(format!("EGL: eglBindAPI(): Failed to select OpenGL API for EGL: {}", egl_bound))));
-    }
+        use self::LinuxStartupError::Create;
+        use self::LinuxWindowCreateError::{X, Egl as EglError};
+        use x11_dl::xlib::{
+            self, Xlib, XEvent,
+            InputOutput, CopyFromParent,
+            False, XSetWindowAttributes,
+            StructureNotifyMask,
+            CWEventMask, XWindowAttributes
+        };
+        use azul_core::window::{RendererType, HwAcceleration};
+        use azul_core::gl::GlContextPtr;
+        use webrender::api::ColorF as WrColorF;
+        use webrender::ProgramCache as WrProgramCache;
+        use crate::{
+            compositor::Compositor,
+            wr_translate::{
+                translate_document_id_wr,
+                translate_id_namespace_wr,
+                wr_translate_debug_flags,
+                wr_translate_document_id,
+            },
+        };
+        use azul_core::callbacks::PipelineId;
 
-    let egl_attr = [
+        let xlib = Xlib::open()
+            .map_err(|e| X(format!("Could not load libX11: {}", e.detail())))?;
 
-        EGL_SURFACE_TYPE,      EGL_WINDOW_BIT,
-        EGL_CONFORMANT,        EGL_OPENGL_BIT,
-        EGL_RENDERABLE_TYPE,   EGL_OPENGL_BIT,
-        EGL_COLOR_BUFFER_TYPE, EGL_RGB_BUFFER,
+        let egl = Egl::new()?;
 
-        EGL_RED_SIZE,      8,
-        EGL_GREEN_SIZE,    8,
-        EGL_BLUE_SIZE,     8,
-        EGL_DEPTH_SIZE,   24,
-        EGL_STENCIL_SIZE,  8,
+        // DefaultRootWindow shim
+        let scrnum = unsafe { (xlib.XDefaultScreen)(dpy.get()) };
+        let root = unsafe { (xlib.XRootWindow)(dpy.get(), scrnum) };
 
-        EGL_NONE,
-    ];
+        let mut xattr: XSetWindowAttributes = unsafe { mem::zeroed() };
+        xattr.event_mask = StructureNotifyMask;
 
-    let mut config: EGLConfig = unsafe { mem::zeroed() };
-    let mut count = 0;
-    let egl_config_chosen = (eglChooseConfig)(egl_display, egl_attr.as_ptr(), &mut config, 1, &mut count);
-    if egl_config_chosen != EGL_TRUE {
-        return Err(Create(Egl(format!("EGL: eglChooseConfig(): Cannot choose EGL config: {}", egl_config_chosen))));
-    }
+        let dpi_scale_factor = dpy.get_dpi_scale_factor();
+        options.state.size.dpi = (dpi_scale_factor.max(0.0) * 96.0).round() as u32;
+        options.state.size.hidpi_factor = dpi_scale_factor;
+        options.state.size.system_hidpi_factor = dpi_scale_factor;
 
-    if count != 1 {
-        return Err(Create(Egl(format!("EGL: eglChooseConfig(): Expected 1 EglConfig, got {}", count))));
-    }
+        let logical_size = options.state.size.dimensions;
+        let physical_size = logical_size.to_physical(dpi_scale_factor);
 
-    let egl_surface_attr = [
-        EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_LINEAR,
-        EGL_RENDER_BUFFER, EGL_BACK_BUFFER,
-        EGL_NONE,
-    ];
+        let window = unsafe { (xlib.XCreateWindow)(
+            dpy.get(), root,
+            0, 0,
+            logical_size.width.round().max(0.0) as u32,
+            logical_size.height.round().max(0.0) as u32,
+            0,
+            CopyFromParent,
+            InputOutput as u32,
+            ptr::null_mut(), // = CopyFromParent
+            CWEventMask,
+            &mut xattr,
+        ) };
 
-    let egl_surface = (eglCreateWindowSurface)(
-        egl_display,
-        config,
-        unsafe { mem::transmute(window as usize) },
-        egl_surface_attr.as_ptr()
-    );
-
-    if egl_surface == EGL_NO_SURFACE {
-        return Err(Create(Egl(format!("EGL: eglCreateWindowSurface(): no surface found"))));
-    }
-
-    let egl_context_attr = [
-        EGL_CONTEXT_MAJOR_VERSION, 3,
-        EGL_CONTEXT_MINOR_VERSION, 2,
-        EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
-        EGL_NONE,
-    ];
-
-    let context = (eglCreateContext)(egl_display, config, EGL_NO_CONTEXT, egl_context_attr.as_ptr());
-    if context == EGL_NO_CONTEXT {
-        let err = (eglGetError)();
-        return Err(Create(Egl(format!("EGL: eglCreateContext() failed with status {} = {}", err, display_egl_status(err)))));
-    }
-
-
-    let egl_is_current = (eglMakeCurrent)(egl_display, egl_surface, egl_surface, context);
-    if egl_is_current != EGL_TRUE {
-        return Err(Create(Egl(format!("EGL: eglMakeCurrent(): failed to make context current: {}", egl_is_current))));
-    }
-
-    let mut gl_functions = GlFunctions::initialize();
-    gl_functions.load();
-
-    /*
-    // use 0 to disable vsync
-    int vsync = 1;
-    ok = eglSwapInterval(display, vsync);
-    Assert(ok && "Failed to set vsync for EGL");
-    */
-
-    // show the window
-    unsafe { (xlib.XMapWindow)(dpy.get(), window) };
-
-    let mut cur_xevent = XEvent { pad: [0;24] };
-    let mut cur_window_attributes: XWindowAttributes = unsafe { mem::zeroed() };
-
-    loop {
-
-        // process all incoming X11 events
-        if unsafe { (xlib.XPending)(dpy.get()) } == 0 {
-            /// usleep(10 * 1000);
-            continue;
+        if window == 0 {
+            return Err(Create(X(format!("X11: XCreateWindow failed"))));
         }
 
-        unsafe { (xlib.XNextEvent)(dpy.get(), &mut cur_xevent) };
+        let window_title = encode_ascii(&options.state.title);
+        unsafe { (xlib.XStoreName)(dpy.get(), window, window_title.as_ptr() as *const i8) };
 
-        let cur_event_type = cur_xevent.get_type();
+        // subscribe to window close notification
+        let wm_protocols_atom = unsafe { (xlib.XInternAtom)(
+            dpy.get(),
+            encode_ascii("WM_PROTOCOLS").as_ptr() as *const i8,
+            False
+        ) };
 
-        match cur_event_type {
-            // window shown
-            xlib::Expose => {
-                let expose_data = unsafe { cur_xevent.expose };
-                let width = expose_data.width;
-                let height = expose_data.height;
+        let mut wm_delete_window_atom = unsafe { (xlib.XInternAtom)(
+            dpy.get(),
+            encode_ascii("WM_DELETE_WINDOW").as_ptr() as *const i8,
+            False
+        ) };
 
-                gl_functions.functions.viewport(0, 0, width, height);
-                gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
-                gl_functions.functions.clear(
-                    gl::COLOR_BUFFER_BIT |
-                    gl::DEPTH_BUFFER_BIT |
-                    gl::STENCIL_BUFFER_BIT
-                );
+        unsafe { (xlib.XSetWMProtocols)(
+            dpy.get(),
+            window,
+            &mut wm_delete_window_atom,
+            1
+        ) };
 
-                let swap_result = (eglSwapBuffers)(egl_display, egl_surface);
-                if swap_result != EGL_TRUE {
-                    return Err(Create(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
-                }
-            },
-            // window resized
-            xlib::ResizeRequest => {
-                let resize_request_data = unsafe { cur_xevent.resize_request };
-                let width = resize_request_data.width;
-                let height = resize_request_data.height;
-
-                gl_functions.functions.viewport(0, 0, width, height);
-                gl_functions.functions.clear_color(0.392, 0.584, 0.929, 1.0);
-                gl_functions.functions.clear(
-                    gl::COLOR_BUFFER_BIT |
-                    gl::DEPTH_BUFFER_BIT |
-                    gl::STENCIL_BUFFER_BIT
-                );
-
-                let swap_result = (eglSwapBuffers)(egl_display, egl_surface);
-                if swap_result != EGL_TRUE {
-                    return Err(Create(Egl(format!("EGL: eglSwapBuffers(): Failed to swap OpenGL buffers: {}", swap_result))));
-                }
-            },
-            // window closed
-            xlib::ClientMessage => {
-                let xclient_data = unsafe { cur_xevent.client_message };
-                if (xclient_data.data.as_longs().get(0).copied() == Some(wm_delete_window as i64)) {
-                    break;
-                }
-            },
-            _ => { },
+        let egl_display = (egl.eglGetDisplay)(dpy.display as *mut c_void);
+        if egl_display == EGL_NO_DISPLAY {
+            return Err(Create(EglError(format!("EGL: eglGetDisplay(): no display"))));
         }
+
+        let mut major = 0;
+        let mut minor = 0;
+
+        let init_result = (egl.eglInitialize)(egl_display, &mut major, &mut minor);
+        if init_result != EGL_TRUE {
+            return Err(Create(EglError(format!("EGL: eglInitialize(): cannot initialize display: {}", init_result))));
+        }
+
+        // choose OpenGL API for EGL, by default it uses OpenGL ES
+        let egl_bound = (egl.eglBindAPI)(EGL_OPENGL_API);
+        if egl_bound != EGL_TRUE {
+            return Err(Create(EglError(format!("EGL: eglBindAPI(): Failed to select OpenGL API for EGL: {}", egl_bound))));
+        }
+
+        let egl_attr = [
+
+            EGL_SURFACE_TYPE,      EGL_WINDOW_BIT,
+            EGL_CONFORMANT,        EGL_OPENGL_BIT,
+            EGL_RENDERABLE_TYPE,   EGL_OPENGL_BIT,
+            EGL_COLOR_BUFFER_TYPE, EGL_RGB_BUFFER,
+
+            EGL_RED_SIZE,      8,
+            EGL_GREEN_SIZE,    8,
+            EGL_BLUE_SIZE,     8,
+            EGL_DEPTH_SIZE,   24,
+            EGL_STENCIL_SIZE,  8,
+
+            EGL_NONE,
+        ];
+
+        let mut config: EGLConfig = unsafe { mem::zeroed() };
+        let mut count = 0;
+        let egl_config_chosen = (egl.eglChooseConfig)(egl_display, egl_attr.as_ptr(), &mut config, 1, &mut count);
+        if egl_config_chosen != EGL_TRUE {
+            return Err(Create(EglError(format!("EGL: eglChooseConfig(): Cannot choose EGL config: {}", egl_config_chosen))));
+        }
+
+        if count != 1 {
+            return Err(Create(EglError(format!("EGL: eglChooseConfig(): Expected 1 EglConfig, got {}", count))));
+        }
+
+        let egl_surface_attr = [
+            EGL_GL_COLORSPACE, EGL_GL_COLORSPACE_LINEAR,
+            EGL_RENDER_BUFFER, EGL_BACK_BUFFER,
+            EGL_NONE,
+        ];
+
+        let egl_surface = (egl.eglCreateWindowSurface)(
+            egl_display,
+            config,
+            unsafe { mem::transmute(window as usize) },
+            egl_surface_attr.as_ptr()
+        );
+
+        if egl_surface == EGL_NO_SURFACE {
+            return Err(Create(EglError(format!("EGL: eglCreateWindowSurface(): no surface found"))));
+        }
+
+        let egl_context_attr = [
+            EGL_CONTEXT_MAJOR_VERSION, 3,
+            EGL_CONTEXT_MINOR_VERSION, 2,
+            EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+            EGL_NONE,
+        ];
+
+        let egl_context = (egl.eglCreateContext)(egl_display, config, EGL_NO_CONTEXT, egl_context_attr.as_ptr());
+        if egl_context == EGL_NO_CONTEXT {
+            let err = (egl.eglGetError)();
+            return Err(Create(EglError(format!("EGL: eglCreateContext() failed with status {} = {}", err, display_egl_status(err)))));
+        }
+
+        let egl_is_current = (egl.eglMakeCurrent)(egl_display, egl_surface, egl_surface, egl_context);
+        if egl_is_current != EGL_TRUE {
+            return Err(Create(EglError(format!("EGL: eglMakeCurrent(): failed to make context current: {}", egl_is_current))));
+        }
+
+        let mut gl_functions = GlFunctions::initialize();
+        gl_functions.load();
+
+        // Initialize WebRender
+        let mut rt = RendererType::Software;
+
+        let renderer_types = match options.renderer.into_option() {
+            Some(s) => match s.hw_accel {
+                HwAcceleration::DontCare => vec![RendererType::Hardware, RendererType::Software],
+                HwAcceleration::Enabled => vec![RendererType::Hardware],
+                HwAcceleration::Disabled => vec![RendererType::Software],
+            },
+            None => vec![RendererType::Hardware, RendererType::Software],
+        };
+
+        // TODO: allow fallback software rendering -
+        // currently just takes the first option
+        for r in renderer_types {
+            rt = r;
+            break;
+        }
+
+        // compiles SVG and FXAA shader programs...
+        let gl_context_ptr = Some(GlContextPtr::new(
+            rt,
+            gl_functions.functions.clone()
+        )).into();
+
+        // Invoke callback to initialize UI for the first time
+        let (mut renderer, sender) = WrRenderer::new(
+            gl_functions.functions.clone(),
+            Box::new(Notifier {}),
+            WrRendererOptions {
+                resource_override_path: None,
+                use_optimized_shaders: true,
+                enable_aa: true,
+                enable_subpixel_aa: true,
+                force_subpixel_aa: true,
+                clear_color: WrColorF {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.0,
+                }, // transparent
+                panic_on_gl_error: false,
+                precache_flags: WrShaderPrecacheFlags::EMPTY,
+                cached_programs: Some(WrProgramCache::new(None)),
+                enable_multithreading: true,
+                debug_flags: wr_translate_debug_flags(&options.state.debug_state),
+                ..WrRendererOptions::default()
+            },
+            WR_SHADER_CACHE,
+        ).map_err(|e| Create(EglError(format!("Could not init WebRender: {:?}", e))))?;
+
+        renderer.set_external_image_handler(Box::new(Compositor::default()));
+
+        let mut render_api = sender.create_api();
+
+        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
+        let pipeline_id = PipelineId::new();
+        let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+
+        // hit tester will be empty on startup
+        let hit_tester = render_api
+            .request_hit_tester(wr_translate_document_id(document_id))
+            .resolve();
+
+        let hit_tester_ref = &*hit_tester;
+
+        let mut appdata_lock = match shared_application_data.inner.try_borrow_mut() {
+            Ok(o) => o,
+            Err(e) => return Err(Create(EglError(format!("could not lock application data")))),
+        };
+
+        let appdata_lock = &mut *appdata_lock;
+        let fc_cache = &mut appdata_lock.fc_cache;
+        let image_cache = &appdata_lock.image_cache;
+        let data = &mut appdata_lock.data;
+
+        let mut initial_resource_updates = Vec::new();
+        let mut internal = fc_cache.apply_closure(|fc_cache| {
+            use azul_core::window::WindowInternalInit;
+
+            WindowInternal::new(
+                WindowInternalInit {
+                    window_create_options: options.clone(),
+                    document_id,
+                    id_namespace,
+                },
+                data,
+                image_cache,
+                &gl_context_ptr,
+                &mut initial_resource_updates,
+                &crate::app::CALLBACKS,
+                fc_cache,
+                azul_layout::do_the_relayout,
+                |window_state, scroll_states, layout_results| {
+                    crate::wr_translate::fullhittest_new_webrender(
+                        hit_tester_ref,
+                        document_id,
+                        window_state.focused_node,
+                        layout_results,
+                        &window_state.mouse_state.cursor_position,
+                        window_state.size.hidpi_factor,
+                    )
+                },
+            )
+        });
+
+        let mut txn = WrTransaction::new();
+
+        // re-layout the window content for the first frame
+        // (since the width / height might have changed)
+        let size = internal.current_window_state.size.clone();
+        let theme = internal.current_window_state.theme;
+        let resize_result = fc_cache.apply_closure(|fc_cache| {
+            internal.do_quick_resize(
+                &image_cache,
+                &crate::app::CALLBACKS,
+                azul_layout::do_the_relayout,
+                fc_cache,
+                &gl_context_ptr,
+                &size,
+                theme,
+            )
+        });
+
+        wr_synchronize_updated_images(resize_result.updated_images, &document_id, &mut txn);
+
+
+        txn.set_document_view(
+            WrDeviceIntRect::from_size(
+                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
+            )
+        );
+
+        render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+
+        render_api.flush_scene_builder();
+
+        // Build the display list and send it to webrender for the first time
+        rebuild_display_list(
+            &mut internal,
+            &mut render_api,
+            &appdata_lock.image_cache,
+            initial_resource_updates,
+        );
+
+        render_api.flush_scene_builder();
+
+        generate_frame(
+            &mut internal,
+            &mut render_api,
+            true,
+        );
+
+        render_api.flush_scene_builder();
+
+        // Update the hit-tester to account for the new hit-testing functionality
+        let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id));
+
+        Ok(Self {
+            egl_surface,
+            egl_display,
+            egl_context,
+            wm_delete_window_atom: wm_delete_window_atom as i64,
+            id: window,
+            xlib,
+            egl,
+            render_api,
+            hit_tester: AsyncHitTester::Requested(hit_tester),
+            internal,
+            renderer: Some(renderer),
+            gl_functions,
+            gl_context_ptr,
+        })
     }
 
-    Ok(0)
+    fn make_current(&self) {
+        (self.egl.eglMakeCurrent)(
+            self.egl_display,
+            self.egl_surface,
+            self.egl_surface,
+            self.egl_context
+        );
+    }
+
+    fn show(&self, dpy: &mut X11Display) {
+        unsafe { (self.xlib.XMapWindow)(dpy.get(), self.id) };
+    }
 }
 
 pub struct X11Display {
@@ -497,6 +864,60 @@ impl X11Display {
             xopen_display: xlib.XOpenDisplay,
             xclose_display: xlib.XCloseDisplay,
         })
+    }
+
+    /// Return the DPI on X11 systems
+    ///
+    /// Note: slow - cache output!
+    pub fn get_dpi_scale_factor(&self) -> f32 {
+
+        use std::env;
+        use std::process::Command;
+
+        // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor"
+        // and parse the output
+        let gsettings_dpi_factor =
+            Command::new("gsettings")
+                .arg("get")
+                .arg("org.gnome.desktop.interface")
+                .arg("text-scaling-factor")
+                .output().ok()
+                .map(|output| output.stdout)
+                .and_then(|stdout_bytes| String::from_utf8(stdout_bytes).ok())
+                .map(|stdout_string| stdout_string.lines().collect::<String>())
+                .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
+
+        if let Some(s) = gsettings_dpi_factor {
+            return s;
+        }
+
+        // Failed, try parsing QT_FONT_DPI
+        let qt_font_dpi = env::var("QT_FONT_DPI")
+            .ok()
+            .and_then(|font_dpi| font_dpi.parse::<f32>().ok());
+
+        if let Some(s) = qt_font_dpi {
+            return s;
+        }
+
+        // Failed again, try getting monitor info from XRandR
+        // TODO
+        return 1.0;
+
+        /*
+            XRRScreenResources *xrrr = XRRGetScreenResources(d, w);
+            XRRCrtcInfo *xrrci;
+            int i;
+            int ncrtc = xrrr->ncrtc;
+            for (i = 0; i < ncrtc; ++i) {
+                xrrci = XRRGetCrtcInfo(d, xrrr, xrrr->crtcs[i]);
+                printf("%dx%d+%d+%d\n", xrrci->width, xrrci->height, xrrci->x, xrrci->y);
+                XRRFreeCrtcInfo(xrrci);
+            }
+            XRRFreeScreenResources(xrrr);
+        */
+
+
     }
 }
 

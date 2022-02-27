@@ -187,7 +187,11 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             dwm,
         }));
 
-        let w = Window::create(hinstance, root_window, SharedApplicationData { inner: app_data_inner.clone() })?;
+        let w = Window::create(
+            hinstance,
+            root_window,
+            SharedApplicationData { inner: app_data_inner.clone() }
+        )?;
 
         active_hwnds.try_borrow_mut()?.insert(w.hwnd);
         app_data_inner
@@ -403,7 +407,7 @@ struct SharedApplicationData {
     inner: Rc<RefCell<ApplicationData>>,
 }
 
-// ApplicationData struct that is shared across
+// ApplicationData struct that is shared across windows
 #[derive(Debug)]
 struct ApplicationData {
     hinstance: HINSTANCE,
@@ -1655,7 +1659,9 @@ impl Window {
         use crate::{
             compositor::Compositor,
             wr_translate::{
-                translate_document_id_wr, translate_id_namespace_wr, wr_translate_debug_flags,
+                translate_document_id_wr,
+                translate_id_namespace_wr,
+                wr_translate_debug_flags,
                 wr_translate_document_id,
             },
         };

@@ -156,7 +156,7 @@ impl App {
         #[cfg(target_os = "linux")] {
             crate::shell::x11::get_monitors(self)
         }
-        
+
         #[cfg(target_os = "macos")] {
             crate::shell::cocoa::get_monitors(self)
         }
