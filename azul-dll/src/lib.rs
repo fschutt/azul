@@ -3458,10 +3458,6 @@ pub use AzSvgXmlNodeTT as AzSvgXmlNode;
 /// Creates a new `SvgXmlNode` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgXmlNode::parse_from()` constructor.
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_parseFrom(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError { match azul_impl::svg::svgxmlnode_parse(svg_bytes.as_slice(), parse_options) { Ok(o) => azul_impl::svg::ResultSvgXmlNodeSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_impl::svg::ResultSvgXmlNodeSvgParseError::Err(e) } }
-/// Equivalent to the Rust `SvgXmlNode::render()` function.
-#[no_mangle] pub extern "C" fn AzSvgXmlNode_render(svgxmlnode: &AzSvgXmlNode, options: AzSvgRenderOptions) -> AzOptionRawImage { azul_impl::svg::svgxmlnode_render(svgxmlnode, options).into() }
-/// Equivalent to the Rust `SvgXmlNode::to_string()` function.
-#[no_mangle] pub extern "C" fn AzSvgXmlNode_toString(svgxmlnode: &AzSvgXmlNode, options: AzSvgStringFormatOptions) -> AzString { azul_impl::svg::svgxmlnode_to_string(svgxmlnode, options).into() }
 /// Destructor: Takes ownership of the `SvgXmlNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgXmlNode_delete(object: &mut AzSvgXmlNode) {  if object.run_destructor { unsafe { core::ptr::drop_in_place(object); } }}
 /// Clones the object
@@ -3713,6 +3709,10 @@ pub use AzSvgRenderOptionsTT as AzSvgRenderOptions;
 /// Creates a new `SvgRenderOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `SvgRenderOptions::default()` constructor.
 #[no_mangle] pub extern "C" fn AzSvgRenderOptions_default() -> AzSvgRenderOptions { AzSvgRenderOptions::default() }
+
+/// Re-export of rust-allocated (stack based) `SvgRenderTransform` struct
+pub type AzSvgRenderTransformTT = azul_impl::svg::SvgRenderTransform;
+pub use AzSvgRenderTransformTT as AzSvgRenderTransform;
 
 /// Re-export of rust-allocated (stack based) `SvgStringFormatOptions` struct
 pub type AzSvgStringFormatOptionsTT = azul_impl::svg::SvgXmlOptions;
@@ -7280,6 +7280,17 @@ mod test_sizes {
     pub enum AzFontDatabase {
         Empty,
         System,
+    }
+
+    /// Re-export of rust-allocated (stack based) `SvgRenderTransform` struct
+    #[repr(C)]
+    pub struct AzSvgRenderTransform {
+        pub sx: f32,
+        pub kx: f32,
+        pub ky: f32,
+        pub sy: f32,
+        pub tx: f32,
+        pub ty: f32,
     }
 
     /// Re-export of rust-allocated (stack based) `Indent` struct
@@ -11160,6 +11171,7 @@ mod test_sizes {
         pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
         pub fit: AzSvgFitTo,
+        pub transform: AzSvgRenderTransform,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
@@ -12784,8 +12796,7 @@ mod test_sizes {
     #[repr(C, u8)]
     pub enum AzSvgParseError {
         NoParserAvailable,
-        InvalidFileSuffix,
-        FileOpenFailed,
+        ElementsLimitReached,
         NotAnUtf8Str,
         MalformedGZip,
         InvalidSize,
@@ -13005,6 +13016,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::TextRendering>(), "AzTextRendering"), (Layout::new::<AzTextRendering>(), "AzTextRendering"));
         assert_eq!((Layout::new::<azul_impl::svg::ImageRendering>(), "AzImageRendering"), (Layout::new::<AzImageRendering>(), "AzImageRendering"));
         assert_eq!((Layout::new::<azul_impl::svg::FontDatabase>(), "AzFontDatabase"), (Layout::new::<AzFontDatabase>(), "AzFontDatabase"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgRenderTransform>(), "AzSvgRenderTransform"), (Layout::new::<AzSvgRenderTransform>(), "AzSvgRenderTransform"));
         assert_eq!((Layout::new::<azul_impl::svg::Indent>(), "AzIndent"), (Layout::new::<AzIndent>(), "AzIndent"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgFitTo>(), "AzSvgFitTo"), (Layout::new::<AzSvgFitTo>(), "AzSvgFitTo"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgFillRule>(), "AzSvgFillRule"), (Layout::new::<AzSvgFillRule>(), "AzSvgFillRule"));

@@ -11861,24 +11861,6 @@
                             "returns": {"type": "ResultSvgXmlNodeSvgParseError"},
                             "fn_body": "match azul_impl::svg::svgxmlnode_parse(svg_bytes.as_slice(), parse_options) { Ok(o) => azul_impl::svg::ResultSvgXmlNodeSvgParseError::Ok(unsafe { core::mem::transmute(o) }), Err(e) => azul_impl::svg::ResultSvgXmlNodeSvgParseError::Err(e) }"
                         }
-                    },
-                    "functions": {
-                        "render": {
-                            "fn_args": [
-                                {"self": "ref"},
-                                {"options": "SvgRenderOptions"}
-                            ],
-                            "returns": {"type": "OptionRawImage"},
-                            "fn_body": "azul_impl::svg::svgxmlnode_render(svgxmlnode, options).into()"
-                        },
-                        "to_string": {
-                            "fn_args": [
-                                {"self": "ref"},
-                                {"options": "SvgStringFormatOptions"}
-                            ],
-                            "returns": {"type": "String"},
-                            "fn_body": "azul_impl::svg::svgxmlnode_to_string(svgxmlnode, options).into()"
-                        }
                     }
                 },
                 "SvgMultiPolygon": {
@@ -12658,7 +12640,8 @@
                     "struct_fields": [
                         {"target_size": {"type": "OptionLayoutSize"}},
                         {"background_color": {"type": "OptionColorU"}},
-                        {"fit": {"type": "SvgFitTo"}}
+                        {"fit": {"type": "SvgFitTo"}},
+                        {"transform": {"type": "SvgRenderTransform"}}
                     ],
                     "constructors": {
                         "default": {
@@ -12666,6 +12649,18 @@
                             "fn_body": "AzSvgRenderOptions::default()"
                         }
                     }
+                },
+                "SvgRenderTransform": {
+                    "external": "azul_impl::svg::SvgRenderTransform",
+                    "derive": ["Copy"],
+                    "struct_fields": [
+                        {"sx": {"type": "f32"}},
+                        {"kx": {"type": "f32"}},
+                        {"ky": {"type": "f32"}},
+                        {"sy": {"type": "f32"}},
+                        {"tx": {"type": "f32"}},
+                        {"ty": {"type": "f32"}}
+                    ]
                 },
                 "SvgStringFormatOptions": {
                     "external": "azul_impl::svg::SvgXmlOptions",
@@ -12677,6 +12672,7 @@
                 },
                 "Indent": {
                     "external": "azul_impl::svg::Indent",
+                    "derive": ["Copy"],
                     "enum_fields": [
                         {"None": {"doc": "No indentation"}},
                         {"Spaces": {"type": "u8", "doc": "Indent with n spaces"}},
@@ -16045,8 +16041,7 @@
                     "external": "azul_impl::svg::SvgParseError",
                     "enum_fields": [
                         {"NoParserAvailable": {}},
-                        {"InvalidFileSuffix": {}},
-                        {"FileOpenFailed": {}},
+                        {"ElementsLimitReached": {}},
                         {"NotAnUtf8Str": {}},
                         {"MalformedGZip": {}},
                         {"InvalidSize": {}},

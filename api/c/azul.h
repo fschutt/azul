@@ -2019,6 +2019,16 @@ enum AzFontDatabase {
 };
 typedef enum AzFontDatabase AzFontDatabase;
 
+struct AzSvgRenderTransform {
+    float sx;
+    float kx;
+    float ky;
+    float sy;
+    float tx;
+    float ty;
+};
+typedef struct AzSvgRenderTransform AzSvgRenderTransform;
+
 enum AzIndentTag {
    AzIndentTag_None,
    AzIndentTag_Spaces,
@@ -8404,6 +8414,7 @@ struct AzSvgRenderOptions {
     AzOptionLayoutSize target_size;
     AzOptionColorU background_color;
     AzSvgFitTo fit;
+    AzSvgRenderTransform transform;
 };
 typedef struct AzSvgRenderOptions AzSvgRenderOptions;
 
@@ -10834,8 +10845,7 @@ typedef union AzResultXmlXmlError AzResultXmlXmlError;
 
 enum AzSvgParseErrorTag {
    AzSvgParseErrorTag_NoParserAvailable,
-   AzSvgParseErrorTag_InvalidFileSuffix,
-   AzSvgParseErrorTag_FileOpenFailed,
+   AzSvgParseErrorTag_ElementsLimitReached,
    AzSvgParseErrorTag_NotAnUtf8Str,
    AzSvgParseErrorTag_MalformedGZip,
    AzSvgParseErrorTag_InvalidSize,
@@ -10845,10 +10855,8 @@ typedef enum AzSvgParseErrorTag AzSvgParseErrorTag;
 
 struct AzSvgParseErrorVariant_NoParserAvailable { AzSvgParseErrorTag tag; };
 typedef struct AzSvgParseErrorVariant_NoParserAvailable AzSvgParseErrorVariant_NoParserAvailable;
-struct AzSvgParseErrorVariant_InvalidFileSuffix { AzSvgParseErrorTag tag; };
-typedef struct AzSvgParseErrorVariant_InvalidFileSuffix AzSvgParseErrorVariant_InvalidFileSuffix;
-struct AzSvgParseErrorVariant_FileOpenFailed { AzSvgParseErrorTag tag; };
-typedef struct AzSvgParseErrorVariant_FileOpenFailed AzSvgParseErrorVariant_FileOpenFailed;
+struct AzSvgParseErrorVariant_ElementsLimitReached { AzSvgParseErrorTag tag; };
+typedef struct AzSvgParseErrorVariant_ElementsLimitReached AzSvgParseErrorVariant_ElementsLimitReached;
 struct AzSvgParseErrorVariant_NotAnUtf8Str { AzSvgParseErrorTag tag; };
 typedef struct AzSvgParseErrorVariant_NotAnUtf8Str AzSvgParseErrorVariant_NotAnUtf8Str;
 struct AzSvgParseErrorVariant_MalformedGZip { AzSvgParseErrorTag tag; };
@@ -10859,8 +10867,7 @@ struct AzSvgParseErrorVariant_ParsingFailed { AzSvgParseErrorTag tag; AzXmlError
 typedef struct AzSvgParseErrorVariant_ParsingFailed AzSvgParseErrorVariant_ParsingFailed;
 union AzSvgParseError {
     AzSvgParseErrorVariant_NoParserAvailable NoParserAvailable;
-    AzSvgParseErrorVariant_InvalidFileSuffix InvalidFileSuffix;
-    AzSvgParseErrorVariant_FileOpenFailed FileOpenFailed;
+    AzSvgParseErrorVariant_ElementsLimitReached ElementsLimitReached;
     AzSvgParseErrorVariant_NotAnUtf8Str NotAnUtf8Str;
     AzSvgParseErrorVariant_MalformedGZip MalformedGZip;
     AzSvgParseErrorVariant_InvalidSize InvalidSize;
@@ -11965,8 +11972,7 @@ typedef struct AzCss AzCss;
 #define AzResultXmlXmlError_Ok(v) { .Ok = { .tag = AzResultXmlXmlErrorTag_Ok, .payload = v } }
 #define AzResultXmlXmlError_Err(v) { .Err = { .tag = AzResultXmlXmlErrorTag_Err, .payload = v } }
 #define AzSvgParseError_NoParserAvailable { .NoParserAvailable = { .tag = AzSvgParseErrorTag_NoParserAvailable } }
-#define AzSvgParseError_InvalidFileSuffix { .InvalidFileSuffix = { .tag = AzSvgParseErrorTag_InvalidFileSuffix } }
-#define AzSvgParseError_FileOpenFailed { .FileOpenFailed = { .tag = AzSvgParseErrorTag_FileOpenFailed } }
+#define AzSvgParseError_ElementsLimitReached { .ElementsLimitReached = { .tag = AzSvgParseErrorTag_ElementsLimitReached } }
 #define AzSvgParseError_NotAnUtf8Str { .NotAnUtf8Str = { .tag = AzSvgParseErrorTag_NotAnUtf8Str } }
 #define AzSvgParseError_MalformedGZip { .MalformedGZip = { .tag = AzSvgParseErrorTag_MalformedGZip } }
 #define AzSvgParseError_InvalidSize { .InvalidSize = { .tag = AzSvgParseErrorTag_InvalidSize } }
@@ -12993,8 +12999,6 @@ extern DLLIMPORT AzString AzSvg_toString(const AzSvg* svg, AzSvgStringFormatOpti
 extern DLLIMPORT void AzSvg_delete(AzSvg* restrict instance);
 extern DLLIMPORT AzSvg AzSvg_deepCopy(AzSvg* const instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
-extern DLLIMPORT AzOptionRawImage AzSvgXmlNode_render(const AzSvgXmlNode* svgxmlnode, AzSvgRenderOptions  options);
-extern DLLIMPORT AzString AzSvgXmlNode_toString(const AzSvgXmlNode* svgxmlnode, AzSvgStringFormatOptions  options);
 extern DLLIMPORT void AzSvgXmlNode_delete(AzSvgXmlNode* restrict instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_deepCopy(AzSvgXmlNode* const instance);
 extern DLLIMPORT AzSvgRect AzSvgMultiPolygon_getBounds(const AzSvgMultiPolygon* svgmultipolygon);

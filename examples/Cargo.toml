@@ -23,6 +23,10 @@ name = "hello-world"
 path = "rust/hello-world.rs"
 
 [[bin]]
+name = "fontdebug"
+path = "rust/fontdebug.rs"
+
+[[bin]]
 name = "widgets"
 path = "rust/widgets.rs"
 

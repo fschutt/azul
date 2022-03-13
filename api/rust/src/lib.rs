@@ -3053,11 +3053,27 @@ mod dll {
         System,
     }
 
+    /// Re-export of rust-allocated (stack based) `SvgRenderTransform` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
+    pub struct AzSvgRenderTransform {
+        pub sx: f32,
+        pub kx: f32,
+        pub ky: f32,
+        pub sy: f32,
+        pub tx: f32,
+        pub ty: f32,
+    }
+
     /// Re-export of rust-allocated (stack based) `Indent` struct
     #[repr(C, u8)]
     #[derive(Debug)]
     #[derive(Clone)]
     #[derive(PartialEq, PartialOrd)]
+    #[derive(Copy)]
     pub enum AzIndent {
         None,
         Spaces(u8),
@@ -8278,6 +8294,7 @@ mod dll {
         pub target_size: AzOptionLayoutSize,
         pub background_color: AzOptionColorU,
         pub fit: AzSvgFitTo,
+        pub transform: AzSvgRenderTransform,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
@@ -10293,8 +10310,7 @@ mod dll {
     #[derive(PartialEq, PartialOrd)]
     pub enum AzSvgParseError {
         NoParserAvailable,
-        InvalidFileSuffix,
-        FileOpenFailed,
+        ElementsLimitReached,
         NotAnUtf8Str,
         MalformedGZip,
         InvalidSize,
@@ -10989,8 +11005,6 @@ mod dll {
         pub(crate) fn AzSvg_delete(_:  &mut AzSvg);
         pub(crate) fn AzSvg_deepCopy(_:  &AzSvg) -> AzSvg;
         pub(crate) fn AzSvgXmlNode_parseFrom(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgXmlNodeSvgParseError;
-        pub(crate) fn AzSvgXmlNode_render(_:  &AzSvgXmlNode, _:  AzSvgRenderOptions) -> AzOptionRawImage;
-        pub(crate) fn AzSvgXmlNode_toString(_:  &AzSvgXmlNode, _:  AzSvgStringFormatOptions) -> AzString;
         pub(crate) fn AzSvgXmlNode_delete(_:  &mut AzSvgXmlNode);
         pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
         pub(crate) fn AzSvgMultiPolygon_getBounds(_:  &AzSvgMultiPolygon) -> AzSvgRect;
@@ -18211,6 +18225,8 @@ pub mod svg {
     #[cfg(feature = "link_static")]
     pub use azul::AzSvgRenderOptions as SvgRenderOptions;
     #[cfg(feature = "link_static")]
+    pub use azul::AzSvgRenderTransform as SvgRenderTransform;
+    #[cfg(feature = "link_static")]
     pub use azul::AzSvgStringFormatOptions as SvgStringFormatOptions;
     #[cfg(feature = "link_static")]
     pub use azul::AzIndent as Indent;
@@ -18271,10 +18287,6 @@ pub mod svg {
 
         /// Creates a new `SvgXmlNode` instance.
         pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgXmlNodeSvgParseError { unsafe { crate::dll::AzSvgXmlNode_parseFrom(svg_bytes, parse_options) } }
-        /// Calls the `SvgXmlNode::render` function.
-        pub fn render(&self, options: SvgRenderOptions)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzSvgXmlNode_render(self, options) } }
-        /// Calls the `SvgXmlNode::to_string` function.
-        pub fn to_string(&self, options: SvgStringFormatOptions)  -> crate::str::String { unsafe { crate::dll::AzSvgXmlNode_toString(self, options) } }
     }
 
     #[cfg(not(feature = "link_static"))] impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
@@ -18565,6 +18577,9 @@ pub mod svg {
         pub fn default() -> Self { unsafe { crate::dll::AzSvgRenderOptions_default() } }
     }
 
+    /// `SvgRenderTransform` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgRenderTransform as SvgRenderTransform;
     /// `SvgStringFormatOptions` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgStringFormatOptions as SvgStringFormatOptions;

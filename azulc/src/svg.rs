@@ -36,7 +36,7 @@ pub use azul_core::svg::{
     SvgParseOptions, SvgXmlOptions, SvgPathElement, SvgNode,
     SvgStyle, SvgFillRule, SvgLineCap, SvgLineJoin, c_void,
     ShapeRendering, ImageRendering, TextRendering, FontDatabase,
-    SvgFitTo, SvgParseError, Indent, SvgVector,
+    SvgFitTo, SvgParseError, Indent, SvgVector, SvgRenderTransform,
 
     SvgPoint, SvgCubicCurve, TessellatedSvgNodeVec,
     SvgMultiPolygonVec, SvgPathVec,
@@ -1127,45 +1127,6 @@ pub fn svgxmlnode_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Resul
     Err(SvgParseError::NoParserAvailable)
 }
 
-#[cfg(feature = "svg")]
-pub fn svgxmlnode_render(s: &SvgXmlNode, options: SvgRenderOptions) -> Option<RawImage> {
-    use tiny_skia::Pixmap;
-    use azul_core::app_resources::RawImageData;
-
-    let (target_width, target_height) = svgrenderoptions_get_width_height_node(&options, &s.node)?;
-
-    if target_height == 0 || target_width == 0 { return None; }
-
-    let mut pixmap = Pixmap::new(target_width, target_height)?;
-    pixmap.fill(options.background_color.into_option().map(translate_color).unwrap_or(tiny_skia::Color::TRANSPARENT));
-
-    let _ = resvg::render_node(&s.node, translate_fit_to(options.fit), pixmap.as_mut())?;
-
-    Some(RawImage {
-        pixels: RawImageData::U8(pixmap.take().into()),
-        width: target_width as usize,
-        height: target_height as usize,
-        premultiplied_alpha: true,
-        data_format: RawImageFormat::RGBA8,
-    })
-}
-
-#[cfg(not(feature = "svg"))]
-pub fn svgxmlnode_render(s: &SvgXmlNode, options: SvgRenderOptions) -> Option<RawImage> {
-    None
-}
-
-#[cfg(feature = "svg")]
-pub fn svgxmlnode_to_string(s: &SvgXmlNode, options: SvgXmlOptions) -> String {
-    use usvg::NodeExt;
-    s.node.tree().to_string(translate_to_usvg_xmloptions(options))
-}
-
-#[cfg(not(feature = "svg"))]
-pub fn svgxmlnode_to_string(s: &SvgXmlNode, options: SvgXmlOptions) -> String {
-    String::new()
-}
-
 /*
 #[cfg(feature = "svg")]
 pub fn svgxmlnode_from_xml(xml: Xml) -> Result<Self, SvgParseError> {
@@ -1215,8 +1176,11 @@ fn svg_new(tree: usvg::Tree) -> Svg { Svg { tree: Box::new(tree), run_destructor
 /// NOTE: SVG file data may be Zlib compressed
 #[cfg(feature = "svg")]
 pub fn svg_parse(svg_file_data: &[u8], options: SvgParseOptions) -> Result<Svg, SvgParseError> {
-    let rtree = usvg::Tree::from_data(svg_file_data, &translate_to_usvg_parseoptions(options))
-    .map_err(translate_usvg_svgparserror)?;
+    let rtree = usvg::Tree::from_data(
+        svg_file_data,
+        &translate_to_usvg_parseoptions(options).to_ref(),
+    ).map_err(translate_usvg_svgparserror)?;
+
     Ok(svg_new(rtree))
 }
 
@@ -1246,9 +1210,21 @@ pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
     if target_height == 0 || target_width == 0 { return None; }
 
     let mut pixmap = Pixmap::new(target_width, target_height)?;
-    pixmap.fill(options.background_color.into_option().map(translate_color).unwrap_or(tiny_skia::Color::TRANSPARENT));
 
-    let _ = resvg::render_node(&root, translate_fit_to(options.fit), pixmap.as_mut())?;
+    pixmap.fill(
+        options.background_color
+        .into_option()
+        .map(translate_color)
+        .unwrap_or(tiny_skia::Color::TRANSPARENT)
+    );
+
+    let _ = resvg::render_node(
+        &s.tree,
+        &s.tree.root(),
+        translate_fit_to(options.fit),
+        translate_transform(options.transform),
+        pixmap.as_mut()
+    )?;
 
     Some(RawImage {
         pixels: RawImageData::U8(pixmap.take().into()),
@@ -1274,7 +1250,7 @@ pub fn from_xml(xml: Xml) -> Result<Self, SvgParseError> {
 
 #[cfg(feature = "svg")]
 pub fn svg_to_string(s: &Svg, options: SvgXmlOptions) -> String {
-    s.tree.to_string(translate_to_usvg_xmloptions(options))
+    s.tree.to_string(&translate_to_usvg_xmloptions(options))
 }
 
 #[cfg(not(feature = "svg"))]
@@ -1287,10 +1263,23 @@ fn svgrenderoptions_get_width_height_node(s: &SvgRenderOptions, node: &usvg::Nod
     match s.target_size.as_ref() {
         None => {
             use usvg::NodeExt;
-            let wh = node.calculate_bbox()?.size().to_screen_size();
-            Some((wh.width(), wh.height()))
+            let bbox = node.calculate_bbox()?;
+            let size = usvg::Size::new(bbox.width(), bbox.height())?.to_screen_size();
+            Some((size.width(), size.height()))
         },
         Some(s) => Some((s.width as u32, s.height as u32)),
+    }
+}
+
+#[cfg(feature = "svg")]
+fn translate_transform(e: SvgRenderTransform) -> tiny_skia::Transform {
+    tiny_skia::Transform {
+        sx: e.sx,
+        kx: e.kx,
+        ky: e.ky,
+        sy: e.sy,
+        tx: e.tx,
+        ty: e.ty,
     }
 }
 
@@ -1370,9 +1359,12 @@ fn translate_to_usvg_parseoptions(e: SvgParseOptions) -> usvg::Options {
 #[cfg(feature = "svg")]
 fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::XmlOptions {
     usvg::XmlOptions {
-        use_single_quote: f.use_single_quote,
-        indent: translate_usvg_xmlindent(f.indent),
-        attributes_indent: translate_usvg_xmlindent(f.attributes_indent),
+        id_prefix: None,
+        writer_opts: xmlwriter::Options {
+            use_single_quote: f.use_single_quote,
+            indent: translate_xmlwriter_indent(f.indent),
+            attributes_indent: translate_xmlwriter_indent(f.attributes_indent),
+        }
     }
 }
 
@@ -1380,8 +1372,7 @@ fn translate_to_usvg_xmloptions(f: SvgXmlOptions) -> usvg::XmlOptions {
 fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
     use crate::xml::translate_roxmltree_error;
     match e {
-        usvg::Error::InvalidFileSuffix => SvgParseError::InvalidFileSuffix,
-        usvg::Error::FileOpenFailed => SvgParseError::FileOpenFailed,
+        usvg::Error::ElementsLimitReached => SvgParseError::ElementsLimitReached,
         usvg::Error::NotAnUtf8Str => SvgParseError::NotAnUtf8Str,
         usvg::Error::MalformedGZip => SvgParseError::MalformedGZip,
         usvg::Error::InvalidSize => SvgParseError::InvalidSize,
@@ -1390,10 +1381,10 @@ fn translate_usvg_svgparserror(e: usvg::Error) -> SvgParseError {
 }
 
 #[cfg(feature = "svg")]
-fn translate_usvg_xmlindent(f: Indent) -> usvg::XmlIndent {
+fn translate_xmlwriter_indent(f: Indent) -> xmlwriter::Indent {
     match f {
-        Indent::None => usvg::XmlIndent::None,
-        Indent::Spaces(s) => usvg::XmlIndent::Spaces(s),
-        Indent::Tabs => usvg::XmlIndent::Tabs,
+        Indent::None => xmlwriter::Indent::None,
+        Indent::Spaces(s) => xmlwriter::Indent::Spaces(s),
+        Indent::Tabs => xmlwriter::Indent::Tabs,
     }
 }

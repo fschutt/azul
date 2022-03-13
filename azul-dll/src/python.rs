@@ -2518,6 +2518,17 @@ pub enum AzFontDatabase {
     System,
 }
 
+/// Re-export of rust-allocated (stack based) `SvgRenderTransform` struct
+#[repr(C)]
+pub struct AzSvgRenderTransform {
+    pub sx: f32,
+    pub kx: f32,
+    pub ky: f32,
+    pub sy: f32,
+    pub tx: f32,
+    pub ty: f32,
+}
+
 /// Re-export of rust-allocated (stack based) `Indent` struct
 #[repr(C, u8)]
 pub enum AzIndent {
@@ -6363,6 +6374,7 @@ pub struct AzSvgRenderOptions {
     pub target_size: AzOptionLayoutSizeEnumWrapper,
     pub background_color: AzOptionColorUEnumWrapper,
     pub fit: AzSvgFitToEnumWrapper,
+    pub transform: AzSvgRenderTransform,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
@@ -7978,8 +7990,7 @@ pub enum AzResultXmlXmlError {
 #[repr(C, u8)]
 pub enum AzSvgParseError {
     NoParserAvailable,
-    InvalidFileSuffix,
-    FileOpenFailed,
+    ElementsLimitReached,
     NotAnUtf8Str,
     MalformedGZip,
     InvalidSize,
@@ -10399,6 +10410,7 @@ impl Clone for AzShapeRenderingEnumWrapper { fn clone(&self) -> Self { let r: &a
 impl Clone for AzTextRenderingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TextRendering = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzImageRenderingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::ImageRendering = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFontDatabaseEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::FontDatabase = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgRenderTransform { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgRenderTransform = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzIndentEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::Indent = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgFitToEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgFitTo = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgFillRuleEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgFillRule = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -31075,23 +31087,6 @@ impl AzSvgXmlNode {
         }
 
     }
-    fn render(&self, options: AzSvgRenderOptions) -> Option<AzRawImage> {
-        let m: AzOptionRawImage = unsafe { mem::transmute(crate::AzSvgXmlNode_render(
-            mem::transmute(self),
-            mem::transmute(options),
-        )) };
-        match m {
-            AzOptionRawImage::Some(s) => Some(unsafe { mem::transmute(s) }),
-            AzOptionRawImage::None => None,
-        }
-
-    }
-    fn to_string(&self, options: AzSvgStringFormatOptions) -> String {
-        az_string_to_py_string(unsafe { mem::transmute(crate::AzSvgXmlNode_toString(
-            mem::transmute(self),
-            mem::transmute(options),
-        )) })
-    }
 }
 
 #[pyproto]
@@ -31904,6 +31899,32 @@ impl PyObjectProtocol for AzSvgRenderOptions {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::SvgRenderOptions = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzSvgRenderTransform {
+    #[new]
+    fn __new__(sx: f32, kx: f32, ky: f32, sy: f32, tx: f32, ty: f32) -> Self {
+        Self {
+            sx,
+            kx,
+            ky,
+            sy,
+            tx,
+            ty,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzSvgRenderTransform {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgRenderTransform = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgRenderTransform = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -39498,9 +39519,7 @@ impl AzSvgParseErrorEnumWrapper {
     #[classattr]
     fn NoParserAvailable() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::NoParserAvailable } }
     #[classattr]
-    fn InvalidFileSuffix() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::InvalidFileSuffix } }
-    #[classattr]
-    fn FileOpenFailed() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::FileOpenFailed } }
+    fn ElementsLimitReached() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::ElementsLimitReached } }
     #[classattr]
     fn NotAnUtf8Str() -> AzSvgParseErrorEnumWrapper { AzSvgParseErrorEnumWrapper { inner: AzSvgParseError::NotAnUtf8Str } }
     #[classattr]
@@ -39517,8 +39536,7 @@ impl AzSvgParseErrorEnumWrapper {
         let py = gil.python();
         match &self.inner {
             AzSvgParseError::NoParserAvailable => Ok(vec!["NoParserAvailable".into_py(py), ().into_py(py)]),
-            AzSvgParseError::InvalidFileSuffix => Ok(vec!["InvalidFileSuffix".into_py(py), ().into_py(py)]),
-            AzSvgParseError::FileOpenFailed => Ok(vec!["FileOpenFailed".into_py(py), ().into_py(py)]),
+            AzSvgParseError::ElementsLimitReached => Ok(vec!["ElementsLimitReached".into_py(py), ().into_py(py)]),
             AzSvgParseError::NotAnUtf8Str => Ok(vec!["NotAnUtf8Str".into_py(py), ().into_py(py)]),
             AzSvgParseError::MalformedGZip => Ok(vec!["MalformedGZip".into_py(py), ().into_py(py)]),
             AzSvgParseError::InvalidSize => Ok(vec!["InvalidSize".into_py(py), ().into_py(py)]),
@@ -40554,6 +40572,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzImageRenderingEnumWrapper>()?;
     m.add_class::<AzFontDatabaseEnumWrapper>()?;
     m.add_class::<AzSvgRenderOptions>()?;
+    m.add_class::<AzSvgRenderTransform>()?;
     m.add_class::<AzSvgStringFormatOptions>()?;
     m.add_class::<AzIndentEnumWrapper>()?;
     m.add_class::<AzSvgFitToEnumWrapper>()?;

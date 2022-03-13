@@ -1,6 +1,6 @@
 use crate::{
     app::{App, LazyFcCache},
-    gl::{c_char, c_uchar, c_int, c_uint, c_long, c_ulong},
+    gl::{c_char, c_ushort, c_uchar, c_int, c_uint, c_long, c_ulong},
     wr_translate::{
         rebuild_display_list,
         generate_frame,
@@ -218,12 +218,171 @@ type Atom = XID;
 type Time = c_ulong;
 type Drawable = XID;
 type Colormap = XID;
+type Bool = c_int;
+type Window = XID;
+type RRProvider = XID;
+type RROutput = XID;
+type Rotation = c_ushort;
+type SizeID = c_ushort;
+type SubpixelOrder = c_ushort;
+type RRCrtc = XID;
+type RRMode = XID;
+type Connection = c_ushort;
 
-use x11_dl::xlib::XEvent;
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XF86VidModeNotifyEvent {
+    type_: c_int,
+    serial: c_ulong,
+    send_event: Bool,
+    display: *mut Display,
+    root: Window,
+    state: c_int,
+    kind: c_int,
+    forced: Bool,
+    time: Time,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRRScreenChangeNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub root: Window,
+    pub timestamp: Time,
+    pub config_timestamp: Time,
+    pub size_index: SizeID,
+    pub subpixel_order: SubpixelOrder,
+    pub rotation: Rotation,
+    pub width: c_int,
+    pub height: c_int,
+    pub mwidth: c_int,
+    pub mheight: c_int,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRRNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRROutputChangeNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+    pub output: RROutput,
+    pub crtc: RRCrtc,
+    pub mode: RRMode,
+    pub rotation: Rotation,
+    pub connection: Connection,
+    pub subpixel_order: SubpixelOrder,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRRCrtcChangeNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+    pub crtc: RRCrtc,
+    pub mode: RRMode,
+    pub rotation: Rotation,
+    pub x: c_int,
+    pub y: c_int,
+    pub width: c_uint,
+    pub height: c_uint,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRROutputPropertyNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+    pub output: RROutput,
+    pub property: Atom,
+    pub timestamp: Time,
+    pub state: c_int,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRRProviderChangeNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+    pub provider: RRProvider,
+    pub timestamp: Time,
+    pub current_role: c_uint,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRRProviderPropertyNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+    pub provider: RRProvider,
+    pub property: Atom,
+    pub timestamp: Time,
+    pub state: c_int,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XRRResourceChangeNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub subtype: c_int,
+    pub timestamp: Time,
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+struct XScreenSaverNotifyEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: Bool,
+    pub display: *mut Display,
+    pub window: Window,
+    pub root: Window,
+    pub state: c_int,
+    pub kind: c_int,
+    pub forced: Bool,
+    pub time: Time,
+}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-union MyXEvent {
+union XEvent {
     type_: c_int,
     any: XAnyEvent,
     button: XButtonEvent,
@@ -258,26 +417,23 @@ union MyXEvent {
     unmap: XUnmapEvent,
     visibility: XVisibilityEvent,
     pad: [c_long; 24],
-    pad2: [u8;188],
-    /*
     // xf86vidmode
-    xf86vm_notify: xf86vmode::XF86VidModeNotifyEvent,
+    xf86vm_notify: XF86VidModeNotifyEvent,
     // xrandr
-    xrr_screen_change_notify: xrandr::XRRScreenChangeNotifyEvent,
-    xrr_notify: xrandr::XRRNotifyEvent,
-    xrr_output_change_notify: xrandr::XRROutputChangeNotifyEvent,
-    xrr_crtc_change_notify: xrandr::XRRCrtcChangeNotifyEvent,
-    xrr_output_property_notify: xrandr::XRROutputPropertyNotifyEvent,
-    xrr_provider_change_notify: xrandr::XRRProviderChangeNotifyEvent,
-    xrr_provider_property_notify: xrandr::XRRProviderPropertyNotifyEvent,
-    xrr_resource_change_notify: xrandr::XRRResourceChangeNotifyEvent,
+    xrr_screen_change_notify: XRRScreenChangeNotifyEvent,
+    xrr_notify: XRRNotifyEvent,
+    xrr_output_change_notify: XRROutputChangeNotifyEvent,
+    xrr_crtc_change_notify: XRRCrtcChangeNotifyEvent,
+    xrr_output_property_notify: XRROutputPropertyNotifyEvent,
+    xrr_provider_change_notify: XRRProviderChangeNotifyEvent,
+    xrr_provider_property_notify: XRRProviderPropertyNotifyEvent,
+    xrr_resource_change_notify: XRRResourceChangeNotifyEvent,
     // xscreensaver
-    xss_notify: xss::XScreenSaverNotifyEvent,
-    */
+    xss_notify: XScreenSaverNotifyEvent,
 }
 
 
-impl MyXEvent {
+impl XEvent {
     pub fn get_type(&self) -> c_int {
         unsafe { self.type_ }
     }
@@ -355,9 +511,14 @@ struct XClientMessageEvent {
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 #[repr(C)]
 pub struct ClientMessageData {
-    longs: [i64; 5],
+    longs: [c_long; 5],
 }
 
+impl ClientMessageData {
+    pub fn as_longs(&self) -> &[c_long] {
+        self.longs.as_ref()
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct XGenericEventCookie {
@@ -841,9 +1002,6 @@ pub fn run(app: App, mut root_window: WindowCreateOptions) -> Result<isize, Linu
 
     let mut cur_xevent = XEvent { pad: [0;24] };
 
-    println!("xevent size: {:?}", std::alloc::Layout::new::<x11_dl::xlib::XEvent>());
-    println!("xevent now: {:?}", std::alloc::Layout::new::<XEvent>());
-
     loop {
 
         let mut windows_to_close = Vec::new();
@@ -1032,14 +1190,14 @@ impl WrRenderNotifier for Notifier {
 
 struct X11Window {
     // X11 raw window handle
-    pub id: u32,
+    pub id: u64,
     pub dpy: X11Display,
     // EGL OpenGL 3.2 context
     pub egl_surface: EGLSurface,
     pub egl_display: EGLDisplay,
     pub egl_context: EGLContext,
     // XAtom fired when the window close button is hit
-    pub wm_delete_window_atom: i64,
+    pub wm_delete_window_atom: c_long,
     // X11 library (dynamically loaded)
     pub xlib: Rc<Xlib>,
     // libEGL.so library (dynamically loaded)

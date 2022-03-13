@@ -828,6 +828,18 @@ pub struct SvgRenderOptions {
     pub target_size: OptionLayoutSize,
     pub background_color: OptionColorU,
     pub fit: SvgFitTo,
+    pub transform: SvgRenderTransform,
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgRenderTransform {
+    pub sx: f32,
+    pub kx: f32,
+    pub ky: f32,
+    pub sy: f32,
+    pub tx: f32,
+    pub ty: f32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -910,8 +922,7 @@ impl Default for SvgXmlOptions {
 #[repr(C, u8)]
 pub enum SvgParseError {
     NoParserAvailable,
-    InvalidFileSuffix,
-    FileOpenFailed,
+    ElementsLimitReached,
     NotAnUtf8Str,
     MalformedGZip,
     InvalidSize,

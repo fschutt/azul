@@ -13,29 +13,26 @@ autoexamples = false
 build = "build.rs"
 
 [dependencies]
-tinyfiledialogs         = { version = "3.8.3",  default-features = false }
+tinyfiledialogs         = { version = "3.9.0",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
-raw-window-handle       = { version = "0.3.3", default-features = false }
+raw-window-handle       = { version = "0.4.2", default-features = false }
 azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["image_loading", "font_loading"] }
 azul-css                = { path = "../azul-css", version = "0.0.1",  default-features = false }
 azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false }
 azul-layout             = { path = "../azul-layout", version = "0.0.4",  default-features = false, features = ["text_layout"] }
 azul-text-layout        = { path = "../azul-text-layout", version = "0.0.5", default-features = false }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",  default-features = false, optional = true }
-log                     = { version = "0.4.8",  default-features = false, optional = true }
-fern                    = { version = "0.5.7",  default-features = false, optional = true }
+log                     = { version = "0.4.14",  default-features = false, optional = true }
+fern                    = { version = "0.6.0",  default-features = false, optional = true }
 backtrace               = { version = "0.3.43" }
 rust-fontconfig         = { version = "0.1.5", default-features = false, features = ["std"] }
 strfmt                  = { version = "0.1.6", default-features = false }
-libm                    = { version = "0.2.1", default-features = false }
-gl-context-loader       = { version ="0.1.7", default-features = false }
+libm                    = { version = "0.2.2", default-features = false }
+gl-context-loader       = { version ="0.1.8", default-features = false }
 webrender               = { version = "0.62.2", package = "azul-webrender", default-features = false, features = ["freetype-lib"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3.9", default-features = false, features = ["windowsx", "libloaderapi", "errhandlingapi", "winuser", "uxtheme", "dwmapi", "wingdi", "commdlg"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-x11-dl = { version = "2.19.1", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }

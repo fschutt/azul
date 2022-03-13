@@ -71,12 +71,6 @@ pub mod decode {
             DynamicImage::ImageRgba8(i) => {
                 (i.dimensions(), RawImageFormat::RGBA8, RawImageData::U8(i.into_vec().into()))
             },
-            DynamicImage::ImageBgr8(i) => {
-                (i.dimensions(), RawImageFormat::BGR8, RawImageData::U8(i.into_vec().into()))
-            },
-            DynamicImage::ImageBgra8(i) => {
-                (i.dimensions(), RawImageFormat::BGRA8, RawImageData::U8(i.into_vec().into()))
-            },
             DynamicImage::ImageLuma16(i) => {
                 (i.dimensions(), RawImageFormat::R16, RawImageData::U16(i.into_vec().into()))
             },
@@ -89,6 +83,13 @@ pub mod decode {
             DynamicImage::ImageRgba16(i) => {
                 (i.dimensions(), RawImageFormat::RGBA16, RawImageData::U16(i.into_vec().into()))
             },
+            DynamicImage::ImageRgb32F(i) => {
+                (i.dimensions(), RawImageFormat::RGBF32, RawImageData::F32(i.into_vec().into()))
+            },
+            DynamicImage::ImageRgba32F(i) => {
+                (i.dimensions(), RawImageFormat::RGBAF32, RawImageData::F32(i.into_vec().into()))
+            },
+            _ => { return ResultRawImageDecodeImageError::Err(DecodeImageError::Unknown); },
         };
 
         ResultRawImageDecodeImageError::Ok(RawImage {
@@ -164,12 +165,14 @@ pub mod encode {
             RawImageFormat::RG8 => image_crate::ColorType::La8,
             RawImageFormat::RGB8 => image_crate::ColorType::Rgb8,
             RawImageFormat::RGBA8 => image_crate::ColorType::Rgba8,
+            RawImageFormat::BGR8 => image_crate::ColorType::Rgb8, // TODO: ???
+            RawImageFormat::BGRA8 => image_crate::ColorType::Rgba8,  // TODO: ???
             RawImageFormat::R16 => image_crate::ColorType::L16,
             RawImageFormat::RG16 => image_crate::ColorType::La16,
             RawImageFormat::RGB16 => image_crate::ColorType::Rgb16,
             RawImageFormat::RGBA16 => image_crate::ColorType::Rgba16,
-            RawImageFormat::BGR8 => image_crate::ColorType::Bgr8,
-            RawImageFormat::BGRA8 => image_crate::ColorType::Bgra8,
+            RawImageFormat::RGBF32 => image_crate::ColorType::Rgb32F,
+            RawImageFormat::RGBAF32 => image_crate::ColorType::Rgba32F,
         }
     }
 

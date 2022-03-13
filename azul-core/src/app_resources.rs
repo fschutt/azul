@@ -184,6 +184,8 @@ pub enum RawImageFormat {
     RGBA16,
     BGR8,
     BGRA8,
+    RGBF32,
+    RGBAF32,
 }
 
 static IMAGE_KEY: AtomicU32 = AtomicU32::new(1); // NOTE: starts at 1 (0 = DUMMY)
@@ -1679,6 +1681,77 @@ impl RawImage {
                     data_format = RawImageFormat::BGRA8;
                     pixels.into()
                 }
+            },
+            RawImageFormat::RGBF32 => {
+                let pixels = pixels.get_f32_vec_ref()?;
+
+                if pixels.len() != expected_len * THREE_CHANNELS  {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                for (pixel_index, rgb) in pixels.as_ref().chunks_exact(THREE_CHANNELS).enumerate() {
+
+                    let red_u8 = (rgb[0] * 255.0) as u8;
+                    let green_u8 = (rgb[1] * 255.0) as u8;
+                    let blue_u8 = (rgb[2] * 255.0) as u8;
+
+                    px[pixel_index * FOUR_BPP] = blue_u8;
+                    px[(pixel_index * FOUR_BPP) + 1] = green_u8;
+                    px[(pixel_index * FOUR_BPP) + 2] = red_u8;
+                    px[(pixel_index * FOUR_BPP) + 3] = 0xff;
+                }
+
+                data_format = RawImageFormat::BGRA8;
+                px.into()
+            },
+            RawImageFormat::RGBAF32 => {
+                let pixels = pixels.get_f32_vec_ref()?;
+
+                if pixels.len() != expected_len * FOUR_CHANNELS {
+                    return None;
+                }
+
+                let mut px = vec![0; expected_len * FOUR_BPP];
+
+                // TODO: check that this function is SIMD optimized
+                if premultiplied_alpha {
+                    for (pixel_index, rgba) in pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate() {
+
+                        let red_u8 = (rgba[0] * 255.0) as u8;
+                        let green_u8 = (rgba[1] * 255.0) as u8;
+                        let blue_u8 = (rgba[2] * 255.0) as u8;
+                        let alpha_u8 = (rgba[3] * 255.0) as u8;
+
+                        if alpha_u8 != 255 { is_opaque = false; }
+
+                        px[pixel_index * FOUR_BPP] = blue_u8;
+                        px[(pixel_index * FOUR_BPP) + 1] = green_u8;
+                        px[(pixel_index * FOUR_BPP) + 2] = red_u8;
+                        px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
+                    }
+                } else {
+                    for (pixel_index, rgba) in pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate() {
+
+                        let red_u8 = (rgba[0] * 255.0) as u8;
+                        let green_u8 = (rgba[1] * 255.0) as u8;
+                        let blue_u8 = (rgba[2] * 255.0) as u8;
+                        let alpha_u8 = (rgba[3] * 255.0) as u8;
+
+                        if alpha_u8 != 255 { is_opaque = false; }
+
+                        px[pixel_index * FOUR_BPP] = blue_u8;
+                        px[(pixel_index * FOUR_BPP) + 1] = green_u8;
+                        px[(pixel_index * FOUR_BPP) + 2] = red_u8;
+                        px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
+                        premultiply_alpha(&mut px[(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)]);
+                    }
+                }
+
+                data_format = RawImageFormat::BGRA8;
+                px.into()
             },
         };
 

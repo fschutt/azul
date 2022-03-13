@@ -330,19 +330,25 @@ pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut 
     });
 }
 
-pub(crate) fn wr_synchronize_updated_images(updated_images: Vec<UpdateImageResult>, document_id: &DocumentId, txn: &mut WrTransaction) {
+pub(crate) fn wr_synchronize_updated_images(
+    updated_images: Vec<UpdateImageResult>,
+    document_id: &DocumentId,
+    txn: &mut WrTransaction
+) {
 
     if updated_images.is_empty() {
         return;
     }
 
     for updated_image in updated_images {
-        txn.update_image(
-            wr_translate_image_key(updated_image.key_to_update),
-            wr_translate_image_descriptor(updated_image.new_descriptor),
-            wr_translate_image_data(updated_image.new_image_data),
-            &WrImageDirtyRect::All,
-        );
+        if let Some(descriptor) = wr_translate_image_descriptor(updated_image.new_descriptor) {
+            txn.update_image(
+                wr_translate_image_key(updated_image.key_to_update),
+                descriptor,
+                wr_translate_image_data(updated_image.new_image_data),
+                &WrImageDirtyRect::All,
+            );
+        }
     }
 }
 
@@ -394,7 +400,7 @@ pub(crate) fn rebuild_display_list(
     txn.update_resources(
         resources
             .into_iter()
-            .map(wr_translate_resource_update)
+            .filter_map(wr_translate_resource_update)
             .collect(),
     );
     txn.set_display_list(
@@ -603,15 +609,15 @@ pub(crate) fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSi
 }
 
 #[inline]
-pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> WrImageDescriptor {
+pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> Option<WrImageDescriptor> {
     use webrender::api::units::DeviceIntSize;
-    WrImageDescriptor {
-        format: wr_translate_image_format(descriptor.format),
+    Some(WrImageDescriptor {
+        format: wr_translate_image_format(descriptor.format)?,
         size: DeviceIntSize::new(descriptor.width as i32, descriptor.height as i32),
         stride: descriptor.stride.into(),
         offset: descriptor.offset,
         flags: wr_translate_image_descriptor_flags(descriptor.flags),
-    }
+    })
 }
 
 #[inline]
@@ -737,34 +743,16 @@ pub fn wr_translate_border_style(input: CssBorderStyle) -> WrBorderStyle {
 }
 
 #[inline(always)]
-pub fn wr_translate_image_format(input: ImageFormat) -> WrImageFormat {
+pub fn wr_translate_image_format(input: ImageFormat) -> Option<WrImageFormat> {
     // TODO: re-code the image formats !
-
-    /*
-        R8,
-        RG8,
-        RGB8,
-        RGBA8,
-        R16,
-        RG16,
-        RGB16,
-        RGBA16,
-        BGR8,
-        BGRA8,
-    */
-
     match input {
-        ImageFormat::R8 => WrImageFormat::R8,
-        ImageFormat::RG8 => WrImageFormat::RG8,
-        ImageFormat::RGBA8 => WrImageFormat::RGBA8,
-        ImageFormat::R16 => WrImageFormat::R16,
-        ImageFormat::RG16 => WrImageFormat::RG16,
-        ImageFormat::BGRA8 => WrImageFormat::BGRA8,
-
-        ImageFormat::RGB16 => panic!("webrender: unsupported image format RGB16"),
-        ImageFormat::RGB8 => panic!("webrender: unsupported image format RGB8, need alpha channel"),
-        ImageFormat::RGBA16 => panic!("webrender: unsupported image format RGBA16"),
-        ImageFormat::BGR8 => panic!("webrender: unsupported image format BGR8"),
+        ImageFormat::R8 => Some(WrImageFormat::R8),
+        ImageFormat::RG8 => Some(WrImageFormat::RG8),
+        ImageFormat::RGBA8 => Some(WrImageFormat::RGBA8),
+        ImageFormat::R16 => Some(WrImageFormat::R16),
+        ImageFormat::RG16 => Some(WrImageFormat::RG16),
+        ImageFormat::BGRA8 => Some(WrImageFormat::BGRA8),
+        _ => None,
     }
 }
 
@@ -981,15 +969,15 @@ pub(crate) fn wr_translate_debug_flags(new_flags: &DebugState) -> WrDebugFlags {
 }
 
 #[inline(always)]
-pub(crate) fn wr_translate_resource_update(resource_update: ResourceUpdate) -> WrResourceUpdate {
+pub(crate) fn wr_translate_resource_update(resource_update: ResourceUpdate) -> Option<WrResourceUpdate> {
     match resource_update {
-        ResourceUpdate::AddFont(af) => WrResourceUpdate::AddFont(wr_translate_add_font(af)),
-        ResourceUpdate::DeleteFont(fk) => WrResourceUpdate::DeleteFont(wr_translate_font_key(fk)),
-        ResourceUpdate::AddFontInstance(fi) => WrResourceUpdate::AddFontInstance(wr_translate_add_font_instance(fi)),
-        ResourceUpdate::DeleteFontInstance(fi) => WrResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(fi)),
-        ResourceUpdate::AddImage(ai) => WrResourceUpdate::AddImage(wr_translate_add_image(ai)),
-        ResourceUpdate::UpdateImage(ui) => WrResourceUpdate::UpdateImage(wr_translate_update_image(ui)),
-        ResourceUpdate::DeleteImage(k) => WrResourceUpdate::DeleteImage(wr_translate_image_key(k)),
+        ResourceUpdate::AddFont(af) => Some(WrResourceUpdate::AddFont(wr_translate_add_font(af))),
+        ResourceUpdate::DeleteFont(fk) => Some(WrResourceUpdate::DeleteFont(wr_translate_font_key(fk))),
+        ResourceUpdate::AddFontInstance(fi) => Some(WrResourceUpdate::AddFontInstance(wr_translate_add_font_instance(fi))),
+        ResourceUpdate::DeleteFontInstance(fi) => Some(WrResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(fi))),
+        ResourceUpdate::AddImage(ai) => Some(WrResourceUpdate::AddImage(wr_translate_add_image(ai)?)),
+        ResourceUpdate::UpdateImage(ui) => Some(WrResourceUpdate::UpdateImage(wr_translate_update_image(ui)?)),
+        ResourceUpdate::DeleteImage(k) => Some(WrResourceUpdate::DeleteImage(wr_translate_image_key(k))),
     }
 }
 
@@ -1003,13 +991,13 @@ fn wr_translate_add_font(add_font: AddFont) -> WrAddFont {
 }
 
 #[inline(always)]
-fn wr_translate_add_image(add_image: AddImage) -> WrAddImage {
-    WrAddImage {
+fn wr_translate_add_image(add_image: AddImage) -> Option<WrAddImage> {
+    Some(WrAddImage {
         key: wr_translate_image_key(add_image.key),
-        descriptor: wr_translate_image_descriptor(add_image.descriptor),
+        descriptor: wr_translate_image_descriptor(add_image.descriptor)?,
         data: wr_translate_image_data(add_image.data),
         tiling: add_image.tiling,
-    }
+    })
 }
 
 #[inline(always)]
@@ -1062,13 +1050,13 @@ fn wr_translate_image_buffer_kind(buffer_kind: ImageBufferKind) -> WrImageBuffer
 }
 
 #[inline(always)]
-fn wr_translate_update_image(update_image: UpdateImage) -> WrUpdateImage {
-    WrUpdateImage {
+fn wr_translate_update_image(update_image: UpdateImage) -> Option<WrUpdateImage> {
+    Some(WrUpdateImage {
         key: wr_translate_image_key(update_image.key),
-        descriptor: wr_translate_image_descriptor(update_image.descriptor),
+        descriptor: wr_translate_image_descriptor(update_image.descriptor)?,
         data: wr_translate_image_data(update_image.data),
         dirty_rect: wr_translate_image_dirty_rect(update_image.dirty_rect),
-    }
+    })
 }
 
 #[inline(always)]

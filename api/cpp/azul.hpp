@@ -1966,6 +1966,17 @@ namespace dll {
        System,
     };
     
+    struct SvgRenderTransform {
+        float sx;
+        float kx;
+        float ky;
+        float sy;
+        float tx;
+        float ty;
+        SvgRenderTransform& operator=(const SvgRenderTransform&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        SvgRenderTransform() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     enum class IndentTag {
        None,
        Spaces,
@@ -7676,6 +7687,7 @@ namespace dll {
         OptionLayoutSize target_size;
         OptionColorU background_color;
         SvgFitTo fit;
+        SvgRenderTransform transform;
         SvgRenderOptions& operator=(const SvgRenderOptions&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         SvgRenderOptions(const SvgRenderOptions&) = delete; /* disable copy constructor, use explicit .clone() */
         SvgRenderOptions() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -10025,8 +10037,7 @@ namespace dll {
     
     enum class SvgParseErrorTag {
        NoParserAvailable,
-       InvalidFileSuffix,
-       FileOpenFailed,
+       ElementsLimitReached,
        NotAnUtf8Str,
        MalformedGZip,
        InvalidSize,
@@ -10034,16 +10045,14 @@ namespace dll {
     };
     
     struct SvgParseErrorVariant_NoParserAvailable { SvgParseErrorTag tag; };
-    struct SvgParseErrorVariant_InvalidFileSuffix { SvgParseErrorTag tag; };
-    struct SvgParseErrorVariant_FileOpenFailed { SvgParseErrorTag tag; };
+    struct SvgParseErrorVariant_ElementsLimitReached { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_NotAnUtf8Str { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_MalformedGZip { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_InvalidSize { SvgParseErrorTag tag; };
     struct SvgParseErrorVariant_ParsingFailed { SvgParseErrorTag tag; XmlError payload; };
     union SvgParseError {
         SvgParseErrorVariant_NoParserAvailable NoParserAvailable;
-        SvgParseErrorVariant_InvalidFileSuffix InvalidFileSuffix;
-        SvgParseErrorVariant_FileOpenFailed FileOpenFailed;
+        SvgParseErrorVariant_ElementsLimitReached ElementsLimitReached;
         SvgParseErrorVariant_NotAnUtf8Str NotAnUtf8Str;
         SvgParseErrorVariant_MalformedGZip MalformedGZip;
         SvgParseErrorVariant_InvalidSize InvalidSize;
@@ -10875,8 +10884,6 @@ namespace dll {
         void Svg_delete(Svg* restrict instance);
         Svg Svg_deepCopy(Svg* const instance);
         SvgXmlNode SvgXmlNode_parseFrom(AzU8VecRef  svg_bytes, AzSvgParseOptions  parse_options);
-        OptionRawImage SvgXmlNode_render(const SvgXmlNode* svgxmlnode, AzSvgRenderOptions  options);
-        String SvgXmlNode_toString(const SvgXmlNode* svgxmlnode, AzSvgStringFormatOptions  options);
         void SvgXmlNode_delete(SvgXmlNode* restrict instance);
         SvgXmlNode SvgXmlNode_deepCopy(SvgXmlNode* const instance);
         SvgRect SvgMultiPolygon_getBounds(const SvgMultiPolygon* svgmultipolygon);
