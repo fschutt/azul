@@ -17,9 +17,6 @@ jobs:
           default: true
           override: true
 
-      - name: Install dependencies
-        run: sudo apt install -y libxcb-shape0-dev libxcb-xfixes0-dev
-
       - name: Check (Linux)
         run: cd azul-dll && cargo check --verbose --release
 
