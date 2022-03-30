@@ -2241,6 +2241,25 @@ mod dll {
         Right,
     }
 
+    /// Re-export of rust-allocated (stack based) `Ribbon` struct
+    #[repr(C)]
+    #[derive(Debug)]
+    #[derive(Clone)]
+    #[derive(PartialEq, PartialOrd)]
+    pub struct AzRibbon {
+        pub tab_active: i32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `RibbonOnTabClickedCallback` struct
+    #[repr(C)]
+    #[derive(Clone)]
+    pub struct AzRibbonOnTabClickedCallback {
+        pub cb: AzRibbonOnTabClickedCallbackType,
+    }
+
+    /// `AzRibbonOnTabClickedCallbackType` struct
+    pub type AzRibbonOnTabClickedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, i32) -> AzUpdate;
+
     /// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
     #[repr(C)]
     #[derive(Clone)]
@@ -10598,6 +10617,7 @@ mod dll {
         pub(crate) fn AzCssProperty_getValueString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_getKeyValueString(_:  &AzCssProperty) -> AzString;
         pub(crate) fn AzCssProperty_interpolate(_:  &AzCssProperty, _:  AzCssProperty, _:  f32, _:  AzInterpolateContext) -> AzCssProperty;
+        pub(crate) fn AzRibbon_dom(_:  &mut AzRibbon, _:  AzRibbonOnTabClickedCallback, _:  AzRefAny) -> AzDom;
         pub(crate) fn AzButton_new(_:  AzString) -> AzButton;
         pub(crate) fn AzButton_setOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType);
         pub(crate) fn AzButton_withOnClick(_:  &mut AzButton, _:  AzRefAny, _:  AzCallbackType) -> AzButton;
@@ -14570,6 +14590,12 @@ pub mod widgets {
     #[cfg(not(feature = "link_static"))]
     use crate::dll::*;
     #[cfg(feature = "link_static")]
+    pub use azul::AzRibbon as Ribbon;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzRibbonOnTabClickedCallback as RibbonOnTabClickedCallback;
+    #[cfg(feature = "link_static")]
+    pub use azul::AzRibbonOnTabClickedCallbackType as RibbonOnTabClickedCallbackType;
+    #[cfg(feature = "link_static")]
     pub use azul::AzButton as Button;
     #[cfg(feature = "link_static")]
     pub use azul::AzButtonOnClick as ButtonOnClick;
@@ -14805,15 +14831,15 @@ pub mod widgets {
     pub use azul::AzDropDownOnChoiceChange as DropDownOnChoiceChange;
     use core::ffi::c_void;
     #[cfg(not(feature = "link_static"))]
-    use crate::str::String;
-    #[cfg(feature = "link_static")]
-    use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
     use crate::callbacks::{CallbackType, RefAny};
     #[cfg(feature = "link_static")]
     use azul::AzCallbackType as CallbackType;
     #[cfg(feature = "link_static")]
     use azul::AzRefAny as RefAny;
+    #[cfg(not(feature = "link_static"))]
+    use crate::str::String;
+    #[cfg(feature = "link_static")]
+    use azul::AzString as String;
     #[cfg(not(feature = "link_static"))]
     use crate::option::OptionString;
     #[cfg(feature = "link_static")]
@@ -14838,6 +14864,22 @@ pub mod widgets {
     use crate::dom::Dom;
     #[cfg(feature = "link_static")]
     use azul::AzDom as Dom;
+    /// `Ribbon` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRibbon as Ribbon;
+    #[cfg(not(feature = "link_static"))]
+    impl Ribbon {
+
+        /// Calls the `Ribbon::dom` function.
+        pub fn dom(&mut self, callback: RibbonOnTabClickedCallback, data: RefAny)  -> crate::dom::Dom { unsafe { crate::dll::AzRibbon_dom(self, callback, data) } }
+    }
+
+    /// `RibbonOnTabClickedCallback` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRibbonOnTabClickedCallback as RibbonOnTabClickedCallback;
+    /// `RibbonOnTabClickedCallbackType` struct
+    
+    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRibbonOnTabClickedCallbackType as RibbonOnTabClickedCallbackType;
     /// `Button` struct
     
     #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzButton as Button;

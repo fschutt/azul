@@ -15,6 +15,10 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [[bin]]
+name = "test"
+path = "rust/test.rs"
+
+[[bin]]
 name = "async"
 path = "rust/async.rs"
 

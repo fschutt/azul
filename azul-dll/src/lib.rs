@@ -1874,6 +1874,17 @@ pub use AzCssPropertyTT as AzCssProperty;
 /// Destructor: Takes ownership of the `CssProperty` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzCssProperty_delete(object: &mut AzCssProperty) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `Ribbon` struct
+pub type AzRibbonTT = crate::widgets::ribbon::Ribbon;
+pub use AzRibbonTT as AzRibbon;
+/// Equivalent to the Rust `Ribbon::dom()` function.
+#[no_mangle] pub extern "C" fn AzRibbon_dom(ribbon: &mut AzRibbon, callback: AzRibbonOnTabClickedCallback, data: AzRefAny) -> AzDom { ribbon.dom(callback, data) }
+
+/// Re-export of rust-allocated (stack based) `RibbonOnTabClickedCallback` struct
+pub type AzRibbonOnTabClickedCallbackTT = crate::widgets::ribbon::RibbonOnTabClickedCallback;
+pub use AzRibbonOnTabClickedCallbackTT as AzRibbonOnTabClickedCallback;
+
+pub type AzRibbonOnTabClickedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, i32) -> AzUpdate;
 /// Re-export of rust-allocated (stack based) `Button` struct
 pub type AzButtonTT = crate::widgets::button::Button;
 pub use AzButtonTT as AzButton;
@@ -6674,6 +6685,21 @@ mod test_sizes {
         Center,
         Right,
     }
+
+    /// Re-export of rust-allocated (stack based) `Ribbon` struct
+    #[repr(C)]
+    pub struct AzRibbon {
+        pub tab_active: i32,
+    }
+
+    /// Re-export of rust-allocated (stack based) `RibbonOnTabClickedCallback` struct
+    #[repr(C)]
+    pub struct AzRibbonOnTabClickedCallback {
+        pub cb: AzRibbonOnTabClickedCallbackType,
+    }
+
+    /// `AzRibbonOnTabClickedCallbackType` struct
+    pub type AzRibbonOnTabClickedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, i32) -> AzUpdate;
 
     /// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
     #[repr(C)]
@@ -12942,6 +12968,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleCursor>(), "AzStyleCursor"), (Layout::new::<AzStyleCursor>(), "AzStyleCursor"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"), (Layout::new::<AzStyleBackfaceVisibility>(), "AzStyleBackfaceVisibility"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTextAlign>(), "AzStyleTextAlign"), (Layout::new::<AzStyleTextAlign>(), "AzStyleTextAlign"));
+        assert_eq!((Layout::new::<crate::widgets::ribbon::Ribbon>(), "AzRibbon"), (Layout::new::<AzRibbon>(), "AzRibbon"));
+        assert_eq!((Layout::new::<crate::widgets::ribbon::RibbonOnTabClickedCallback>(), "AzRibbonOnTabClickedCallback"), (Layout::new::<AzRibbonOnTabClickedCallback>(), "AzRibbonOnTabClickedCallback"));
         assert_eq!((Layout::new::<crate::widgets::file_input::FileInputOnPathChangeCallback>(), "AzFileInputOnPathChangeCallback"), (Layout::new::<AzFileInputOnPathChangeCallback>(), "AzFileInputOnPathChangeCallback"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxOnToggleCallback>(), "AzCheckBoxOnToggleCallback"), (Layout::new::<AzCheckBoxOnToggleCallback>(), "AzCheckBoxOnToggleCallback"));
         assert_eq!((Layout::new::<crate::widgets::check_box::CheckBoxState>(), "AzCheckBoxState"), (Layout::new::<AzCheckBoxState>(), "AzCheckBoxState"));

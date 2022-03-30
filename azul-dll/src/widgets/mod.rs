@@ -108,6 +108,8 @@ pub mod list_view;
 pub mod tree_view;
 /// Drop-down select widget
 pub mod drop_down;
+/// Ribbon widget
+pub mod ribbon;
 // /// Spreadsheet (iframe) widget
 // pub mod spreadsheet;
 // /// Slider widget

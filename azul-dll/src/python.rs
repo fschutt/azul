@@ -1925,6 +1925,21 @@ pub enum AzStyleTextAlign {
     Right,
 }
 
+/// Re-export of rust-allocated (stack based) `Ribbon` struct
+#[repr(C)]
+pub struct AzRibbon {
+    pub tab_active: i32,
+}
+
+/// Re-export of rust-allocated (stack based) `RibbonOnTabClickedCallback` struct
+#[repr(C)]
+pub struct AzRibbonOnTabClickedCallback {
+    pub cb: AzRibbonOnTabClickedCallbackType,
+}
+
+/// `AzRibbonOnTabClickedCallbackType` struct
+pub type AzRibbonOnTabClickedCallbackType = extern "C" fn(&mut AzRefAny, &mut AzCallbackInfo, i32) -> AzUpdate;
+
 /// Re-export of rust-allocated (stack based) `FileInputOnPathChangeCallback` struct
 #[repr(C)]
 pub struct AzFileInputOnPathChangeCallback {
@@ -10336,6 +10351,8 @@ impl Clone for AzBorderStyleEnumWrapper { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzStyleCursorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleCursor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackfaceVisibilityEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackfaceVisibility = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTextAlignEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTextAlign = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzRibbon { fn clone(&self) -> Self { let r: &crate::widgets::ribbon::Ribbon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzRibbonOnTabClickedCallback { fn clone(&self) -> Self { let r: &crate::widgets::ribbon::RibbonOnTabClickedCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFileInputOnPathChangeCallback { fn clone(&self) -> Self { let r: &crate::widgets::file_input::FileInputOnPathChangeCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxOnToggleCallback { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxOnToggleCallback = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCheckBoxState { fn clone(&self) -> Self { let r: &crate::widgets::check_box::CheckBoxState = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -22474,6 +22491,47 @@ impl PyObjectProtocol for AzCssPropertyEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::css::CssProperty = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzRibbon {
+    #[new]
+    fn __new__(tab_active: i32) -> Self {
+        Self {
+            tab_active,
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzRibbon {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::ribbon::Ribbon = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::ribbon::Ribbon = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzRibbonOnTabClickedCallback {
+    #[new]
+    fn __new__() -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzRibbonOnTabClickedCallback {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::ribbon::RibbonOnTabClickedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &crate::widgets::ribbon::RibbonOnTabClickedCallback = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -40397,6 +40455,8 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzStyleFilterVecValueEnumWrapper>()?;
     m.add_class::<AzCssPropertyEnumWrapper>()?;
 
+    m.add_class::<AzRibbon>()?;
+    m.add_class::<AzRibbonOnTabClickedCallback>()?;
     m.add_class::<AzButton>()?;
     m.add_class::<AzButtonOnClick>()?;
     m.add_class::<AzFileInput>()?;

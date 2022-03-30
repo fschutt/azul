@@ -5522,6 +5522,39 @@
         "widgets": {
             "doc": "Default, built-in widgets (button, label, textinput, etc.)",
             "classes": {
+                "Ribbon": {
+                    "external": "crate::widgets::ribbon::Ribbon",
+                    "struct_fields": [
+                        {"tab_active": {"type": "i32"}}
+                    ],
+                    "functions": {
+                        "dom": {
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"callback": "RibbonOnTabClickedCallback"},
+                                {"data": "RefAny"}
+                            ],
+                            "returns": {"type": "Dom"},
+                            "fn_body": "ribbon.dom(callback, data)"
+                        }
+                    }
+                },
+                "RibbonOnTabClickedCallback": {
+                    "external": "crate::widgets::ribbon::RibbonOnTabClickedCallback",
+                    "struct_fields": [
+                        {"cb": {"type": "RibbonOnTabClickedCallbackType"}}
+                    ]
+                },
+                "RibbonOnTabClickedCallbackType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "RefAny", "ref": "refmut"},
+                            {"type": "CallbackInfo", "ref": "refmut"},
+                            {"type": "i32", "ref": "value"}
+                        ],
+                        "returns": {"type": "Update"}
+                    }
+                },
                 "Button": {
                     "external": "crate::widgets::button::Button",
                     "struct_fields": [

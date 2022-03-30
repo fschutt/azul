@@ -37,6 +37,8 @@ namespace dll {
     
     using RefAnyDestructorType = void(*)(void* restrict);
     
+    using RibbonOnTabClickedCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, int32_t);
+    
     struct FileInputState;
     using FileInputOnPathChangeCallbackType = Update(*)(RefAny* restrict, CallbackInfo* restrict, FileInputState* const);
     
@@ -1417,6 +1419,20 @@ namespace dll {
        Left,
        Center,
        Right,
+    };
+    
+    struct Ribbon {
+        int32_t tab_active;
+        Ribbon& operator=(const Ribbon&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        Ribbon(const Ribbon&) = delete; /* disable copy constructor, use explicit .clone() */
+        Ribbon() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct RibbonOnTabClickedCallback {
+        RibbonOnTabClickedCallbackType cb;
+        RibbonOnTabClickedCallback& operator=(const RibbonOnTabClickedCallback&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        RibbonOnTabClickedCallback(const RibbonOnTabClickedCallback&) = delete; /* disable copy constructor, use explicit .clone() */
+        RibbonOnTabClickedCallback() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct FileInputOnPathChangeCallback {
@@ -10407,6 +10423,7 @@ namespace dll {
         String CssProperty_getKeyValueString(const CssProperty* cssproperty);
         CssProperty CssProperty_interpolate(const CssProperty* cssproperty, AzCssProperty  other, float t, AzInterpolateContext  context);
         void CssProperty_delete(CssProperty* restrict instance);
+        Dom Ribbon_dom(Ribbon* restrict ribbon, AzRibbonOnTabClickedCallback  callback, AzRefAny  data);
         Button Button_new(AzString  label);
         void Button_setOnClick(Button* restrict button, AzRefAny  data, AzCallbackType  callback);
         Button Button_withOnClick(Button* restrict button, AzRefAny  data, AzCallbackType  callback);

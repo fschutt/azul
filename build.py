@@ -1305,6 +1305,7 @@ def generate_python_api(api_data, structs_map, functions_map):
         ("widgets", "NumberInput", "set_on_focus_lost"),
         ("widgets", "TabHeader", "with_on_click"),
         ("widgets", "TabHeader", "set_on_click"),
+        ("widgets", "Ribbon", "dom"),
 
         # unnecessary due to Python string wrappers
         ("str", "String", "as_refstr"),

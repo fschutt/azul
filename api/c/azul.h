@@ -80,6 +80,8 @@ typedef void (*AzThreadCallbackType)(AzRefAny A, AzThreadSender B, AzThreadRecei
 
 typedef void (*AzRefAnyDestructorType)(void* restrict A);
 
+typedef AzUpdate (*AzRibbonOnTabClickedCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, int32_t C);
+
 struct AzFileInputState;
 typedef struct AzFileInputState AzFileInputState;
 typedef AzUpdate (*AzFileInputOnPathChangeCallbackType)(AzRefAny* restrict A, AzCallbackInfo* restrict B, AzFileInputState* const C);
@@ -1565,6 +1567,16 @@ enum AzStyleTextAlign {
    AzStyleTextAlign_Right,
 };
 typedef enum AzStyleTextAlign AzStyleTextAlign;
+
+struct AzRibbon {
+    int32_t tab_active;
+};
+typedef struct AzRibbon AzRibbon;
+
+struct AzRibbonOnTabClickedCallback {
+    AzRibbonOnTabClickedCallbackType cb;
+};
+typedef struct AzRibbonOnTabClickedCallback AzRibbonOnTabClickedCallback;
 
 struct AzFileInputOnPathChangeCallback {
     AzFileInputOnPathChangeCallbackType cb;
@@ -12522,6 +12534,7 @@ extern DLLIMPORT AzString AzCssProperty_getValueString(const AzCssProperty* cssp
 extern DLLIMPORT AzString AzCssProperty_getKeyValueString(const AzCssProperty* cssproperty);
 extern DLLIMPORT AzCssProperty AzCssProperty_interpolate(const AzCssProperty* cssproperty, AzCssProperty  other, float t, AzInterpolateContext  context);
 extern DLLIMPORT void AzCssProperty_delete(AzCssProperty* restrict instance);
+extern DLLIMPORT AzDom AzRibbon_dom(AzRibbon* restrict ribbon, AzRibbonOnTabClickedCallback  callback, AzRefAny  data);
 extern DLLIMPORT AzButton AzButton_new(AzString  label);
 extern DLLIMPORT void AzButton_setOnClick(AzButton* restrict button, AzRefAny  data, AzCallbackType  callback);
 extern DLLIMPORT AzButton AzButton_withOnClick(AzButton* restrict button, AzRefAny  data, AzCallbackType  callback);
