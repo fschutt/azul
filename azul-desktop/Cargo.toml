@@ -13,7 +13,7 @@ autoexamples = false
 build = "build.rs"
 
 [dependencies]
-tinyfiledialogs         = { version = "3.9.0",  default-features = false }
+tinyfiledialogs         = { version = "3.9.1",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
 raw-window-handle       = { version = "0.4.2", default-features = false }
 azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["image_loading", "font_loading"] }
