@@ -15,7 +15,7 @@ build = "build.rs"
 [dependencies]
 tinyfiledialogs         = { version = "3.9.0",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
-raw-window-handle       = { version = "0.4.2", default-features = false }
+raw-window-handle       = { version = "0.4.3", default-features = false }
 azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["image_loading", "font_loading"] }
 azul-css                = { path = "../azul-css", version = "0.0.1",  default-features = false }
 azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false }
