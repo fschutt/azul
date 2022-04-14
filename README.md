@@ -5,6 +5,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/fschutt/azul/badge.svg?branch=master)](https://coveralls.io/github/fschutt/azul?branch=master)
 [![LICENSE](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![Rust Compiler Version](https://img.shields.io/badge/rustc-1.58%20stable-blue.svg)]()
+[![dependency status](https://deps.rs/repo/github/fschutt/azul/status.svg)](https://deps.rs/repo/github/fschutt/azul)
 <!-- [END badges] -->
 
 > Azul is a free, functional, reactive GUI framework for Rust, C and C++,
