@@ -35,7 +35,7 @@ azul-layout             = { path = "../azul-layout",     default-features = fals
 image                   = { version = "0.24.1",         default-features = false,       optional = true }
 rust-fontconfig         = { version = "0.1.5",           default-features = false,       optional = true }
 lyon                    = { version = "0.17.10",  default-features = false, optional = true }
-rayon                   = { version = "1.5.1",    default-features = false, optional = true }
+rayon                   = { version = "1.5.2",    default-features = false, optional = true }
 usvg                    = { version = "0.22.0",   default-features = false, optional = true, features = ["export"] }
 resvg                   = { version = "0.22.0",   default-features = false, optional = true }
 roxmltree               = { version = "0.14.0",   default-features = false, optional = true }
