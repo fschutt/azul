@@ -1535,6 +1535,64 @@ impl StyledDom {
 
     }
 
+    /// Inject scroll bar DIVs with relevant event handlers into the DOM
+    pub fn inject_scroll_bars(&mut self) {
+
+        // allocate 14 nodes for every node
+        //
+        // 0: root component
+        // 1: |- vertical container (flex-direction: column-reverse, flex-grow: 1)
+        // 2:    |- horizontal scrollbar (height: 15px, flex-direction: row)
+        // 3:    |  |- left thumb
+        // 4:    |  |- middle content
+        // 5:    |  |   |- thumb track
+        // 6:    |  |- right thumb
+        // 7:    |- content container (flex-direction: row-reverse, flex-grow: 1)
+        // 8:       |- vertical scrollbar (width: 15px, flex-direction: column)
+        // 9:       |   |- top thumb
+        // 10:      |   |- middle content
+        // 11:      |   |    |- thumb track
+        // 12:      |   |- bottom thumb
+        // 13:      |- content container (flex-direction: row, flex-grow: 1)
+        // 14:          |- self.root
+        //                  |- ... self.children
+
+    }
+
+    /// Inject a menu bar into the root component
+    pub fn inject_menu_bar(mut self, menu_bar: &Menu) -> Self {
+
+        use crate::window::MenuItem;
+        use azul_css_parser::CssApiWrapper;
+
+        let menu_dom = menu_bar.items
+        .as_ref()
+        .iter()
+        .map(|mi| match mi {
+            MenuItem::String(smi) => {
+                Dom::text(smi.label.clone().into_library_owned_string())
+                .with_inline_style("font-family:sans-serif;".into())
+            },
+            Separator => {
+                Dom::div()
+                .with_inline_style("padding:1px;background:grey;".into())
+            },
+            BreakLine => Dom::div(),
+        })
+        .collect::<Dom>()
+        .with_inline_style("
+            height:20px;
+            display:flex;
+            flex-direction:row;"
+            .into()
+        ).style(CssApiWrapper::empty());
+
+        let mut core_container = Dom::body().style(CssApiWrapper::empty());
+        core_container.append_child(menu_dom);
+        core_container.append_child(self);
+        core_container
+    }
+
     /// Same as `append_child()`, but as a builder method
     pub fn with_child(&mut self, other: Self) -> Self {
         let mut s = self.swap_with_default();
