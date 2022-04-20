@@ -3289,8 +3289,28 @@ def generate_docs():
     copy_file(root_folder + "/examples/assets/fonts/SourceSerifPro-Regular.ttf", root_folder + "/target/html/fonts/SourceSerifPro-Regular.ttf")
 
     index_template = read_file(root_folder + "/api/_patches/html/index.template.html")
+    index_section_template = read_file(root_folder + "/api/_patches/html/index.section.template.html")
+    index_section_template = index_section_template.replace("$$ROOT_RELATIVE$$", html_root)
     index_template = index_template.replace("$$ROOT_RELATIVE$$", html_root)
     index_examples = [
+        {
+            "id": "widgets",
+            "description": render_example_description("""
+                Objects are composed into a DOM hierarchy which
+                only gets re-rendered when a callback returns
+                <code>RefreshDom</code>. The resulting DOM tree
+                can be styled with CSS.
+            """),
+            "screenshot_path": root_folder + "/examples/assets/screenshots/helloworld.png",
+            "screenshot_url": html_root + "/images/helloworld.png",
+            "cpu": "CPU: 0%",
+            "memory": "Memory: 23MB",
+            "image_alt": "Rendering a simple UI using the Azul GUI toolkit",
+            "code:c": render_example_code(read_file(root_folder + "/examples/c/hello-world.c")),
+            "code:cpp": render_example_code(read_file(root_folder + "/examples/cpp/hello-world.cpp")),
+            "code:rust": render_example_code(read_file(root_folder + "/examples/rust/hello-world.rs")),
+            "code:python": render_example_code(read_file(root_folder + "/examples/python/hello-world.py")),
+        },
         {
             "id": "helloworld",
             "description": render_example_description("""
@@ -3380,17 +3400,20 @@ def generate_docs():
         }
     ]
 
-    for ex in index_examples:
+    example_sections = ""
+    for ex_id, ex in enumerate(index_examples):
         copy_file(ex["screenshot_path"], root_folder + "/target/html/images/" + ex["id"] + ".png")
+        example_section = index_section_template.replace("$$EXAMPLE_CODE$$", index_examples[ex_id]["code:python"])
+        example_section = example_section.replace("$$EXAMPLE_IMAGE_SOURCE$$", index_examples[ex_id]["screenshot_url"])
+        example_section = example_section.replace("$$EXAMPLE_IMAGE_ALT$$", index_examples[ex_id]["image_alt"])
+        example_section = example_section.replace("$$EXAMPLE_STATS_MEMORY$$", index_examples[ex_id]["memory"])
+        example_section = example_section.replace("$$EXAMPLE_STATS_CPU$$", index_examples[ex_id]["cpu"])
+        example_section = example_section.replace("$$EXAMPLE_DESCRIPTION$$", index_examples[ex_id]["description"])
+        example_section = example_section.replace("$$EXAMPLE_ID$$", str(ex_id))
+        example_sections += example_section
 
-    first_example = index_examples[0]
-    index_html = index_template.replace("$$EXAMPLE_CODE$$", first_example["code:python"])
-    index_html = index_html.replace("$$EXAMPLE_IMAGE_SOURCE$$", first_example["screenshot_url"])
-    index_html = index_html.replace("$$EXAMPLE_IMAGE_ALT$$", first_example["image_alt"])
-    index_html = index_html.replace("$$EXAMPLE_STATS_MEMORY$$", first_example["memory"])
-    index_html = index_html.replace("$$EXAMPLE_STATS_CPU$$", first_example["cpu"])
-    index_html = index_html.replace("$$EXAMPLE_DESCRIPTION$$", first_example["description"])
-    index_html = index_html.replace("$$JAVASCRIPT_EXAMPLES$$", json.dumps(index_examples))
+    index_html = index_template.replace("$$JAVASCRIPT_EXAMPLES$$", json.dumps(index_examples))
+    index_html = index_html.replace("$$INDEX_SECTION_EXAMPLES$$", example_sections)
 
     write_file(index_html, root_folder + "/target/html/index.html")
 
@@ -3421,7 +3444,7 @@ def generate_docs():
         guide_content = guide[1]
         guide_content = guide_content.replace("$$ROOT_RELATIVE$$", html_root)
         formatted_guide = html_template.replace("$$ROOT_RELATIVE$$", html_root)
-        formatted_guide = formatted_guide.replace("$$SIDEBAR_GUIDE$$", guide_sidebar_nested)
+        formatted_guide = formatted_guide.replace("$$SIDEBAR_GUIDE$$", "")
         formatted_guide = formatted_guide.replace("$$SIDEBAR_RELEASES$$", "")
         formatted_guide = formatted_guide.replace("$$SIDEBAR_API$$", "")
         formatted_guide = formatted_guide.replace("$$TITLE$$", entry_name)
@@ -3459,7 +3482,7 @@ def generate_docs():
 
     releases_combined_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
     releases_combined_page = releases_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
-    releases_combined_page = releases_combined_page.replace("$$SIDEBAR_RELEASES$$", releases_string)
+    releases_combined_page = releases_combined_page.replace("$$SIDEBAR_RELEASES$$", "")
     releases_combined_page = releases_combined_page.replace("$$SIDEBAR_API$$", "")
     releases_combined_page = releases_combined_page.replace("$$TITLE$$", "Choose release version")
     releases_combined_page = releases_combined_page.replace("$$CONTENT$$", releases_string)
@@ -3469,7 +3492,7 @@ def generate_docs():
         release_announcement = read_file(root_folder + "/api/_patches/html/release/" + version + ".html")
         release_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
         release_page = release_page.replace("$$SIDEBAR_GUIDE$$", "")
-        release_page = release_page.replace("$$SIDEBAR_RELEASES$$", releases_string)
+        release_page = release_page.replace("$$SIDEBAR_RELEASES$$", "")
         release_page = release_page.replace("$$SIDEBAR_API$$", "")
         release_page = release_page.replace("$$TITLE$$", "Release notes - Azul GUI v" + version)
         release_page = release_page.replace("$$CONTENT$$", release_announcement)
@@ -3483,7 +3506,9 @@ def generate_docs():
     for version in all_versions:
 
         api_page_contents = ""
-        api_page_contents += read_file(root_folder + "/api/_patches/html/api-header.html")
+        api_header = read_file(root_folder + "/api/_patches/html/api-header.html")
+        api_header = api_header.replace("$$ROOT_RELATIVE$$", html_root)
+        api_page_contents += api_header
         api_page_contents += "<ul>"
 
         if "doc" in apiData[version].keys():
@@ -3740,7 +3765,7 @@ def generate_docs():
     api_combined_page = html_template.replace("$$ROOT_RELATIVE$$", html_root)
     api_combined_page = api_combined_page.replace("$$SIDEBAR_GUIDE$$", "")
     api_combined_page = api_combined_page.replace("$$SIDEBAR_RELEASES$$", "")
-    api_combined_page = api_combined_page.replace("$$SIDEBAR_API$$", api_sidebar_string)
+    api_combined_page = api_combined_page.replace("$$SIDEBAR_API$$", "")
     api_combined_page = api_combined_page.replace("$$TITLE$$", "Choose API version")
     api_combined_page = api_combined_page.replace("$$CONTENT$$", api_sidebar_string)
     write_file(api_combined_page, root_folder + "/target/html/api.html")

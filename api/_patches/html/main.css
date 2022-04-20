@@ -1,7 +1,12 @@
 @media screen {
   @font-face {
-      font-family: "Source Serif Pro";
-      src: url("./fonts/SourceSerifPro-Regular.ttf");
+      font-family: "EB Garamond SemiBold";
+      src: url("./fonts/EBGaramond-SemiBold.ttf");
+  }
+
+  @font-face {
+      font-family: "EB Garamond";
+      src: url("./fonts/EBGaramond-Medium.ttf");
   }
 
   @font-face {
@@ -35,7 +40,7 @@
 * {
     padding: 0px;
     margin: 0px;
-    font-family: "Source Serif Pro", serif;
+    font-family: "EB Garamond", "Source Serif Pro", serif;
 }
 
 html {

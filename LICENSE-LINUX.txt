@@ -12,7 +12,7 @@ alloc-no-stdlib v2.0.3 licensed BSD-3-Clause
     by Daniel Reiter Horn
 alloc-stdlib v0.2.1 licensed BSD-3-Clause
     by Daniel Reiter Horn
-allsorts v0.7.1 licensed Apache-2.0
+allsorts v0.9.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
 allsorts-rental v0.5.6 licensed Apache-2.0 OR MIT
     by Jameson Ernst
@@ -56,7 +56,7 @@ azul-wr_malloc_size_of v0.0.1 licensed Apache-2.0 OR MIT
     by The Servo Project Developers
 azulc v0.0.3 licensed MPL-2.0
     by Felix Schütt
-backtrace v0.3.64 licensed Apache-2.0 OR MIT
+backtrace v0.3.65 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 base64 v0.13.0 licensed Apache-2.0 OR MIT
     by Alice Maz, Marshall Pierce
@@ -102,7 +102,7 @@ etagere v0.2.6 licensed Apache-2.0 OR MIT
     by Nicolas Silva
 euclid v0.22.6 licensed Apache-2.0 OR MIT
     by The Servo Project Developers
-fern v0.6.0 licensed MIT
+fern v0.6.1 licensed MIT
     by David Ross
 flate2 v1.0.22 licensed Apache-2.0 OR MIT
     by Alex Crichton, Josh Triplett
@@ -140,7 +140,7 @@ libc v0.2.119 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 libm v0.2.2 licensed Apache-2.0 OR MIT
     by Jorge Aparicio
-log v0.4.14 licensed Apache-2.0 OR MIT
+log v0.4.16 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 lyon v0.17.10 licensed Apache-2.0 OR MIT
     by Nicolas Silva
@@ -194,11 +194,11 @@ proc-macro2 v1.0.36 licensed Apache-2.0 OR MIT
     by David Tolnay, Alex Crichton
 quote v1.0.15 licensed Apache-2.0 OR MIT
     by David Tolnay
-raw-window-handle v0.4.2 licensed Apache-2.0 OR MIT OR Zlib
+raw-window-handle v0.4.3 licensed Apache-2.0 OR MIT OR Zlib
     by Osspial
-rayon v1.5.1 licensed Apache-2.0 OR MIT
+rayon v1.5.2 licensed Apache-2.0 OR MIT
     by Niko Matsakis, Josh Stone
-rayon-core v1.9.1 licensed Apache-2.0 OR MIT
+rayon-core v1.9.2 licensed Apache-2.0 OR MIT
     by Niko Matsakis, Josh Stone
 rctree v0.4.0 licensed MIT
     by Simon Sapin, Evgeniy Reizner
@@ -254,7 +254,7 @@ time v0.1.44 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 tiny-skia v0.6.3 licensed BSD-3-Clause
     by Yevhenii Reizner
-tinyfiledialogs v3.9.0 licensed zlib-acknowledgement
+tinyfiledialogs v3.9.1 licensed zlib-acknowledgement
     by Guillaume Vareille, Josh Matthews
 tinyvec v1.5.1 licensed Apache-2.0 OR MIT OR Zlib
     by Lokathor
@@ -266,13 +266,15 @@ ttf-parser v0.15.0 licensed Apache-2.0 OR MIT
     by Yevhenii Reizner
 ucd-trie v0.1.3 licensed Apache-2.0 OR MIT
     by Andrew Gallant
-unicode-canonical-combining-class v0.1.0 licensed Apache-2.0
+unicode-canonical-combining-class v0.2.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
 unicode-general-category v0.3.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
-unicode-joining-type v0.4.0 licensed Apache-2.0
+unicode-general-category v0.5.1 licensed Apache-2.0
     by YesLogic Pty. Ltd.
 unicode-joining-type v0.5.0 licensed Apache-2.0
+    by YesLogic Pty. Ltd.
+unicode-joining-type v0.6.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
 unicode-normalization v0.1.19 licensed Apache-2.0 OR MIT
     by kwantam, Manish Goregaokar

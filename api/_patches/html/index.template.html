@@ -5,7 +5,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-  <meta name="description" content="Cross-platform LGPL-licensed desktop GUI framework for C and Rust using the Mozilla WebRender rendering engine">
+  <meta name="description" content="Cross-platform Desktop GUI framework for C, C++, Python and Rust, using the Mozilla WebRender rendering engine, licensed MPL-2.0">
   <meta name="keywords" content="gui, rust, user interface">
 
   <link rel="preload" as="font" crossorigin='anonymous' href="./fonts/SourceSerifPro-Regular.ttf" type="font/ttf">
@@ -15,18 +15,41 @@
   <link rel="stylesheet" type="text/css" href="./main.css">
   <!-- index.css -->
   <style>
-    main .col-1 {
-      float:left;
-      max-width: 500px;
+    section.feature {
+      display: flex;
+      flex-direction: row;
+      margin-bottom: 100px;
     }
+   .col-1 {
+      width: 100%;
+      max-width: 500px;
+      clear: both;
+      display: inline-block;
+      padding-right: 20px;
+    }
+    .col-1 img {
+      width: 100%;
+      max-width: 500px;
+      height: auto;
+    }
+    .col-2 {
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+      min-width: 500px;
+    }
+
     main header {
       margin-bottom: 30px;
     }
+
     main header h2 {
-      margin-top: -10px;
+      padding-top: 10px;
       margin-bottom: 40px;
-      font-size: 3em;
+      font-size: 40px;
       font-weight: 100;
+      line-height: 1;
+      font-family: "EB Garamond SemiBold", serif;
     }
     main header h2 .first-letter {
       display: inline-block;
@@ -40,63 +63,20 @@
       margin-top: 25px;
       font-size: 1.2rem;
       font-weight: normal;
-    }
-    main section .col-1 {
-      float: left;
-      padding-right: 25px;
-    }
-    body > .center > main > section > .col-1 code {
-      display: block;
       max-width: 500px;
+    }
+    .code-container code {
+      display: flex;
+      flex-grow: 1;
+      max-width: 500px;
+      max-height: 600px;
+      overflow-y: auto;
     }
 
     .stats {
-      font-weight: bold;
-      float: left;
-    }
-    .stats ul li {
-      list-style-type: none;
-    }
-    .controls:after {
-      clear: both;
-    }
-    .controls > span:first-child > button > img {
-      padding-left: 10px;
+      display: none;
     }
 
-    .controls > span:last-child > button > img {
-      padding-left: 10px;
-      transform: rotate(180deg);
-    }
-
-    .controls > span > button > img {
-      display: inline-block;
-      vertical-align: middle;
-    }
-    .controls {
-      overflow: hidden;
-    }
-    .controls > * {
-      float: right;
-      margin-left: 10px;
-    }
-    .gradient-border-wrap {
-      padding: 1px;
-      border-radius: 5px;
-      background: radial-gradient(ellipse farthest-corner at right bottom,#fedb37 0,#fdb931 8%,#9f7928 30%,#8a6e2f 40%,transparent 80%),
-                  radial-gradient(ellipse farthest-corner at left top,#fff 0,#ffffac 8%,#d1b464 25%,#5d4a1f 62.5%,#5d4a1f 100%);
-    }
-    .controls .gradient-border-wrap button {
-      background: #333;
-      color: #eee;
-      cursor: pointer;
-      font-size: 1.2em;
-      padding: 10px;
-      appearance: none;
-      -webkit-appearance: none;
-      border: none;
-      border-radius: 5px;
-    }
     .description {
       clear: both;
       margin-top: 20px;
@@ -109,18 +89,20 @@
       height: auto;
     }
 
-    body > .center > main > .code-container {
-      display: inline-block;
-      max-width: none;
+    body > .center > main .code-container {
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+      min-width: 500px;
       margin-left: 0px;
       width: 100%;
     }
 
-    body > .center > main > .code-container > .select-language > button.active {
+    body > .center > main .code-container > .select-language > button.active {
       background: #0084ff;
       color: white;
     }
-    body > .center > main > .code-container > .select-language > button {
+    body > .center > main .code-container > .select-language > button {
       font-size: 16px;
       border: none;
       padding: 5px 15px;
@@ -130,47 +112,56 @@
       font-family: monospace;
     }
 
-    body > .center > main > .code-container > code {
+    body > .center > main .code-container > code {
       display: block;
       padding: 10px;
     }
     @media screen and (min-width: 720px) {
-      body > .center > main > .code-container > code {
+      body > .center > main .code-container > code {
         min-width: 500px;
       }
     }
     @media screen and (max-width: 1418px) {
-      body > .center > main > .code-container {
+      body > .center > main .code-container {
         margin-top: 20px;
       }
     }
     @media screen and (min-width: 1418px) {
-      body > .center > main > .code-container {
+      body > .center > main .code-container {
         max-width: 560px;
         margin-left: 40px;
         margin-top: 0px;
       }
     }
     @media screen and (max-width: 720px) {
-      body > .center > main > .code-container > code {
+      .code-container {
+        margin-left: none;
+        margin-top: 20px;
+      }
+
+      .code-container > code {
         min-width: none;
       }
-      body > .center > main > section > .col-2 {
+      .col-2 {
         max-width: none;
         float: none;
         margin-bottom: 0px;
       }
-      body > .center > main > section > .col-1 {
+      .col-1 {
         float: none;
         padding-right: 0px;
         margin-right: 0px;
         margin-bottom: 20px;
       }
+      section.feature {
+        flex-direction: column;
+      }
       body > .center > aside {
         float: none;
         position: static !important;
       }
-      body main .col-1 header h2 {
+      header h2 {
+        max-width: 500px;
         font-size: 30px;
         margin-bottom: 0px;
       }
@@ -193,51 +184,20 @@
       <ul>
         <li class="active"><a href="$$ROOT_RELATIVE$$">overview</a></li>
         <li><a href="$$ROOT_RELATIVE$$/releases">releases</a></li>
-        <li><a href="https://github.com/maps4print/azul">code</a></li>
-        <li><a href="https://matrix.to/#/#azul:matrix.org">chat</a></li>
+        <li><a href="https://github.com/fschutt/azul">code</a></li>
+        <li><a href="https://matrix.to/#/#azul-gui:matrix.org">chat</a></li>
         <li><a href="$$ROOT_RELATIVE$$/guide">guide</a></li>
         <li><a href="$$ROOT_RELATIVE$$/api">api</a></li>
       </ul>
     </nav>
   </aside>
   <main>
-    <div class="col-1">
-      <header>
-        <h2><span class="first-letter">B</span>uilt for beauty<br/>and speed</h2>
-        <h3>Cross-platform LGPL-licensed desktop GUI framework for C and Rust, backed by the Mozilla WebRender rendering engine.</h3>
-      </header>
-      <section class="feature">
-        <img class="showcase" id="showcase-image" src="$$EXAMPLE_IMAGE_SOURCE$$" alt="$$EXAMPLE_IMAGE_ALT$$">
-        <div>
-          <div class="stats">
-            <ul>
-              <li id="showcase-stats-memory">$$EXAMPLE_STATS_MEMORY$$</li>
-              <li id="showcase-stats-cpu">$$EXAMPLE_STATS_CPU$$</li>
-            </ul>
-          </div>
-          <div class="controls">
-            <span class="gradient-border-wrap">
-              <button onclick="next()">Next<img src="./images/fleur-de-lis.svg"/></button>
-            </span>
-            <span class="gradient-border-wrap">
-              <button onclick="previous()"><img src="./images/fleur-de-lis.svg"/>Previous</button>
-            </span>
-          </div>
-          <div class="description">
-            <p id="showcase-description">$$EXAMPLE_DESCRIPTION$$</p>
-          </div>
-        </div>
-      </section>
-    </div>
-    <div class="code-container">
-      <div class="select-language">
-        <button id="select-language-python" class="select-language-btn active" onclick="select_python_code()">Python</button>
-        <button id="select-language-cpp" class="select-language-btn" onclick="select_cpp_code()">C++</button>
-        <button id="select-language-rust" class="select-language-btn" onclick="select_rust_code()">Rust</button>
-        <button id="select-language-c" class="select-language-btn" onclick="select_c_code()">C</button>
-      </div>
-      <code class="language-c" id="code">$$EXAMPLE_CODE$$</code>
-    </div>
+    <header>
+      <h2><span class="first-letter">B</span>uilt for beauty<br/>and speed</h2>
+      <h3>Cross-platform Desktop GUI framework for C, C++, Python and Rust,
+      using the Mozilla WebRender rendering engine, licensed MPL-2.0</h3>
+    </header>
+    $$INDEX_SECTION_EXAMPLES$$
   </main>
   </div>
   <!-- <script async type="text/javascript" src="./prism_code_highlighter.js"></script> -->
@@ -245,83 +205,42 @@
     var examples = [
       $$JAVASCRIPT_EXAMPLES$$
     ];
-    var current_lang = "python";
-    var current_example = 0;
-    var max_len = examples[0].length;
 
-    function render_example() {
-      document.getElementById("showcase-image").src = examples[0][current_example]["screenshot_url"];
-      document.getElementById("showcase-image").alt = examples[0][current_example]["image_alt"];
-      document.getElementById("showcase-stats-memory").innerHTML = examples[0][current_example]["memory"];
-      document.getElementById("showcase-stats-cpu").innerHTML = examples[0][current_example]["cpu"];
-      document.getElementById("showcase-description").innerHTML = examples[0][current_example]["description"];
-
-      var language_buttons = document.getElementsByClassName("select-language-btn");
+    function render_example(id, new_lang) {
+      var language_buttons = document.getElementsByClassName("select-language-btn-" + id);
       for (var i = language_buttons.length - 1; i >= 0; i--) {
         language_buttons[i].classList.remove("active");
       }
 
-      if (current_lang === "c") {
-        document.getElementById("code").innerHTML = examples[0][current_example]["code:c"];
-        document.getElementById("select-language-c").classList.add("active");
-      } else if (current_lang === "cpp") {
-        document.getElementById("code").innerHTML = examples[0][current_example]["code:cpp"];
-        document.getElementById("select-language-cpp").classList.add("active");
-      } else if (current_lang === "rust") {
-        document.getElementById("code").innerHTML = examples[0][current_example]["code:rust"];
-        document.getElementById("select-language-rust").classList.add("active");
+      if (new_lang === "c") {
+        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:c"];
+        document.getElementById("select-language-c-" + id).classList.add("active");
+      } else if (new_lang === "cpp") {
+        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:cpp"];
+        document.getElementById("select-language-cpp-" + id).classList.add("active");
+      } else if (new_lang === "rust") {
+        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:rust"];
+        document.getElementById("select-language-rust-" + id).classList.add("active");
       } else {
-        document.getElementById("code").innerHTML = examples[0][current_example]["code:python"];
-        document.getElementById("select-language-python").classList.add("active");
+        document.getElementById("code-" + id).innerHTML = examples[0][id]["code:python"];
+        document.getElementById("select-language-python-" + id).classList.add("active");
       }
     }
 
-    function select_c_code() {
-      if (current_lang === "c") {
-        return;
-      }
-      current_lang = "c"
-      render_example();
+    function select_c_code(id) {
+      render_example(id, "c");
     }
 
-    function select_cpp_code() {
-      if (current_lang === "cpp") {
-        return;
-      }
-      current_lang = "cpp"
-      render_example();
+    function select_cpp_code(id) {
+      render_example(id, "cpp");
     }
 
-    function select_rust_code() {
-      if (current_lang === "rust") {
-        return;
-      }
-      current_lang = "rust"
-      render_example();
+    function select_rust_code(id) {
+      render_example(id, "rust");
     }
 
-    function select_python_code() {
-      if (current_lang === "python") {
-        return;
-      }
-      current_lang = "python"
-      render_example();
-    }
-
-    function next() {
-      current_example += 1;
-      if (current_example >= max_len) {
-        current_example = 0;
-      }
-      render_example();
-    }
-
-    function previous() {
-      current_example -= 1;
-      if (current_example < 0) {
-        current_example = max_len - 1;
-      }
-      render_example();
+    function select_python_code(id) {
+      render_example(id, "python");
     }
   </script>
 </body>

@@ -5,10 +5,6 @@ struct MyDataModel {
     uint32_t counter;
 };
 
-static css = String::fromConstStr(
-    ".__azul-native-label { font-size: 50px; }"
-);
-
 // model -> view
 StyledDom myLayoutFunc(RefAny* restrict data, LayoutInfo info) {
     auto d = data.createRef::<MyDataModel>(data);
@@ -20,16 +16,19 @@ StyledDom myLayoutFunc(RefAny* restrict data, LayoutInfo info) {
     int written = snprintf(buffer, 20, "%d", d->counter);
 
     auto const labelstring = String::copyFromBytes(&buffer, 0, written);
-    auto const label = Label::new(labelstring);
+    auto label = Dom::text(labelstring);
+    label.setInlineStyle(String::fromConstStr("font-size: 50px;"));
 
     auto const buttonstring = String::fromConstStr("Increase counter");
-    auto const button = Button::new(buttonstring)
-        .withOnClick(myOnClick, data.clone());
+    auto button = Button::new(buttonstring)
+    button.setOnClick(myOnClick, data.clone());
+    auto button = button.dom();
+    button.setInlineStyle(String::fromConstStr("flex-grow: 1;"));
 
     return Dom::body()
-        .withChild(label.dom())
-        .withChild(button.dom())
-        .style(Css::fromString(css));
+        .withChild(label)
+        .withChild(button)
+        .style(Css::empty());
 }
 
 Update myOnClick(RefAny* restrict data, CallbackInfo info) {
@@ -40,7 +39,6 @@ Update myOnClick(RefAny* restrict data, CallbackInfo info) {
 
     d->counter += 1; // increase counter
 
-    // tell azul to call the myLayoutFunc again
     return Update::RefreshDom;
 }
 
