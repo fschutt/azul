@@ -1186,6 +1186,17 @@ pub struct NodeHierarchyItem {
     pub last_child: usize,
 }
 
+impl NodeHierarchyItem {
+    pub const fn zeroed() -> Self {
+        Self {
+            parent: 0,
+            previous_sibling: 0,
+            next_sibling: 0,
+            last_child: 0,
+        }
+    }
+}
+
 impl From<Node> for NodeHierarchyItem {
     fn from(node: Node) -> NodeHierarchyItem {
         NodeHierarchyItem {
@@ -1537,7 +1548,13 @@ impl StyledDom {
 
     /// Inject scroll bar DIVs with relevant event handlers into the DOM
     ///
-    /// This function essentially takes
+    /// This function essentially takes a DOM and inserts a wrapper DIV
+    /// on every parent. First, all scrollbars are set to "display:none;"
+    /// with a special library-internal marker that indicates that this
+    /// DIV is a scrollbar. Then later on in the layout code, the items
+    /// are set to "display: flex / block" as necessary, because
+    /// this way scrollbars aren't treated as "special" objects (the event
+    /// handling for scrollbars are just regular callback handlers).
     pub fn inject_scroll_bars(&mut self) {
 
         use azul_css_parser::CssApiWrapper;
@@ -1628,9 +1645,9 @@ impl StyledDom {
         let mut new_styled_dom = StyledDom {
             root: self.root,
             node_hierarchy: vec![NodeHierarchyItem::zeroed();nodes_to_allocate].into(),
-            node_data: vec![NodeData::const_div();nodes_to_allocate].into(),
+            node_data: vec![NodeData::default();nodes_to_allocate].into(),
             styled_nodes: vec![StyledNode::default();nodes_to_allocate].into(),
-            cascade_info: vec![CascadeInfo::default();nodes_to_allocate],
+            cascade_info: vec![CascadeInfo::default();nodes_to_allocate].into(),
             nodes_with_window_callbacks: self.nodes_with_window_callbacks.clone(),
             nodes_with_not_callbacks: self.nodes_with_not_callbacks.clone(),
             nodes_with_datasets: self.nodes_with_datasets.clone(),
