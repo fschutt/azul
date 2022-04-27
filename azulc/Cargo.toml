@@ -32,7 +32,7 @@ azul-core               = { path = "../azul-core",       version = "0.0.2",     
 azul-css                = { path = "../azul-css",        version = "0.0.1",          default-features = false }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
 azul-layout             = { path = "../azul-layout",     default-features = false }
-image                   = { version = "0.24.1",         default-features = false,       optional = true }
+image                   = { version = "0.24.2",         default-features = false,       optional = true }
 rust-fontconfig         = { version = "0.1.5",           default-features = false,       optional = true }
 lyon                    = { version = "0.17.10",  default-features = false, optional = true }
 rayon                   = { version = "1.5.2",    default-features = false, optional = true }
