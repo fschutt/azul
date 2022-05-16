@@ -20,5 +20,5 @@ azul-core               = { path = "../azul-core", version = "0.0.2", default-fe
 unicode-normalization   = { version = "0.1.19",  default-features = false }
 allsorts                = { version = "0.9.0", default-features = false, features = ["flate2_rust"] }
 tinyvec                 = { version = "1.6.0", default-features = false }
-rayon                   = { version = "1.5.2", default-features = false }
+rayon                   = { version = "1.5.3", default-features = false }
 ttf-parser              = { version = "0.15.0", default-features = false, features = ["variable-fonts"] }
