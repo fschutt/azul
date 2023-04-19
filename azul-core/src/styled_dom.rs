@@ -1678,11 +1678,11 @@ impl StyledDom {
                 Dom::text(smi.label.clone().into_library_owned_string())
                 .with_inline_style("font-family:sans-serif;".into())
             },
-            Separator => {
+            MenuItem::Separator => {
                 Dom::div()
                 .with_inline_style("padding:1px;background:grey;".into())
             },
-            BreakLine => Dom::div(),
+            MenuItem::BreakLine => Dom::div(),
         })
         .collect::<Dom>()
         .with_inline_style("
