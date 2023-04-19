@@ -29,4 +29,4 @@ debug-assertions = false
 overflow-checks = false
 incremental = false
 rpath = false
-strip = true
+strip = false
