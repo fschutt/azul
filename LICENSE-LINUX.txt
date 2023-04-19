@@ -12,7 +12,7 @@ alloc-no-stdlib v2.0.3 licensed BSD-3-Clause
     by Daniel Reiter Horn
 alloc-stdlib v0.2.1 licensed BSD-3-Clause
     by Daniel Reiter Horn
-allsorts v0.9.0 licensed Apache-2.0
+allsorts v0.10.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
 allsorts-rental v0.5.6 licensed Apache-2.0 OR MIT
     by Jameson Ernst
@@ -56,7 +56,7 @@ azul-wr_malloc_size_of v0.0.1 licensed Apache-2.0 OR MIT
     by The Servo Project Developers
 azulc v0.0.3 licensed MPL-2.0
     by Felix Schütt
-backtrace v0.3.65 licensed Apache-2.0 OR MIT
+backtrace v0.3.66 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 base64 v0.13.0 licensed Apache-2.0 OR MIT
     by Alice Maz, Marshall Pierce
@@ -124,7 +124,7 @@ glyph-names v0.1.0 licensed BSD-3-Clause
     by YesLogic Pty. Ltd.
 highway v0.8.0 licensed MIT
     by Nick Babcock
-image v0.24.1 licensed MIT
+image v0.24.3 licensed MIT
     by The image-rs Developers
 itertools v0.8.2 licensed Apache-2.0 OR MIT
     by bluss
@@ -140,7 +140,7 @@ libc v0.2.119 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 libm v0.2.2 licensed Apache-2.0 OR MIT
     by Jorge Aparicio
-log v0.4.16 licensed Apache-2.0 OR MIT
+log v0.4.17 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 lyon v0.17.10 licensed Apache-2.0 OR MIT
     by Nicolas Silva
@@ -168,8 +168,6 @@ mmapio v0.9.1 licensed Apache-2.0 OR MIT
     by henrylee2cn, dignifiedquire, Dan Burkert
 num-integer v0.1.44 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
-num-iter v0.1.42 licensed Apache-2.0 OR MIT
-    by The Rust Project Developers
 num-rational v0.4.0 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
 num-traits v0.2.14 licensed Apache-2.0 OR MIT
@@ -194,9 +192,9 @@ proc-macro2 v1.0.36 licensed Apache-2.0 OR MIT
     by David Tolnay, Alex Crichton
 quote v1.0.15 licensed Apache-2.0 OR MIT
     by David Tolnay
-raw-window-handle v0.4.3 licensed Apache-2.0 OR MIT OR Zlib
+raw-window-handle v0.5.0 licensed Apache-2.0 OR MIT OR Zlib
     by Osspial
-rayon v1.5.2 licensed Apache-2.0 OR MIT
+rayon v1.5.3 licensed Apache-2.0 OR MIT
     by Niko Matsakis, Josh Stone
 rayon-core v1.9.2 licensed Apache-2.0 OR MIT
     by Niko Matsakis, Josh Stone
@@ -222,11 +220,11 @@ scoped_threadpool v0.1.9 licensed MIT
     by Marvin Löbel
 scopeguard v1.1.0 licensed Apache-2.0 OR MIT
     by bluss
-serde v1.0.136 licensed Apache-2.0 OR MIT
+serde v1.0.140 licensed Apache-2.0 OR MIT
     by Erick Tryzelaar, David Tolnay
 serde_bytes v0.11.5 licensed Apache-2.0 OR MIT
     by David Tolnay
-serde_derive v1.0.136 licensed Apache-2.0 OR MIT
+serde_derive v1.0.140 licensed Apache-2.0 OR MIT
     by Erick Tryzelaar, David Tolnay
 sid v0.6.1 licensed Apache-2.0 OR MIT
     by Nicolas Silva
@@ -244,7 +242,7 @@ svg_fmt v0.4.1 licensed Apache-2.0 OR MIT
     by Nicolas Silva
 svgtypes v0.8.0 licensed Apache-2.0 OR MIT
     by Yevhenii Reizner
-syn v1.0.86 licensed Apache-2.0 OR MIT
+syn v1.0.92 licensed Apache-2.0 OR MIT
     by David Tolnay
 synstructure v0.12.6 licensed MIT
     by Nika Layzell
@@ -252,17 +250,17 @@ tiff v0.7.1 licensed MIT
     by ccgn, bvssvni, nwin, TyOverby, HeroicKatora, Calum, CensoredUsername, Robzz, birktj
 time v0.1.44 licensed Apache-2.0 OR MIT
     by The Rust Project Developers
-tiny-skia v0.6.3 licensed BSD-3-Clause
+tiny-skia v0.6.5 licensed BSD-3-Clause
     by Yevhenii Reizner
 tinyfiledialogs v3.9.1 licensed zlib-acknowledgement
     by Guillaume Vareille, Josh Matthews
-tinyvec v1.5.1 licensed Apache-2.0 OR MIT OR Zlib
+tinyvec v1.6.0 licensed Apache-2.0 OR MIT OR Zlib
     by Lokathor
 tinyvec_macros v0.1.0 licensed Apache-2.0 OR MIT OR Zlib
     by Soveu
 tracy-rs v0.1.2 licensed MPL-2.0
     by Glenn Watson
-ttf-parser v0.15.0 licensed Apache-2.0 OR MIT
+ttf-parser v0.15.2 licensed Apache-2.0 OR MIT
     by Yevhenii Reizner
 ucd-trie v0.1.3 licensed Apache-2.0 OR MIT
     by Andrew Gallant
@@ -276,7 +274,7 @@ unicode-joining-type v0.5.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
 unicode-joining-type v0.6.0 licensed Apache-2.0
     by YesLogic Pty. Ltd.
-unicode-normalization v0.1.19 licensed Apache-2.0 OR MIT
+unicode-normalization v0.1.21 licensed Apache-2.0 OR MIT
     by kwantam, Manish Goregaokar
 unicode-xid v0.2.2 licensed Apache-2.0 OR MIT
     by erick.tryzelaar, kwantam, Manish Goregaokar
