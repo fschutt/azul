@@ -1,14 +1,13 @@
 //! DOM tree to CSS style tree cascading
 
-use azul_css::{
-    CssContentGroup, CssPath, CssPathSelector,
-    CssPathPseudoSelector, CssNthChildSelector::*,
-};
-use alloc::vec::Vec;
 use crate::{
     dom::NodeData,
+    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeHierarchyRef, NodeId},
     styled_dom::NodeHierarchyItem,
-    id_tree::{NodeId, NodeHierarchyRef, NodeDataContainer, NodeDataContainerRef},
+};
+use alloc::vec::Vec;
+use azul_css::{
+    CssContentGroup, CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector,
 };
 
 /// Has all the necessary information about the style CSS path
@@ -28,7 +27,9 @@ impl_vec_partialeq!(CascadeInfo, CascadeInfoVec);
 
 impl CascadeInfoVec {
     pub fn as_container<'a>(&'a self) -> NodeDataContainerRef<'a, CascadeInfo> {
-        NodeDataContainerRef { internal: self.as_ref() }
+        NodeDataContainerRef {
+            internal: self.as_ref(),
+        }
     }
 }
 
@@ -41,7 +42,6 @@ pub(crate) fn matches_html_element(
     html_node_tree: &NodeDataContainerRef<CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
 ) -> bool {
-
     use self::CssGroupSplitReason::*;
 
     if css_path.selectors.is_empty() {
@@ -54,7 +54,6 @@ pub(crate) fn matches_html_element(
 
     let mut iterator = CssGroupIterator::new(css_path.selectors.as_ref());
     while let Some((content_group, reason)) = iterator.next() {
-
         let is_last_content_group = iterator.is_last_content_group();
         let cur_node_id = match current_node {
             Some(c) => c,
@@ -63,7 +62,7 @@ pub(crate) fn matches_html_element(
                 // still has an extra limitation - only valid if the
                 // next content group is a "*" element
                 return *content_group == [&CssPathSelector::Global];
-            },
+            }
         };
 
         let current_selector_matches = selector_group_matches(
@@ -71,7 +70,7 @@ pub(crate) fn matches_html_element(
             &html_node_tree[cur_node_id],
             &node_data[cur_node_id],
             expected_path_ending,
-            is_last_content_group
+            is_last_content_group,
         );
 
         if direct_parent_has_to_match && !current_selector_matches {
@@ -155,11 +154,11 @@ impl<'a> Iterator for CssGroupIterator<'a> {
                 Children => {
                     self.last_reason = CssGroupSplitReason::Children;
                     break;
-                },
+                }
                 DirectChildren => {
                     self.last_reason = CssGroupSplitReason::DirectChildren;
                     break;
-                },
+                }
                 other => current_path.push(other),
             }
             new_idx -= 1;
@@ -188,17 +187,16 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 
 pub(crate) fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef,
-    node_depths_sorted: &[(usize, NodeId)]
+    node_depths_sorted: &[(usize, NodeId)],
 ) -> NodeDataContainer<CascadeInfo> {
-
-    let mut nodes = (0..node_hierarchy.len()).map(|_| CascadeInfo {
-        index_in_parent: 0,
-        is_last_child: false,
-
-    }).collect::<Vec<_>>();
+    let mut nodes = (0..node_hierarchy.len())
+        .map(|_| CascadeInfo {
+            index_in_parent: 0,
+            is_last_child: false,
+        })
+        .collect::<Vec<_>>();
 
     for (_depth, parent_id) in node_depths_sorted {
-
         // Note: :nth-child() starts at 1 instead of 0
         let index_in_parent = parent_id.preceding_siblings(node_hierarchy).count();
 
@@ -230,16 +228,16 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
             None => false,
             Some(q) => match q {
                 CssPathSelector::PseudoSelector(_) => false,
-                _ => true
-            }
+                _ => true,
+            },
         },
         Some(s) => match path.selectors.as_ref().last() {
             None => false,
             Some(q) => match q {
                 CssPathSelector::PseudoSelector(q) => *q == s,
-                _ => false
-            }
-        }
+                _ => false,
+            },
+        },
     }
 }
 
@@ -254,74 +252,112 @@ pub(crate) fn selector_group_matches(
     expected_path_ending: Option<CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-
     use self::CssPathSelector::*;
 
     for selector in selectors {
         match selector {
-            Global => { },
+            Global => {}
             Type(t) => {
                 if node_data.get_node_type().get_path() != *t {
                     return false;
                 }
-            },
+            }
             Class(c) => {
-                if !node_data.get_ids_and_classes().iter().filter_map(|i| i.as_class()).any(|class| class == c.as_str()) {
+                if !node_data
+                    .get_ids_and_classes()
+                    .iter()
+                    .filter_map(|i| i.as_class())
+                    .any(|class| class == c.as_str())
+                {
                     return false;
                 }
-            },
+            }
             Id(id) => {
-                if !node_data.get_ids_and_classes().iter().filter_map(|i| i.as_id()).any(|html_id| html_id == id.as_str()) {
+                if !node_data
+                    .get_ids_and_classes()
+                    .iter()
+                    .filter_map(|i| i.as_id())
+                    .any(|html_id| html_id == id.as_str())
+                {
                     return false;
                 }
-            },
+            }
             PseudoSelector(p) => {
                 match p {
                     CssPathPseudoSelector::First => {
                         // Notice: index_in_parent is 1-indexed
-                        if html_node.index_in_parent != 0 { return false; }
-                    },
+                        if html_node.index_in_parent != 0 {
+                            return false;
+                        }
+                    }
                     CssPathPseudoSelector::Last => {
                         // Notice: index_in_parent is 1-indexed
-                        if !html_node.is_last_child { return false; }
-                    },
+                        if !html_node.is_last_child {
+                            return false;
+                        }
+                    }
                     CssPathPseudoSelector::NthChild(x) => {
                         use azul_css::CssNthChildPattern;
                         let index_in_parent = html_node.index_in_parent + 1; // nth-child starts at 1!
                         match *x {
-                            Number(value) => if index_in_parent != value { return false; },
-                            Even => if index_in_parent % 2 == 0 { return false; },
-                            Odd => if index_in_parent % 2 == 1 { return false; },
-                            Pattern(CssNthChildPattern { repeat, offset }) => {
-                                if index_in_parent >= offset &&
-                                   ((index_in_parent - offset) % repeat != 0) {
+                            Number(value) => {
+                                if index_in_parent != value {
                                     return false;
                                 }
-                            },
+                            }
+                            Even => {
+                                if index_in_parent % 2 == 0 {
+                                    return false;
+                                }
+                            }
+                            Odd => {
+                                if index_in_parent % 2 == 1 {
+                                    return false;
+                                }
+                            }
+                            Pattern(CssNthChildPattern { repeat, offset }) => {
+                                if index_in_parent >= offset
+                                    && ((index_in_parent - offset) % repeat != 0)
+                                {
+                                    return false;
+                                }
+                            }
                         }
-                    },
+                    }
 
                     // NOTE: for all other selectors such as :hover, :focus and :active,
                     // we can only apply them if they appear in the last content group,
                     // i.e. this will match "body > #main:hover", but not "body:hover > #main"
                     CssPathPseudoSelector::Hover => {
-                        if !is_last_content_group { return false; }
-                        if expected_path_ending != Some(CssPathPseudoSelector::Hover) { return false; }
-                    },
+                        if !is_last_content_group {
+                            return false;
+                        }
+                        if expected_path_ending != Some(CssPathPseudoSelector::Hover) {
+                            return false;
+                        }
+                    }
                     CssPathPseudoSelector::Active => {
-                        if !is_last_content_group { return false; }
-                        if expected_path_ending != Some(CssPathPseudoSelector::Active) { return false; }
-                    },
+                        if !is_last_content_group {
+                            return false;
+                        }
+                        if expected_path_ending != Some(CssPathPseudoSelector::Active) {
+                            return false;
+                        }
+                    }
                     CssPathPseudoSelector::Focus => {
-                        if !is_last_content_group { return false; }
-                        if expected_path_ending != Some(CssPathPseudoSelector::Focus) { return false; }
+                        if !is_last_content_group {
+                            return false;
+                        }
+                        if expected_path_ending != Some(CssPathPseudoSelector::Focus) {
+                            return false;
+                        }
                     }
                 }
             }
             DirectChildren | Children => {
                 // panic!("Unreachable: DirectChildren or Children in CSS path!");
                 return false;
-            },
+            }
         }
     }
 
@@ -330,34 +366,37 @@ pub(crate) fn selector_group_matches(
 
 #[test]
 fn test_case_issue_93() {
-
+    use crate::dom::*;
     use azul_css::CssPathSelector::*;
     use azul_css::*;
-    use crate::dom::*;
 
     fn render_tab() -> Dom {
-        Dom::div().with_class("tabwidget-tab")
+        Dom::div()
+            .with_class("tabwidget-tab")
             .with_child(Dom::label("").with_class("tabwidget-tab-label"))
             .with_child(Dom::label("").with_class("tabwidget-tab-close"))
     }
 
-    let dom = Dom::div().with_id("editor-rooms")
-    .with_child(
-        Dom::div().with_class("tabwidget-bar")
-        .with_child(render_tab().with_class("active"))
-        .with_child(render_tab())
-        .with_child(render_tab())
-        .with_child(render_tab())
+    let dom = Dom::div().with_id("editor-rooms").with_child(
+        Dom::div()
+            .with_class("tabwidget-bar")
+            .with_child(render_tab().with_class("active"))
+            .with_child(render_tab())
+            .with_child(render_tab())
+            .with_child(render_tab()),
     );
 
     let dom = convert_dom_into_compact_dom(dom);
 
-    let tab_active_close = CssPath { selectors: vec![
-        Class("tabwidget-tab".to_string().into()),
-        Class("active".to_string().into()),
-        Children,
-        Class("tabwidget-tab-close".to_string().into())
-    ].into() };
+    let tab_active_close = CssPath {
+        selectors: vec![
+            Class("tabwidget-tab".to_string().into()),
+            Class("active".to_string().into()),
+            Children,
+            Class("tabwidget-tab-close".to_string().into()),
+        ]
+        .into(),
+    };
 
     let node_hierarchy = &dom.arena.node_hierarchy;
     let node_data = &dom.arena.node_data;
@@ -395,13 +434,31 @@ fn test_case_issue_93() {
     // ".tabwidget-tab.active .tabwidget-tab-label"
     // should not match
     // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &node_data, &html_node_tree), false);
+    assert_eq!(
+        matches_html_element(
+            &tab_active_close,
+            NodeId::new(3),
+            &node_hierarchy,
+            &node_data,
+            &html_node_tree
+        ),
+        false
+    );
 
     // Test 2:
     // ".tabwidget-tab.active .tabwidget-tab-close"
     // should match
     // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &node_data, &html_node_tree), true);
+    assert_eq!(
+        matches_html_element(
+            &tab_active_close,
+            NodeId::new(4),
+            &node_hierarchy,
+            &node_data,
+            &html_node_tree
+        ),
+        true
+    );
 }
 
 #[test]
@@ -423,32 +480,50 @@ fn test_css_group_iterator() {
 
     let mut it = CssGroupIterator::new(&selectors);
 
-    assert_eq!(it.next(), Some((vec![
-       &Type(NodeTypeTag::Div),
-       &Class("content".to_string().into()),
-    ], CssGroupSplitReason::Children)));
+    assert_eq!(
+        it.next(),
+        Some((
+            vec![
+                &Type(NodeTypeTag::Div),
+                &Class("content".to_string().into()),
+            ],
+            CssGroupSplitReason::Children
+        ))
+    );
 
-    assert_eq!(it.next(), Some((vec![
-       &Id("id_test".to_string().into()),
-       &Class("new_class".to_string().into()),
-    ], CssGroupSplitReason::DirectChildren)));
+    assert_eq!(
+        it.next(),
+        Some((
+            vec![
+                &Id("id_test".to_string().into()),
+                &Class("new_class".to_string().into()),
+            ],
+            CssGroupSplitReason::DirectChildren
+        ))
+    );
 
-    assert_eq!(it.next(), Some((vec![
-        &Class("hello".into()),
-    ], CssGroupSplitReason::DirectChildren))); // technically not correct
+    assert_eq!(
+        it.next(),
+        Some((
+            vec![&Class("hello".into()),],
+            CssGroupSplitReason::DirectChildren
+        ))
+    ); // technically not correct
 
     assert_eq!(it.next(), None);
 
     // Test single class
-    let selectors_2 = vec![
-        Class("content".to_string().into()),
-    ];
+    let selectors_2 = vec![Class("content".to_string().into())];
 
     let mut it = CssGroupIterator::new(&selectors_2);
 
-    assert_eq!(it.next(), Some((vec![
-       &Class("content".to_string().into()),
-    ], CssGroupSplitReason::Children)));
+    assert_eq!(
+        it.next(),
+        Some((
+            vec![&Class("content".to_string().into()),],
+            CssGroupSplitReason::Children
+        ))
+    );
 
     assert_eq!(it.next(), None);
 }

@@ -63,26 +63,23 @@
 //! }
 //! ```rust
 
-use alloc::vec::Vec;
+use crate::gl::OptionGlContextPtr;
+use crate::{
+    app_resources::{ImageCache, RendererResources},
+    callbacks::{DocumentId, DomNodeId, HitTestItem, ScrollPosition, Update},
+    dom::{EventFilter, FocusEventFilter, HoverEventFilter, NotEventFilter, WindowEventFilter},
+    id_tree::NodeId,
+    styled_dom::{ChangedCssProperty, DomId, NodeHierarchyItemId},
+    task::ExternalSystemCallbacks,
+    ui_solver::{GpuEventChanges, LayoutResult, RelayoutChanges},
+    window::{CallCallbacksResult, FullHitTest, FullWindowState, RawWindowHandle, ScrollStates},
+    FastBTreeSet, FastHashMap,
+};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::collections::btree_set::BTreeSet;
-use crate::{
-    FastHashMap, FastBTreeSet,
-    app_resources::{RendererResources, ImageCache},
-    dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {ScrollPosition, DocumentId, DomNodeId, HitTestItem, Update},
-    id_tree::NodeId,
-    styled_dom::{DomId, ChangedCssProperty, NodeHierarchyItemId},
-    ui_solver::{LayoutResult, RelayoutChanges, GpuEventChanges},
-    task::ExternalSystemCallbacks,
-    window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
-};
-use azul_css::{
-    AzString, LayoutSize, CssProperty,
-    LayoutPoint, LayoutRect
-};
-use crate::gl::OptionGlContextPtr;
+use alloc::vec::Vec;
+use azul_css::{AzString, CssProperty, LayoutPoint, LayoutRect, LayoutSize};
 use rust_fontconfig::FcFontCache;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,34 +97,58 @@ pub struct Events {
 }
 
 impl Events {
-
     /// Warning: if the previous_window_state is none, this will return an empty Vec!
-    pub fn new(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Self {
-
-        let mut current_window_events = get_window_events(current_window_state, previous_window_state);
+    pub fn new(
+        current_window_state: &FullWindowState,
+        previous_window_state: &Option<FullWindowState>,
+    ) -> Self {
+        let mut current_window_events =
+            get_window_events(current_window_state, previous_window_state);
         let mut current_hover_events = get_hover_events(&current_window_events);
         let mut current_focus_events = get_focus_events(&current_hover_events);
 
-        let event_was_mouse_down    = current_window_events.iter().any(|e| *e == WindowEventFilter::MouseDown);
-        let event_was_mouse_release = current_window_events.iter().any(|e| *e == WindowEventFilter::MouseUp);
-        let event_was_mouse_leave   = current_window_events.iter().any(|e| *e == WindowEventFilter::MouseLeave);
+        let event_was_mouse_down = current_window_events
+            .iter()
+            .any(|e| *e == WindowEventFilter::MouseDown);
+        let event_was_mouse_release = current_window_events
+            .iter()
+            .any(|e| *e == WindowEventFilter::MouseUp);
+        let event_was_mouse_leave = current_window_events
+            .iter()
+            .any(|e| *e == WindowEventFilter::MouseLeave);
         let current_window_state_mouse_is_down = current_window_state.mouse_state.mouse_down();
-        let previous_window_state_mouse_is_down = previous_window_state.as_ref().map(|f| f.mouse_state.mouse_down()).unwrap_or(false);
+        let previous_window_state_mouse_is_down = previous_window_state
+            .as_ref()
+            .map(|f| f.mouse_state.mouse_down())
+            .unwrap_or(false);
 
-        let old_focus_node = previous_window_state.as_ref().and_then(|f| f.focused_node.clone());
-        let old_hit_node_ids = previous_window_state.as_ref().map(|f| {
-            if f.last_hit_test.hovered_nodes.is_empty() {
-                BTreeMap::new()
-            } else {
-                f.last_hit_test.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()
-            }
-        }).unwrap_or_default();
+        let old_focus_node = previous_window_state
+            .as_ref()
+            .and_then(|f| f.focused_node.clone());
+        let old_hit_node_ids = previous_window_state
+            .as_ref()
+            .map(|f| {
+                if f.last_hit_test.hovered_nodes.is_empty() {
+                    BTreeMap::new()
+                } else {
+                    f.last_hit_test
+                        .hovered_nodes
+                        .iter()
+                        .map(|(dom_id, hit_test)| {
+                            (*dom_id, hit_test.regular_hit_test_nodes.clone())
+                        })
+                        .collect()
+                }
+            })
+            .unwrap_or_default();
 
         if let Some(prev_state) = previous_window_state.as_ref() {
             if prev_state.theme != current_window_state.theme {
                 current_window_events.push(WindowEventFilter::ThemeChanged);
             }
-            if current_window_state.last_hit_test.hovered_nodes != prev_state.last_hit_test.hovered_nodes.clone() {
+            if current_window_state.last_hit_test.hovered_nodes
+                != prev_state.last_hit_test.hovered_nodes.clone()
+            {
                 current_hover_events.push(HoverEventFilter::MouseLeave);
                 current_hover_events.push(HoverEventFilter::MouseEnter);
             }
@@ -154,7 +175,9 @@ impl Events {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.window_events.is_empty() && self.hover_events.is_empty() && self.focus_events.is_empty()
+        self.window_events.is_empty()
+            && self.hover_events.is_empty()
+            && self.focus_events.is_empty()
     }
 
     /// Checks whether the event was a resize event
@@ -184,14 +207,18 @@ pub struct NodesToCheck {
 }
 
 impl NodesToCheck {
-
     // Usually we need to perform a hit-test when the DOM is re-generated,
     // this function simulates that behaviour
-    pub fn simulated_mouse_move(hit_test: &FullHitTest, old_focus_node: Option<DomNodeId>, mouse_down: bool) -> Self {
-
-        let new_hit_node_ids = hit_test.hovered_nodes
-        .iter().map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
-        .collect::<BTreeMap<_, _>>();
+    pub fn simulated_mouse_move(
+        hit_test: &FullHitTest,
+        old_focus_node: Option<DomNodeId>,
+        mouse_down: bool,
+    ) -> Self {
+        let new_hit_node_ids = hit_test
+            .hovered_nodes
+            .iter()
+            .map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
+            .collect::<BTreeMap<_, _>>();
 
         Self {
             new_hit_node_ids: new_hit_node_ids.clone(),
@@ -214,36 +241,64 @@ impl NodesToCheck {
         let new_hit_node_ids = if events.event_was_mouse_leave {
             BTreeMap::new()
         } else {
-            hit_test.hovered_nodes.iter().map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone())).collect()
+            hit_test
+                .hovered_nodes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.regular_hit_test_nodes.clone()))
+                .collect()
         };
 
         // Figure out what the current focused NodeId is
         let new_focus_node = if events.event_was_mouse_release {
-            hit_test.focused_node.clone().map(|o| DomNodeId { dom: o.0, node: NodeHierarchyItemId::from_crate_internal(Some(o.1)) })
+            hit_test.focused_node.clone().map(|o| DomNodeId {
+                dom: o.0,
+                node: NodeHierarchyItemId::from_crate_internal(Some(o.1)),
+            })
         } else {
             events.old_focus_node.clone()
         };
 
         // Collect all On::MouseEnter nodes (for both hover and focus events)
         let default_map = BTreeMap::new();
-        let onmouseenter_nodes = new_hit_node_ids.iter().filter_map(|(dom_id, nhnid)| {
-            let old_hit_node_ids = events.old_hit_node_ids.get(dom_id).unwrap_or(&default_map);
-            let new = nhnid.iter()
-            .filter(|(current_node_id, _)| old_hit_node_ids.get(current_node_id).is_none())
-            .map(|(x, y)| (*x, y.clone()))
+        let onmouseenter_nodes = new_hit_node_ids
+            .iter()
+            .filter_map(|(dom_id, nhnid)| {
+                let old_hit_node_ids = events.old_hit_node_ids.get(dom_id).unwrap_or(&default_map);
+                let new = nhnid
+                    .iter()
+                    .filter(|(current_node_id, _)| old_hit_node_ids.get(current_node_id).is_none())
+                    .map(|(x, y)| (*x, y.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                if new.is_empty() {
+                    None
+                } else {
+                    Some((*dom_id, new))
+                }
+            })
             .collect::<BTreeMap<_, _>>();
-            if new.is_empty() { None } else { Some((*dom_id, new)) }
-        }).collect::<BTreeMap<_, _>>();
 
         // Collect all On::MouseLeave nodes (for both hover and focus events)
-        let onmouseleave_nodes = events.old_hit_node_ids.iter().filter_map(|(dom_id, ohnid)| {
-            let old = ohnid
+        let onmouseleave_nodes = events
+            .old_hit_node_ids
             .iter()
-            .filter(|(prev_node_id, _)| new_hit_node_ids.get(dom_id).and_then(|d| d.get(prev_node_id)).is_none())
-            .map(|(x, y)| (*x, y.clone()))
+            .filter_map(|(dom_id, ohnid)| {
+                let old = ohnid
+                    .iter()
+                    .filter(|(prev_node_id, _)| {
+                        new_hit_node_ids
+                            .get(dom_id)
+                            .and_then(|d| d.get(prev_node_id))
+                            .is_none()
+                    })
+                    .map(|(x, y)| (*x, y.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                if old.is_empty() {
+                    None
+                } else {
+                    Some((*dom_id, old))
+                }
+            })
             .collect::<BTreeMap<_, _>>();
-            if old.is_empty() { None } else { Some((*dom_id, old)) }
-        }).collect::<BTreeMap<_, _>>();
 
         NodesToCheck {
             new_hit_node_ids,
@@ -317,7 +372,6 @@ pub type RelayoutFn = fn(
 ) -> RelayoutChanges;
 
 impl StyleAndLayoutChanges {
-
     /// Determines and immediately applies the changes to the layout results
     #[cfg(feature = "multithreading")]
     pub fn new(
@@ -332,7 +386,6 @@ impl StyleAndLayoutChanges {
         callbacks_new_focus: &Option<Option<DomNodeId>>,
         relayout_cb: RelayoutFn,
     ) -> StyleAndLayoutChanges {
-
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
         // and determine if the DOM needs a redraw or a relayout
         let mut style_changes = None;
@@ -343,64 +396,85 @@ impl StyleAndLayoutChanges {
             if word_changes.is_empty() {
                 None
             } else {
-                Some(word_changes.iter()
-                .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
-                .collect())
+                Some(
+                    word_changes
+                        .iter()
+                        .map(|(dom_id, m)| (*dom_id, m.keys().cloned().collect()))
+                        .collect(),
+                )
             }
         });
 
-        macro_rules! insert_props {($dom_id:expr, $prop_map:expr) => {{
-            let dom_id: DomId = $dom_id;
-            for (node_id, prop_map) in $prop_map.into_iter() {
-                for changed_prop in prop_map.into_iter() {
-                    let prop_key = changed_prop.previous_prop.get_type();
-                    if prop_key.can_trigger_relayout() {
-                        layout_changes
-                        .get_or_insert_with(|| BTreeMap::new())
-                        .entry(dom_id).or_insert_with(|| BTreeMap::new())
-                        .entry(node_id).or_insert_with(|| Vec::new())
-                        .push(changed_prop);
-                    } else {
-                        style_changes
-                        .get_or_insert_with(|| BTreeMap::new())
-                        .entry(dom_id).or_insert_with(|| BTreeMap::new())
-                        .entry(node_id).or_insert_with(|| Vec::new())
-                        .push(changed_prop);
+        macro_rules! insert_props {
+            ($dom_id:expr, $prop_map:expr) => {{
+                let dom_id: DomId = $dom_id;
+                for (node_id, prop_map) in $prop_map.into_iter() {
+                    for changed_prop in prop_map.into_iter() {
+                        let prop_key = changed_prop.previous_prop.get_type();
+                        if prop_key.can_trigger_relayout() {
+                            layout_changes
+                                .get_or_insert_with(|| BTreeMap::new())
+                                .entry(dom_id)
+                                .or_insert_with(|| BTreeMap::new())
+                                .entry(node_id)
+                                .or_insert_with(|| Vec::new())
+                                .push(changed_prop);
+                        } else {
+                            style_changes
+                                .get_or_insert_with(|| BTreeMap::new())
+                                .entry(dom_id)
+                                .or_insert_with(|| BTreeMap::new())
+                                .entry(node_id)
+                                .or_insert_with(|| Vec::new())
+                                .push(changed_prop);
+                        }
                     }
                 }
-            }
-        }};}
+            }};
+        }
 
         for (dom_id, onmouseenter_nodes) in nodes.onmouseenter_nodes.iter() {
-
             let layout_result = &mut layout_results[dom_id.inner];
 
             let keys = onmouseenter_nodes.keys().copied().collect::<Vec<_>>();
-            let onmouseenter_nodes_hover_restyle_props = layout_result.styled_dom.restyle_nodes_hover(&keys, /* currently_hovered = */true);
-            let onmouseleave_nodes_active_restyle_props = layout_result.styled_dom.restyle_nodes_active(&keys, /* currently_active = */ is_mouse_down);
+            let onmouseenter_nodes_hover_restyle_props = layout_result
+                .styled_dom
+                .restyle_nodes_hover(&keys, /* currently_hovered = */ true);
+            let onmouseleave_nodes_active_restyle_props = layout_result
+                .styled_dom
+                .restyle_nodes_active(&keys, /* currently_active = */ is_mouse_down);
 
             insert_props!(*dom_id, onmouseenter_nodes_hover_restyle_props);
-            insert_props!(*dom_id,onmouseleave_nodes_active_restyle_props);
+            insert_props!(*dom_id, onmouseleave_nodes_active_restyle_props);
         }
 
         for (dom_id, onmouseleave_nodes) in nodes.onmouseleave_nodes.iter() {
-
             let layout_result = &mut layout_results[dom_id.inner];
             let keys = onmouseleave_nodes.keys().copied().collect::<Vec<_>>();
-            let onmouseleave_nodes_hover_restyle_props = layout_result.styled_dom.restyle_nodes_hover(&keys, /* currently_hovered = */ false);
-            let onmouseleave_nodes_active_restyle_props = layout_result.styled_dom.restyle_nodes_active(&keys, /* currently_active = */ false);
+            let onmouseleave_nodes_hover_restyle_props = layout_result
+                .styled_dom
+                .restyle_nodes_hover(&keys, /* currently_hovered = */ false);
+            let onmouseleave_nodes_active_restyle_props = layout_result
+                .styled_dom
+                .restyle_nodes_active(&keys, /* currently_active = */ false);
 
-            insert_props!(*dom_id,onmouseleave_nodes_hover_restyle_props);
-            insert_props!(*dom_id,onmouseleave_nodes_active_restyle_props);
+            insert_props!(*dom_id, onmouseleave_nodes_hover_restyle_props);
+            insert_props!(*dom_id, onmouseleave_nodes_active_restyle_props);
         }
 
-        let new_focus_node = if let Some(new) = callbacks_new_focus.as_ref() { new } else { &nodes.new_focus_node };
+        let new_focus_node = if let Some(new) = callbacks_new_focus.as_ref() {
+            new
+        } else {
+            &nodes.new_focus_node
+        };
 
         let focus_change = if nodes.old_focus_node != *new_focus_node {
             if let Some(DomNodeId { dom, node }) = nodes.old_focus_node.as_ref() {
                 if let Some(node_id) = node.into_crate_internal() {
                     let layout_result = &mut layout_results[dom.inner];
-                    let onfocus_leave_restyle_props = layout_result.styled_dom.restyle_nodes_focus(&[node_id], /* currently_focused = */ false);
+                    let onfocus_leave_restyle_props = layout_result
+                        .styled_dom
+                        .restyle_nodes_focus(&[node_id], /* currently_focused = */ false);
                     let dom_id: DomId = *dom;
                     insert_props!(dom_id, onfocus_leave_restyle_props);
                 }
@@ -409,13 +483,18 @@ impl StyleAndLayoutChanges {
             if let Some(DomNodeId { dom, node }) = new_focus_node.as_ref() {
                 if let Some(node_id) = node.into_crate_internal() {
                     let layout_result = &mut layout_results[dom.inner];
-                    let onfocus_enter_restyle_props = layout_result.styled_dom.restyle_nodes_focus(&[node_id], /* currently_focused = */ true);
+                    let onfocus_enter_restyle_props = layout_result
+                        .styled_dom
+                        .restyle_nodes_focus(&[node_id], /* currently_focused = */ true);
                     let dom_id: DomId = *dom;
                     insert_props!(dom_id, onfocus_enter_restyle_props);
                 }
             }
 
-            Some(FocusChange { old: nodes.old_focus_node, new: *new_focus_node })
+            Some(FocusChange {
+                old: nodes.old_focus_node,
+                new: *new_focus_node,
+            })
         } else {
             None
         };
@@ -426,7 +505,9 @@ impl StyleAndLayoutChanges {
                 let layout_result = &mut layout_results[dom_id.inner];
                 let dom_id: DomId = *dom_id;
                 for (node_id, changed_css_property_vec) in existing_changes_map.iter() {
-                    let current_prop_changes = layout_result.styled_dom.restyle_user_property(node_id, &changed_css_property_vec);
+                    let current_prop_changes = layout_result
+                        .styled_dom
+                        .restyle_user_property(node_id, &changed_css_property_vec);
                     insert_props!(dom_id, current_prop_changes);
                 }
             }
@@ -437,10 +518,9 @@ impl StyleAndLayoutChanges {
 
         // recursively relayout if there are layout_changes or the window size has changed
         let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
-        let need_root_relayout =
-            layout_changes.is_some() ||
-            window_was_resized ||
-            nodes_that_changed_text_content.is_some();
+        let need_root_relayout = layout_changes.is_some()
+            || window_was_resized
+            || nodes_that_changed_text_content.is_some();
 
         let mut doms_to_relayout = Vec::new();
         if need_root_relayout {
@@ -449,16 +529,14 @@ impl StyleAndLayoutChanges {
             // if no nodes were resized or styles changed,
             // still update the GPU-only properties
             for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
-
-                let gpu_key_changes = layout_result.gpu_value_cache.synchronize(
-                    &layout_result.rects.as_ref(),
-                    &layout_result.styled_dom,
-                );
+                let gpu_key_changes = layout_result
+                    .gpu_value_cache
+                    .synchronize(&layout_result.rects.as_ref(), &layout_result.styled_dom);
 
                 if !gpu_key_changes.is_empty() {
                     gpu_key_change_events
-                    .get_or_insert_with(|| BTreeMap::new())
-                    .insert(DomId { inner: dom_id }, gpu_key_changes);
+                        .get_or_insert_with(|| BTreeMap::new())
+                        .insert(DomId { inner: dom_id }, gpu_key_changes);
                 }
             }
         }
@@ -467,13 +545,17 @@ impl StyleAndLayoutChanges {
             let mut new_iframes_to_relayout = Vec::new();
 
             for dom_id in doms_to_relayout.drain(..) {
-
                 let parent_rect = match layout_results[dom_id.inner].parent_dom_id.as_ref() {
                     None => LayoutRect::new(LayoutPoint::zero(), window_size),
                     Some(parent_dom_id) => {
                         let parent_layout_result = &layout_results[parent_dom_id.inner];
-                        let parent_iframe_node_id = parent_layout_result.iframe_mapping.iter().find_map(|(k, v)| if *v == dom_id { Some(*k) } else { None }).unwrap();
-                        parent_layout_result.rects.as_ref()[parent_iframe_node_id].get_approximate_static_bounds()
+                        let parent_iframe_node_id = parent_layout_result
+                            .iframe_mapping
+                            .iter()
+                            .find_map(|(k, v)| if *v == dom_id { Some(*k) } else { None })
+                            .unwrap();
+                        parent_layout_result.rects.as_ref()[parent_iframe_node_id]
+                            .get_approximate_static_bounds()
                     }
                 };
 
@@ -497,18 +579,26 @@ impl StyleAndLayoutChanges {
 
                 if !gpu_key_changes.is_empty() {
                     gpu_key_change_events
-                    .get_or_insert_with(|| BTreeMap::new())
-                    .insert(dom_id, gpu_key_changes);
+                        .get_or_insert_with(|| BTreeMap::new())
+                        .insert(dom_id, gpu_key_changes);
                 }
 
                 if !resized_nodes.is_empty() {
-                    new_iframes_to_relayout.extend(layout_results[dom_id.inner].iframe_mapping.iter()
-                    .filter_map(|(node_id, dom_id)| {
-                        if resized_nodes.contains(node_id) { Some(dom_id) } else { None }
-                    }));
+                    new_iframes_to_relayout.extend(
+                        layout_results[dom_id.inner]
+                            .iframe_mapping
+                            .iter()
+                            .filter_map(|(node_id, dom_id)| {
+                                if resized_nodes.contains(node_id) {
+                                    Some(dom_id)
+                                } else {
+                                    None
+                                }
+                            }),
+                    );
                     nodes_that_changed_size
-                    .get_or_insert_with(|| BTreeMap::new())
-                    .insert(dom_id, resized_nodes);
+                        .get_or_insert_with(|| BTreeMap::new())
+                        .insert(dom_id, resized_nodes);
                 }
             }
 
@@ -533,11 +623,15 @@ impl StyleAndLayoutChanges {
         use azul_css::CssPropertyType;
 
         if let Some(l) = self.nodes_that_changed_size.as_ref() {
-            if !l.is_empty() { return true; }
+            if !l.is_empty() {
+                return true;
+            }
         }
 
         if let Some(l) = self.nodes_that_changed_text_content.as_ref() {
-            if !l.is_empty() { return true; }
+            if !l.is_empty() {
+                return true;
+            }
         }
 
         // check if any changed node is a CSS transform
@@ -557,16 +651,24 @@ impl StyleAndLayoutChanges {
 
     // Note: this can be false in case that only opacity: / transform: properties changed!
     pub fn need_regenerate_display_list(&self) -> bool {
-        if !self.nodes_that_changed_size.is_none() { return true; }
-        if !self.nodes_that_changed_text_content.is_none() { return true; }
-        if !self.need_redraw() { return false; }
+        if !self.nodes_that_changed_size.is_none() {
+            return true;
+        }
+        if !self.nodes_that_changed_text_content.is_none() {
+            return true;
+        }
+        if !self.need_redraw() {
+            return false;
+        }
 
         // is_gpu_only_property = is the changed CSS property an opacity /
         // transform / rotate property (which doesn't require to regenerate the display list)
         if let Some(style_changes) = self.style_changes.as_ref() {
             !(style_changes.iter().all(|(_, restyle_nodes)| {
                 restyle_nodes.iter().all(|(_, changed_css_properties)| {
-                    changed_css_properties.iter().all(|changed_prop| changed_prop.current_prop.get_type().is_gpu_only_property())
+                    changed_css_properties.iter().all(|changed_prop| {
+                        changed_prop.current_prop.get_type().is_gpu_only_property()
+                    })
                 })
             }))
         } else {
@@ -575,24 +677,21 @@ impl StyleAndLayoutChanges {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.style_changes.is_none() &&
-        self.layout_changes.is_none() &&
-        self.focus_change.is_none() &&
-        self.nodes_that_changed_size.is_none() &&
-        self.nodes_that_changed_text_content.is_none() &&
-        self.gpu_key_changes.is_none()
+        self.style_changes.is_none()
+            && self.layout_changes.is_none()
+            && self.focus_change.is_none()
+            && self.nodes_that_changed_size.is_none()
+            && self.nodes_that_changed_text_content.is_none()
+            && self.gpu_key_changes.is_none()
     }
 
     pub fn need_redraw(&self) -> bool {
-        !(
-          self.style_changes.is_none() &&
-          self.layout_changes.is_none() &&
-          self.nodes_that_changed_text_content.is_none() &&
-          self.nodes_that_changed_size.is_none()
-        )
+        !(self.style_changes.is_none()
+            && self.layout_changes.is_none()
+            && self.nodes_that_changed_text_content.is_none()
+            && self.nodes_that_changed_size.is_none())
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallbackToCall {
@@ -610,19 +709,23 @@ pub struct CallbacksOfHitTest {
 }
 
 impl CallbacksOfHitTest {
-
     /// Determine which event / which callback(s) should be called and in which order
     ///
     /// This function also updates / mutates the current window states `focused_node`
     /// as well as the `window_state.previous_state`
-    pub fn new(nodes_to_check: &NodesToCheck, events: &Events, layout_results: &[LayoutResult]) -> Self {
-
+    pub fn new(
+        nodes_to_check: &NodesToCheck,
+        events: &Events,
+        layout_results: &[LayoutResult],
+    ) -> Self {
         use rayon::prelude::*;
 
         let mut nodes_with_callbacks = BTreeMap::new();
 
         if events.is_empty() {
-            return Self { nodes_with_callbacks };
+            return Self {
+                nodes_with_callbacks,
+            };
         }
 
         let default_map = BTreeMap::new();
@@ -632,100 +735,140 @@ impl CallbacksOfHitTest {
         let focus_lost_filter = EventFilter::Focus(FocusEventFilter::FocusLost);
 
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
-
             let dom_id = DomId { inner: dom_id };
 
             // Insert Window:: event filters
-            let mut window_callbacks_this_dom = layout_result.styled_dom.nodes_with_window_callbacks.iter().flat_map(|nid| {
-                let node_id = match nid.into_crate_internal() {
-                    Some(s) => s,
-                    None => return Vec::new()
-                };
-                layout_result.styled_dom.node_data.as_container()[node_id].get_callbacks().iter().filter_map(|cb| match cb.event {
-                    EventFilter::Window(wev) => {
-                        if events.window_events.contains(&wev) {
-                            Some(CallbackToCall {
-                                event_filter: EventFilter::Window(wev),
-                                hit_test_item: None,
-                                node_id,
-                            })
-                        } else {
-                            None
-                        }
-                    },
-                    _ => None,
-                }).collect::<Vec<_>>()
-            }).collect::<Vec<_>>();
+            let mut window_callbacks_this_dom = layout_result
+                .styled_dom
+                .nodes_with_window_callbacks
+                .iter()
+                .flat_map(|nid| {
+                    let node_id = match nid.into_crate_internal() {
+                        Some(s) => s,
+                        None => return Vec::new(),
+                    };
+                    layout_result.styled_dom.node_data.as_container()[node_id]
+                        .get_callbacks()
+                        .iter()
+                        .filter_map(|cb| match cb.event {
+                            EventFilter::Window(wev) => {
+                                if events.window_events.contains(&wev) {
+                                    Some(CallbackToCall {
+                                        event_filter: EventFilter::Window(wev),
+                                        hit_test_item: None,
+                                        node_id,
+                                    })
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
 
             // window_callbacks_this_dom now contains all WindowEvent filters
 
             // insert Hover::MouseEnter events
             window_callbacks_this_dom.extend(
-                nodes_to_check.onmouseenter_nodes
-                .get(&dom_id)
-                .unwrap_or(&default_map)
-                .iter()
-                .filter_map(|(node_id, ht)| {
-                    if layout_result.styled_dom.node_data.as_container()[*node_id].get_callbacks().iter().any(|e| e.event == mouseenter_filter) {
-                        Some(CallbackToCall {
-                            event_filter: mouseenter_filter.clone(),
-                            hit_test_item: Some(*ht),
-                            node_id: *node_id,
-                        })
-                    } else {
-                        None
-                    }
-                }
-            ));
+                nodes_to_check
+                    .onmouseenter_nodes
+                    .get(&dom_id)
+                    .unwrap_or(&default_map)
+                    .iter()
+                    .filter_map(|(node_id, ht)| {
+                        if layout_result.styled_dom.node_data.as_container()[*node_id]
+                            .get_callbacks()
+                            .iter()
+                            .any(|e| e.event == mouseenter_filter)
+                        {
+                            Some(CallbackToCall {
+                                event_filter: mouseenter_filter.clone(),
+                                hit_test_item: Some(*ht),
+                                node_id: *node_id,
+                            })
+                        } else {
+                            None
+                        }
+                    }),
+            );
 
             // insert Hover::MouseLeave events
             window_callbacks_this_dom.extend(
-                nodes_to_check.onmouseleave_nodes
+                nodes_to_check
+                    .onmouseleave_nodes
+                    .get(&dom_id)
+                    .unwrap_or(&default_map)
+                    .iter()
+                    .filter_map(|(node_id, ht)| {
+                        if layout_result.styled_dom.node_data.as_container()[*node_id]
+                            .get_callbacks()
+                            .iter()
+                            .any(|e| e.event == mouseleave_filter)
+                        {
+                            Some(CallbackToCall {
+                                event_filter: mouseleave_filter.clone(),
+                                hit_test_item: Some(*ht),
+                                node_id: *node_id,
+                            })
+                        } else {
+                            None
+                        }
+                    }),
+            );
+
+            // insert other Hover:: events
+            for (nid, ht) in nodes_to_check
+                .new_hit_node_ids
                 .get(&dom_id)
                 .unwrap_or(&default_map)
                 .iter()
-                .filter_map(|(node_id, ht)| {
-                    if layout_result.styled_dom.node_data.as_container()[*node_id].get_callbacks().iter().any(|e| e.event == mouseleave_filter) {
-                        Some(CallbackToCall {
-                            event_filter: mouseleave_filter.clone(),
-                            hit_test_item: Some(*ht),
-                            node_id: *node_id,
-                        })
-                    } else {
-                        None
-                    }
-                }
-            ));
-
-            // insert other Hover:: events
-            for (nid, ht) in nodes_to_check.new_hit_node_ids.get(&dom_id).unwrap_or(&default_map).iter() {
+            {
                 for hev in events.hover_events.iter() {
                     window_callbacks_this_dom.extend(
-                        layout_result.styled_dom.node_data.as_container()[*nid].get_callbacks()
-                        .iter().filter_map(|e| {
-                            if e.event == EventFilter::Hover(*hev) && e.event != mouseenter_filter && e.event != mouseleave_filter {
-                                Some(CallbackToCall {
-                                    event_filter: EventFilter::Hover(hev.clone()),
-                                    hit_test_item: Some(*ht),
-                                    node_id: *nid,
-                                })
-                            } else {
-                                None
-                            }
-                        })
+                        layout_result.styled_dom.node_data.as_container()[*nid]
+                            .get_callbacks()
+                            .iter()
+                            .filter_map(|e| {
+                                if e.event == EventFilter::Hover(*hev)
+                                    && e.event != mouseenter_filter
+                                    && e.event != mouseleave_filter
+                                {
+                                    Some(CallbackToCall {
+                                        event_filter: EventFilter::Hover(hev.clone()),
+                                        hit_test_item: Some(*ht),
+                                        node_id: *nid,
+                                    })
+                                } else {
+                                    None
+                                }
+                            }),
                     );
                 }
             }
 
             // insert Focus(FocusReceived / FocusLost) event
             if nodes_to_check.new_focus_node != nodes_to_check.old_focus_node {
-                if let Some(DomNodeId { dom, node: az_node_id }) = nodes_to_check.old_focus_node {
+                if let Some(DomNodeId {
+                    dom,
+                    node: az_node_id,
+                }) = nodes_to_check.old_focus_node
+                {
                     if dom == dom_id {
                         if let Some(nid) = az_node_id.into_crate_internal() {
-                            if layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter().any(|e| e.event == focus_lost_filter) {
+                            if layout_result.styled_dom.node_data.as_container()[nid]
+                                .get_callbacks()
+                                .iter()
+                                .any(|e| e.event == focus_lost_filter)
+                            {
                                 window_callbacks_this_dom.push(CallbackToCall {
                                     event_filter: focus_lost_filter.clone(),
-                                    hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                    hit_test_item: events
+                                        .old_hit_node_ids
+                                        .get(&dom_id)
+                                        .and_then(|map| map.get(&nid))
+                                        .cloned(),
                                     node_id: nid,
                                 })
                             }
@@ -733,13 +876,25 @@ impl CallbacksOfHitTest {
                     }
                 }
 
-                if let Some(DomNodeId { dom, node: az_node_id }) = nodes_to_check.new_focus_node {
+                if let Some(DomNodeId {
+                    dom,
+                    node: az_node_id,
+                }) = nodes_to_check.new_focus_node
+                {
                     if dom == dom_id {
                         if let Some(nid) = az_node_id.into_crate_internal() {
-                            if layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter().any(|e| e.event == focus_received_filter) {
+                            if layout_result.styled_dom.node_data.as_container()[nid]
+                                .get_callbacks()
+                                .iter()
+                                .any(|e| e.event == focus_received_filter)
+                            {
                                 window_callbacks_this_dom.push(CallbackToCall {
                                     event_filter: focus_received_filter.clone(),
-                                    hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                    hit_test_item: events
+                                        .old_hit_node_ids
+                                        .get(&dom_id)
+                                        .and_then(|map| map.get(&nid))
+                                        .cloned(),
                                     node_id: nid,
                                 })
                             }
@@ -749,17 +904,29 @@ impl CallbacksOfHitTest {
             }
 
             // Insert other Focus: events
-            if let Some(DomNodeId { dom, node: az_node_id }) = nodes_to_check.new_focus_node {
+            if let Some(DomNodeId {
+                dom,
+                node: az_node_id,
+            }) = nodes_to_check.new_focus_node
+            {
                 if dom == dom_id {
                     if let Some(nid) = az_node_id.into_crate_internal() {
                         for fev in events.focus_events.iter() {
-                            for cb in layout_result.styled_dom.node_data.as_container()[nid].get_callbacks().iter() {
-                                if cb.event == EventFilter::Focus(*fev) &&
-                                   cb.event != focus_received_filter &&
-                                   cb.event != focus_lost_filter {
+                            for cb in layout_result.styled_dom.node_data.as_container()[nid]
+                                .get_callbacks()
+                                .iter()
+                            {
+                                if cb.event == EventFilter::Focus(*fev)
+                                    && cb.event != focus_received_filter
+                                    && cb.event != focus_lost_filter
+                                {
                                     window_callbacks_this_dom.push(CallbackToCall {
                                         event_filter: EventFilter::Focus(fev.clone()),
-                                        hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&nid)).cloned(),
+                                        hit_test_item: events
+                                            .old_hit_node_ids
+                                            .get(&dom_id)
+                                            .and_then(|map| map.get(&nid))
+                                            .cloned(),
                                         node_id: nid,
                                     })
                                 }
@@ -778,30 +945,51 @@ impl CallbacksOfHitTest {
         for (dom_id, layout_result) in layout_results.iter().enumerate() {
             let dom_id = DomId { inner: dom_id };
 
-            let not_event_filters = layout_result.styled_dom.nodes_with_not_callbacks.iter().flat_map(|node_id| {
-                let node_id = match node_id.into_crate_internal() {
-                    Some(s) => s,
-                    None => return Vec::new()
-                };
-                layout_result.styled_dom.node_data.as_container()[node_id].get_callbacks().iter().filter_map(|cb| match cb.event {
-                    EventFilter::Not(nev) => {
-                        if nodes_with_callbacks.get(&dom_id).map(|v| v.iter().any(|cb| cb.node_id == node_id && cb.event_filter == nev.as_event_filter())) != Some(true) {
-                            Some(CallbackToCall {
-                                event_filter: EventFilter::Not(nev.clone()),
-                                hit_test_item: events.old_hit_node_ids.get(&dom_id).and_then(|map| map.get(&node_id)).cloned(),
-                                node_id,
-                            })
-                        } else {
-                            None
-                        }
-                    },
-                    _ => None,
-                }).collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
+            let not_event_filters = layout_result
+                .styled_dom
+                .nodes_with_not_callbacks
+                .iter()
+                .flat_map(|node_id| {
+                    let node_id = match node_id.into_crate_internal() {
+                        Some(s) => s,
+                        None => return Vec::new(),
+                    };
+                    layout_result.styled_dom.node_data.as_container()[node_id]
+                        .get_callbacks()
+                        .iter()
+                        .filter_map(|cb| match cb.event {
+                            EventFilter::Not(nev) => {
+                                if nodes_with_callbacks.get(&dom_id).map(|v| {
+                                    v.iter().any(|cb| {
+                                        cb.node_id == node_id
+                                            && cb.event_filter == nev.as_event_filter()
+                                    })
+                                }) != Some(true)
+                                {
+                                    Some(CallbackToCall {
+                                        event_filter: EventFilter::Not(nev.clone()),
+                                        hit_test_item: events
+                                            .old_hit_node_ids
+                                            .get(&dom_id)
+                                            .and_then(|map| map.get(&node_id))
+                                            .cloned(),
+                                        node_id,
+                                    })
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
 
             for cb in not_event_filters {
-                nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(cb);
+                nodes_with_callbacks
+                    .entry(dom_id)
+                    .or_insert_with(|| Vec::new())
+                    .push(cb);
             }
         }
 
@@ -825,9 +1013,8 @@ impl CallbacksOfHitTest {
         system_callbacks: &ExternalSystemCallbacks,
         renderer_resources: &RendererResources,
     ) -> CallCallbacksResult {
-
-        use crate::styled_dom::ParentWithNodeDepth;
         use crate::callbacks::CallbackInfo;
+        use crate::styled_dom::ParentWithNodeDepth;
         use crate::window::WindowState;
 
         let mut ret = CallCallbacksResult {
@@ -869,29 +1056,123 @@ impl CallbacksOfHitTest {
         let mut ret_nodes_scrolled_in_callbacks = BTreeMap::new();
 
         {
+            for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {
+                let callbacks = callbacks_filter_list
+                    .iter()
+                    .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
+                    .collect::<BTreeMap<_, _>>();
 
-        for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {
+                let lr = match layout_results.get(dom_id.inner) {
+                    Some(s) => s,
+                    None => continue,
+                };
 
-            let callbacks = callbacks_filter_list
-            .iter()
-            .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
-            .collect::<BTreeMap<_, _>>();
+                let mut blacklisted_event_types = BTreeSet::new();
 
-            let lr = match layout_results.get(dom_id.inner) {
-                Some(s) => s,
-                None => continue,
-            };
+                // Run all callbacks (front to back)
+                for ParentWithNodeDepth { depth: _, node_id } in
+                    lr.styled_dom.non_leaf_nodes.as_ref().iter().rev()
+                {
+                    let parent_node_id = node_id;
+                    for child_id in parent_node_id
+                        .into_crate_internal()
+                        .unwrap()
+                        .az_children(&lr.styled_dom.node_hierarchy.as_container())
+                    {
+                        if let Some((hit_test_item, event_filter)) = callbacks.get(&child_id) {
+                            if blacklisted_event_types.contains(&*event_filter) {
+                                continue;
+                            }
 
-            let mut blacklisted_event_types = BTreeSet::new();
+                            let mut new_focus = None;
+                            let mut stop_propagation = false;
 
-            // Run all callbacks (front to back)
-            for ParentWithNodeDepth { depth: _, node_id } in lr.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
-               let parent_node_id = node_id;
-               for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&lr.styled_dom.node_hierarchy.as_container()) {
-                    if let Some((hit_test_item, event_filter)) = callbacks.get(&child_id) {
+                            let mut callback_info = CallbackInfo::new(
+                                /*layout_results:*/ &layout_results,
+                                /*renderer_resources:*/ renderer_resources,
+                                /*previous_window_state:*/ &previous_window_state,
+                                /*current_window_state:*/ &full_window_state,
+                                /*modifiable_window_state:*/ &mut ret_modified_window_state,
+                                /*gl_context,*/ gl_context,
+                                /*image_cache,*/ image_cache,
+                                /*system_fonts,*/ system_fonts,
+                                /*timers:*/ &mut ret_timers,
+                                /*threads:*/ &mut ret_threads,
+                                /*timers_removed:*/ &mut ret_timers_removed,
+                                /*threads_removed:*/ &mut ret_threads_removed,
+                                /*current_window_handle:*/ raw_window_handle,
+                                /*new_windows:*/ &mut ret.windows_created,
+                                /*system_callbacks*/ system_callbacks,
+                                /*stop_propagation:*/ &mut stop_propagation,
+                                /*focus_target:*/ &mut new_focus,
+                                /*words_changed_in_callbacks:*/ &mut ret_words_changed,
+                                /*images_changed_in_callbacks:*/ &mut ret_images_changed,
+                                /*image_masks_changed_in_callbacks:*/
+                                &mut ret_image_masks_changed,
+                                /*css_properties_changed_in_callbacks:*/
+                                &mut ret_css_properties_changed,
+                                /*current_scroll_states:*/ scroll_states,
+                                /*nodes_scrolled_in_callback:*/
+                                &mut ret_nodes_scrolled_in_callbacks,
+                                /*hit_dom_node:*/
+                                DomNodeId {
+                                    dom: *dom_id,
+                                    node: NodeHierarchyItemId::from_crate_internal(Some(child_id)),
+                                },
+                                /*cursor_relative_to_item:*/
+                                hit_test_item
+                                    .as_ref()
+                                    .map(|hi| hi.point_relative_to_item)
+                                    .into(),
+                                /*cursor_in_viewport:*/
+                                hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
+                            );
 
-                        if blacklisted_event_types.contains(&*event_filter) {
-                            continue;
+                            let callback_return = {
+                                // get a MUTABLE reference to the RefAny inside of the DOM
+                                let node_data_container = lr.styled_dom.node_data.as_container();
+                                if let Some(callback_data) =
+                                    node_data_container.get(child_id).and_then(|nd| {
+                                        nd.callbacks
+                                            .as_ref()
+                                            .iter()
+                                            .find(|i| i.event == *event_filter)
+                                    })
+                                {
+                                    let mut callback_data_clone = callback_data.clone();
+                                    // Invoke callback
+                                    (callback_data_clone.callback.cb)(
+                                        &mut callback_data_clone.data,
+                                        &mut callback_info,
+                                    )
+                                } else {
+                                    Update::DoNothing
+                                }
+                            };
+
+                            ret.callbacks_update_screen.max_self(callback_return);
+
+                            if let Some(new_focus) = new_focus.clone() {
+                                new_focus_target = Some(new_focus);
+                            }
+
+                            if stop_propagation {
+                                blacklisted_event_types.insert(event_filter.clone());
+                            }
+                        }
+                    }
+                }
+
+                // run the callbacks for node ID 0
+                loop {
+                    if let Some(((hit_test_item, event_filter), root_id)) = lr
+                        .styled_dom
+                        .root
+                        .into_crate_internal()
+                        .and_then(|root_id| callbacks.get(&root_id).map(|cb| (cb, root_id)))
+                    {
+                        if blacklisted_event_types.contains(&event_filter) {
+                            break; // break out of loop
                         }
 
                         let mut new_focus = None;
@@ -910,31 +1191,51 @@ impl CallbacksOfHitTest {
                             /*threads:*/ &mut ret_threads,
                             /*timers_removed:*/ &mut ret_timers_removed,
                             /*threads_removed:*/ &mut ret_threads_removed,
-
                             /*current_window_handle:*/ raw_window_handle,
                             /*new_windows:*/ &mut ret.windows_created,
                             /*system_callbacks*/ system_callbacks,
-
                             /*stop_propagation:*/ &mut stop_propagation,
                             /*focus_target:*/ &mut new_focus,
                             /*words_changed_in_callbacks:*/ &mut ret_words_changed,
                             /*images_changed_in_callbacks:*/ &mut ret_images_changed,
-                            /*image_masks_changed_in_callbacks:*/ &mut ret_image_masks_changed,
-                            /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
+                            /*image_masks_changed_in_callbacks:*/
+                            &mut ret_image_masks_changed,
+                            /*css_properties_changed_in_callbacks:*/
+                            &mut ret_css_properties_changed,
                             /*current_scroll_states:*/ scroll_states,
-                            /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
-                            /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(child_id)) },
-                            /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi| hi.point_relative_to_item).into(),
-                            /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi|hi.point_in_viewport).into(),
+                            /*nodes_scrolled_in_callback:*/
+                            &mut ret_nodes_scrolled_in_callbacks,
+                            /*hit_dom_node:*/
+                            DomNodeId {
+                                dom: *dom_id,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(root_id)),
+                            },
+                            /*cursor_relative_to_item:*/
+                            hit_test_item
+                                .as_ref()
+                                .map(|hi| hi.point_relative_to_item)
+                                .into(),
+                            /*cursor_in_viewport:*/
+                            hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
                         );
 
                         let callback_return = {
                             // get a MUTABLE reference to the RefAny inside of the DOM
                             let node_data_container = lr.styled_dom.node_data.as_container();
-                            if let Some(callback_data) =  node_data_container.get(child_id).and_then(|nd| nd.callbacks.as_ref() .iter().find(|i| i.event == *event_filter)) {
-                                let mut callback_data_clone = callback_data.clone();
+                            if let Some(callback_data) =
+                                node_data_container.get(root_id).and_then(|nd| {
+                                    nd.callbacks
+                                        .as_ref()
+                                        .iter()
+                                        .find(|i| i.event == *event_filter)
+                                })
+                            {
                                 // Invoke callback
-                                (callback_data_clone.callback.cb)(&mut callback_data_clone.data, &mut callback_info)
+                                let mut callback_data_clone = callback_data.clone();
+                                (callback_data_clone.callback.cb)(
+                                    &mut callback_data_clone.data,
+                                    &mut callback_info,
+                                )
                             } else {
                                 Update::DoNothing
                             }
@@ -947,84 +1248,13 @@ impl CallbacksOfHitTest {
                         }
 
                         if stop_propagation {
-                           blacklisted_event_types.insert(event_filter.clone());
+                            blacklisted_event_types.insert(event_filter.clone());
                         }
                     }
+
+                    break;
                 }
             }
-
-            // run the callbacks for node ID 0
-            loop {
-                if let Some(((hit_test_item, event_filter), root_id)) = lr.styled_dom.root
-                .into_crate_internal()
-                .and_then(|root_id| callbacks.get(&root_id).map(|cb| (cb, root_id))) {
-
-                    if blacklisted_event_types.contains(&event_filter) {
-                        break; // break out of loop
-                    }
-
-                    let mut new_focus = None;
-                    let mut stop_propagation = false;
-
-
-                    let mut callback_info = CallbackInfo::new(
-                        /*layout_results:*/ &layout_results,
-                        /*renderer_resources:*/ renderer_resources,
-                        /*previous_window_state:*/ &previous_window_state,
-                        /*current_window_state:*/ &full_window_state,
-                        /*modifiable_window_state:*/ &mut ret_modified_window_state,
-                        /*gl_context,*/ gl_context,
-                        /*image_cache,*/ image_cache,
-                        /*system_fonts,*/ system_fonts,
-                        /*timers:*/ &mut ret_timers,
-                        /*threads:*/ &mut ret_threads,
-                        /*timers_removed:*/ &mut ret_timers_removed,
-                        /*threads_removed:*/ &mut ret_threads_removed,
-
-                        /*current_window_handle:*/ raw_window_handle,
-                        /*new_windows:*/ &mut ret.windows_created,
-                        /*system_callbacks*/ system_callbacks,
-
-                        /*stop_propagation:*/ &mut stop_propagation,
-                        /*focus_target:*/ &mut new_focus,
-                        /*words_changed_in_callbacks:*/ &mut ret_words_changed,
-                        /*images_changed_in_callbacks:*/ &mut ret_images_changed,
-                        /*image_masks_changed_in_callbacks:*/ &mut ret_image_masks_changed,
-                        /*css_properties_changed_in_callbacks:*/ &mut ret_css_properties_changed,
-                        /*current_scroll_states:*/ scroll_states,
-                        /*nodes_scrolled_in_callback:*/ &mut ret_nodes_scrolled_in_callbacks,
-                        /*hit_dom_node:*/ DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(root_id)) },
-                        /*cursor_relative_to_item:*/ hit_test_item.as_ref().map(|hi|hi.point_relative_to_item).into(),
-                        /*cursor_in_viewport:*/ hit_test_item.as_ref().map(|hi| hi.point_in_viewport).into(),
-                    );
-
-                    let callback_return = {
-                        // get a MUTABLE reference to the RefAny inside of the DOM
-                        let node_data_container = lr.styled_dom.node_data.as_container();
-                        if let Some(callback_data) =  node_data_container.get(root_id).and_then(|nd| nd.callbacks.as_ref() .iter().find(|i| i.event == *event_filter)) {
-                            // Invoke callback
-                            let mut callback_data_clone = callback_data.clone();
-                            (callback_data_clone.callback.cb)(&mut callback_data_clone.data, &mut callback_info)
-                        } else {
-                            Update::DoNothing
-                        }
-                    };
-
-                    ret.callbacks_update_screen.max_self(callback_return);
-
-                    if let Some(new_focus) = new_focus.clone() {
-                        new_focus_target = Some(new_focus);
-                    }
-
-                    if stop_propagation {
-                       blacklisted_event_types.insert(event_filter.clone());
-                    }
-                }
-
-                break;
-            }
-        }
-
         }
 
         // Scroll nodes from programmatic callbacks
@@ -1043,7 +1273,8 @@ impl CallbacksOfHitTest {
 
         // Resolve the new focus target
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = ft.resolve(&layout_results, full_window_state.focused_node) {
+            if let Ok(new_focus_node) = ft.resolve(&layout_results, full_window_state.focused_node)
+            {
                 ret.update_focused_node = Some(new_focus_node);
             }
         }
@@ -1052,25 +1283,45 @@ impl CallbacksOfHitTest {
             ret.cursor_changed = true;
         }
 
-        if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
-        if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+        if !ret_timers.is_empty() {
+            ret.timers = Some(ret_timers);
+        }
+        if !ret_threads.is_empty() {
+            ret.threads = Some(ret_threads);
+        }
         if ret_modified_window_state != ret_modified_window_state_unmodified {
             ret.modified_window_state = Some(ret_modified_window_state);
         }
-        if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
-        if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
-        if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
-        if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
-        if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
-        if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
+        if !ret_threads_removed.is_empty() {
+            ret.threads_removed = Some(ret_threads_removed);
+        }
+        if !ret_timers_removed.is_empty() {
+            ret.timers_removed = Some(ret_timers_removed);
+        }
+        if !ret_words_changed.is_empty() {
+            ret.words_changed = Some(ret_words_changed);
+        }
+        if !ret_images_changed.is_empty() {
+            ret.images_changed = Some(ret_images_changed);
+        }
+        if !ret_image_masks_changed.is_empty() {
+            ret.image_masks_changed = Some(ret_image_masks_changed);
+        }
+        if !ret_css_properties_changed.is_empty() {
+            ret.css_properties_changed = Some(ret_css_properties_changed);
+        }
+        if !ret_nodes_scrolled_in_callbacks.is_empty() {
+            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+        }
 
         ret
     }
 }
 
-fn get_window_events(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Vec<WindowEventFilter> {
-
+fn get_window_events(
+    current_window_state: &FullWindowState,
+    previous_window_state: &Option<FullWindowState>,
+) -> Vec<WindowEventFilter> {
     use crate::window::CursorPosition::*;
     use crate::window::WindowPosition;
 
@@ -1083,24 +1334,27 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
 
     // match mouse move events first since they are the most common
 
-    match (previous_window_state.mouse_state.cursor_position, current_window_state.mouse_state.cursor_position) {
-        (InWindow(_), OutOfWindow(_)) |
-        (InWindow(_), Uninitialized) => {
+    match (
+        previous_window_state.mouse_state.cursor_position,
+        current_window_state.mouse_state.cursor_position,
+    ) {
+        (InWindow(_), OutOfWindow(_)) | (InWindow(_), Uninitialized) => {
             events.push(WindowEventFilter::MouseLeave);
-        },
-        (OutOfWindow(_), InWindow(_)) |
-        (Uninitialized, InWindow(_)) => {
+        }
+        (OutOfWindow(_), InWindow(_)) | (Uninitialized, InWindow(_)) => {
             events.push(WindowEventFilter::MouseEnter);
-        },
+        }
         (InWindow(a), InWindow(b)) => {
             if a != b {
                 events.push(WindowEventFilter::MouseOver);
             }
-        },
-        _ => { },
+        }
+        _ => {}
     }
 
-    if current_window_state.mouse_state.mouse_down() && !previous_window_state.mouse_state.mouse_down() {
+    if current_window_state.mouse_state.mouse_down()
+        && !previous_window_state.mouse_state.mouse_down()
+    {
         events.push(WindowEventFilter::MouseDown);
     }
 
@@ -1108,15 +1362,20 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         events.push(WindowEventFilter::LeftMouseDown);
     }
 
-    if current_window_state.mouse_state.right_down && !previous_window_state.mouse_state.right_down {
+    if current_window_state.mouse_state.right_down && !previous_window_state.mouse_state.right_down
+    {
         events.push(WindowEventFilter::RightMouseDown);
     }
 
-    if current_window_state.mouse_state.middle_down && !previous_window_state.mouse_state.middle_down {
+    if current_window_state.mouse_state.middle_down
+        && !previous_window_state.mouse_state.middle_down
+    {
         events.push(WindowEventFilter::MiddleMouseDown);
     }
 
-    if previous_window_state.mouse_state.mouse_down() && !current_window_state.mouse_state.mouse_down() {
+    if previous_window_state.mouse_state.mouse_down()
+        && !current_window_state.mouse_state.mouse_down()
+    {
         events.push(WindowEventFilter::MouseUp);
     }
 
@@ -1124,11 +1383,14 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         events.push(WindowEventFilter::LeftMouseUp);
     }
 
-    if previous_window_state.mouse_state.right_down && !current_window_state.mouse_state.right_down {
+    if previous_window_state.mouse_state.right_down && !current_window_state.mouse_state.right_down
+    {
         events.push(WindowEventFilter::RightMouseUp);
     }
 
-    if previous_window_state.mouse_state.middle_down && !current_window_state.mouse_state.middle_down {
+    if previous_window_state.mouse_state.middle_down
+        && !current_window_state.mouse_state.middle_down
+    {
         events.push(WindowEventFilter::MiddleMouseUp);
     }
 
@@ -1144,38 +1406,42 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         }
     }
 
-    if current_window_state.size.dimensions != previous_window_state.size.dimensions ||
-       current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor ||
-       current_window_state.size.system_hidpi_factor != previous_window_state.size.system_hidpi_factor {
+    if current_window_state.size.dimensions != previous_window_state.size.dimensions
+        || current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor
+        || current_window_state.size.system_hidpi_factor
+            != previous_window_state.size.system_hidpi_factor
+    {
         events.push(WindowEventFilter::Resized);
     }
 
-    match (current_window_state.position, previous_window_state.position) {
+    match (
+        current_window_state.position,
+        previous_window_state.position,
+    ) {
         (WindowPosition::Initialized(cur_pos), WindowPosition::Initialized(prev_pos)) => {
             if prev_pos != cur_pos {
                 events.push(WindowEventFilter::Moved);
             }
-        },
+        }
         (WindowPosition::Initialized(_), WindowPosition::Uninitialized) => {
             events.push(WindowEventFilter::Moved);
-        },
-        _ => { }
+        }
+        _ => {}
     }
 
-    let about_to_close_equals = current_window_state.flags.is_about_to_close == previous_window_state.flags.is_about_to_close;
+    let about_to_close_equals = current_window_state.flags.is_about_to_close
+        == previous_window_state.flags.is_about_to_close;
     if current_window_state.flags.is_about_to_close && !about_to_close_equals {
         events.push(WindowEventFilter::CloseRequested);
     }
 
     // scroll events
 
-    let is_scroll_previous =
-        previous_window_state.mouse_state.scroll_x.is_some() ||
-        previous_window_state.mouse_state.scroll_y.is_some();
+    let is_scroll_previous = previous_window_state.mouse_state.scroll_x.is_some()
+        || previous_window_state.mouse_state.scroll_y.is_some();
 
-    let is_scroll_now =
-        current_window_state.mouse_state.scroll_x.is_some() ||
-        current_window_state.mouse_state.scroll_y.is_some();
+    let is_scroll_now = current_window_state.mouse_state.scroll_x.is_some()
+        || current_window_state.mouse_state.scroll_y.is_some();
 
     if !is_scroll_previous && is_scroll_now {
         events.push(WindowEventFilter::ScrollStart);
@@ -1190,12 +1456,21 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
     }
 
     // keyboard events
-    let cur_vk_equal = current_window_state.keyboard_state.current_virtual_keycode == previous_window_state.keyboard_state.current_virtual_keycode;
-    let cur_char_equal = current_window_state.keyboard_state.current_char == previous_window_state.keyboard_state.current_char;
+    let cur_vk_equal = current_window_state.keyboard_state.current_virtual_keycode
+        == previous_window_state.keyboard_state.current_virtual_keycode;
+    let cur_char_equal = current_window_state.keyboard_state.current_char
+        == previous_window_state.keyboard_state.current_char;
 
-    if !cur_vk_equal &&
-        previous_window_state.keyboard_state.current_virtual_keycode.is_none() &&
-        current_window_state.keyboard_state.current_virtual_keycode.is_some() {
+    if !cur_vk_equal
+        && previous_window_state
+            .keyboard_state
+            .current_virtual_keycode
+            .is_none()
+        && current_window_state
+            .keyboard_state
+            .current_virtual_keycode
+            .is_some()
+    {
         events.push(WindowEventFilter::VirtualKeyDown);
     }
 
@@ -1203,16 +1478,27 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         events.push(WindowEventFilter::TextInput);
     }
 
-    if !cur_vk_equal &&
-        previous_window_state.keyboard_state.current_virtual_keycode.is_some() &&
-        current_window_state.keyboard_state.current_virtual_keycode.is_none() {
+    if !cur_vk_equal
+        && previous_window_state
+            .keyboard_state
+            .current_virtual_keycode
+            .is_some()
+        && current_window_state
+            .keyboard_state
+            .current_virtual_keycode
+            .is_none()
+    {
         events.push(WindowEventFilter::VirtualKeyUp);
     }
 
     // misc events
 
-    let hovered_file_equals = previous_window_state.hovered_file == current_window_state.hovered_file;
-    if previous_window_state.hovered_file.is_none() && current_window_state.hovered_file.is_some() && !hovered_file_equals {
+    let hovered_file_equals =
+        previous_window_state.hovered_file == current_window_state.hovered_file;
+    if previous_window_state.hovered_file.is_none()
+        && current_window_state.hovered_file.is_some()
+        && !hovered_file_equals
+    {
         events.push(WindowEventFilter::HoveredFile);
     }
 
@@ -1232,9 +1518,15 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
 }
 
 fn get_hover_events(input: &[WindowEventFilter]) -> Vec<HoverEventFilter> {
-    input.iter().filter_map(|window_event| window_event.to_hover_event_filter()).collect()
+    input
+        .iter()
+        .filter_map(|window_event| window_event.to_hover_event_filter())
+        .collect()
 }
 
 fn get_focus_events(input: &[HoverEventFilter]) -> Vec<FocusEventFilter> {
-    input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
+    input
+        .iter()
+        .filter_map(|hover_event| hover_event.to_focus_event_filter())
+        .collect()
 }

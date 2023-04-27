@@ -1,35 +1,38 @@
- #![allow(unused_macros)]
+
+#![allow(unused_macros)]
 
 /// Implements functions for `CallbackInfo` and `Info`,
 /// to prevent duplicating the functions
 #[macro_export]
-macro_rules! impl_task_api {() => (
-    /// Insert a timer into the list of active timers.
-    /// Replaces the existing timer if called with the same TimerId.
-    pub fn add_timer(&mut self, id: TimerId, timer: Timer) {
-        self.timers.insert(id, timer);
-    }
+macro_rules! impl_task_api {
+    () => {
+        /// Insert a timer into the list of active timers.
+        /// Replaces the existing timer if called with the same TimerId.
+        pub fn add_timer(&mut self, id: TimerId, timer: Timer) {
+            self.timers.insert(id, timer);
+        }
 
-    /// Returns if a timer with the given ID is currently running
-    pub fn has_timer(&self, timer_id: &TimerId) -> bool {
-        self.get_timer(timer_id).is_some()
-    }
+        /// Returns if a timer with the given ID is currently running
+        pub fn has_timer(&self, timer_id: &TimerId) -> bool {
+            self.get_timer(timer_id).is_some()
+        }
 
-    /// Returns a reference to an existing timer (if the `TimerId` is valid)
-    pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
-        self.timers.get(&timer_id)
-    }
+        /// Returns a reference to an existing timer (if the `TimerId` is valid)
+        pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
+            self.timers.get(&timer_id)
+        }
 
-    /// Deletes a timer and returns it (if the `TimerId` is valid)
-    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
-        self.timers.remove(timer_id)
-    }
+        /// Deletes a timer and returns it (if the `TimerId` is valid)
+        pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
+            self.timers.remove(timer_id)
+        }
 
-    /// Adds a (thread-safe) `Task` to the app that runs on a different thread
-    pub fn add_task(&mut self, task: Task) {
-        self.tasks.push(task);
-    }
-)}
+        /// Adds a (thread-safe) `Task` to the app that runs on a different thread
+        pub fn add_task(&mut self, task: Task) {
+            self.tasks.push(task);
+        }
+    };
+}
 
 /// Implement the `From` trait for any type.
 /// Example usage:
@@ -112,4 +115,3 @@ macro_rules! impl_display {
 
     };
 }
-

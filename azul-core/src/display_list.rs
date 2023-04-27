@@ -1,34 +1,30 @@
-use core::{
-    fmt,
-};
-use alloc::vec::Vec;
-use alloc::collections::btree_map::BTreeMap;
-use azul_css::{
-    LayoutPoint, LayoutSize, LayoutRect,
-    StyleBackgroundRepeat, StyleBackgroundPosition, ColorU,
-    LinearGradient, RadialGradient, ConicGradient, StyleBoxShadow, StyleBackgroundSize,
-    CssPropertyValue, BoxShadowClipMode, StyleMixBlendMode,
-
-    LayoutBorderTopWidth, LayoutBorderRightWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
-    StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
-    StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderBottomStyle, StyleBorderLeftStyle,
-    StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
-};
+use crate::gl::{OptionGlContextPtr, Texture};
 use crate::{
-    callbacks::{DocumentId, PipelineId, DomNodeId},
-    ui_solver::{ExternalScrollId, LayoutResult, PositionInfo, ComputedTransform3D},
-    window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
-        ImageCache, RendererResources, AddImageMsg, ImageDescriptor,
-        ImageKey, FontInstanceKey, PrimitiveFlags, GlTextureCache,
-        Epoch, ExternalImageId, GlyphOptions, LoadFontFn, ParseFontFn,
-        ResourceUpdate, IdNamespace, TransformKey, OpacityKey,
+        AddImageMsg, Epoch, ExternalImageId, FontInstanceKey, GlTextureCache, GlyphOptions,
+        IdNamespace, ImageCache, ImageDescriptor, ImageKey, LoadFontFn, OpacityKey, ParseFontFn,
+        PrimitiveFlags, RendererResources, ResourceUpdate, TransformKey,
     },
-    styled_dom::{DomId, NodeHierarchyItemId, StyledDom, ContentGroup},
+    callbacks::{DocumentId, DomNodeId, PipelineId},
+    dom::{ScrollTagId, TagId},
     id_tree::NodeId,
-    dom::{TagId, ScrollTagId},
+    styled_dom::{ContentGroup, DomId, NodeHierarchyItemId, StyledDom},
+    ui_solver::{ComputedTransform3D, ExternalScrollId, LayoutResult, PositionInfo},
+    window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
-use crate::gl::{Texture, OptionGlContextPtr};
+use alloc::collections::btree_map::BTreeMap;
+use alloc::vec::Vec;
+use azul_css::{
+    BoxShadowClipMode, ColorU, ConicGradient, CssPropertyValue, LayoutBorderBottomWidth,
+    LayoutBorderLeftWidth, LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutPoint, LayoutRect,
+    LayoutSize, LinearGradient, RadialGradient, StyleBackgroundPosition, StyleBackgroundRepeat,
+    StyleBackgroundSize, StyleBorderBottomColor, StyleBorderBottomLeftRadius,
+    StyleBorderBottomRightRadius, StyleBorderBottomStyle, StyleBorderLeftColor,
+    StyleBorderLeftStyle, StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+    StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleBoxShadow,
+    StyleMixBlendMode,
+};
+use core::fmt;
 use rust_fontconfig::FcFontCache;
 
 pub type GlyphIndex = u32;
@@ -56,7 +52,10 @@ pub struct CachedDisplayList {
 impl CachedDisplayList {
     pub fn empty() -> Self {
         Self {
-            root: DisplayListMsg::Frame(DisplayListFrame::root(LayoutSize::zero(), LayoutPoint::zero())),
+            root: DisplayListMsg::Frame(DisplayListFrame::root(
+                LayoutSize::zero(),
+                LayoutPoint::zero(),
+            )),
             root_size: LogicalSize::zero(),
         }
     }
@@ -71,7 +70,6 @@ pub enum DisplayListMsg {
 }
 
 impl DisplayListMsg {
-
     pub fn get_transform_key(&self) -> Option<&(TransformKey, ComputedTransform3D)> {
         use self::DisplayListMsg::*;
         match self {
@@ -95,7 +93,11 @@ impl DisplayListMsg {
         use self::DisplayListMsg::*;
         match self {
             Frame(f) => f.children.iter().any(|f| f.get_mix_blend_mode().is_some()),
-            ScrollFrame(sf) => sf.frame.children.iter().any(|f| f.get_mix_blend_mode().is_some()),
+            ScrollFrame(sf) => sf
+                .frame
+                .children
+                .iter()
+                .any(|f| f.get_mix_blend_mode().is_some()),
             IFrame(_, _, _, _) => false,
         }
     }
@@ -131,8 +133,8 @@ impl DisplayListMsg {
     pub fn is_content_empty(&self) -> bool {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => { f.content.is_empty() },
-            ScrollFrame(sf) => { sf.frame.content.is_empty() },
+            Frame(f) => f.content.is_empty(),
+            ScrollFrame(sf) => sf.frame.content.is_empty(),
             IFrame(_, _, _, _) => false,
         }
     }
@@ -140,8 +142,8 @@ impl DisplayListMsg {
     pub fn has_no_children(&self) -> bool {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => { f.children.is_empty() },
-            ScrollFrame(sf) => { sf.frame.children.is_empty() },
+            Frame(f) => f.children.is_empty(),
+            ScrollFrame(sf) => sf.frame.children.is_empty(),
             IFrame(_, _, _, _) => false,
         }
     }
@@ -149,27 +151,39 @@ impl DisplayListMsg {
     pub fn push_content(&mut self, content: LayoutRectContent) {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => { f.content.push(content); },
-            ScrollFrame(sf) => { sf.frame.content.push(content); },
-            IFrame(_, _, _, _) => { } // invalid
+            Frame(f) => {
+                f.content.push(content);
+            }
+            ScrollFrame(sf) => {
+                sf.frame.content.push(content);
+            }
+            IFrame(_, _, _, _) => {} // invalid
         }
     }
 
     pub fn append_child(&mut self, child: Self) {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => { f.children.push(child); },
-            ScrollFrame(sf) => { sf.frame.children.push(child); },
-            IFrame(_, _, _, _) => { } // invalid
+            Frame(f) => {
+                f.children.push(child);
+            }
+            ScrollFrame(sf) => {
+                sf.frame.children.push(child);
+            }
+            IFrame(_, _, _, _) => {} // invalid
         }
     }
 
     pub fn append_children(&mut self, mut children: Vec<Self>) {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => { f.children.append(&mut children); },
-            ScrollFrame(sf) => { sf.frame.children.append(&mut children); },
-            IFrame(_, _, _, _) => { } // invalid
+            Frame(f) => {
+                f.children.append(&mut children);
+            }
+            ScrollFrame(sf) => {
+                sf.frame.children.append(&mut children);
+            }
+            IFrame(_, _, _, _) => {} // invalid
         }
     }
 
@@ -206,7 +220,11 @@ impl fmt::Debug for DisplayListScrollFrame {
         write!(f, "    scroll_tag: {}\r\n", self.scroll_tag)?;
         write!(f, "    frame: DisplayListFrame {{\r\n")?;
         let frame = format!("{:#?}", self.frame);
-        let frame = frame.lines().map(|l| format!("        {}", l)).collect::<Vec<_>>().join("\r\n");
+        let frame = frame
+            .lines()
+            .map(|l| format!("        {}", l))
+            .collect::<Vec<_>>()
+            .join("\r\n");
         write!(f, "{}\r\n", frame)?;
         write!(f, "    }}\r\n")?;
         write!(f, "}}")?;
@@ -235,13 +253,18 @@ pub struct DisplayListFrame {
 
 impl fmt::Debug for DisplayListFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let print_no_comma_rect =
-            !self.border_radius.is_none() ||
-            self.tag.is_some() ||
-            !self.content.is_empty() ||
-            !self.children.is_empty();
+        let print_no_comma_rect = !self.border_radius.is_none()
+            || self.tag.is_some()
+            || !self.content.is_empty()
+            || !self.children.is_empty();
 
-        write!(f, "rect: {:#?} @ {:?}{}", self.size, self.position, if !print_no_comma_rect { "" } else { "," })?;
+        write!(
+            f,
+            "rect: {:#?} @ {:?}{}",
+            self.size,
+            self.position,
+            if !print_no_comma_rect { "" } else { "," }
+        )?;
 
         if !self.border_radius.is_none() {
             write!(f, "\r\nborder_radius: {:#?}", self.border_radius)?;
@@ -272,7 +295,7 @@ impl DisplayListFrame {
                 x_offset: root_origin.x as f32,
                 y_offset: root_origin.y as f32,
                 static_x_offset: root_origin.x as f32,
-                static_y_offset: root_origin.y as f32
+                static_y_offset: root_origin.y as f32,
             }),
             flags: PrimitiveFlags {
                 is_backface_visible: true,
@@ -315,10 +338,10 @@ pub struct StyleBorderRadius {
 
 impl StyleBorderRadius {
     pub fn is_none(&self) -> bool {
-        self.top_left.is_none() &&
-        self.top_right.is_none() &&
-        self.bottom_left.is_none() &&
-        self.bottom_right.is_none()
+        self.top_left.is_none()
+            && self.top_right.is_none()
+            && self.bottom_left.is_none()
+            && self.bottom_right.is_none()
     }
 }
 impl fmt::Debug for StyleBorderRadius {
@@ -340,26 +363,28 @@ impl fmt::Debug for StyleBorderRadius {
     }
 }
 
-macro_rules! tlbr_debug {($struct_name:ident) => (
-    impl fmt::Debug for $struct_name {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{} {{", stringify!($struct_name))?;
-            if let Some(t) = &self.top {
-                write!(f, "\r\n\ttop: {:?},", t)?;
+macro_rules! tlbr_debug {
+    ($struct_name:ident) => {
+        impl fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{} {{", stringify!($struct_name))?;
+                if let Some(t) = &self.top {
+                    write!(f, "\r\n\ttop: {:?},", t)?;
+                }
+                if let Some(r) = &self.right {
+                    write!(f, "\r\n\tright: {:?},", r)?;
+                }
+                if let Some(b) = &self.bottom {
+                    write!(f, "\r\n\tbottom: {:?},", b)?;
+                }
+                if let Some(l) = &self.left {
+                    write!(f, "\r\n\tleft: {:?},", l)?;
+                }
+                write!(f, "\r\n}}")
             }
-            if let Some(r) = &self.right {
-                write!(f, "\r\n\tright: {:?},", r)?;
-            }
-            if let Some(b) = &self.bottom {
-                write!(f, "\r\n\tbottom: {:?},", b)?;
-            }
-            if let Some(l) = &self.left {
-                write!(f, "\r\n\tleft: {:?},", l)?;
-            }
-            write!(f, "\r\n}}")
         }
-    }
-)}
+    };
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StyleBorderWidths {
@@ -370,25 +395,44 @@ pub struct StyleBorderWidths {
 }
 
 impl StyleBorderWidths {
-
     #[inline]
     pub fn left_width(&self) -> f32 {
-        self.left.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
+        self.left
+            .unwrap_or_default()
+            .get_property_owned()
+            .unwrap_or_default()
+            .inner
+            .to_pixels(0.0)
     }
 
     #[inline]
     pub fn right_width(&self) -> f32 {
-        self.right.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
+        self.right
+            .unwrap_or_default()
+            .get_property_owned()
+            .unwrap_or_default()
+            .inner
+            .to_pixels(0.0)
     }
 
     #[inline]
     pub fn top_width(&self) -> f32 {
-        self.top.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
+        self.top
+            .unwrap_or_default()
+            .get_property_owned()
+            .unwrap_or_default()
+            .inner
+            .to_pixels(0.0)
     }
 
     #[inline]
     pub fn bottom_width(&self) -> f32 {
-        self.bottom.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
+        self.bottom
+            .unwrap_or_default()
+            .get_property_owned()
+            .unwrap_or_default()
+            .inner
+            .to_pixels(0.0)
     }
 
     #[inline]
@@ -470,9 +514,21 @@ impl fmt::Debug for LayoutRectContent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::LayoutRectContent::*;
         match self {
-            Text { glyphs, font_instance_key, color, glyph_options, overflow, text_shadow } => {
-                let glyphs_str = glyphs.iter().map(|g| format!("        {:?}", g)).collect::<Vec<_>>().join(",\r\n");
-                write!(f,
+            Text {
+                glyphs,
+                font_instance_key,
+                color,
+                glyph_options,
+                overflow,
+                text_shadow,
+            } => {
+                let glyphs_str = glyphs
+                    .iter()
+                    .map(|g| format!("        {:?}", g))
+                    .collect::<Vec<_>>()
+                    .join(",\r\n");
+                write!(
+                    f,
                     "Text {{\r\n\
                        .    glyphs: [\r\n{}\r\n],\r\n\
                        .    font_instance_key: {:?},\r\n\
@@ -483,17 +539,30 @@ impl fmt::Debug for LayoutRectContent {
                     }}",
                     glyphs_str, font_instance_key.key, color, glyph_options, overflow, text_shadow
                 )
-            },
-            Background { content, size, offset, repeat } => {
+            }
+            Background {
+                content,
+                size,
+                offset,
+                repeat,
+            } => {
                 write!(f, "Background {{\r\n")?;
                 write!(f, "    content: {:?},\r\n", content)?;
                 write!(f, "    size: {:?},\r\n", size)?;
                 write!(f, "    offset: {:?},\r\n", offset)?;
                 write!(f, "    repeat: {:?},\r\n", repeat)?;
                 write!(f, "}}")
-            },
-            Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-                write!(f,
+            }
+            Image {
+                size,
+                offset,
+                image_rendering,
+                alpha_type,
+                image_key,
+                background_color,
+            } => {
+                write!(
+                    f,
                     "Image {{\r\n\
                         size: {:?},\r\n\
                         offset: {:?},\r\n\
@@ -504,9 +573,14 @@ impl fmt::Debug for LayoutRectContent {
                     }}",
                     size, offset, image_rendering, alpha_type, image_key, background_color
                 )
-            },
-            Border { widths, colors, styles, } => {
-                write!(f,
+            }
+            Border {
+                widths,
+                colors,
+                styles,
+            } => {
+                write!(
+                    f,
                     "Border {{\r\n\
                         widths: {:?},\r\n\
                         colors: {:?},\r\n\
@@ -581,7 +655,18 @@ pub struct DisplayListParametersRef<'a> {
 }
 
 // todo: very unclean
-pub type LayoutFn = fn(StyledDom, &ImageCache, &FcFontCache, &mut RendererResources, &mut Vec<ResourceUpdate>, IdNamespace, &DocumentId, Epoch, &RenderCallbacks, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn = fn(
+    StyledDom,
+    &ImageCache,
+    &FcFontCache,
+    &mut RendererResources,
+    &mut Vec<ResourceUpdate>,
+    IdNamespace,
+    &DocumentId,
+    Epoch,
+    &RenderCallbacks,
+    &FullWindowState,
+) -> Vec<LayoutResult>;
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Debug, Default)]
@@ -598,7 +683,6 @@ pub struct RenderCallbacks {
 }
 
 impl SolvedLayout {
-
     /// Does the layout, updates the image + font resources for the RenderAPI
     #[cfg(feature = "multithreading")]
     pub fn new(
@@ -625,7 +709,7 @@ impl SolvedLayout {
                 epoch,
                 callbacks,
                 &full_window_state,
-            )
+            ),
         }
     }
 }
@@ -635,7 +719,6 @@ pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
 ) -> Option<DisplayListMsg> {
-
     use rayon::prelude::*;
 
     let mut content = displaylist_handle_rect(
@@ -643,14 +726,12 @@ pub fn push_rectangles_into_displaylist<'a>(
         referenced_content,
     )?;
 
-    let children = root_content_group.children
+    let children = root_content_group
+        .children
         .as_ref()
         .par_iter()
         .filter_map(|child_content_group| {
-            push_rectangles_into_displaylist(
-                child_content_group,
-                referenced_content,
-            )
+            push_rectangles_into_displaylist(child_content_group, referenced_content)
         })
         .collect();
 
@@ -665,10 +746,9 @@ pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,
 ) -> Option<DisplayListMsg> {
-
+    use crate::app_resources::ResolvedImage;
     use crate::dom::NodeType::*;
     use crate::styled_dom::AzTagId;
-    use crate::app_resources::ResolvedImage;
     use azul_css::LayoutDisplay;
 
     let DisplayListParametersRef {
@@ -686,9 +766,11 @@ pub fn displaylist_handle_rect<'a>(
     let html_node = &layout_result.styled_dom.node_data.as_container()[rect_idx];
 
     let tag_id = styled_node.tag_id.into_option().or({
-        layout_result.scrollable_nodes.overflowing_nodes
-        .get(&NodeHierarchyItemId::from_crate_internal(Some(rect_idx)))
-        .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
+        layout_result
+            .scrollable_nodes
+            .overflowing_nodes
+            .get(&NodeHierarchyItemId::from_crate_internal(Some(rect_idx)))
+            .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
     });
 
     let clip_mask = html_node.get_clip_mask().and_then(|m| {
@@ -704,35 +786,53 @@ pub fn displaylist_handle_rect<'a>(
     // do not push display:none items in any way
     //
     // TODO: this currently operates on the visual order, not on the DOM order!
-    let display = layout_result.styled_dom.get_css_property_cache()
+    let display = layout_result
+        .styled_dom
+        .get_css_property_cache()
         .get_display(&html_node, &rect_idx, &styled_node.state)
         .cloned()
         .unwrap_or_default();
 
-    if display == CssPropertyValue::None ||
-       display == CssPropertyValue::Exact(LayoutDisplay::None) {
+    if display == CssPropertyValue::None || display == CssPropertyValue::Exact(LayoutDisplay::None)
+    {
         return None;
     }
 
-    let overflow_horizontal_hidden = layout_result.styled_dom.get_css_property_cache()
-    .is_horizontal_overflow_hidden(&html_node, &rect_idx, &styled_node.state);
-    let overflow_vertical_hidden = layout_result.styled_dom.get_css_property_cache()
-    .is_vertical_overflow_hidden(&html_node, &rect_idx, &styled_node.state);
+    let overflow_horizontal_hidden = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .is_horizontal_overflow_hidden(&html_node, &rect_idx, &styled_node.state);
+    let overflow_vertical_hidden = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .is_vertical_overflow_hidden(&html_node, &rect_idx, &styled_node.state);
 
-    let overflow_horizontal_visible = layout_result.styled_dom.get_css_property_cache()
-    .is_horizontal_overflow_visible(&html_node, &rect_idx, &styled_node.state);
-    let overflow_vertical_visible = layout_result.styled_dom.get_css_property_cache()
-    .is_vertical_overflow_visible(&html_node, &rect_idx, &styled_node.state);
+    let overflow_horizontal_visible = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .is_horizontal_overflow_visible(&html_node, &rect_idx, &styled_node.state);
+    let overflow_vertical_visible = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .is_vertical_overflow_visible(&html_node, &rect_idx, &styled_node.state);
 
-    let mix_blend_mode = layout_result.styled_dom.get_css_property_cache()
-    .get_mix_blend_mode(&html_node, &rect_idx, &styled_node.state)
-    .and_then(|p| p.get_property()).cloned();
+    let mix_blend_mode = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_mix_blend_mode(&html_node, &rect_idx, &styled_node.state)
+        .and_then(|p| p.get_property())
+        .cloned();
 
     let mut frame = DisplayListFrame {
         tag: tag_id.map(|t| t.into_crate_internal()),
         size: positioned_rect.size,
         mix_blend_mode,
-        clip_children: match layout_result.scrollable_nodes.clip_nodes.get(&rect_idx).copied() {
+        clip_children: match layout_result
+            .scrollable_nodes
+            .clip_nodes
+            .get(&rect_idx)
+            .copied()
+        {
             Some(s) => {
                 // never clip children if overflow:visible is set!
                 if overflow_horizontal_visible && overflow_vertical_visible {
@@ -740,7 +840,7 @@ pub fn displaylist_handle_rect<'a>(
                 } else {
                     Some(s)
                 }
-            },
+            }
             None => {
                 // if the frame has overflow:hidden set, clip the
                 // children to the current frames extents
@@ -753,14 +853,26 @@ pub fn displaylist_handle_rect<'a>(
         },
         position: positioned_rect.position.clone(),
         border_radius: StyleBorderRadius {
-            top_left: layout_result.styled_dom.get_css_property_cache()
-                .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
-            top_right: layout_result.styled_dom.get_css_property_cache()
-                .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
-            bottom_left: layout_result.styled_dom.get_css_property_cache()
-                .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
-            bottom_right: layout_result.styled_dom.get_css_property_cache()
-                .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state).cloned(),
+            top_left: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_top_left_radius(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            top_right: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_top_right_radius(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            bottom_left: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_bottom_left_radius(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
+            bottom_right: layout_result
+                .styled_dom
+                .get_css_property_cache()
+                .get_border_bottom_right_radius(&html_node, &rect_idx, &styled_node.state)
+                .cloned(),
         },
         flags: PrimitiveFlags {
             is_backface_visible: false, // TODO!
@@ -772,29 +884,72 @@ pub fn displaylist_handle_rect<'a>(
         content: Vec::new(),
         children: Vec::new(),
         box_shadow: None,
-        transform: layout_result.gpu_value_cache.transform_keys
+        transform: layout_result
+            .gpu_value_cache
+            .transform_keys
             .get(&rect_idx)
-            .and_then(|key| Some((*key, layout_result.gpu_value_cache.current_transform_values.get(&rect_idx).cloned()?))),
-        opacity: layout_result.gpu_value_cache.opacity_keys
+            .and_then(|key| {
+                Some((
+                    *key,
+                    layout_result
+                        .gpu_value_cache
+                        .current_transform_values
+                        .get(&rect_idx)
+                        .cloned()?,
+                ))
+            }),
+        opacity: layout_result
+            .gpu_value_cache
+            .opacity_keys
             .get(&rect_idx)
-            .and_then(|key| Some((*key, layout_result.gpu_value_cache.current_opacity_values.get(&rect_idx).cloned()?))),
+            .and_then(|key| {
+                Some((
+                    *key,
+                    layout_result
+                        .gpu_value_cache
+                        .current_opacity_values
+                        .get(&rect_idx)
+                        .cloned()?,
+                ))
+            }),
         clip_mask,
     };
 
     // push box shadow
-    let box_shadow_left = layout_result.styled_dom.get_css_property_cache().get_box_shadow_left(&html_node, &rect_idx, &styled_node.state);
-    let box_shadow_right = layout_result.styled_dom.get_css_property_cache().get_box_shadow_right(&html_node, &rect_idx, &styled_node.state);
-    let box_shadow_top = layout_result.styled_dom.get_css_property_cache().get_box_shadow_top(&html_node, &rect_idx, &styled_node.state);
-    let box_shadow_bottom = layout_result.styled_dom.get_css_property_cache().get_box_shadow_bottom(&html_node, &rect_idx, &styled_node.state);
+    let box_shadow_left = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_box_shadow_left(&html_node, &rect_idx, &styled_node.state);
+    let box_shadow_right = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_box_shadow_right(&html_node, &rect_idx, &styled_node.state);
+    let box_shadow_top = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_box_shadow_top(&html_node, &rect_idx, &styled_node.state);
+    let box_shadow_bottom = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_box_shadow_bottom(&html_node, &rect_idx, &styled_node.state);
 
-    let box_shadows = [&box_shadow_left, &box_shadow_right, &box_shadow_top, &box_shadow_bottom];
+    let box_shadows = [
+        &box_shadow_left,
+        &box_shadow_right,
+        &box_shadow_top,
+        &box_shadow_bottom,
+    ];
 
     let box_shadow = if box_shadows.iter().all(|b| b.is_some()) {
         let mut clip_mode = None;
 
-        if box_shadows.iter().all(|b| b.and_then(|b| b.get_property().map(|p| p.clip_mode)) == Some(BoxShadowClipMode::Outset)) {
+        if box_shadows.iter().all(|b| {
+            b.and_then(|b| b.get_property().map(|p| p.clip_mode)) == Some(BoxShadowClipMode::Outset)
+        }) {
             clip_mode = Some(BoxShadowClipMode::Outset);
-        } else if box_shadows.iter().all(|b| b.and_then(|b| b.get_property().map(|p| p.clip_mode)) == Some(BoxShadowClipMode::Inset)) {
+        } else if box_shadows.iter().all(|b| {
+            b.and_then(|b| b.get_property().map(|p| p.clip_mode)) == Some(BoxShadowClipMode::Inset)
+        }) {
             clip_mode = Some(BoxShadowClipMode::Inset);
         }
 
@@ -812,29 +967,49 @@ pub fn displaylist_handle_rect<'a>(
     frame.box_shadow = box_shadow;
 
     // push background
-    let bg_opt = layout_result.styled_dom.get_css_property_cache()
-    .get_background_content(&html_node, &rect_idx, &styled_node.state);
+    let bg_opt = layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .get_background_content(&html_node, &rect_idx, &styled_node.state);
 
     if let Some(bg) = bg_opt.as_ref().and_then(|br| br.get_property()) {
-
-        use azul_css::{StyleBackgroundSizeVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec};
+        use azul_css::{
+            StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec,
+        };
 
         let default_bg_size_vec: StyleBackgroundSizeVec = Vec::new().into();
         let default_bg_position_vec: StyleBackgroundPositionVec = Vec::new().into();
         let default_bg_repeat_vec: StyleBackgroundRepeatVec = Vec::new().into();
 
-        let bg_sizes_opt = layout_result.styled_dom.get_css_property_cache().get_background_size(&html_node, &rect_idx, &styled_node.state);
-        let bg_positions_opt = layout_result.styled_dom.get_css_property_cache().get_background_position(&html_node, &rect_idx, &styled_node.state);
-        let bg_repeats_opt = layout_result.styled_dom.get_css_property_cache().get_background_repeat(&html_node, &rect_idx, &styled_node.state);
+        let bg_sizes_opt = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_background_size(&html_node, &rect_idx, &styled_node.state);
+        let bg_positions_opt = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_background_position(&html_node, &rect_idx, &styled_node.state);
+        let bg_repeats_opt = layout_result
+            .styled_dom
+            .get_css_property_cache()
+            .get_background_repeat(&html_node, &rect_idx, &styled_node.state);
 
-        let bg_sizes = bg_sizes_opt.as_ref().and_then(|p| p.get_property()).unwrap_or(&default_bg_size_vec);
-        let bg_positions = bg_positions_opt.as_ref().and_then(|p| p.get_property()).unwrap_or(&default_bg_position_vec);
-        let bg_repeats = bg_repeats_opt.as_ref().and_then(|p| p.get_property()).unwrap_or(&default_bg_repeat_vec);
+        let bg_sizes = bg_sizes_opt
+            .as_ref()
+            .and_then(|p| p.get_property())
+            .unwrap_or(&default_bg_size_vec);
+        let bg_positions = bg_positions_opt
+            .as_ref()
+            .and_then(|p| p.get_property())
+            .unwrap_or(&default_bg_position_vec);
+        let bg_repeats = bg_repeats_opt
+            .as_ref()
+            .and_then(|p| p.get_property())
+            .unwrap_or(&default_bg_repeat_vec);
 
         for (bg_index, bg) in bg.iter().enumerate() {
-
-            use azul_css::StyleBackgroundContent::*;
             use azul_css::AzString;
+            use azul_css::StyleBackgroundContent::*;
 
             fn get_image_background_key(
                 renderer_resources: &RendererResources,
@@ -843,7 +1018,8 @@ pub fn displaylist_handle_rect<'a>(
             ) -> Option<(ImageKey, ImageDescriptor)> {
                 let image_ref = image_cache.get_css_image_id(background_image_id)?;
                 let image_ref_hash = image_ref.get_hash();
-                let ResolvedImage { key, descriptor } = renderer_resources.get_image(&image_ref_hash)?;
+                let ResolvedImage { key, descriptor } =
+                    renderer_resources.get_image(&image_ref_hash)?;
                 Some((*key, descriptor.clone()))
             }
 
@@ -851,7 +1027,8 @@ pub fn displaylist_handle_rect<'a>(
                 LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
                 RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
                 ConicGradient(cg) => Some(RectBackground::ConicGradient(cg.clone())),
-                Image(i) => get_image_background_key(&renderer_resources, &image_cache, i).map(RectBackground::Image),
+                Image(i) => get_image_background_key(&renderer_resources, &image_cache, i)
+                    .map(RectBackground::Image),
                 Color(c) => Some(RectBackground::Color(*c)),
             };
 
@@ -871,35 +1048,46 @@ pub fn displaylist_handle_rect<'a>(
     }
 
     match html_node.get_node_type() {
-        Div | Body | Br => { },
+        Div | Body | Br => {}
         Text(_) => {
-
             use crate::app_resources::get_inline_text;
 
             // compute the layouted glyphs here, this way it's easier
             // to reflow text since there is no cache that needs to be updated
             //
             // if the text is reflowed, the display list needs to update anyway
-            if let (Some(words), Some(shaped_words), Some(word_positions), Some((_, inline_text_layout))) = (
+            if let (
+                Some(words),
+                Some(shaped_words),
+                Some(word_positions),
+                Some((_, inline_text_layout)),
+            ) = (
                 layout_result.words_cache.get(&rect_idx),
                 layout_result.shaped_words_cache.get(&rect_idx),
                 layout_result.positioned_words_cache.get(&rect_idx),
                 positioned_rect.resolved_text_layout_options.as_ref(),
             ) {
-
-                let inline_text = get_inline_text(&words, &shaped_words, &word_positions.0, &inline_text_layout);
+                let inline_text = get_inline_text(
+                    &words,
+                    &shaped_words,
+                    &word_positions.0,
+                    &inline_text_layout,
+                );
                 let layouted_glyphs = inline_text.get_layouted_glyphs();
 
                 if !layouted_glyphs.glyphs.is_empty() {
-
                     let font_instance_key = word_positions.1;
-                    let text_color = layout_result.styled_dom.get_css_property_cache()
-                    .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
+                    let text_color = layout_result
+                        .styled_dom
+                        .get_css_property_cache()
+                        .get_text_color_or_default(&html_node, &rect_idx, &styled_node.state);
 
-                    let text_shadow = layout_result.styled_dom.get_css_property_cache()
-                    .get_text_shadow(&html_node, &rect_idx, &styled_node.state)
-                    .and_then(|p| p.get_property())
-                    .cloned();
+                    let text_shadow = layout_result
+                        .styled_dom
+                        .get_css_property_cache()
+                        .get_text_shadow(&html_node, &rect_idx, &styled_node.state)
+                        .and_then(|p| p.get_property())
+                        .cloned();
 
                     frame.content.push(LayoutRectContent::Text {
                         text_shadow,
@@ -911,7 +1099,7 @@ pub fn displaylist_handle_rect<'a>(
                     });
                 }
             }
-        },
+        }
         Image(image_ref) => {
             use crate::app_resources::DecodedImage;
 
@@ -919,18 +1107,18 @@ pub fn displaylist_handle_rect<'a>(
             let image_size = image_ref.get_size();
 
             match image_ref.get_data() {
-                DecodedImage::NullImage { .. } => {
-                    frame.content.push(LayoutRectContent::Image {
-                        size: image_size,
-                        offset: LogicalPosition::zero(),
-                        image_rendering: ImageRendering::Auto,
-                        alpha_type: AlphaType::Alpha,
-                        image_key: ImageKey::DUMMY,
-                        background_color: ColorU::WHITE,
-                    })
-                },
+                DecodedImage::NullImage { .. } => frame.content.push(LayoutRectContent::Image {
+                    size: image_size,
+                    offset: LogicalPosition::zero(),
+                    image_rendering: ImageRendering::Auto,
+                    alpha_type: AlphaType::Alpha,
+                    image_key: ImageKey::DUMMY,
+                    background_color: ColorU::WHITE,
+                }),
                 DecodedImage::Gl(_) | DecodedImage::Raw(_) => {
-                    if let Some(ResolvedImage { key, .. }) = renderer_resources.get_image(&image_hash) {
+                    if let Some(ResolvedImage { key, .. }) =
+                        renderer_resources.get_image(&image_hash)
+                    {
                         frame.content.push(LayoutRectContent::Image {
                             size: image_size,
                             offset: LogicalPosition::zero(),
@@ -940,11 +1128,18 @@ pub fn displaylist_handle_rect<'a>(
                             background_color: ColorU::WHITE,
                         });
                     }
-                },
+                }
                 DecodedImage::Callback(_) => {
-                    if let Some((key, descriptor, _)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
+                    if let Some((key, descriptor, _)) = gl_texture_cache
+                        .solved_textures
+                        .get(&dom_id)
+                        .and_then(|textures| textures.get(&rect_idx))
+                    {
                         frame.content.push(LayoutRectContent::Image {
-                            size: LogicalSize::new(descriptor.width as f32, descriptor.height as f32),
+                            size: LogicalSize::new(
+                                descriptor.width as f32,
+                                descriptor.height as f32,
+                            ),
                             offset: LogicalPosition::zero(),
                             image_rendering: ImageRendering::Auto,
                             alpha_type: AlphaType::Alpha,
@@ -952,14 +1147,26 @@ pub fn displaylist_handle_rect<'a>(
                             background_color: ColorU::WHITE,
                         })
                     }
-                },
+                }
             }
-        },
+        }
         IFrame(_) => {
-            if let Some(iframe_dom_id) = layout_result.iframe_mapping.iter()
-            .find_map(|(node_id, dom_id)| if *node_id == rect_idx { Some(*dom_id) } else { None }) {
-
-                let iframe_pipeline_id = PipelineId(iframe_dom_id.inner.max(core::u32::MAX as usize) as u32, referenced_content.document_id.id);
+            if let Some(iframe_dom_id) =
+                layout_result
+                    .iframe_mapping
+                    .iter()
+                    .find_map(|(node_id, dom_id)| {
+                        if *node_id == rect_idx {
+                            Some(*dom_id)
+                        } else {
+                            None
+                        }
+                    })
+            {
+                let iframe_pipeline_id = PipelineId(
+                    iframe_dom_id.inner.max(core::u32::MAX as usize) as u32,
+                    referenced_content.document_id.id,
+                );
                 let cached_display_list = LayoutResult::get_cached_display_list(
                     referenced_content.document_id,
                     iframe_dom_id, // <- important, otherwise it would recurse infinitely
@@ -975,45 +1182,99 @@ pub fn displaylist_handle_rect<'a>(
                     iframe_pipeline_id,
                     iframe_clip_size,
                     referenced_content.epoch,
-                    Box::new(cached_display_list))
-                );
+                    Box::new(cached_display_list),
+                ));
             }
-        },
+        }
     };
 
-    if layout_result.styled_dom.get_css_property_cache().has_border(&html_node, &rect_idx, &styled_node.state) {
+    if layout_result
+        .styled_dom
+        .get_css_property_cache()
+        .has_border(&html_node, &rect_idx, &styled_node.state)
+    {
         frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_width(&html_node, &rect_idx, &styled_node.state).cloned(),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_width(&html_node, &rect_idx, &styled_node.state).cloned(),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_width(&html_node, &rect_idx, &styled_node.state).cloned(),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_width(&html_node, &rect_idx, &styled_node.state).cloned(),
+                top: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_top_width(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                left: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_left_width(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                bottom: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_bottom_width(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                right: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_right_width(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
             },
             colors: StyleBorderColors {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_color(&html_node, &rect_idx, &styled_node.state).cloned(),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_color(&html_node, &rect_idx, &styled_node.state).cloned(),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_color(&html_node, &rect_idx, &styled_node.state).cloned(),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_color(&html_node, &rect_idx, &styled_node.state).cloned(),
+                top: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_top_color(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                left: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_left_color(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                bottom: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_bottom_color(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                right: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_right_color(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
             },
             styles: StyleBorderStyles {
-                top: layout_result.styled_dom.get_css_property_cache().get_border_top_style(&html_node, &rect_idx, &styled_node.state).cloned(),
-                left: layout_result.styled_dom.get_css_property_cache().get_border_left_style(&html_node, &rect_idx, &styled_node.state).cloned(),
-                bottom: layout_result.styled_dom.get_css_property_cache().get_border_bottom_style(&html_node, &rect_idx, &styled_node.state).cloned(),
-                right: layout_result.styled_dom.get_css_property_cache().get_border_right_style(&html_node, &rect_idx, &styled_node.state).cloned(),
+                top: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_top_style(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                left: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_left_style(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                bottom: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_bottom_style(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
+                right: layout_result
+                    .styled_dom
+                    .get_css_property_cache()
+                    .get_border_right_style(&html_node, &rect_idx, &styled_node.state)
+                    .cloned(),
             },
         });
     }
 
-    match layout_result.scrollable_nodes.overflowing_nodes.get(&NodeHierarchyItemId::from_crate_internal(Some(rect_idx))) {
-        Some(scroll_node) => {
-            Some(DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
-                parent_rect: scroll_node.parent_rect,
-                content_rect: scroll_node.child_rect,
-                scroll_id: scroll_node.parent_external_scroll_id,
-                scroll_tag: scroll_node.scroll_tag_id,
-                frame,
-            }))
-        },
+    match layout_result
+        .scrollable_nodes
+        .overflowing_nodes
+        .get(&NodeHierarchyItemId::from_crate_internal(Some(rect_idx)))
+    {
+        Some(scroll_node) => Some(DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
+            parent_rect: scroll_node.parent_rect,
+            content_rect: scroll_node.child_rect,
+            scroll_id: scroll_node.parent_external_scroll_id,
+            scroll_tag: scroll_node.scroll_tag_id,
+            frame,
+        })),
         None => Some(DisplayListMsg::Frame(frame)),
     }
 }

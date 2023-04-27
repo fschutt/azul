@@ -1,23 +1,19 @@
 //! SVG rendering module
 
+use crate::xml::XmlError;
 use crate::{
     gl::{
-        VertexLayout, Texture, GlContextPtr, IndexBufferFormat,
-        VertexLayoutDescription, VertexAttribute,
-        VertexAttributeType, VertexBuffer,
+        GlContextPtr, IndexBufferFormat, Texture, VertexAttribute, VertexAttributeType,
+        VertexBuffer, VertexLayout, VertexLayoutDescription,
     },
     ui_solver::{ComputedTransform3D, RotationMode},
     window::PhysicalSizeU32,
 };
 use alloc::string::String;
-use azul_css::{
-    StyleTransformOrigin, U32Vec,
-    StyleTransformVec, ColorU, ColorF,
-};
+use azul_css::{AzString, OptionAzString, OptionColorU, OptionLayoutSize, StringVec};
+use azul_css::{ColorF, ColorU, StyleTransformOrigin, StyleTransformVec, U32Vec};
+pub use azul_css::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve, SvgRect, SvgVector};
 use core::fmt;
-use crate::xml::XmlError;
-use azul_css::{AzString, OptionAzString, StringVec, OptionLayoutSize, OptionColorU};
-pub use azul_css::{SvgCubicCurve, SvgQuadraticCurve, SvgVector, SvgPoint, SvgRect};
 
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
@@ -43,8 +39,12 @@ impl SvgLine {
         self.start = self.end;
         self.end = temp;
     }
-    pub fn get_start(&self) -> SvgPoint { self.start }
-    pub fn get_end(&self) -> SvgPoint { self.end }
+    pub fn get_start(&self) -> SvgPoint {
+        self.start
+    }
+    pub fn get_end(&self) -> SvgPoint {
+        self.end
+    }
 
     pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         offset / self.get_length()
@@ -53,7 +53,11 @@ impl SvgLine {
     pub fn get_tangent_vector_at_t(&self, _: f64) -> SvgVector {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
-        SvgVector { x: dx as f64, y: dy as f64 }.normalize()
+        SvgVector {
+            x: dx as f64,
+            y: dy as f64,
+        }
+        .normalize()
     }
 
     pub fn get_x_at_t(&self, t: f64) -> f64 {
@@ -85,7 +89,7 @@ impl SvgLine {
             height,
             x: min_x,
             y: min_y,
-            .. SvgRect::default()
+            ..SvgRect::default()
         }
     }
 }
@@ -180,9 +184,17 @@ impl SvgPathElement {
     }
 }
 
-impl_vec!(SvgPathElement, SvgPathElementVec, SvgPathElementVecDestructor);
+impl_vec!(
+    SvgPathElement,
+    SvgPathElementVec,
+    SvgPathElementVecDestructor
+);
 impl_vec_debug!(SvgPathElement, SvgPathElementVec);
-impl_vec_clone!(SvgPathElement, SvgPathElementVec, SvgPathElementVecDestructor);
+impl_vec_clone!(
+    SvgPathElement,
+    SvgPathElementVec,
+    SvgPathElementVecDestructor
+);
 impl_vec_partialeq!(SvgPathElement, SvgPathElementVec);
 impl_vec_partialord!(SvgPathElement, SvgPathElementVec);
 
@@ -224,7 +236,6 @@ impl SvgPath {
     }
 
     pub fn join_with(&mut self, mut path: Self) -> Option<()> {
-
         let self_last_point = self.items.as_ref().last()?.get_end();
         let other_start_point = path.items.as_ref().first()?.get_start();
         let interpolated_join_point = SvgPoint {
@@ -253,7 +264,6 @@ impl SvgPath {
         Some(())
     }
     pub fn get_bounds(&self) -> SvgRect {
-
         let mut first_bounds = match self.items.as_ref().get(0) {
             Some(s) => s.get_bounds(),
             None => return SvgRect::default(),
@@ -277,8 +287,11 @@ pub struct SvgMultiPolygon {
 
 impl SvgMultiPolygon {
     pub fn get_bounds(&self) -> SvgRect {
-
-        let mut first_bounds = match self.rings.get(0).and_then(|b| b.items.get(0).map(|i| i.get_bounds())) {
+        let mut first_bounds = match self
+            .rings
+            .get(0)
+            .and_then(|b| b.items.get(0).map(|i| i.get_bounds()))
+        {
             Some(s) => s,
             None => return SvgRect::default(), // TODO: error?
         };
@@ -299,9 +312,17 @@ impl_vec_clone!(SvgPath, SvgPathVec, SvgPathVecDestructor);
 impl_vec_partialeq!(SvgPath, SvgPathVec);
 impl_vec_partialord!(SvgPath, SvgPathVec);
 
-impl_vec!(SvgMultiPolygon, SvgMultiPolygonVec, SvgMultiPolygonVecDestructor);
+impl_vec!(
+    SvgMultiPolygon,
+    SvgMultiPolygonVec,
+    SvgMultiPolygonVecDestructor
+);
 impl_vec_debug!(SvgMultiPolygon, SvgMultiPolygonVec);
-impl_vec_clone!(SvgMultiPolygon, SvgMultiPolygonVec, SvgMultiPolygonVecDestructor);
+impl_vec_clone!(
+    SvgMultiPolygon,
+    SvgMultiPolygonVec,
+    SvgMultiPolygonVecDestructor
+);
 impl_vec_partialeq!(SvgMultiPolygon, SvgMultiPolygonVec);
 impl_vec_partialord!(SvgMultiPolygon, SvgMultiPolygonVec);
 
@@ -331,7 +352,7 @@ impl SvgNode {
                 }
 
                 first_mp_bounds
-            },
+            }
             SvgNode::MultiPolygon(a) => a.get_bounds(),
             SvgNode::Path(a) => a.get_bounds(),
             SvgNode::Circle(a) => a.get_bounds(),
@@ -343,19 +364,23 @@ impl SvgNode {
             SvgNode::MultiPolygonCollection(a) => {
                 for mp in a.iter() {
                     for p in mp.rings.as_ref().iter() {
-                        if !p.is_closed() { return false; }
+                        if !p.is_closed() {
+                            return false;
+                        }
                     }
                 }
 
                 true
-            },
+            }
             SvgNode::MultiPolygon(a) => {
                 for p in a.rings.as_ref().iter() {
-                    if !p.is_closed() { return false; }
+                    if !p.is_closed() {
+                        return false;
+                    }
                 }
 
                 true
-            },
+            }
             SvgNode::Path(a) => a.is_closed(),
             SvgNode::Circle(a) => true,
             SvgNode::Rect(a) => true,
@@ -408,14 +433,13 @@ impl SvgCircle {
 impl VertexLayoutDescription for SvgVertex {
     fn get_description() -> VertexLayout {
         VertexLayout {
-            fields: vec![
-                VertexAttribute {
-                    name: String::from("vAttrXY").into(),
-                    layout_location: None.into(),
-                    attribute_type: VertexAttributeType::Float,
-                    item_count: 2,
-                },
-            ].into()
+            fields: vec![VertexAttribute {
+                name: String::from("vAttrXY").into(),
+                layout_location: None.into(),
+                attribute_type: VertexAttributeType::Float,
+                item_count: 2,
+            }]
+            .into(),
         }
     }
 }
@@ -436,10 +460,18 @@ impl Default for TessellatedSvgNode {
     }
 }
 
-impl_vec!(TessellatedSvgNode, TessellatedSvgNodeVec, TessellatedSvgNodeVecDestructor);
+impl_vec!(
+    TessellatedSvgNode,
+    TessellatedSvgNodeVec,
+    TessellatedSvgNodeVecDestructor
+);
 impl_vec_debug!(TessellatedSvgNode, TessellatedSvgNodeVec);
 impl_vec_partialord!(TessellatedSvgNode, TessellatedSvgNodeVec);
-impl_vec_clone!(TessellatedSvgNode, TessellatedSvgNodeVec, TessellatedSvgNodeVecDestructor);
+impl_vec_clone!(
+    TessellatedSvgNode,
+    TessellatedSvgNodeVec,
+    TessellatedSvgNodeVecDestructor
+);
 impl_vec_partialeq!(TessellatedSvgNode, TessellatedSvgNodeVec);
 
 impl TessellatedSvgNode {
@@ -499,7 +531,6 @@ pub struct TessellatedGPUSvgNode {
 }
 
 impl TessellatedGPUSvgNode {
-
     /// Uploads the tesselated SVG node to GPU memory
     pub fn new(node: &TessellatedSvgNode, gl: GlContextPtr) -> Self {
         let svg_shader_id = gl.ptr.svg_shader;
@@ -509,8 +540,8 @@ impl TessellatedGPUSvgNode {
                 svg_shader_id,
                 node.vertices.as_ref(),
                 node.indices.as_ref(),
-                IndexBufferFormat::Triangles
-            )
+                IndexBufferFormat::Triangles,
+            ),
         }
     }
 
@@ -522,7 +553,7 @@ impl TessellatedGPUSvgNode {
         texture: &mut Texture,
         target_size: PhysicalSizeU32,
         color: ColorU,
-        transforms: StyleTransformVec
+        transforms: StyleTransformVec,
     ) -> bool {
         use crate::gl::{GlShader, Uniform, UniformType};
         use azul_css::PixelValue;
@@ -537,7 +568,7 @@ impl TessellatedGPUSvgNode {
             &transform_origin,
             target_size.width as f32,
             target_size.height as f32,
-            RotationMode::ForWebRender
+            RotationMode::ForWebRender,
         );
 
         // NOTE: OpenGL draws are column-major, while ComputedTransform3D
@@ -550,25 +581,28 @@ impl TessellatedGPUSvgNode {
         let uniforms = [
             Uniform {
                 name: "vBboxSize".into(),
-                uniform_type: UniformType::FloatVec2([target_size.width as f32, target_size.height as f32])
+                uniform_type: UniformType::FloatVec2([
+                    target_size.width as f32,
+                    target_size.height as f32,
+                ]),
             },
             Uniform {
                 name: "fDrawColor".into(),
-                uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a])
+                uniform_type: UniformType::FloatVec4([color.r, color.g, color.b, color.a]),
             },
             Uniform {
                 name: "vTransformMatrix".into(),
                 uniform_type: UniformType::Matrix4 {
                     transpose: false,
                     matrix: unsafe { core::mem::transmute(column_major.m) },
-                }
+                },
             },
         ];
 
         GlShader::draw(
             texture.gl_context.ptr.svg_shader,
             texture,
-            &[(&self.vertex_index_buffer, &uniforms[..])]
+            &[(&self.vertex_index_buffer, &uniforms[..])],
         );
 
         true
@@ -610,7 +644,9 @@ pub enum SvgFillRule {
 }
 
 impl Default for SvgFillRule {
-    fn default() -> Self { SvgFillRule::Winding }
+    fn default() -> Self {
+        SvgFillRule::Winding
+    }
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -742,7 +778,11 @@ pub struct SvgDashPattern {
     pub gap_3: f32,
 }
 
-impl_option!(SvgDashPattern, OptionSvgDashPattern, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    SvgDashPattern,
+    OptionSvgDashPattern,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
@@ -774,7 +814,7 @@ impl Default for SvgLineJoin {
 }
 
 #[allow(non_camel_case_types)]
-pub enum c_void { }
+pub enum c_void {}
 
 pub type GlyphId = u16;
 
@@ -852,9 +892,10 @@ pub enum SvgFitTo {
 }
 
 impl Default for SvgFitTo {
-    fn default() -> Self { SvgFitTo::Original }
+    fn default() -> Self {
+        SvgFitTo::Original
+    }
 }
-
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -917,7 +958,6 @@ impl Default for SvgXmlOptions {
     }
 }
 
-
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C, u8)]
 pub enum SvgParseError {
@@ -933,19 +973,37 @@ impl fmt::Display for SvgParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::SvgParseError::*;
         match self {
-            NoParserAvailable => write!(f, "Library was compiled without SVG support (no parser available)"),
+            NoParserAvailable => write!(
+                f,
+                "Library was compiled without SVG support (no parser available)"
+            ),
             InvalidFileSuffix => write!(f, "Error parsing SVG: Invalid file suffix"),
             FileOpenFailed => write!(f, "Error parsing SVG: Failed to open file"),
             NotAnUtf8Str => write!(f, "Error parsing SVG: Not an UTF-8 String"),
-            MalformedGZip => write!(f, "Error parsing SVG: SVG is compressed with a malformed GZIP compression"),
+            MalformedGZip => write!(
+                f,
+                "Error parsing SVG: SVG is compressed with a malformed GZIP compression"
+            ),
             InvalidSize => write!(f, "Error parsing SVG: Invalid size"),
             ParsingFailed(e) => write!(f, "Error parsing SVG: Parsing SVG as XML failed: {}", e),
         }
     }
 }
 
-impl_result!(SvgXmlNode, SvgParseError, ResultSvgXmlNodeSvgParseError, copy = false, [Debug, Clone]);
-impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, Clone]);
+impl_result!(
+    SvgXmlNode,
+    SvgParseError,
+    ResultSvgXmlNodeSvgParseError,
+    copy = false,
+    [Debug, Clone]
+);
+impl_result!(
+    Svg,
+    SvgParseError,
+    ResultSvgSvgParseError,
+    copy = false,
+    [Debug, Clone]
+);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]

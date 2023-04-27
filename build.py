@@ -67,6 +67,21 @@ def snake_case_to_lower_camel(snake_str):
     first, *others = snake_str.split('_')
     return ''.join([first.lower(), *map(str.title, others)])
 
+def strip_fn_arg_types_mem_transmute(arg_list):
+    if len(arg_list) == 0:
+        return ""
+
+    arg_list1 = ""
+
+    for item in arg_list.split(","):
+        part_a = item.split(":")[0].strip()
+        arg_list1 += "transmute(" + part_a + "), "
+
+    if arg_list1 != "":
+        arg_list1 = arg_list1[:-2]
+
+    return arg_list1.strip()
+
 # turns a list of function args into function pointer args
 # ex. "mut dom: AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallback"
 # ->  "_: AzDom, _: AzEventFilter, _: AzRefAny, _: AzCallback"
@@ -162,11 +177,7 @@ def get_all_imports(apiData, module, module_name):
             use_str = use_str[:-2]
             use_str += "}"
 
-        imports_str += "    #[cfg(not(feature = \"link-static\"))]\r\n"
         imports_str += "    use crate::" + module_name + "::" + use_str + ";\r\n"
-        for c in classes:
-            imports_str += "    #[cfg(feature = \"link-static\")]\r\n"
-            imports_str += "    use azul::" + prefix + c + " as " + c + ";\r\n"
 
     return imports_str
 
@@ -1172,34 +1183,50 @@ def generate_structs(api_data, structs_map, autoderive, indent = 4, private_poin
 def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     code = ""
-
     code += read_file(root_folder + "/api/_patches/azul.rs/dll.rs")
+    code += "\r\n"
 
     code += "    #[cfg(not(feature = \"link-static\"))]\r\n"
-    code += "    mod dynamic_link {\r\n"
-    code += "    use core::ffi::c_void;\r\n\r\n"
+    code += "    pub use self::dynamic_link::*;\r\n"
+    code += "    #[cfg(feature = \"link-static\")]\r\n"
+    code += "    pub use self::static_link::*;\r\n"
+    code += "    pub use self::types::*;\r\n"
+    code += "\r\n"
 
-    code += generate_structs(api_data, structs_map, True)
+    code += "    mod types {\r\n"
+    code += "        use core::ffi::c_void;\r\n\r\n"
+    code += generate_structs(api_data, structs_map, True, indent=8)
+    code += "    }\r\n\r\n"
 
-    code += "    #[cfg_attr(target_os = \"windows\", link(name=\"azul.dll\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
-    code += "    #[cfg_attr(not(target_os = \"windows\"), link(name=\"azul\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
-    code += "    extern \"C\" {\r\n"
-
+    code += "    #[cfg(feature = \"link-static\")]\r\n"
+    code += "    mod static_link {\r\n"
+    code += "        use core::ffi::c_void;\r\n"
+    code += "        use core::mem::transmute;\r\n"
+    code += "        use super::types::*;\r\n\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        pub(crate) fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
-
+        fn_args_with_mem_transmute = strip_fn_arg_types_mem_transmute(fn_args)
+        code += "        pub(crate) fn " + fn_name + "(" + fn_args + ")" + return_arrow + fn_return + " { unsafe { transmute(azul::" + fn_name + "(" + fn_args_with_mem_transmute + ")) } }\r\n"
     code += "    }\r\n\r\n"
 
-    code += "    }\r\n\r\n"
     code += "    #[cfg(not(feature = \"link-static\"))]\r\n"
-    code += "    pub use self::dynamic_link::*;\r\n"
-    code += "    #[cfg(feature = \"link-static\")]\r\n"
-    code += "    pub use azul::*;\r\n"
-
+    code += "    mod dynamic_link {\r\n"
+    code += "        use core::ffi::c_void;\r\n\r\n"
+    code += "        use super::types::*;\r\n\r\n"
+    code += "        #[cfg_attr(target_os = \"windows\", link(name=\"azul.dll\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
+    code += "        #[cfg_attr(not(target_os = \"windows\"), link(name=\"azul\"))] // https://github.com/rust-lang/cargo/issues/9082\r\n"
+    code += "        extern \"C\" {\r\n"
+    for fn_name in functions_map.keys():
+        fn_type = functions_map[fn_name]
+        fn_args = fn_type[0]
+        fn_return = fn_type[1]
+        return_arrow = "" if fn_return == "" else " -> "
+        code += "            pub(crate) fn " + fn_name + "(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ";\r\n"
+    code += "        }\r\n\r\n"
+    code += "    }\r\n\r\n"
 
     code += "\r\n"
     code += "\r\n"
@@ -2074,12 +2101,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
         if module_doc != None:
             code += "    //! " + module_doc + "\r\n"
 
-        code += "    #[cfg(not(feature = \"link-static\"))]\r\n"
         code += "    use crate::dll::*;\r\n"
-        for class_name in module.keys():
-            code += "    #[cfg(feature = \"link-static\")]\r\n"
-            code += "    pub use azul::" + prefix + class_name + " as " + class_name + ";\r\n"
-
         code += "    use core::ffi::c_void;\r\n"
 
         if tuple([module_name]) in rust_api_patches:
@@ -2116,7 +2138,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "\r\n    #[cfg(not(feature = \"link-static\"))] #[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n"
+            code += "\r\n    #[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n"
 
             has_constructors = ("constructors" in c.keys() and len(c["constructors"]) > 0)
             has_functions = ("functions" in c.keys() and len(c["functions"]) > 0)
@@ -2220,15 +2242,14 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
                         class_impl_block += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
-                code += "    #[cfg(not(feature = \"link-static\"))]\r\n"
                 code += "    impl " + class_name + " {\r\n"
                 code += class_impl_block
                 code += "    }\r\n\r\n" # end of class
 
             if treat_external_as_ptr and class_can_be_cloned:
-                code += "    #[cfg(not(feature = \"link-static\"))] impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + class_ptr_name + "_deepCopy(self) } } }\r\n"
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { unsafe { crate::dll::" + class_ptr_name + "_deepCopy(self) } } }\r\n"
             if treat_external_as_ptr:
-                code += "    #[cfg(not(feature = \"link-static\"))] impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::" + class_ptr_name + "_delete(self) } } } }\r\n"
 
 
         module_file_map[module_name] = code

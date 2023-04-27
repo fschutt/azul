@@ -1,8 +1,8 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::css_properties::*;
 use crate::css::PrintAsCssValue;
+use crate::css_properties::*;
 
 impl PrintAsCssValue for StyleFilter {
     fn print_as_css_value(&self) -> String {
@@ -11,8 +11,17 @@ impl PrintAsCssValue for StyleFilter {
             StyleFilter::Flood(c) => format!("flood({})", c),
             StyleFilter::Blur(c) => format!("blur({} {})", c.width, c.height),
             StyleFilter::Opacity(c) => format!("opacity({})", c),
-            StyleFilter::ColorMatrix(c) => format!("color-matrix({})", c.matrix.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join(", ")),
-            StyleFilter::DropShadow(shadow) => format!("drop-shadow({})", shadow.print_as_css_value()),
+            StyleFilter::ColorMatrix(c) => format!(
+                "color-matrix({})",
+                c.matrix
+                    .iter()
+                    .map(|s| format!("{}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            StyleFilter::DropShadow(shadow) => {
+                format!("drop-shadow({})", shadow.print_as_css_value())
+            }
             StyleFilter::ComponentTransfer => format!("component-transfer"),
             StyleFilter::Offset(o) => format!("offset({}, {})", o.x, o.y),
             StyleFilter::Composite(c) => format!("composite({})", c.print_as_css_value()),
@@ -29,7 +38,13 @@ impl PrintAsCssValue for StyleCompositeFilter {
             StyleCompositeFilter::Out => format!("out"),
             StyleCompositeFilter::Xor => format!("xor"),
             StyleCompositeFilter::Lighter => format!("lighter"),
-            StyleCompositeFilter::Arithmetic(fv) => format!("arithmetic({})", fv.iter().map(|s| format!("{}", s)).collect::<Vec<_>>().join(", ")),
+            StyleCompositeFilter::Arithmetic(fv) => format!(
+                "arithmetic({})",
+                fv.iter()
+                    .map(|s| format!("{}", s))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
@@ -54,7 +69,10 @@ impl PrintAsCssValue for StyleFontSize {
 
 impl PrintAsCssValue for StyleFontFamilyVec {
     fn print_as_css_value(&self) -> String {
-        self.iter().map(|f| f.as_string()).collect::<Vec<_>>().join(", ")
+        self.iter()
+            .map(|f| f.as_string())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -300,31 +318,51 @@ impl PrintAsCssValue for LayoutAlignContent {
 
 impl PrintAsCssValue for StyleFilterVec {
     fn print_as_css_value(&self) -> String {
-        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        self.as_ref()
+            .iter()
+            .map(|f| f.print_as_css_value())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
 impl PrintAsCssValue for StyleBackgroundContentVec {
     fn print_as_css_value(&self) -> String {
-        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        self.as_ref()
+            .iter()
+            .map(|f| f.print_as_css_value())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
 impl PrintAsCssValue for StyleBackgroundPositionVec {
     fn print_as_css_value(&self) -> String {
-        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        self.as_ref()
+            .iter()
+            .map(|f| f.print_as_css_value())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
 impl PrintAsCssValue for StyleBackgroundSizeVec {
     fn print_as_css_value(&self) -> String {
-        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        self.as_ref()
+            .iter()
+            .map(|f| f.print_as_css_value())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
 impl PrintAsCssValue for StyleBackgroundRepeatVec {
     fn print_as_css_value(&self) -> String {
-        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        self.as_ref()
+            .iter()
+            .map(|f| f.print_as_css_value())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -485,20 +523,29 @@ impl PrintAsCssValue for LayoutBorderBottomWidth {
 
 impl PrintAsCssValue for StyleBoxShadow {
     fn print_as_css_value(&self) -> String {
-        format!("{} {} {} {} {} {}",
+        format!(
+            "{} {} {} {} {} {}",
             self.offset[0],
             self.offset[1],
             self.blur_radius,
             self.spread_radius,
             self.color.to_hash(),
-            if self.clip_mode == BoxShadowClipMode::Outset { "" } else { "inset" },
+            if self.clip_mode == BoxShadowClipMode::Outset {
+                ""
+            } else {
+                "inset"
+            },
         )
     }
 }
 
 impl PrintAsCssValue for ScrollbarStyle {
     fn print_as_css_value(&self) -> String {
-        format!("horz({}), vert({})", self.horizontal.print_as_css_value(), self.vertical.print_as_css_value())
+        format!(
+            "horz({}), vert({})",
+            self.horizontal.print_as_css_value(),
+            self.vertical.print_as_css_value()
+        )
     }
 }
 
@@ -510,7 +557,11 @@ impl PrintAsCssValue for StyleOpacity {
 
 impl PrintAsCssValue for StyleTransformVec {
     fn print_as_css_value(&self) -> String {
-        self.as_ref().iter().map(|f| f.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        self.as_ref()
+            .iter()
+            .map(|f| f.print_as_css_value())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -540,15 +591,38 @@ impl PrintAsCssValue for StyleBackfaceVisibility {
 impl PrintAsCssValue for StyleTransform {
     fn print_as_css_value(&self) -> String {
         match self {
-            StyleTransform::Matrix(m) => format!("matrix({}, {}, {}, {}, {}, {})", m.a, m.b, m.c, m.d, m.tx, m.ty),
-            StyleTransform::Matrix3D(m) => format!("matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34, m.m41, m.m42, m.m43, m.m44),
+            StyleTransform::Matrix(m) => format!(
+                "matrix({}, {}, {}, {}, {}, {})",
+                m.a, m.b, m.c, m.d, m.tx, m.ty
+            ),
+            StyleTransform::Matrix3D(m) => format!(
+                "matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
+                m.m11,
+                m.m12,
+                m.m13,
+                m.m14,
+                m.m21,
+                m.m22,
+                m.m23,
+                m.m24,
+                m.m31,
+                m.m32,
+                m.m33,
+                m.m34,
+                m.m41,
+                m.m42,
+                m.m43,
+                m.m44
+            ),
             StyleTransform::Translate(t) => format!("translate({}, {})", t.x, t.y),
             StyleTransform::Translate3D(t) => format!("translate3d({}, {}, {})", t.x, t.y, t.z),
             StyleTransform::TranslateX(x) => format!("translateX({})", x),
             StyleTransform::TranslateY(y) => format!("translateY({})", y),
             StyleTransform::TranslateZ(z) => format!("translateZ({})", z),
             StyleTransform::Rotate(r) => format!("rotate({})", r),
-            StyleTransform::Rotate3D(r) => format!("rotate3d({}, {}, {}, {})", r.x, r.y, r.z, r.angle),
+            StyleTransform::Rotate3D(r) => {
+                format!("rotate3d({}, {}, {}, {})", r.x, r.y, r.z, r.angle)
+            }
             StyleTransform::RotateX(x) => format!("rotateX({})", x),
             StyleTransform::RotateY(y) => format!("rotateY({})", y),
             StyleTransform::RotateZ(z) => format!("rotateZ({})", z),
@@ -574,21 +648,21 @@ impl PrintAsCssValue for StyleBackgroundContent {
                 } else {
                     format!("linear-gradient({})", lg.print_as_css_value())
                 }
-            },
+            }
             StyleBackgroundContent::RadialGradient(rg) => {
                 if rg.extend_mode == ExtendMode::Repeat {
                     format!("repeating-radial-gradient({})", rg.print_as_css_value())
                 } else {
                     format!("radial-gradient({})", rg.print_as_css_value())
                 }
-            },
+            }
             StyleBackgroundContent::ConicGradient(cg) => {
                 if cg.extend_mode == ExtendMode::Repeat {
                     format!("repeating-conic-gradient({})", cg.print_as_css_value())
                 } else {
                     format!("conic-gradient({})", cg.print_as_css_value())
                 }
-            },
+            }
             StyleBackgroundContent::Image(id) => format!("url(\"{}\")", id.as_str()),
             StyleBackgroundContent::Color(c) => c.to_hash(),
         }
@@ -598,10 +672,19 @@ impl PrintAsCssValue for StyleBackgroundContent {
 impl PrintAsCssValue for LinearGradient {
     fn print_as_css_value(&self) -> String {
         let t = if self.stops.is_empty() { "" } else { ", " };
-        format!("{}{}{}", match self.direction {
-            Direction::Angle(a) => format!("{}", a),
-            Direction::FromTo(d) => format!("from {} to {}", d.from, d.to),
-        }, t, self.stops.iter().map(|s| s.print_as_css_value()).collect::<Vec<_>>().join(", "))
+        format!(
+            "{}{}{}",
+            match self.direction {
+                Direction::Angle(a) => format!("{}", a),
+                Direction::FromTo(d) => format!("from {} to {}", d.from, d.to),
+            },
+            t,
+            self.stops
+                .iter()
+                .map(|s| s.print_as_css_value())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
@@ -613,7 +696,8 @@ impl PrintAsCssValue for NormalizedLinearColorStop {
 
 impl PrintAsCssValue for RadialGradient {
     fn print_as_css_value(&self) -> String {
-        format!("{} {} at {}, {}",
+        format!(
+            "{} {} at {}, {}",
             match self.shape {
                 Shape::Ellipse => "ellipse",
                 Shape::Circle => "circle",
@@ -625,21 +709,26 @@ impl PrintAsCssValue for RadialGradient {
                 RadialGradientSize::FarthestCorner => "farthest-corner",
             },
             self.position.print_as_css_value(),
-            self.stops.iter().map(|s| s.print_as_css_value()).collect::<Vec<_>>().join(", ")
+            self.stops
+                .iter()
+                .map(|s| s.print_as_css_value())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     }
 }
 
-
 impl PrintAsCssValue for StyleBackgroundPosition {
     fn print_as_css_value(&self) -> String {
-        format!("{} {}",
+        format!(
+            "{} {}",
             match self.horizontal {
                 BackgroundPositionHorizontal::Left => format!("left"),
                 BackgroundPositionHorizontal::Center => format!("center"),
                 BackgroundPositionHorizontal::Right => format!("right"),
                 BackgroundPositionHorizontal::Exact(px) => format!("{}", px),
-            }, match self.vertical {
+            },
+            match self.vertical {
                 BackgroundPositionVertical::Top => format!("top"),
                 BackgroundPositionVertical::Center => format!("center"),
                 BackgroundPositionVertical::Bottom => format!("bottom"),
@@ -667,9 +756,15 @@ impl PrintAsCssValue for NormalizedRadialColorStop {
 
 impl PrintAsCssValue for ConicGradient {
     fn print_as_css_value(&self) -> String {
-        format!("from {} at {}, {}",
-            self.angle, self.center.print_as_css_value(),
-            self.stops.iter().map(|s| s.print_as_css_value()).collect::<Vec<_>>().join(", ")
+        format!(
+            "from {} at {}, {}",
+            self.angle,
+            self.center.print_as_css_value(),
+            self.stops
+                .iter()
+                .map(|s| s.print_as_css_value())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     }
 }
@@ -687,8 +782,11 @@ impl PrintAsCssValue for StyleBackgroundRepeat {
 
 impl PrintAsCssValue for ScrollbarInfo {
     fn print_as_css_value(&self) -> String {
-        format!("{} {} {} {} {} {} {} {}",
-            self.width, self.padding_left, self.padding_right,
+        format!(
+            "{} {} {} {} {} {} {} {}",
+            self.width,
+            self.padding_left,
+            self.padding_right,
             self.track.print_as_css_value(),
             self.thumb.print_as_css_value(),
             self.button.print_as_css_value(),

@@ -14,9 +14,9 @@ extern crate libm;
 extern crate rayon;
 #[macro_use]
 extern crate azul_css;
-extern crate gl_context_loader;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
+extern crate gl_context_loader;
 
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
@@ -24,10 +24,10 @@ pub mod macros;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
 #[macro_use]
 pub mod callbacks;
-/// Contains functions to format a CSS stylesheet to a Rust string
-pub mod css;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod app_resources;
+/// Contains functions to format a CSS stylesheet to a Rust string
+pub mod css;
 /// Layout and display list creation algorithm, z-index reordering of a `CachedDisplayList`
 pub mod display_list;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
@@ -40,22 +40,22 @@ pub mod gl;
 pub mod id_tree;
 /// CSS cascading module
 pub mod style;
-/// SVG module
-pub mod svg;
-/// XML structures
-pub mod xml;
-/// Main `Layout` and `GetTextLayout` trait definition
-pub mod traits;
-/// Async (task, thread, timer) helper functions
-pub mod task;
 /// `StyledDom` = CSSOM
 pub mod styled_dom;
+/// SVG module
+pub mod svg;
+/// Async (task, thread, timer) helper functions
+pub mod task;
+/// Main `Layout` and `GetTextLayout` trait definition
+pub mod traits;
 /// Handles the UI layout and UI layout solver
 pub mod ui_solver;
 /// Window creation / interaction with the OS' windowing API
 pub mod window;
 /// Window state handling / synchronization
 pub mod window_state;
+/// XML structures
+pub mod xml;
 
 // Typedef for possible faster implementation of hashing
 pub type FastHashMap<T, U> = alloc::collections::BTreeMap<T, U>;

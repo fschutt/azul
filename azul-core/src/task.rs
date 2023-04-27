@@ -1,43 +1,41 @@
-use core::{
-    fmt,
-    ffi::c_void,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-use alloc::vec::Vec;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::{Arc, Weak};
+use alloc::vec::Vec;
+use core::{
+    ffi::c_void,
+    fmt,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
+#[cfg(feature = "std")]
+use std::sync::mpsc::{Receiver, Sender};
 #[cfg(feature = "std")]
 use std::thread::{self, JoinHandle};
 #[cfg(feature = "std")]
-use std::sync::mpsc::{Sender, Receiver};
+use std::time::Duration as StdDuration;
 #[cfg(feature = "std")]
 use std::time::Instant as StdInstant;
-#[cfg(feature = "std")]
-use std::time::Duration as StdDuration;
 
 use std::sync::Mutex;
 
-use crate::{
-    FastHashMap, FastBTreeSet,
-    callbacks::{
-        TimerCallback, TimerCallbackInfo, RefAny, OptionDomNodeId,
-        TimerCallbackReturn, TimerCallbackType, Update,
-        ThreadCallback, WriteBackCallback, WriteBackCallbackType,
-        CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
-    },
-    app_resources::{ImageCache, ImageRef, ImageMask},
-    window::{
-        FullWindowState, LogicalPosition,
-        OptionLogicalPosition, RawWindowHandle, WindowState,
-        WindowCreateOptions
-    },
-    styled_dom::{DomId, NodeHierarchyItemId},
-    id_tree::NodeId,
-    ui_solver::LayoutResult,
-};
 use crate::gl::OptionGlContextPtr;
+use crate::{
+    app_resources::{ImageCache, ImageMask, ImageRef},
+    callbacks::{
+        CallbackInfo, DomNodeId, FocusTarget, OptionDomNodeId, RefAny, ScrollPosition,
+        ThreadCallback, TimerCallback, TimerCallbackInfo, TimerCallbackReturn, TimerCallbackType,
+        Update, WriteBackCallback, WriteBackCallbackType,
+    },
+    id_tree::NodeId,
+    styled_dom::{DomId, NodeHierarchyItemId},
+    ui_solver::LayoutResult,
+    window::{
+        FullWindowState, LogicalPosition, OptionLogicalPosition, RawWindowHandle,
+        WindowCreateOptions, WindowState,
+    },
+    FastBTreeSet, FastHashMap,
+};
 use azul_css::{AzString, CssProperty};
 use rust_fontconfig::FcFontCache;
 
@@ -56,30 +54,46 @@ static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(5);
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct TimerId { pub id: usize }
+pub struct TimerId {
+    pub id: usize,
+}
 
 impl TimerId {
     /// Generates a new, unique `TimerId`.
     pub fn unique() -> Self {
-        TimerId { id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst) }
+        TimerId {
+            id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst),
+        }
     }
 }
 
-impl_option!(TimerId, OptionTimerId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    TimerId,
+    OptionTimerId,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(5);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct ThreadId { id: usize }
+pub struct ThreadId {
+    id: usize,
+}
 
-impl_option!(ThreadId, OptionThreadId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    ThreadId,
+    OptionThreadId,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl ThreadId {
     /// Generates a new, unique `ThreadId`.
     pub fn unique() -> Self {
-        ThreadId { id: MAX_THREAD_ID.fetch_add(1, Ordering::SeqCst) }
+        ThreadId {
+            id: MAX_THREAD_ID.fetch_add(1, Ordering::SeqCst),
+        }
     }
 }
 
@@ -98,7 +112,6 @@ impl From<StdInstant> for Instant {
 }
 
 impl Instant {
-
     /// Returns a number from 0.0 to 1.0 indicating the current
     /// linear interpolation value between (start, end)
     pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {
@@ -108,8 +121,12 @@ impl Instant {
             mem::swap(&mut start, &mut end);
         }
 
-        if *self < start { return 0.0; }
-        if *self > end { return 1.0; }
+        if *self < start {
+            return 0.0;
+        }
+        if *self > end {
+            return 1.0;
+        }
 
         let duration_total = end.duration_since(&start);
         let duration_current = self.duration_since(&start);
@@ -123,22 +140,29 @@ impl Instant {
         match duration {
             Some(d) => match (self, d) {
                 (Instant::System(i), Duration::System(d)) => {
-                    #[cfg(feature = "std")] {
+                    #[cfg(feature = "std")]
+                    {
                         let s: StdInstant = i.clone().into();
                         let d: StdDuration = d.clone().into();
                         let new: AzInstantPtr = (s + d).into();
                         Instant::System(new)
                     }
-                    #[cfg(not(feature = "std"))] {
+                    #[cfg(not(feature = "std"))]
+                    {
                         unreachable!()
                     }
-                },
-                (Instant::Tick(s), Duration::Tick(d)) => {
-                    Instant::Tick(SystemTick { tick_counter: s.tick_counter + d.tick_diff })
-                },
-                _ => { panic!("invalid: trying to add a duration {:?} to an instant {:?}", d, self); },
+                }
+                (Instant::Tick(s), Duration::Tick(d)) => Instant::Tick(SystemTick {
+                    tick_counter: s.tick_counter + d.tick_diff,
+                }),
+                _ => {
+                    panic!(
+                        "invalid: trying to add a duration {:?} to an instant {:?}",
+                        d, self
+                    );
+                }
             },
-            None => self.clone()
+            None => self.clone(),
         }
     }
 
@@ -157,23 +181,32 @@ impl Instant {
     pub fn duration_since(&self, earlier: &Instant) -> Duration {
         match (earlier, self) {
             (Instant::System(prev), Instant::System(now)) => {
-                #[cfg(feature = "std")] {
+                #[cfg(feature = "std")]
+                {
                     let prev_instant: StdInstant = prev.clone().into();
                     let now_instant: StdInstant = now.clone().into();
                     Duration::System((now_instant.duration_since(prev_instant)).into())
                 }
-                #[cfg(not(feature = "std"))] {
+                #[cfg(not(feature = "std"))]
+                {
                     unreachable!() // cannot construct a SystemTime on no_std
                 }
-            },
-            (Instant::Tick(SystemTick { tick_counter: prev }), Instant::Tick(SystemTick { tick_counter: now })) => {
+            }
+            (
+                Instant::Tick(SystemTick { tick_counter: prev }),
+                Instant::Tick(SystemTick { tick_counter: now }),
+            ) => {
                 if prev > now {
                     panic!("illegal: subtraction 'Instant - Instant' would result in a negative duration")
                 } else {
-                    Duration::Tick(SystemTickDiff { tick_diff: now - prev })
+                    Duration::Tick(SystemTickDiff {
+                        tick_diff: now - prev,
+                    })
                 }
-            },
-            _ => panic!("illegal: trying to calculate a Duration from a SystemTime and a Tick instant"),
+            }
+            _ => panic!(
+                "illegal: trying to calculate a Duration from a SystemTime and a Tick instant"
+            ),
         }
     }
 }
@@ -185,7 +218,9 @@ pub struct SystemTick {
 }
 
 impl SystemTick {
-    pub const fn new(tick_counter: u64) -> Self { Self { tick_counter } }
+    pub const fn new(tick_counter: u64) -> Self {
+        Self { tick_counter }
+    }
 }
 
 #[repr(C)]
@@ -199,12 +234,18 @@ pub struct AzInstantPtr {
     pub run_destructor: bool,
 }
 
-pub type InstantPtrCloneCallbackType = extern "C" fn (*const AzInstantPtr) -> AzInstantPtr;
-#[repr(C)] pub struct InstantPtrCloneCallback { pub cb: InstantPtrCloneCallbackType }
+pub type InstantPtrCloneCallbackType = extern "C" fn(*const AzInstantPtr) -> AzInstantPtr;
+#[repr(C)]
+pub struct InstantPtrCloneCallback {
+    pub cb: InstantPtrCloneCallbackType,
+}
 impl_callback!(InstantPtrCloneCallback);
 
 pub type InstantPtrDestructorCallbackType = extern "C" fn(*mut AzInstantPtr);
-#[repr(C)] pub struct InstantPtrDestructorCallback { pub cb: InstantPtrDestructorCallbackType }
+#[repr(C)]
+pub struct InstantPtrDestructorCallback {
+    pub cb: InstantPtrDestructorCallbackType,
+}
 impl_callback!(InstantPtrDestructorCallback);
 
 // ----  LIBSTD implementation for AzInstantPtr BEGIN
@@ -250,7 +291,7 @@ impl PartialEq for AzInstantPtr {
     }
 }
 
-impl Eq for AzInstantPtr { }
+impl Eq for AzInstantPtr {}
 
 #[cfg(feature = "std")]
 impl PartialOrd for AzInstantPtr {
@@ -282,7 +323,9 @@ impl Ord for AzInstantPtr {
 
 #[cfg(feature = "std")]
 impl AzInstantPtr {
-    fn get(&self) -> StdInstant { *(self.ptr).clone() }
+    fn get(&self) -> StdInstant {
+        *(self.ptr).clone()
+    }
 }
 
 impl Clone for AzInstantPtr {
@@ -307,8 +350,12 @@ impl From<StdInstant> for AzInstantPtr {
     fn from(s: StdInstant) -> AzInstantPtr {
         Self {
             ptr: Box::new(s),
-            clone_fn: InstantPtrCloneCallback { cb: std_instant_clone },
-            destructor: InstantPtrDestructorCallback { cb: std_instant_drop },
+            clone_fn: InstantPtrCloneCallback {
+                cb: std_instant_clone,
+            },
+            destructor: InstantPtrDestructorCallback {
+                cb: std_instant_drop,
+            },
             run_destructor: true,
         }
     }
@@ -329,10 +376,9 @@ impl Drop for AzInstantPtr {
 }
 
 #[cfg(feature = "std")]
-extern "C" fn std_instant_drop(_: *mut AzInstantPtr) { }
+extern "C" fn std_instant_drop(_: *mut AzInstantPtr) {}
 
 // ----  LIBSTD implementation for AzInstantPtr END
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -348,7 +394,7 @@ impl core::fmt::Display for Duration {
             Duration::System(s) => {
                 let s: StdDuration = s.clone().into();
                 write!(f, "{:?}", s)
-            },
+            }
             #[cfg(not(feature = "std"))]
             Duration::System(s) => write!(f, "({}s, {}ns)", s.secs, s.nanos),
             Duration::Tick(tick) => write!(f, "{} ticks", tick.tick_diff),
@@ -364,10 +410,17 @@ impl From<StdDuration> for Duration {
 }
 
 impl Duration {
-
     pub fn max() -> Self {
-        #[cfg(feature = "std")] { Duration::System(StdDuration::new(core::u64::MAX, NANOS_PER_SEC - 1).into()) }
-        #[cfg(not(feature = "std"))] { Duration::Tick(SystemTickDiff { tick_diff: u64::MAX }) }
+        #[cfg(feature = "std")]
+        {
+            Duration::System(StdDuration::new(core::u64::MAX, NANOS_PER_SEC - 1).into())
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            Duration::Tick(SystemTickDiff {
+                tick_diff: u64::MAX,
+            })
+        }
     }
 
     pub fn div(&self, other: &Self) -> f32 {
@@ -380,7 +433,11 @@ impl Duration {
     }
 
     pub fn min(self, other: Self) -> Self {
-        if self.smaller_than(&other) { self } else { other }
+        if self.smaller_than(&other) {
+            self
+        } else {
+            other
+        }
     }
 
     #[allow(unused_variables)]
@@ -388,19 +445,21 @@ impl Duration {
         match (self, other) {
             // self > other
             (Duration::System(s), Duration::System(o)) => {
-                #[cfg(feature = "std")] {
+                #[cfg(feature = "std")]
+                {
                     let s: StdDuration = s.clone().into();
                     let o: StdDuration = o.clone().into();
                     s > o
                 }
-                #[cfg(not(feature = "std"))] {
+                #[cfg(not(feature = "std"))]
+                {
                     unreachable!()
                 }
-             },
-            (Duration::Tick(s), Duration::Tick(o)) => {
-                s.tick_diff > o.tick_diff
-            },
-            _ => { panic!("illegal: trying to compare a SystemDuration with a TickDuration"); },
+            }
+            (Duration::Tick(s), Duration::Tick(o)) => s.tick_diff > o.tick_diff,
+            _ => {
+                panic!("illegal: trying to compare a SystemDuration with a TickDuration");
+            }
         }
     }
 
@@ -410,19 +469,21 @@ impl Duration {
         match (self, other) {
             // self > other
             (Duration::System(s), Duration::System(o)) => {
-                #[cfg(feature = "std")] {
+                #[cfg(feature = "std")]
+                {
                     let s: StdDuration = s.clone().into();
                     let o: StdDuration = o.clone().into();
                     s < o
                 }
-                #[cfg(not(feature = "std"))] {
+                #[cfg(not(feature = "std"))]
+                {
                     unreachable!()
                 }
-             },
-            (Duration::Tick(s), Duration::Tick(o)) => {
-                s.tick_diff < o.tick_diff
-            },
-            _ => { panic!("illegal: trying to compare a SystemDuration with a TickDuration"); },
+            }
+            (Duration::Tick(s), Duration::Tick(o)) => s.tick_diff < o.tick_diff,
+            _ => {
+                panic!("illegal: trying to compare a SystemDuration with a TickDuration");
+            }
         }
     }
 }
@@ -462,7 +523,10 @@ impl SystemTimeDiff {
 #[cfg(feature = "std")]
 impl From<StdDuration> for SystemTimeDiff {
     fn from(d: StdDuration) -> SystemTimeDiff {
-        SystemTimeDiff { secs: d.as_secs(), nanos: d.subsec_nanos() }
+        SystemTimeDiff {
+            secs: d.as_secs(),
+            nanos: d.subsec_nanos(),
+        }
     }
 }
 
@@ -478,8 +542,9 @@ const NANOS_PER_MILLI: u32 = 1_000_000;
 const NANOS_PER_SEC: u32 = 1_000_000_000;
 
 impl SystemTimeDiff {
-
-    pub const fn from_secs(secs: u64) -> Self { SystemTimeDiff { secs, nanos: 0 } }
+    pub const fn from_secs(secs: u64) -> Self {
+        SystemTimeDiff { secs, nanos: 0 }
+    }
     pub const fn from_millis(millis: u64) -> Self {
         SystemTimeDiff {
             secs: millis / MILLIS_PER_SEC,
@@ -514,11 +579,22 @@ impl SystemTimeDiff {
     }
 
     #[cfg(feature = "std")]
-    pub fn get(&self) -> StdDuration { (*self).into() }
+    pub fn get(&self) -> StdDuration {
+        (*self).into()
+    }
 }
 
-impl_option!(Instant, OptionInstant, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(Duration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    Instant,
+    OptionInstant,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_option!(
+    Duration,
+    OptionDuration,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// A `Timer` is a function that is run on every frame.
 ///
@@ -558,9 +634,12 @@ pub struct Timer {
 }
 
 impl Timer {
-
     /// Create a new timer
-    pub fn new(data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeCallback) -> Self {
+    pub fn new(
+        data: RefAny,
+        callback: TimerCallbackType,
+        get_system_time_fn: GetSystemTimeCallback,
+    ) -> Self {
         Timer {
             data,
             node_id: None.into(),
@@ -576,8 +655,8 @@ impl Timer {
 
     pub fn tick_millis(&self) -> u64 {
         match self.interval.as_ref() {
-            Some(Duration::System(s)) => { s.millis() }
-            Some(Duration::Tick(s)) => { s.tick_diff },
+            Some(Duration::System(s)) => s.millis(),
+            Some(Duration::Tick(s)) => s.tick_diff,
             None => 10, // ms
         }
     }
@@ -589,7 +668,9 @@ impl Timer {
     pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
         let mut finish = false;
         if let OptionDuration::Some(timeout) = self.timeout {
-            finish = instant_now.duration_since(&self.created).greater_than(&timeout);
+            finish = instant_now
+                .duration_since(&self.created)
+                .greater_than(&timeout);
         }
         finish
     }
@@ -601,7 +682,8 @@ impl Timer {
             None => &self.created,
         };
 
-        last_run.clone()
+        last_run
+            .clone()
             .add_optional_duration(self.delay.as_ref())
             .add_optional_duration(self.interval.as_ref())
     }
@@ -631,21 +713,27 @@ impl Timer {
     }
 
     /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `Update::DoNothing`
-    pub fn invoke(&mut self, callback_info: CallbackInfo, frame_start: Instant, get_system_time_fn: GetSystemTimeCallback) -> TimerCallbackReturn {
-
+    pub fn invoke(
+        &mut self,
+        callback_info: CallbackInfo,
+        frame_start: Instant,
+        get_system_time_fn: GetSystemTimeCallback,
+    ) -> TimerCallbackReturn {
         let instant_now = (get_system_time_fn.cb)();
 
         if let OptionDuration::Some(interval) = self.interval {
-
             let last_run = match self.last_run.as_ref() {
                 Some(s) => s.clone(),
                 None => self.created.add_optional_duration(self.delay.as_ref()),
             };
 
-            if instant_now.duration_since(&last_run).smaller_than(&interval) {
+            if instant_now
+                .duration_since(&last_run)
+                .smaller_than(&interval)
+            {
                 return TimerCallbackReturn {
                     should_update: Update::DoNothing,
-                    should_terminate: TerminateTimer::Continue
+                    should_terminate: TerminateTimer::Continue,
                 };
             }
         }
@@ -689,7 +777,12 @@ pub enum ThreadSendMsg {
     Custom(RefAny),
 }
 
-impl_option!(ThreadSendMsg, OptionThreadSendMsg, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(
+    ThreadSendMsg,
+    OptionThreadSendMsg,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
+);
 
 // Message that is received from the running thread
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -699,7 +792,12 @@ pub enum ThreadReceiveMsg {
     Update(Update),
 }
 
-impl_option!(ThreadReceiveMsg, OptionThreadReceiveMsg, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(
+    ThreadReceiveMsg,
+    OptionThreadReceiveMsg,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
+);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -712,7 +810,10 @@ pub struct ThreadWriteBackMsg {
 
 impl ThreadWriteBackMsg {
     pub fn new(callback: WriteBackCallbackType, data: RefAny) -> Self {
-        Self { data, callback: WriteBackCallback { cb: callback } }
+        Self {
+            data,
+            callback: WriteBackCallback { cb: callback },
+        }
     }
 }
 
@@ -742,7 +843,6 @@ impl Drop for ThreadSender {
 }
 
 impl ThreadSender {
-
     pub fn new(t: ThreadSenderInner) -> Self {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(t))),
@@ -803,7 +903,6 @@ impl ThreadReceiver {
     }
 }
 
-
 #[derive(Debug)]
 #[cfg_attr(not(feature = "std"), derive(PartialEq, PartialOrd, Eq, Ord))]
 #[repr(C)]
@@ -817,7 +916,7 @@ pub struct ThreadSenderInner {
 }
 
 #[cfg(not(feature = "std"))]
-unsafe impl Send for ThreadSenderInner { }
+unsafe impl Send for ThreadSenderInner {}
 
 #[cfg(feature = "std")]
 impl core::hash::Hash for ThreadSenderInner {
@@ -834,12 +933,15 @@ impl PartialEq for ThreadSenderInner {
 }
 
 #[cfg(feature = "std")]
-impl Eq for ThreadSenderInner { }
+impl Eq for ThreadSenderInner {}
 
 #[cfg(feature = "std")]
 impl PartialOrd for ThreadSenderInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some((self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize)))
+        Some(
+            (self.ptr.as_ref() as *const _ as usize)
+                .cmp(&(other.ptr.as_ref() as *const _ as usize)),
+        )
     }
 }
 
@@ -869,7 +971,7 @@ pub struct ThreadReceiverInner {
 }
 
 #[cfg(not(feature = "std"))]
-unsafe impl Send for ThreadReceiverInner { }
+unsafe impl Send for ThreadReceiverInner {}
 
 #[cfg(feature = "std")]
 impl core::hash::Hash for ThreadReceiverInner {
@@ -886,12 +988,15 @@ impl PartialEq for ThreadReceiverInner {
 }
 
 #[cfg(feature = "std")]
-impl Eq for ThreadReceiverInner { }
+impl Eq for ThreadReceiverInner {}
 
 #[cfg(feature = "std")]
 impl PartialOrd for ThreadReceiverInner {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some((self.ptr.as_ref() as *const _ as usize).cmp(&(other.ptr.as_ref() as *const _ as usize)))
+        Some(
+            (self.ptr.as_ref() as *const _ as usize)
+                .cmp(&(other.ptr.as_ref() as *const _ as usize)),
+        )
     }
 }
 
@@ -923,61 +1028,100 @@ pub struct ExternalSystemCallbacks {
 impl ExternalSystemCallbacks {
     pub fn rust_internal() -> Self {
         Self {
-            create_thread_fn: CreateThreadCallback { cb: create_thread_libstd },
-            get_system_time_fn: GetSystemTimeCallback { cb: get_system_time_libstd },
+            create_thread_fn: CreateThreadCallback {
+                cb: create_thread_libstd,
+            },
+            get_system_time_fn: GetSystemTimeCallback {
+                cb: get_system_time_libstd,
+            },
         }
     }
 }
 
 /// Function that creates a new `Thread` object
 pub type CreateThreadCallbackType = extern "C" fn(RefAny, RefAny, ThreadCallback) -> Thread;
-#[repr(C)] pub struct CreateThreadCallback { pub cb: CreateThreadCallbackType }
+#[repr(C)]
+pub struct CreateThreadCallback {
+    pub cb: CreateThreadCallbackType,
+}
 impl_callback!(CreateThreadCallback);
 
 /// Get the current system type, equivalent to `std::time::Instant::now()`, except it
 /// also works on systems that don't have a clock (such as embedded timers)
 pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
-#[repr(C)] pub struct GetSystemTimeCallback { pub cb: GetSystemTimeCallbackType }
+#[repr(C)]
+pub struct GetSystemTimeCallback {
+    pub cb: GetSystemTimeCallbackType,
+}
 impl_callback!(GetSystemTimeCallback);
 
 // function called to check if the thread has finished
-pub type CheckThreadFinishedCallbackType = extern "C" fn(/* dropcheck */ *const c_void) -> bool;
-#[repr(C)] pub struct CheckThreadFinishedCallback { pub cb: CheckThreadFinishedCallbackType }
+pub type CheckThreadFinishedCallbackType =
+    extern "C" fn(/* dropcheck */ *const c_void) -> bool;
+#[repr(C)]
+pub struct CheckThreadFinishedCallback {
+    pub cb: CheckThreadFinishedCallbackType,
+}
 impl_callback!(CheckThreadFinishedCallback);
 
 // function to send a message to the thread
-pub type LibrarySendThreadMsgCallbackType = extern "C" fn(/* Sender<ThreadSendMsg> */ *const c_void, ThreadSendMsg) -> bool; // return true / false on success / failure
-#[repr(C)] pub struct LibrarySendThreadMsgCallback { pub cb: LibrarySendThreadMsgCallbackType }
+pub type LibrarySendThreadMsgCallbackType =
+    extern "C" fn(/* Sender<ThreadSendMsg> */ *const c_void, ThreadSendMsg) -> bool; // return true / false on success / failure
+#[repr(C)]
+pub struct LibrarySendThreadMsgCallback {
+    pub cb: LibrarySendThreadMsgCallbackType,
+}
 impl_callback!(LibrarySendThreadMsgCallback);
 
 // function to receive a message from the thread
-pub type LibraryReceiveThreadMsgCallbackType = extern "C" fn(/* Receiver<ThreadReceiveMsg> */ *const c_void) -> OptionThreadReceiveMsg;
-#[repr(C)] pub struct LibraryReceiveThreadMsgCallback { pub cb: LibraryReceiveThreadMsgCallbackType }
+pub type LibraryReceiveThreadMsgCallbackType =
+    extern "C" fn(/* Receiver<ThreadReceiveMsg> */ *const c_void) -> OptionThreadReceiveMsg;
+#[repr(C)]
+pub struct LibraryReceiveThreadMsgCallback {
+    pub cb: LibraryReceiveThreadMsgCallbackType,
+}
 impl_callback!(LibraryReceiveThreadMsgCallback);
 
 // function that the RUNNING THREAD can call to receive messages from the main thread
-pub type ThreadRecvCallbackType = extern "C" fn(/* receiver.ptr */ *const c_void) -> OptionThreadSendMsg;
-#[repr(C)] pub struct ThreadRecvCallback { pub cb: ThreadRecvCallbackType }
+pub type ThreadRecvCallbackType =
+    extern "C" fn(/* receiver.ptr */ *const c_void) -> OptionThreadSendMsg;
+#[repr(C)]
+pub struct ThreadRecvCallback {
+    pub cb: ThreadRecvCallbackType,
+}
 impl_callback!(ThreadRecvCallback);
 
 // function that the RUNNING THREAD can call to send messages to the main thread
-pub type ThreadSendCallbackType = extern "C" fn(/* sender.ptr */*const c_void, ThreadReceiveMsg) -> bool; // return false on error
-#[repr(C)] pub struct ThreadSendCallback { pub cb: ThreadSendCallbackType }
+pub type ThreadSendCallbackType =
+    extern "C" fn(/* sender.ptr */ *const c_void, ThreadReceiveMsg) -> bool; // return false on error
+#[repr(C)]
+pub struct ThreadSendCallback {
+    pub cb: ThreadSendCallbackType,
+}
 impl_callback!(ThreadSendCallback);
 
 // function called on Thread::drop()
 pub type ThreadDestructorCallbackType = extern "C" fn(*mut ThreadInner);
-#[repr(C)] pub struct ThreadDestructorCallback { pub cb: ThreadDestructorCallbackType }
+#[repr(C)]
+pub struct ThreadDestructorCallback {
+    pub cb: ThreadDestructorCallbackType,
+}
 impl_callback!(ThreadDestructorCallback);
 
 // destructor of the ThreadReceiver
 pub type ThreadReceiverDestructorCallbackType = extern "C" fn(*mut ThreadReceiverInner);
-#[repr(C)] pub struct ThreadReceiverDestructorCallback { pub cb: ThreadReceiverDestructorCallbackType }
+#[repr(C)]
+pub struct ThreadReceiverDestructorCallback {
+    pub cb: ThreadReceiverDestructorCallbackType,
+}
 impl_callback!(ThreadReceiverDestructorCallback);
 
 // destructor of the ThreadSender
 pub type ThreadSenderDestructorCallbackType = extern "C" fn(*mut ThreadSenderInner);
-#[repr(C)] pub struct ThreadSenderDestructorCallback { pub cb: ThreadSenderDestructorCallbackType }
+#[repr(C)]
+pub struct ThreadSenderDestructorCallback {
+    pub cb: ThreadSenderDestructorCallbackType,
+}
 impl_callback!(ThreadSenderDestructorCallback);
 
 /// Wrapper around Thread because Thread needs to be clone-able for Python
@@ -1008,7 +1152,10 @@ impl Drop for Thread {
 
 impl Thread {
     pub fn new(ti: ThreadInner) -> Self {
-        Self { ptr: Box::new(Arc::new(Mutex::new(ti))), run_destructor: true, }
+        Self {
+            ptr: Box::new(Arc::new(Mutex::new(ti))),
+            run_destructor: true,
+        }
     }
 }
 
@@ -1038,7 +1185,6 @@ impl ThreadInner {
 #[derive(Debug)]
 #[repr(C)]
 pub struct ThreadInner {
-
     // Thread handle of the currently in-progress Thread
     #[cfg(feature = "std")]
     pub thread_handle: Box<Option<JoinHandle<()>>>,
@@ -1068,27 +1214,36 @@ pub struct ThreadInner {
 }
 
 #[cfg(feature = "std")]
-pub extern "C" fn get_system_time_libstd() -> Instant { StdInstant::now().into() }
+pub extern "C" fn get_system_time_libstd() -> Instant {
+    StdInstant::now().into()
+}
 
 #[cfg(feature = "std")]
 pub extern "C" fn create_thread_libstd(
     thread_initialize_data: RefAny,
     writeback_data: RefAny,
-    callback: ThreadCallback
+    callback: ThreadCallback,
 ) -> Thread {
-
     let (sender_receiver, receiver_receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
     let sender_receiver = ThreadSender::new(ThreadSenderInner {
         ptr: Box::new(sender_receiver),
-        send_fn: ThreadSendCallback { cb: default_send_thread_msg_fn },
-        destructor: ThreadSenderDestructorCallback { cb: thread_sender_drop },
+        send_fn: ThreadSendCallback {
+            cb: default_send_thread_msg_fn,
+        },
+        destructor: ThreadSenderDestructorCallback {
+            cb: thread_sender_drop,
+        },
     });
 
     let (sender_sender, receiver_sender) = std::sync::mpsc::channel::<ThreadSendMsg>();
     let receiver_sender = ThreadReceiver::new(ThreadReceiverInner {
         ptr: Box::new(receiver_sender),
-        recv_fn: ThreadRecvCallback { cb: default_receive_thread_msg_fn },
-        destructor: ThreadReceiverDestructorCallback { cb: thread_receiver_drop },
+        recv_fn: ThreadRecvCallback {
+            cb: default_receive_thread_msg_fn,
+        },
+        destructor: ThreadReceiverDestructorCallback {
+            cb: thread_receiver_drop,
+        },
     });
 
     let thread_check = Arc::new(());
@@ -1111,10 +1266,18 @@ pub extern "C" fn create_thread_libstd(
         receiver,
         writeback_data,
         dropcheck,
-        thread_destructor_fn: ThreadDestructorCallback { cb: default_thread_destructor_fn },
-        check_thread_finished_fn: CheckThreadFinishedCallback { cb: default_check_thread_finished },
-        send_thread_msg_fn: LibrarySendThreadMsgCallback { cb: library_send_thread_msg_fn },
-        receive_thread_msg_fn: LibraryReceiveThreadMsgCallback { cb: library_receive_thread_msg_fn },
+        thread_destructor_fn: ThreadDestructorCallback {
+            cb: default_thread_destructor_fn,
+        },
+        check_thread_finished_fn: CheckThreadFinishedCallback {
+            cb: default_check_thread_finished,
+        },
+        send_thread_msg_fn: LibrarySendThreadMsgCallback {
+            cb: library_send_thread_msg_fn,
+        },
+        receive_thread_msg_fn: LibraryReceiveThreadMsgCallback {
+            cb: library_receive_thread_msg_fn,
+        },
     })
 }
 
@@ -1126,7 +1289,6 @@ impl Drop for ThreadInner {
 
 #[cfg(feature = "std")]
 extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
-
     let thread = unsafe { &mut *thread };
 
     if let Some(thread_handle) = thread.thread_handle.take() {
@@ -1137,31 +1299,43 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
 
 #[cfg(feature = "std")]
 extern "C" fn library_send_thread_msg_fn(sender: *const c_void, msg: ThreadSendMsg) -> bool {
-    unsafe { &*(sender as *const Sender<ThreadSendMsg>) }.send(msg).is_ok()
+    unsafe { &*(sender as *const Sender<ThreadSendMsg>) }
+        .send(msg)
+        .is_ok()
 }
 
 #[cfg(feature = "std")]
 extern "C" fn library_receive_thread_msg_fn(receiver: *const c_void) -> OptionThreadReceiveMsg {
-    unsafe { &*(receiver as *const Receiver<ThreadReceiveMsg>) }.try_recv().ok().into()
+    unsafe { &*(receiver as *const Receiver<ThreadReceiveMsg>) }
+        .try_recv()
+        .ok()
+        .into()
 }
 
 #[cfg(feature = "std")]
 extern "C" fn default_send_thread_msg_fn(sender: *const c_void, msg: ThreadReceiveMsg) -> bool {
-    unsafe { &*(sender as *const Sender<ThreadReceiveMsg>) }.send(msg).is_ok()
+    unsafe { &*(sender as *const Sender<ThreadReceiveMsg>) }
+        .send(msg)
+        .is_ok()
 }
 
 #[cfg(feature = "std")]
 extern "C" fn default_receive_thread_msg_fn(receiver: *const c_void) -> OptionThreadSendMsg {
-    unsafe { &*(receiver as *const Receiver<ThreadSendMsg>) }.try_recv().ok().into()
+    unsafe { &*(receiver as *const Receiver<ThreadSendMsg>) }
+        .try_recv()
+        .ok()
+        .into()
 }
 
 #[cfg(feature = "std")]
 extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
-    unsafe { &*(dropcheck as *const Weak<()>) }.upgrade().is_none()
+    unsafe { &*(dropcheck as *const Weak<()>) }
+        .upgrade()
+        .is_none()
 }
 
 #[cfg(feature = "std")]
-extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) { }
+extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
 
 #[cfg(feature = "std")]
-extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) { }
+extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) {}

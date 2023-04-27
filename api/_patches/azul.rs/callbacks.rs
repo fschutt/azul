@@ -1,14 +1,11 @@
 
     static NULL_REF: [u8;0] = [];
 
-    #[cfg_attr(not(feature = "link-static"), derive(Debug))]
+    #[derive(Debug)]
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
-        #[cfg(not(feature = "link-static"))]
         sharing_info: RefCount,
-        #[cfg(feature = "link-static")]
-        sharing_info: azul::AzRefCountTT,
     }
 
     impl<'a, T> Drop for Ref<'a, T> {
@@ -25,14 +22,11 @@
         }
     }
 
-    #[cfg_attr(not(feature = "link-static"), derive(Debug))]
+    #[derive(Debug)]
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
-        #[cfg(not(feature = "link-static"))]
         sharing_info: RefCount,
-        #[cfg(feature = "link-static")]
-        sharing_info: azul::AzRefCountTT,
     }
 
     impl<'a, T> Drop for RefMut<'a, T> {
@@ -55,7 +49,6 @@
         }
     }
 
-    #[cfg(not(feature = "link-static"))]
     impl RefAny {
 
         /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID

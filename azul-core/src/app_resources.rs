@@ -1,41 +1,36 @@
-use core::{
-    fmt,
-    sync::atomic::{AtomicUsize, AtomicU32, Ordering as AtomicOrdering},
-    hash::{Hash, Hasher},
-};
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use alloc::string::String;
-use alloc::collections::btree_map::BTreeMap;
-use azul_css::{
-    LayoutRect, StyleFontSize, LayoutSize,
-    ColorU, U8Vec, U16Vec, F32Vec, U32Vec, AzString, OptionI32,
-    FontRef, StyleFontFamilyVec, StyleFontFamily,
-};
 use crate::{
-    FastHashMap, FastBTreeSet,
+    callbacks::{DocumentId, InlineText},
+    callbacks::{DomNodeId, RefAny, RenderImageCallback, RenderImageCallbackType, UpdateImageType},
     display_list::GlStoreImageFn,
-    callbacks::{
-        RenderImageCallback, RenderImageCallbackType,
-        RefAny, DomNodeId, UpdateImageType,
-    },
-    ui_solver::{InlineTextLine, ResolvedTextLayoutOptions, InlineTextLayout},
     display_list::{GlyphInstance, RenderCallbacks},
-    styled_dom::{
-        StyledDom, StyleFontFamilyHash,
-        NodeHierarchyItemId, DomId, StyleFontFamiliesHash
-    },
     dom::NodeType,
     gl::OptionGlContextPtr,
-    callbacks::{DocumentId, InlineText},
-    task::ExternalSystemCallbacks,
     gl::Texture,
     id_tree::NodeId,
+    styled_dom::{
+        DomId, NodeHierarchyItemId, StyleFontFamiliesHash, StyleFontFamilyHash, StyledDom,
+    },
+    task::ExternalSystemCallbacks,
     ui_solver::LayoutResult,
-    window::{LogicalPosition, LogicalSize, OptionChar, LogicalRect},
+    ui_solver::{InlineTextLayout, InlineTextLine, ResolvedTextLayoutOptions},
+    window::{LogicalPosition, LogicalRect, LogicalSize, OptionChar},
+    FastBTreeSet, FastHashMap,
+};
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::string::String;
+use alloc::vec::Vec;
+pub use azul_css::FontMetrics;
+use azul_css::{
+    AzString, ColorU, F32Vec, FontRef, LayoutRect, LayoutSize, OptionI32, StyleFontFamily,
+    StyleFontFamilyVec, StyleFontSize, U16Vec, U32Vec, U8Vec,
+};
+use core::{
+    fmt,
+    hash::{Hash, Hasher},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering as AtomicOrdering},
 };
 use rust_fontconfig::FcFontCache;
-pub use azul_css::FontMetrics;
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -199,7 +194,6 @@ pub struct ImageKey {
 }
 
 impl ImageKey {
-
     pub const DUMMY: Self = Self {
         namespace: IdNamespace(0),
         key: 0,
@@ -208,7 +202,7 @@ impl ImageKey {
     pub fn unique(render_api_namespace: IdNamespace) -> Self {
         Self {
             namespace: render_api_namespace,
-            key: IMAGE_KEY.fetch_add(1, AtomicOrdering::SeqCst)
+            key: IMAGE_KEY.fetch_add(1, AtomicOrdering::SeqCst),
         }
     }
 }
@@ -223,7 +217,7 @@ impl FontKey {
     pub fn unique(render_api_namespace: IdNamespace) -> Self {
         Self {
             namespace: render_api_namespace,
-            key: FONT_KEY.fetch_add(1, AtomicOrdering::SeqCst)
+            key: FONT_KEY.fetch_add(1, AtomicOrdering::SeqCst),
         }
     }
 }
@@ -238,7 +232,7 @@ impl FontInstanceKey {
     pub fn unique(render_api_namespace: IdNamespace) -> Self {
         Self {
             namespace: render_api_namespace,
-            key: FONT_INSTANCE_KEY.fetch_add(1, AtomicOrdering::SeqCst)
+            key: FONT_INSTANCE_KEY.fetch_add(1, AtomicOrdering::SeqCst),
         }
     }
 }
@@ -259,7 +253,7 @@ pub enum DecodedImage {
     NullImage {
         width: usize,
         height: usize,
-        format: RawImageFormat
+        format: RawImageFormat,
     },
     // OpenGl texture
     Gl(Texture),
@@ -286,10 +280,14 @@ pub struct ImageRef {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
 pub struct ImageRefHash(pub usize);
 
-impl_option!(ImageRef, OptionImageRef, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    ImageRef,
+    OptionImageRef,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl ImageRef {
-
     /// If *copies = 1, returns the internal image data
     pub fn into_inner(self) -> Option<DecodedImage> {
         unsafe {
@@ -304,7 +302,9 @@ impl ImageRef {
         }
     }
 
-    pub fn get_data<'a>(&'a self) -> &'a DecodedImage { unsafe { &*self.data } }
+    pub fn get_data<'a>(&'a self) -> &'a DecodedImage {
+        unsafe { &*self.data }
+    }
 
     pub fn get_image_callback<'a>(&'a self) -> Option<&'a ImageCallback> {
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
@@ -330,15 +330,28 @@ impl ImageRef {
 
     /// In difference to the default shallow copy, creates a new image ref
     pub fn deep_copy(&self) -> Self {
-
         let new_data = match self.get_data() {
-            DecodedImage::NullImage { width, height, format } => DecodedImage::NullImage { width: *width, height: *height, format: *format },
+            DecodedImage::NullImage {
+                width,
+                height,
+                format,
+            } => DecodedImage::NullImage {
+                width: *width,
+                height: *height,
+                format: *format,
+            },
             // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing from the trait),
             // so calling clone() on a GL texture will result in an empty image
-            DecodedImage::Gl(tex) => DecodedImage::NullImage { width: tex.size.width as usize, height: tex.size.height as usize, format: tex.format },
+            DecodedImage::Gl(tex) => DecodedImage::NullImage {
+                width: tex.size.width as usize,
+                height: tex.size.height as usize,
+                format: tex.format,
+            },
             // WARNING: the data may still be a U8Vec<'static> - the data may still not be
             // actually cloned. The data only gets cloned on a write operation
-            DecodedImage::Raw((descriptor, data)) => DecodedImage::Raw((descriptor.clone(), data.clone())),
+            DecodedImage::Raw((descriptor, data)) => {
+                DecodedImage::Raw((descriptor.clone(), data.clone()))
+            }
             DecodedImage::Callback(cb) => DecodedImage::Callback(cb.clone()),
         };
 
@@ -393,9 +406,16 @@ impl ImageRef {
     /// NOTE: returns (0, 0) for a Callback
     pub fn get_size(&self) -> LogicalSize {
         match self.get_data() {
-            DecodedImage::NullImage { width, height, .. } => LogicalSize::new(*width as f32, *height as f32),
-            DecodedImage::Gl(tex) => LogicalSize::new(tex.size.width as f32, tex.size.height as f32),
-            DecodedImage::Raw((image_descriptor, _)) => LogicalSize::new(image_descriptor.width as f32, image_descriptor.height as f32),
+            DecodedImage::NullImage { width, height, .. } => {
+                LogicalSize::new(*width as f32, *height as f32)
+            }
+            DecodedImage::Gl(tex) => {
+                LogicalSize::new(tex.size.width as f32, tex.size.height as f32)
+            }
+            DecodedImage::Raw((image_descriptor, _)) => LogicalSize::new(
+                image_descriptor.width as f32,
+                image_descriptor.height as f32,
+            ),
             DecodedImage::Callback(_) => LogicalSize::new(0.0, 0.0),
         }
     }
@@ -405,11 +425,18 @@ impl ImageRef {
     }
 
     pub fn invalid(width: usize, height: usize, format: RawImageFormat) -> Self {
-        Self::new(DecodedImage::NullImage { width, height, format })
+        Self::new(DecodedImage::NullImage {
+            width,
+            height,
+            format,
+        })
     }
 
     pub fn callback(gl_callback: RenderImageCallbackType, data: RefAny) -> Self {
-        Self::new(DecodedImage::Callback(ImageCallback { callback: RenderImageCallback { cb: gl_callback }, data }))
+        Self::new(DecodedImage::Callback(ImageCallback {
+            callback: RenderImageCallback { cb: gl_callback },
+            data,
+        }))
     }
 
     pub fn new_rawimage(image_data: RawImage) -> Option<Self> {
@@ -432,8 +459,8 @@ impl ImageRef {
     // pub fn new_vulkan(...) -> Self
 }
 
-unsafe impl Send for ImageRef { }
-unsafe impl Sync for ImageRef { }
+unsafe impl Send for ImageRef {}
+unsafe impl Sync for ImageRef {}
 
 impl PartialEq for ImageRef {
     fn eq(&self, rhs: &Self) -> bool {
@@ -455,10 +482,13 @@ impl Ord for ImageRef {
     }
 }
 
-impl Eq for ImageRef { }
+impl Eq for ImageRef {}
 
 impl Hash for ImageRef {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         let self_data = self.data as usize;
         self_data.hash(state)
     }
@@ -466,9 +496,13 @@ impl Hash for ImageRef {
 
 impl Clone for ImageRef {
     fn clone(&self) -> Self {
-        unsafe { self.copies.as_ref().map(|m| m.fetch_add(1, AtomicOrdering::SeqCst)); }
+        unsafe {
+            self.copies
+                .as_ref()
+                .map(|m| m.fetch_add(1, AtomicOrdering::SeqCst));
+        }
         Self {
-            data: self.data, // copy the pointer
+            data: self.data,     // copy the pointer
             copies: self.copies, // copy the pointer
             run_destructor: true,
         }
@@ -517,7 +551,6 @@ impl Default for ImageCache {
 }
 
 impl ImageCache {
-
     pub fn new() -> Self {
         Self::default()
     }
@@ -583,16 +616,18 @@ pub struct RendererResources {
 
 impl fmt::Debug for RendererResources {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "RendererResources {{
+        write!(
+            f,
+            "RendererResources {{
                 currently_registered_images: {:#?},
                 currently_registered_fonts: {:#?},
                 font_families_map: {:#?},
                 font_id_map: {:#?},
             }}",
-           self.currently_registered_images.keys().collect::<Vec<_>>(),
-           self.currently_registered_fonts.keys().collect::<Vec<_>>(),
-           self.font_families_map.keys().collect::<Vec<_>>(),
-           self.font_id_map.keys().collect::<Vec<_>>(),
+            self.currently_registered_images.keys().collect::<Vec<_>>(),
+            self.currently_registered_fonts.keys().collect::<Vec<_>>(),
+            self.font_families_map.keys().collect::<Vec<_>>(),
+            self.font_id_map.keys().collect::<Vec<_>>(),
         )
     }
 }
@@ -610,12 +645,14 @@ impl Default for RendererResources {
 }
 
 impl RendererResources {
-
     pub fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage> {
         self.currently_registered_images.get(hash)
     }
 
-    pub fn get_font_family(&self, style_font_families_hash: &StyleFontFamiliesHash) -> Option<&StyleFontFamilyHash> {
+    pub fn get_font_family(
+        &self,
+        style_font_families_hash: &StyleFontFamiliesHash,
+    ) -> Option<&StyleFontFamilyHash> {
         self.font_families_map.get(style_font_families_hash)
     }
 
@@ -623,7 +660,10 @@ impl RendererResources {
         self.font_id_map.get(style_font_family_hash)
     }
 
-    pub fn get_registered_font(&self, font_key: &FontKey) -> Option<&(FontRef, FastHashMap<Au, FontInstanceKey>)> {
+    pub fn get_registered_font(
+        &self,
+        font_key: &FontKey,
+    ) -> Option<&(FontRef, FastHashMap<Au, FontInstanceKey>)> {
         self.currently_registered_fonts.get(font_key)
     }
 
@@ -653,7 +693,6 @@ impl RendererResources {
         // initialized texture cache of the NEXT frame
         gl_texture_cache: &GlTextureCache,
     ) {
-
         use crate::rayon::iter::IntoParallelRefIterator;
         use crate::rayon::iter::ParallelIterator;
         use alloc::collections::btree_set::BTreeSet;
@@ -662,13 +701,18 @@ impl RendererResources {
         let mut next_frame_image_keys = BTreeSet::new();
 
         for layout_result in new_layout_results {
-            for image_key in layout_result.styled_dom.scan_for_image_keys(css_image_cache) {
+            for image_key in layout_result
+                .styled_dom
+                .scan_for_image_keys(css_image_cache)
+            {
                 let hash = image_key.get_hash();
                 next_frame_image_keys.insert(hash);
             }
         }
 
-        for ((_dom_id, _node_id, _callback_imageref_hash), image_ref_hash) in gl_texture_cache.hashes.iter() {
+        for ((_dom_id, _node_id, _callback_imageref_hash), image_ref_hash) in
+            gl_texture_cache.hashes.iter()
+        {
             next_frame_image_keys.insert(*image_ref_hash);
         }
 
@@ -676,32 +720,62 @@ impl RendererResources {
         let mut delete_font_resources = Vec::new();
         for (font_key, font_instances) in self.last_frame_registered_fonts.iter() {
             delete_font_resources.extend(
-                font_instances.iter()
-                .filter(|(au, _)| !(self.currently_registered_fonts.get(font_key).map(|f| f.1.contains_key(au)).unwrap_or(false)))
-                .map(|(au, font_instance_key)| (font_key.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
+                font_instances
+                    .iter()
+                    .filter(|(au, _)| {
+                        !(self
+                            .currently_registered_fonts
+                            .get(font_key)
+                            .map(|f| f.1.contains_key(au))
+                            .unwrap_or(false))
+                    })
+                    .map(|(au, font_instance_key)| {
+                        (
+                            font_key.clone(),
+                            DeleteFontMsg::Instance(*font_instance_key, *au),
+                        )
+                    }),
             );
             // Delete the font and all instances if there are no more instances of the font
             // NOTE: deletion is in reverse order - instances are deleted first, then the font is deleted
-            if !self.currently_registered_fonts.contains_key(font_key) || font_instances.is_empty() {
-                delete_font_resources.push((font_key.clone(), DeleteFontMsg::Font(font_key.clone())));
+            if !self.currently_registered_fonts.contains_key(font_key) || font_instances.is_empty()
+            {
+                delete_font_resources
+                    .push((font_key.clone(), DeleteFontMsg::Font(font_key.clone())));
             }
         }
 
         // If the current frame contains an image, but the next frame does not, delete it
-        let delete_image_resources = self.currently_registered_images
-        .par_iter()
-        .filter(|(image_ref_hash, _)| !next_frame_image_keys.contains(image_ref_hash))
-        .map(|(image_ref_hash, resolved_image)| (image_ref_hash.clone(), DeleteImageMsg(resolved_image.key.clone())))
-        .collect::<Vec<_>>();
+        let delete_image_resources = self
+            .currently_registered_images
+            .par_iter()
+            .filter(|(image_ref_hash, _)| !next_frame_image_keys.contains(image_ref_hash))
+            .map(|(image_ref_hash, resolved_image)| {
+                (
+                    image_ref_hash.clone(),
+                    DeleteImageMsg(resolved_image.key.clone()),
+                )
+            })
+            .collect::<Vec<_>>();
 
         for (image_ref_hash_to_delete, _) in delete_image_resources.iter() {
-            self.currently_registered_images.remove(image_ref_hash_to_delete);
+            self.currently_registered_images
+                .remove(image_ref_hash_to_delete);
         }
 
-        all_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
-        all_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
+        all_resource_updates.extend(
+            delete_font_resources
+                .iter()
+                .map(|(_, f)| f.into_resource_update()),
+        );
+        all_resource_updates.extend(
+            delete_image_resources
+                .iter()
+                .map(|(_, i)| i.into_resource_update()),
+        );
 
-        self.last_frame_registered_fonts = self.currently_registered_fonts
+        self.last_frame_registered_fonts = self
+            .currently_registered_fonts
             .par_iter()
             .map(|(fk, (_, fi))| (fk.clone(), fi.clone()))
             .collect();
@@ -711,29 +785,33 @@ impl RendererResources {
 
     // Delete all font family hashes that do not have a font key anymore
     fn remove_font_families_with_zero_references(&mut self) {
-
-        let font_family_to_delete = self.font_id_map.iter()
-        .filter_map(|(font_family, font_key)| {
-            if !self.currently_registered_fonts.contains_key(font_key) {
-                Some(font_family.clone())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+        let font_family_to_delete = self
+            .font_id_map
+            .iter()
+            .filter_map(|(font_family, font_key)| {
+                if !self.currently_registered_fonts.contains_key(font_key) {
+                    Some(font_family.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
 
         for f in font_family_to_delete {
             self.font_id_map.remove(&f); // font key does not exist anymore
         }
 
-        let font_families_to_delete = self.font_families_map.iter()
-        .filter_map(|(font_families, font_family)| {
-            if !self.font_id_map.contains_key(font_family) {
-                Some(font_families.clone())
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
+        let font_families_to_delete = self
+            .font_families_map
+            .iter()
+            .filter_map(|(font_families, font_family)| {
+                if !self.font_id_map.contains_key(font_family) {
+                    Some(font_families.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
 
         for f in font_families_to_delete {
             self.font_families_map.remove(&f); // font family does not exist anymore
@@ -759,18 +837,16 @@ impl RendererResources {
         layout_results: &mut [LayoutResult],
         gl_texture_cache: &mut GlTextureCache,
     ) -> Option<UpdateImageResult> {
-
+        use crate::callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo};
         use crate::gl::{
-            remove_single_texture_from_active_gl_textures,
-            insert_into_active_gl_textures,
+            insert_into_active_gl_textures, remove_single_texture_from_active_gl_textures,
         };
-        use crate::callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds};
 
         let mut layout_result = layout_results.get_mut(dom_id.inner)?;
         let mut node_data_vec = layout_result.styled_dom.node_data.as_container_mut();
         let mut node_data = node_data_vec.get_mut(node_id)?;
-        let (mut render_image_callback, render_image_callback_hash) = node_data.get_render_image_callback_node()?;
-
+        let (mut render_image_callback, render_image_callback_hash) =
+            node_data.get_render_image_callback_node()?;
 
         let callback_domnode_id = DomNodeId {
             dom: dom_id,
@@ -781,7 +857,7 @@ impl RendererResources {
 
         let size = LayoutSize::new(
             rect_size.width.round() as isize,
-            rect_size.height.round() as isize
+            rect_size.height.round() as isize,
         );
 
         // NOTE: all of these extra arguments are necessary so that the callback
@@ -801,22 +877,35 @@ impl RendererResources {
             /*hit_dom_node*/ callback_domnode_id,
         );
 
-        let new_imageref = (render_image_callback.callback.cb)(&mut render_image_callback.data, &mut gl_callback_info);
+        let new_imageref = (render_image_callback.callback.cb)(
+            &mut render_image_callback.data,
+            &mut gl_callback_info,
+        );
 
         // remove old imageref from GlTextureCache and active textures
-        let existing_image_key = gl_texture_cache.solved_textures
-        .get(&dom_id).and_then(|m| m.get(&node_id)).map(|k| k.0.clone())
-        .or(self.currently_registered_images.get(&render_image_callback_hash).map(|i| i.key.clone()))?;
+        let existing_image_key = gl_texture_cache
+            .solved_textures
+            .get(&dom_id)
+            .and_then(|m| m.get(&node_id))
+            .map(|k| k.0.clone())
+            .or(self
+                .currently_registered_images
+                .get(&render_image_callback_hash)
+                .map(|i| i.key.clone()))?;
 
         if let Some(dom_map) = gl_texture_cache.solved_textures.get_mut(&dom_id) {
-            if let Some((image_key, image_descriptor, external_image_id)) = dom_map.remove(&node_id) {
-                remove_single_texture_from_active_gl_textures(&document_id, &epoch, &external_image_id);
+            if let Some((image_key, image_descriptor, external_image_id)) = dom_map.remove(&node_id)
+            {
+                remove_single_texture_from_active_gl_textures(
+                    &document_id,
+                    &epoch,
+                    &external_image_id,
+                );
             }
         }
 
         match new_imageref.into_inner()? {
             DecodedImage::Gl(new_tex) => {
-
                 // for GL textures, generate a new external image ID
                 let new_descriptor = new_tex.get_descriptor();
                 let new_external_id = insert_into_active_gl_textures(document_id, epoch, new_tex);
@@ -826,19 +915,26 @@ impl RendererResources {
                     image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
                 });
 
-                gl_texture_cache.solved_textures
-                .entry(dom_id)
-                .or_insert_with(|| BTreeMap::new())
-                .insert(node_id, (existing_image_key, new_descriptor.clone(), new_external_id));
+                gl_texture_cache
+                    .solved_textures
+                    .entry(dom_id)
+                    .or_insert_with(|| BTreeMap::new())
+                    .insert(
+                        node_id,
+                        (existing_image_key, new_descriptor.clone(), new_external_id),
+                    );
 
                 Some(UpdateImageResult {
                     key_to_update: existing_image_key,
                     new_descriptor,
                     new_image_data,
                 })
-            },
+            }
             DecodedImage::Raw((descriptor, data)) => {
-                if let Some(existing_image) = self.currently_registered_images.get_mut(&render_image_callback_hash) {
+                if let Some(existing_image) = self
+                    .currently_registered_images
+                    .get_mut(&render_image_callback_hash)
+                {
                     existing_image.descriptor = descriptor.clone(); // update descriptor, key stays the same
                     Some(UpdateImageResult {
                         key_to_update: existing_image_key,
@@ -848,7 +944,7 @@ impl RendererResources {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -867,7 +963,6 @@ impl RendererResources {
         document_id: DocumentId,
         epoch: Epoch,
     ) -> Vec<UpdateImageResult> {
-
         use crate::dom::NodeType;
 
         let mut updated_images = Vec::new();
@@ -875,31 +970,35 @@ impl RendererResources {
 
         // update images
         for (dom_id, image_map) in images_to_update {
-
             let layout_result = match layout_results.get(dom_id.inner) {
                 Some(s) => s,
                 None => continue,
             };
 
             for (node_id, (image_ref, image_type)) in image_map {
-
                 // get the existing key + extents of the image
                 let existing_image_ref_hash = match image_type {
                     UpdateImageType::Content => {
-                        match layout_result.styled_dom.node_data.as_container().get(node_id).map(|n| n.get_node_type()) {
+                        match layout_result
+                            .styled_dom
+                            .node_data
+                            .as_container()
+                            .get(node_id)
+                            .map(|n| n.get_node_type())
+                        {
                             Some(NodeType::Image(image_ref)) => image_ref.get_hash(),
                             _ => continue,
                         }
-                    },
+                    }
                     UpdateImageType::Background => {
-
                         let node_data = layout_result.styled_dom.node_data.as_container();
                         let node_data = match node_data.get(node_id) {
                             Some(s) => s,
                             None => continue,
                         };
 
-                        let styled_node_states = layout_result.styled_dom.styled_nodes.as_container();
+                        let styled_node_states =
+                            layout_result.styled_dom.styled_nodes.as_container();
                         let node_state = match styled_node_states.get(node_id) {
                             Some(s) => s.state.clone(),
                             None => continue,
@@ -908,15 +1007,24 @@ impl RendererResources {
                         let default = azul_css::StyleBackgroundContentVec::from_const_slice(&[]);
 
                         // TODO: only updates the first image background - usually not a problem
-                        let bg_hash = layout_result.styled_dom.css_property_cache.ptr
-                        .get_background_content(node_data, &node_id, &node_state)
-                        .and_then(|bg| bg.get_property().unwrap_or(&default).as_ref().iter().find_map(|b| match b {
-                            azul_css::StyleBackgroundContent::Image(id) => {
-                                let image_ref = image_cache.get_css_image_id(id)?;
-                                Some(image_ref.get_hash())
-                            },
-                            _ => None,
-                        }));
+                        let bg_hash = layout_result
+                            .styled_dom
+                            .css_property_cache
+                            .ptr
+                            .get_background_content(node_data, &node_id, &node_state)
+                            .and_then(|bg| {
+                                bg.get_property()
+                                    .unwrap_or(&default)
+                                    .as_ref()
+                                    .iter()
+                                    .find_map(|b| match b {
+                                        azul_css::StyleBackgroundContent::Image(id) => {
+                                            let image_ref = image_cache.get_css_image_id(id)?;
+                                            Some(image_ref.get_hash())
+                                        }
+                                        _ => None,
+                                    })
+                            });
 
                         match bg_hash {
                             Some(h) => h,
@@ -934,18 +1042,17 @@ impl RendererResources {
 
                 // Try getting the existing image key either
                 // from the textures or from the renderer resources
-                let existing_key = gl_texture_cache.solved_textures
+                let existing_key = gl_texture_cache
+                    .solved_textures
                     .get(&dom_id)
                     .and_then(|map| map.get(&node_id))
                     .map(|val| val.0);
 
                 let existing_key = match existing_key {
                     Some(s) => Some(s),
-                    None => {
-                        renderer_resources
+                    None => renderer_resources
                         .get_image(&existing_image_ref_hash)
-                        .map(|resolved_image| resolved_image.key)
-                    },
+                        .map(|resolved_image| resolved_image.key),
                 };
 
                 let key = match existing_key {
@@ -956,7 +1063,6 @@ impl RendererResources {
 
                 let (descriptor, data) = match decoded_image {
                     DecodedImage::Gl(texture) => {
-
                         let descriptor = texture.get_descriptor();
                         let new_external_image_id = match gl_texture_cache.update_texture(
                             dom_id,
@@ -973,17 +1079,19 @@ impl RendererResources {
                         let data = ImageData::External(ExternalImageData {
                             id: new_external_image_id,
                             channel_index: 0,
-                            image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                            image_type: ExternalImageType::TextureHandle(
+                                ImageBufferKind::Texture2D,
+                            ),
                         });
 
                         (descriptor, data)
-                    },
+                    }
                     DecodedImage::Raw((descriptor, data)) => {
                         // use the hash to get the existing image key
                         // TODO: may lead to problems when the same ImageRef is used more than once?
                         renderer_resources.update_image(&existing_image_ref_hash, descriptor);
                         (descriptor, data)
-                    },
+                    }
                     DecodedImage::NullImage { .. } => continue, // TODO: NULL image descriptor?
                     DecodedImage::Callback(callback) => {
                         // TODO: re-render image callbacks?
@@ -993,8 +1101,8 @@ impl RendererResources {
                             None => continue,
                         };*/
 
-                        continue
-                    },
+                        continue;
+                    }
                 };
 
                 // update the image descriptor in the renderer resources
@@ -1008,9 +1116,7 @@ impl RendererResources {
         }
 
         // TODO: update image masks
-        for (dom_id, image_mask_map) in image_masks_to_update {
-
-        }
+        for (dom_id, image_mask_map) in image_masks_to_update {}
 
         updated_images
     }
@@ -1035,15 +1141,15 @@ pub struct UpdateImageResult {
 
 #[derive(Debug, Default)]
 pub struct GlTextureCache {
-    pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
+    pub solved_textures:
+        BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
     pub hashes: BTreeMap<(DomId, NodeId, ImageRefHash), ImageRefHash>,
 }
 
 // necessary so the display list can be built in parallel
-unsafe impl Send for GlTextureCache { }
+unsafe impl Send for GlTextureCache {}
 
 impl GlTextureCache {
-
     /// Initializes an empty cache
     pub fn empty() -> Self {
         Self {
@@ -1067,13 +1173,12 @@ impl GlTextureCache {
         all_resource_updates: &mut Vec<ResourceUpdate>,
         renderer_resources: &mut RendererResources,
     ) -> Self {
-
         use crate::{
             app_resources::{
-                AddImage, ExternalImageData, ImageBufferKind, ExternalImageType,
-                ImageData, add_resources, DecodedImage, ImageRef,
+                add_resources, AddImage, DecodedImage, ExternalImageData, ExternalImageType,
+                ImageBufferKind, ImageData, ImageRef,
             },
-            callbacks::{RenderImageCallbackInfo, HidpiAdjustedBounds},
+            callbacks::{HidpiAdjustedBounds, RenderImageCallbackInfo},
             dom::NodeType,
         };
         use gl_context_loader::gl;
@@ -1083,12 +1188,10 @@ impl GlTextureCache {
         // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
         for (dom_id, layout_result) in layout_results.iter_mut().enumerate() {
             for callback_node_id in layout_result.styled_dom.scan_for_gltexture_callbacks() {
-
                 // Invoke OpenGL callback, render texture
                 let rect_size = layout_result.rects.as_ref()[callback_node_id].size;
 
                 let callback_image = {
-
                     let callback_domnode_id = DomNodeId {
                         dom: DomId { inner: dom_id },
                         node: NodeHierarchyItemId::from_crate_internal(Some(callback_node_id)),
@@ -1096,7 +1199,7 @@ impl GlTextureCache {
 
                     let size = LayoutSize::new(
                         rect_size.width.round() as isize,
-                        rect_size.height.round() as isize
+                        rect_size.height.round() as isize,
                     );
 
                     // NOTE: all of these extra arguments are necessary so that the callback
@@ -1118,16 +1221,22 @@ impl GlTextureCache {
 
                     let callback_image: Option<(ImageRef, ImageRefHash)> = {
                         // get a MUTABLE reference to the RefAny inside of the DOM
-                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                        let mut node_data_mut =
+                            layout_result.styled_dom.node_data.as_container_mut();
                         match &mut node_data_mut[callback_node_id].node_type {
                             NodeType::Image(img) => {
                                 let callback_imageref_hash = img.get_hash();
 
-                                img.get_image_callback_mut()
-                                .map(|gl_texture_callback| {
-                                    ((gl_texture_callback.callback.cb)(&mut gl_texture_callback.data, &mut gl_callback_info), callback_imageref_hash)
+                                img.get_image_callback_mut().map(|gl_texture_callback| {
+                                    (
+                                        (gl_texture_callback.callback.cb)(
+                                            &mut gl_texture_callback.data,
+                                            &mut gl_callback_info,
+                                        ),
+                                        callback_imageref_hash,
+                                    )
                                 })
-                            },
+                            }
                             _ => None,
                         }
                     };
@@ -1156,7 +1265,6 @@ impl GlTextureCache {
 
         for (dom_id, image_refs) in solved_image_callbacks {
             for (node_id, (callback_imageref_hash, image_ref)) in image_refs {
-
                 // callback_imageref_hash = the hash of the ImageRef::callback()
                 // that is currently in the DOM
                 //
@@ -1173,44 +1281,65 @@ impl GlTextureCache {
                     DecodedImage::Gl(texture) => {
                         let descriptor = texture.get_descriptor();
                         let key = ImageKey::unique(id_namespace);
-                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(*document_id, epoch, texture);
+                        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(
+                            *document_id,
+                            epoch,
+                            texture,
+                        );
 
-                        gl_texture_cache.solved_textures
+                        gl_texture_cache
+                            .solved_textures
                             .entry(dom_id.clone())
                             .or_insert_with(|| BTreeMap::new())
                             .insert(node_id, (key, descriptor, external_image_id));
 
-                        gl_texture_cache.hashes.insert((dom_id, node_id, callback_imageref_hash), image_ref_hash);
+                        gl_texture_cache
+                            .hashes
+                            .insert((dom_id, node_id, callback_imageref_hash), image_ref_hash);
 
-                        Some((image_ref_hash, AddImageMsg(
-                            AddImage {
+                        Some((
+                            image_ref_hash,
+                            AddImageMsg(AddImage {
                                 key,
                                 data: ImageData::External(ExternalImageData {
                                     id: external_image_id,
                                     channel_index: 0,
-                                    image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+                                    image_type: ExternalImageType::TextureHandle(
+                                        ImageBufferKind::Texture2D,
+                                    ),
                                 }),
                                 descriptor,
                                 tiling: None,
-                            }
-                        )))
-                    },
+                            }),
+                        ))
+                    }
                     DecodedImage::Raw((descriptor, data)) => {
                         let key = ImageKey::unique(id_namespace);
-                        Some((image_ref_hash, AddImageMsg(AddImage {
-                            key,
-                            data: data,
-                            descriptor: descriptor,
-                            tiling: None
-                        })))
-                    },
-                    DecodedImage::NullImage { width: _, height: _, format: _ } => None,
+                        Some((
+                            image_ref_hash,
+                            AddImageMsg(AddImage {
+                                key,
+                                data: data,
+                                descriptor: descriptor,
+                                tiling: None,
+                            }),
+                        ))
+                    }
+                    DecodedImage::NullImage {
+                        width: _,
+                        height: _,
+                        format: _,
+                    } => None,
                     // Texture callbacks inside of texture callbacks are not rendered
                     DecodedImage::Callback(_) => None,
                 };
 
                 if let Some((image_ref_hash, add_img_msg)) = image_result {
-                    image_resource_updates.push((callback_imageref_hash, image_ref_hash, add_img_msg));
+                    image_resource_updates.push((
+                        callback_imageref_hash,
+                        image_ref_hash,
+                        add_img_msg,
+                    ));
                 }
             }
         }
@@ -1219,7 +1348,7 @@ impl GlTextureCache {
         add_gl_resources(
             renderer_resources,
             all_resource_updates,
-            image_resource_updates
+            image_resource_updates,
         );
 
         gl_texture_cache
@@ -1239,26 +1368,29 @@ impl GlTextureCache {
         let di_map = self.solved_textures.get_mut(&dom_id)?;
         let i = di_map.get_mut(&node_id)?;
         i.1 = new_descriptor;
-        let external_image_id = (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
+        let external_image_id =
+            (callbacks.insert_into_active_gl_textures_fn)(document_id, epoch, new_texture);
         Some(external_image_id)
     }
 }
 
-macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
-
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-    #[repr(C)]
-    pub struct $struct_name {
-        pub id: usize,
-    }
-
-    impl $struct_name {
-
-        pub fn unique() -> Self {
-            Self { id: $counter_name.fetch_add(1, AtomicOrdering::SeqCst) }
+macro_rules! unique_id {
+    ($struct_name:ident, $counter_name:ident) => {
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+        #[repr(C)]
+        pub struct $struct_name {
+            pub id: usize,
         }
-    }
-}}
+
+        impl $struct_name {
+            pub fn unique() -> Self {
+                Self {
+                    id: $counter_name.fetch_add(1, AtomicOrdering::SeqCst),
+                }
+            }
+        }
+    };
+}
 
 // NOTE: the property key is unique across transform, color and opacity properties
 static PROPERTY_KEY_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -1279,7 +1411,12 @@ pub struct ImageMask {
     pub repeat: bool,
 }
 
-impl_option!(ImageMask, OptionImageMask, copy = false, [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(
+    ImageMask,
+    OptionImageMask,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
+);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ImmediateFontId {
@@ -1299,7 +1436,6 @@ pub enum RawImageData {
 }
 
 impl RawImageData {
-
     pub fn get_u8_vec_ref(&self) -> Option<&U8Vec> {
         match self {
             RawImageData::U8(v) => Some(v),
@@ -1347,7 +1483,6 @@ pub struct RawImage {
 }
 
 impl RawImage {
-
     /// Returns a null / empty image
     pub fn null_image() -> Self {
         Self {
@@ -1362,7 +1497,9 @@ impl RawImage {
     /// Allocates a width * height, single-channel mask, used for drawing CPU image masks
     pub fn allocate_mask(size: LayoutSize) -> Self {
         Self {
-            pixels: RawImageData::U8(vec![0;size.width.max(0) as usize * size.height.max(0) as usize].into()),
+            pixels: RawImageData::U8(
+                vec![0; size.width.max(0) as usize * size.height.max(0) as usize].into(),
+            ),
             width: size.width as usize,
             height: size.height as usize,
             premultiplied_alpha: true,
@@ -1376,12 +1513,13 @@ impl RawImage {
     ///
     /// TODO: autovectorization fails spectacularly, need to manually optimize!
     pub fn into_loaded_image_source(self) -> Option<(ImageData, ImageDescriptor)> {
-
         // From webrender/wrench
         // These are slow. Gecko's gfx/2d/Swizzle.cpp has better versions
         #[inline(always)]
         fn premultiply_alpha(array: &mut [u8]) {
-            if array.len() != 4 { return; }
+            if array.len() != 4 {
+                return;
+            }
             let a = u32::from(array[3]);
             array[0] = (((array[0] as u32 * a) + 128) / 255) as u8;
             array[1] = (((array[1] as u32 * a) + 128) / 255) as u8;
@@ -1420,8 +1558,8 @@ impl RawImage {
                 }
 
                 let pixels_ref = pixels.as_ref();
-                let mut px = vec![0;pixels_ref.len() * 4];
-                for (i,r) in pixels_ref.iter().enumerate() {
+                let mut px = vec![0; pixels_ref.len() * 4];
+                for (i, r) in pixels_ref.iter().enumerate() {
                     px[i * 4 + 0] = *r;
                     px[i * 4 + 1] = *r;
                     px[i * 4 + 2] = *r;
@@ -1430,7 +1568,7 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RG8 => {
                 let pixels = pixels.get_u8_vec()?;
 
@@ -1442,12 +1580,15 @@ impl RawImage {
 
                 // TODO: premultiply alpha!
                 // TODO: check that this function is SIMD optimized
-                for (pixel_index, greyalpha) in pixels.as_ref().chunks_exact(TWO_CHANNELS).enumerate() {
-
+                for (pixel_index, greyalpha) in
+                    pixels.as_ref().chunks_exact(TWO_CHANNELS).enumerate()
+                {
                     let grey = greyalpha[0];
                     let alpha = greyalpha[1];
 
-                    if alpha != 255 { is_opaque = false; }
+                    if alpha != 255 {
+                        is_opaque = false;
+                    }
 
                     px[pixel_index * FOUR_BPP] = grey;
                     px[(pixel_index * FOUR_BPP) + 1] = grey;
@@ -1457,7 +1598,7 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RGB8 => {
                 let pixels = pixels.get_u8_vec()?;
 
@@ -1469,7 +1610,6 @@ impl RawImage {
 
                 // TODO: check that this function is SIMD optimized
                 for (pixel_index, rgb) in pixels.as_ref().chunks_exact(THREE_CHANNELS).enumerate() {
-
                     let red = rgb[0];
                     let green = rgb[1];
                     let blue = rgb[2];
@@ -1482,7 +1622,7 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RGBA8 => {
                 let mut pixels: Vec<u8> = pixels.get_u8_vec()?.into_library_owned_vec();
 
@@ -1497,7 +1637,9 @@ impl RawImage {
                         let (r, gba) = rgba.split_first_mut()?;
                         core::mem::swap(r, gba.get_mut(1)?);
                         let a = rgba.get_mut(3)?;
-                        if *a != 255 { is_opaque = false; }
+                        if *a != 255 {
+                            is_opaque = false;
+                        }
                     }
                 } else {
                     for rgba in pixels.chunks_exact_mut(4) {
@@ -1505,14 +1647,16 @@ impl RawImage {
                         let (r, gba) = rgba.split_first_mut()?;
                         core::mem::swap(r, gba.get_mut(1)?);
                         let a = rgba.get_mut(3)?;
-                        if *a != 255 { is_opaque = false; }
+                        if *a != 255 {
+                            is_opaque = false;
+                        }
                         premultiply_alpha(rgba); // <-
                     }
                 }
 
                 data_format = RawImageFormat::BGRA8;
                 pixels.into()
-            },
+            }
             RawImageFormat::R16 => {
                 let pixels = pixels.get_u16_vec()?;
 
@@ -1533,23 +1677,26 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RG16 => {
                 let pixels = pixels.get_u16_vec()?;
 
-                if pixels.len() != expected_len * TWO_CHANNELS  {
+                if pixels.len() != expected_len * TWO_CHANNELS {
                     return None;
                 }
 
                 let mut px = vec![0; expected_len * FOUR_BPP];
 
                 // TODO: check that this function is SIMD optimized
-                for (pixel_index, greyalpha) in pixels.as_ref().chunks_exact(TWO_CHANNELS).enumerate() {
-
+                for (pixel_index, greyalpha) in
+                    pixels.as_ref().chunks_exact(TWO_CHANNELS).enumerate()
+                {
                     let grey_u8 = normalize_u16(greyalpha[0]);
                     let alpha_u8 = normalize_u16(greyalpha[1]);
 
-                    if alpha_u8 != 255 { is_opaque = false; }
+                    if alpha_u8 != 255 {
+                        is_opaque = false;
+                    }
 
                     px[pixel_index * FOUR_BPP] = grey_u8;
                     px[(pixel_index * FOUR_BPP) + 1] = grey_u8;
@@ -1559,11 +1706,11 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RGB16 => {
                 let pixels = pixels.get_u16_vec()?;
 
-                if pixels.len() != expected_len * THREE_CHANNELS  {
+                if pixels.len() != expected_len * THREE_CHANNELS {
                     return None;
                 }
 
@@ -1571,7 +1718,6 @@ impl RawImage {
 
                 // TODO: check that this function is SIMD optimized
                 for (pixel_index, rgb) in pixels.as_ref().chunks_exact(THREE_CHANNELS).enumerate() {
-
                     let red_u8 = normalize_u16(rgb[0]);
                     let green_u8 = normalize_u16(rgb[1]);
                     let blue_u8 = normalize_u16(rgb[2]);
@@ -1584,7 +1730,7 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RGBA16 => {
                 let pixels = pixels.get_u16_vec()?;
 
@@ -1596,14 +1742,17 @@ impl RawImage {
 
                 // TODO: check that this function is SIMD optimized
                 if premultiplied_alpha {
-                    for (pixel_index, rgba) in pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate() {
-
+                    for (pixel_index, rgba) in
+                        pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate()
+                    {
                         let red_u8 = normalize_u16(rgba[0]);
                         let green_u8 = normalize_u16(rgba[1]);
                         let blue_u8 = normalize_u16(rgba[2]);
                         let alpha_u8 = normalize_u16(rgba[3]);
 
-                        if alpha_u8 != 255 { is_opaque = false; }
+                        if alpha_u8 != 255 {
+                            is_opaque = false;
+                        }
 
                         px[pixel_index * FOUR_BPP] = blue_u8;
                         px[(pixel_index * FOUR_BPP) + 1] = green_u8;
@@ -1611,26 +1760,32 @@ impl RawImage {
                         px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
                     }
                 } else {
-                    for (pixel_index, rgba) in pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate() {
-
+                    for (pixel_index, rgba) in
+                        pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate()
+                    {
                         let red_u8 = normalize_u16(rgba[0]);
                         let green_u8 = normalize_u16(rgba[1]);
                         let blue_u8 = normalize_u16(rgba[2]);
                         let alpha_u8 = normalize_u16(rgba[3]);
 
-                        if alpha_u8 != 255 { is_opaque = false; }
+                        if alpha_u8 != 255 {
+                            is_opaque = false;
+                        }
 
                         px[pixel_index * FOUR_BPP] = blue_u8;
                         px[(pixel_index * FOUR_BPP) + 1] = green_u8;
                         px[(pixel_index * FOUR_BPP) + 2] = red_u8;
                         px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
-                        premultiply_alpha(&mut px[(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)]);
+                        premultiply_alpha(
+                            &mut px
+                                [(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)],
+                        );
                     }
                 }
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::BGR8 => {
                 let pixels = pixels.get_u8_vec()?;
 
@@ -1642,7 +1797,6 @@ impl RawImage {
 
                 // TODO: check that this function is SIMD optimized
                 for (pixel_index, bgr) in pixels.as_ref().chunks_exact(THREE_CHANNELS).enumerate() {
-
                     let blue = bgr[0];
                     let green = bgr[1];
                     let red = bgr[2];
@@ -1655,16 +1809,16 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::BGRA8 => {
                 if premultiplied_alpha {
                     // DO NOT CLONE THE IMAGE HERE!
                     let pixels = pixels.get_u8_vec()?;
 
                     is_opaque = pixels
-                    .as_ref()
-                    .chunks_exact(FOUR_CHANNELS)
-                    .all(|bgra| bgra[3] == 255);
+                        .as_ref()
+                        .chunks_exact(FOUR_CHANNELS)
+                        .all(|bgra| bgra[3] == 255);
 
                     pixels
                 } else {
@@ -1675,17 +1829,19 @@ impl RawImage {
                     }
 
                     for bgra in pixels.chunks_exact_mut(FOUR_CHANNELS) {
-                        if bgra[3] != 255 { is_opaque = false; }
+                        if bgra[3] != 255 {
+                            is_opaque = false;
+                        }
                         premultiply_alpha(bgra);
                     }
                     data_format = RawImageFormat::BGRA8;
                     pixels.into()
                 }
-            },
+            }
             RawImageFormat::RGBF32 => {
                 let pixels = pixels.get_f32_vec_ref()?;
 
-                if pixels.len() != expected_len * THREE_CHANNELS  {
+                if pixels.len() != expected_len * THREE_CHANNELS {
                     return None;
                 }
 
@@ -1693,7 +1849,6 @@ impl RawImage {
 
                 // TODO: check that this function is SIMD optimized
                 for (pixel_index, rgb) in pixels.as_ref().chunks_exact(THREE_CHANNELS).enumerate() {
-
                     let red_u8 = (rgb[0] * 255.0) as u8;
                     let green_u8 = (rgb[1] * 255.0) as u8;
                     let blue_u8 = (rgb[2] * 255.0) as u8;
@@ -1706,7 +1861,7 @@ impl RawImage {
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
             RawImageFormat::RGBAF32 => {
                 let pixels = pixels.get_f32_vec_ref()?;
 
@@ -1718,14 +1873,17 @@ impl RawImage {
 
                 // TODO: check that this function is SIMD optimized
                 if premultiplied_alpha {
-                    for (pixel_index, rgba) in pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate() {
-
+                    for (pixel_index, rgba) in
+                        pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate()
+                    {
                         let red_u8 = (rgba[0] * 255.0) as u8;
                         let green_u8 = (rgba[1] * 255.0) as u8;
                         let blue_u8 = (rgba[2] * 255.0) as u8;
                         let alpha_u8 = (rgba[3] * 255.0) as u8;
 
-                        if alpha_u8 != 255 { is_opaque = false; }
+                        if alpha_u8 != 255 {
+                            is_opaque = false;
+                        }
 
                         px[pixel_index * FOUR_BPP] = blue_u8;
                         px[(pixel_index * FOUR_BPP) + 1] = green_u8;
@@ -1733,26 +1891,32 @@ impl RawImage {
                         px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
                     }
                 } else {
-                    for (pixel_index, rgba) in pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate() {
-
+                    for (pixel_index, rgba) in
+                        pixels.as_ref().chunks_exact(FOUR_CHANNELS).enumerate()
+                    {
                         let red_u8 = (rgba[0] * 255.0) as u8;
                         let green_u8 = (rgba[1] * 255.0) as u8;
                         let blue_u8 = (rgba[2] * 255.0) as u8;
                         let alpha_u8 = (rgba[3] * 255.0) as u8;
 
-                        if alpha_u8 != 255 { is_opaque = false; }
+                        if alpha_u8 != 255 {
+                            is_opaque = false;
+                        }
 
                         px[pixel_index * FOUR_BPP] = blue_u8;
                         px[(pixel_index * FOUR_BPP) + 1] = green_u8;
                         px[(pixel_index * FOUR_BPP) + 2] = red_u8;
                         px[(pixel_index * FOUR_BPP) + 3] = alpha_u8;
-                        premultiply_alpha(&mut px[(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)]);
+                        premultiply_alpha(
+                            &mut px
+                                [(pixel_index * FOUR_BPP)..((pixel_index * FOUR_BPP) + FOUR_BPP)],
+                        );
                     }
                 }
 
                 data_format = RawImageFormat::BGRA8;
                 px.into()
-            },
+            }
         };
 
         let image_data = ImageData::Raw(bytes);
@@ -1765,14 +1929,19 @@ impl RawImage {
             flags: ImageDescriptorFlags {
                 is_opaque,
                 allow_mipmaps: true,
-            }
+            },
         };
 
         Some((image_data, image_descriptor))
     }
 }
 
-impl_option!(RawImage, OptionRawImage, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    RawImage,
+    OptionRawImage,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
 
 /// Text broken up into `Tab`, `Word()`, `Return` characters
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1787,9 +1956,11 @@ pub struct Words {
 }
 
 impl Words {
-
     pub fn get_substr(&self, word: &Word) -> String {
-        self.internal_chars.as_ref()[word.start..word.end].iter().filter_map(|c| core::char::from_u32(*c)).collect()
+        self.internal_chars.as_ref()[word.start..word.end]
+            .iter()
+            .filter_map(|c| core::char::from_u32(*c))
+            .collect()
     }
 
     pub fn get_str(&self) -> &str {
@@ -1797,7 +1968,10 @@ impl Words {
     }
 
     pub fn get_char(&self, idx: usize) -> Option<char> {
-        self.internal_chars.as_ref().get(idx).and_then(|c| core::char::from_u32(*c))
+        self.internal_chars
+            .as_ref()
+            .get(idx)
+            .and_then(|c| core::char::from_u32(*c))
     }
 }
 
@@ -1866,14 +2040,16 @@ impl ShapedWords {
     }
     /// NOTE: descender is NEGATIVE
     pub fn get_descender(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32 * target_font_size
+        self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32
+            * target_font_size
     }
 
     /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
     pub fn get_line_height(&self, target_font_size: f32) -> f32 {
-        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em as f32 -
-        self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32 +
-        self.font_metrics_line_gap as f32 / self.font_metrics_units_per_em as f32 * target_font_size
+        self.font_metrics_ascender as f32 / self.font_metrics_units_per_em as f32
+            - self.font_metrics_descender as f32 / self.font_metrics_units_per_em as f32
+            + self.font_metrics_line_gap as f32 / self.font_metrics_units_per_em as f32
+                * target_font_size
     }
 
     pub fn get_ascender(&self, target_font_size: f32) -> f32 {
@@ -1899,7 +2075,11 @@ pub enum VariationSelector {
     VS16 = 16,
 }
 
-impl_option!(VariationSelector, OptionVariationSelector, [Debug, Copy, PartialEq, PartialOrd, Clone, Hash]);
+impl_option!(
+    VariationSelector,
+    OptionVariationSelector,
+    [Debug, Copy, PartialEq, PartialOrd, Clone, Hash]
+);
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 #[repr(C, u8)]
@@ -1985,13 +2165,14 @@ pub struct RawGlyph {
 }
 
 impl RawGlyph {
-
     pub fn has_codepoint(&self) -> bool {
         self.unicode_codepoint.is_some()
     }
 
     pub fn get_codepoint(&self) -> Option<char> {
-        self.unicode_codepoint.as_ref().and_then(|u| core::char::from_u32(*u))
+        self.unicode_codepoint
+            .as_ref()
+            .and_then(|u| core::char::from_u32(*u))
     }
 }
 
@@ -2005,19 +2186,22 @@ pub struct GlyphInfo {
 }
 
 #[cfg(feature = "multithreading")]
-pub fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions: &WordPositions, inline_text_layout: &InlineTextLayout) -> InlineText {
-
-    use crate::callbacks::{
-        InlineWord, InlineLine,
-        InlineTextContents, InlineGlyph
-    };
+pub fn get_inline_text(
+    words: &Words,
+    shaped_words: &ShapedWords,
+    word_positions: &WordPositions,
+    inline_text_layout: &InlineTextLayout,
+) -> InlineText {
+    use crate::callbacks::{InlineGlyph, InlineLine, InlineTextContents, InlineWord};
     use rayon::prelude::*;
 
     // check the range so that in the worst case there isn't a random crash here
-    fn get_range_checked_inclusive_end(input: &[Word], word_start: usize, word_end: usize) -> Option<&[Word]> {
-        if word_start < input.len() &&
-           word_end < input.len() &&
-           word_start <= word_end {
+    fn get_range_checked_inclusive_end(
+        input: &[Word],
+        word_start: usize,
+        word_end: usize,
+    ) -> Option<&[Word]> {
+        if word_start < input.len() && word_end < input.len() && word_start <= word_end {
             Some(&input[word_start..=word_end])
         } else {
             None
@@ -2026,106 +2210,143 @@ pub fn get_inline_text(words: &Words, shaped_words: &ShapedWords, word_positions
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
     let descender_px = &shaped_words.get_descender(font_size_px); // descender is NEGATIVE
-    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.as_ref().copied().unwrap_or(0.0);
+    let letter_spacing_px = word_positions
+        .text_layout_options
+        .letter_spacing
+        .as_ref()
+        .copied()
+        .unwrap_or(0.0);
     let units_per_em = shaped_words.font_metrics_units_per_em;
 
-    let inline_lines = inline_text_layout.lines
-    .as_ref()
-    .par_iter()
-    .filter_map(|line| {
-
-        let word_items = words.items.as_ref();
-        let word_start = line.word_start.min(line.word_end);
-        let word_end = line.word_end.max(line.word_start);
-
-        let words = get_range_checked_inclusive_end(word_items, word_start, word_end)?
+    let inline_lines = inline_text_layout
+        .lines
+        .as_ref()
         .par_iter()
-        .enumerate()
-        .filter_map(|(word_idx, word)| {
-            let word_idx = word_start + word_idx;
-            match word.word_type {
-                WordType::Word => {
+        .filter_map(|line| {
+            let word_items = words.items.as_ref();
+            let word_start = line.word_start.min(line.word_end);
+            let word_end = line.word_end.max(line.word_start);
 
-                    let word_position = word_positions.word_positions.get(word_idx)?;
-                    let shaped_word_index = word_position.shaped_word_index?;
-                    let shaped_word = shaped_words.items.get(shaped_word_index)?;
+            let words = get_range_checked_inclusive_end(word_items, word_start, word_end)?
+                .par_iter()
+                .enumerate()
+                .filter_map(|(word_idx, word)| {
+                    let word_idx = word_start + word_idx;
+                    match word.word_type {
+                        WordType::Word => {
+                            let word_position = word_positions.word_positions.get(word_idx)?;
+                            let shaped_word_index = word_position.shaped_word_index?;
+                            let shaped_word = shaped_words.items.get(shaped_word_index)?;
 
-                    // most words are less than 16 chars, avg length of an english word is 4.7 chars
-                    let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
-                    let mut x_pos_in_word_px = 0.0;
+                            // most words are less than 16 chars, avg length of an english word is 4.7 chars
+                            let mut all_glyphs_in_this_word = Vec::<InlineGlyph>::with_capacity(16);
+                            let mut x_pos_in_word_px = 0.0;
 
-                    // all words only store the unscaled horizontal advance + horizontal kerning
-                    for glyph_info in shaped_word.glyph_infos.iter() {
+                            // all words only store the unscaled horizontal advance + horizontal kerning
+                            for glyph_info in shaped_word.glyph_infos.iter() {
+                                // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
+                                let mut displacement = LogicalPosition::zero();
 
-                        // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
-                        let mut displacement = LogicalPosition::zero();
-
-                        // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
-                        // the origin should be relative to the word, not the final text
-                        let (letter_spacing_for_glyph, origin) = match glyph_info.placement {
-                            Placement::None => {
-                                (letter_spacing_px, LogicalPosition::new(x_pos_in_word_px + displacement.x, displacement.y))
-                            },
-                            Placement::Distance(PlacementDistance { x, y }) => {
-                                let font_metrics_divisor = units_per_em as f32 / font_size_px;
-                                displacement = LogicalPosition {
-                                    x: x as f32 / font_metrics_divisor,
-                                    y: y as f32 / font_metrics_divisor,
+                                // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
+                                // the origin should be relative to the word, not the final text
+                                let (letter_spacing_for_glyph, origin) = match glyph_info.placement
+                                {
+                                    Placement::None => (
+                                        letter_spacing_px,
+                                        LogicalPosition::new(
+                                            x_pos_in_word_px + displacement.x,
+                                            displacement.y,
+                                        ),
+                                    ),
+                                    Placement::Distance(PlacementDistance { x, y }) => {
+                                        let font_metrics_divisor =
+                                            units_per_em as f32 / font_size_px;
+                                        displacement = LogicalPosition {
+                                            x: x as f32 / font_metrics_divisor,
+                                            y: y as f32 / font_metrics_divisor,
+                                        };
+                                        (
+                                            letter_spacing_px,
+                                            LogicalPosition::new(
+                                                x_pos_in_word_px + displacement.x,
+                                                displacement.y,
+                                            ),
+                                        )
+                                    }
+                                    Placement::MarkAnchor(MarkAnchorPlacement {
+                                        base_glyph_index,
+                                        ..
+                                    }) => {
+                                        let anchor = &all_glyphs_in_this_word[base_glyph_index];
+                                        (0.0, anchor.bounds.origin + displacement)
+                                        // TODO: wrong
+                                    }
+                                    Placement::MarkOverprint(index) => {
+                                        let anchor = &all_glyphs_in_this_word[index];
+                                        (0.0, anchor.bounds.origin + displacement)
+                                    }
+                                    Placement::CursiveAnchor(CursiveAnchorPlacement {
+                                        exit_glyph_index,
+                                        ..
+                                    }) => {
+                                        let anchor = &all_glyphs_in_this_word[exit_glyph_index];
+                                        (0.0, anchor.bounds.origin + displacement)
+                                        // TODO: wrong
+                                    }
                                 };
-                                (letter_spacing_px, LogicalPosition::new(x_pos_in_word_px + displacement.x, displacement.y))
-                            },
-                            Placement::MarkAnchor(MarkAnchorPlacement { base_glyph_index, .. }) => {
-                                let anchor = &all_glyphs_in_this_word[base_glyph_index];
-                                (0.0, anchor.bounds.origin + displacement) // TODO: wrong
-                            },
-                            Placement::MarkOverprint(index) => {
-                                let anchor = &all_glyphs_in_this_word[index];
-                                (0.0, anchor.bounds.origin + displacement)
-                            },
-                            Placement::CursiveAnchor(CursiveAnchorPlacement { exit_glyph_index, .. }) => {
-                                let anchor = &all_glyphs_in_this_word[exit_glyph_index];
-                                (0.0, anchor.bounds.origin + displacement) // TODO: wrong
-                            },
-                        };
 
-                        let glyph_scale_x = glyph_info.size.get_x_size_scaled(units_per_em, font_size_px);
-                        let glyph_scale_y = glyph_info.size.get_y_size_scaled(units_per_em, font_size_px);
+                                let glyph_scale_x = glyph_info
+                                    .size
+                                    .get_x_size_scaled(units_per_em, font_size_px);
+                                let glyph_scale_y = glyph_info
+                                    .size
+                                    .get_y_size_scaled(units_per_em, font_size_px);
 
-                        let glyph_advance_x = glyph_info.size.get_x_advance_scaled(units_per_em, font_size_px);
-                        let kerning_x = glyph_info.size.get_kerning_scaled(units_per_em, font_size_px);
+                                let glyph_advance_x = glyph_info
+                                    .size
+                                    .get_x_advance_scaled(units_per_em, font_size_px);
+                                let kerning_x = glyph_info
+                                    .size
+                                    .get_kerning_scaled(units_per_em, font_size_px);
 
-                        let inline_char = InlineGlyph {
-                            bounds: LogicalRect::new(origin, LogicalSize::new(glyph_scale_x, glyph_scale_y)),
-                            unicode_codepoint: glyph_info.glyph.unicode_codepoint,
-                            glyph_index: glyph_info.glyph.glyph_index as u32,
-                        };
+                                let inline_char = InlineGlyph {
+                                    bounds: LogicalRect::new(
+                                        origin,
+                                        LogicalSize::new(glyph_scale_x, glyph_scale_y),
+                                    ),
+                                    unicode_codepoint: glyph_info.glyph.unicode_codepoint,
+                                    glyph_index: glyph_info.glyph.glyph_index as u32,
+                                };
 
-                        x_pos_in_word_px += glyph_advance_x + kerning_x + letter_spacing_for_glyph;
+                                x_pos_in_word_px +=
+                                    glyph_advance_x + kerning_x + letter_spacing_for_glyph;
 
-                        all_glyphs_in_this_word.push(inline_char);
+                                all_glyphs_in_this_word.push(inline_char);
+                            }
+
+                            let inline_word = InlineWord::Word(InlineTextContents {
+                                glyphs: all_glyphs_in_this_word.into(),
+                                bounds: LogicalRect::new(
+                                    word_position.position,
+                                    word_position.size,
+                                ),
+                            });
+
+                            Some(inline_word)
+                        }
+                        WordType::Tab => Some(InlineWord::Tab),
+                        WordType::Return => Some(InlineWord::Return),
+                        WordType::Space => Some(InlineWord::Space),
                     }
+                })
+                .collect::<Vec<InlineWord>>();
 
-                    let inline_word = InlineWord::Word(InlineTextContents {
-                        glyphs: all_glyphs_in_this_word.into(),
-                        bounds: LogicalRect::new(
-                            word_position.position,
-                            word_position.size
-                        ),
-                    });
-
-                    Some(inline_word)
-                },
-                WordType::Tab => Some(InlineWord::Tab),
-                WordType::Return => Some(InlineWord::Return),
-                WordType::Space => Some(InlineWord::Space),
-            }
-        }).collect::<Vec<InlineWord>>();
-
-        Some(InlineLine {
-            words: words.into(),
-            bounds: line.bounds,
+            Some(InlineLine {
+                words: words.into(),
+                bounds: line.bounds,
+            })
         })
-    }).collect::<Vec<InlineLine>>();
+        .collect::<Vec<InlineLine>>();
 
     InlineText {
         lines: inline_lines.into(), // relative to 0, 0
@@ -2153,17 +2374,26 @@ pub struct Advance {
 }
 
 impl Advance {
-
     #[inline]
-    pub const fn get_x_advance_total_unscaled(&self) -> i32 { self.advance_x as i32 + self.kerning as i32 }
+    pub const fn get_x_advance_total_unscaled(&self) -> i32 {
+        self.advance_x as i32 + self.kerning as i32
+    }
     #[inline]
-    pub const fn get_x_advance_unscaled(&self) -> u16 { self.advance_x }
+    pub const fn get_x_advance_unscaled(&self) -> u16 {
+        self.advance_x
+    }
     #[inline]
-    pub const fn get_x_size_unscaled(&self) -> i32 { self.size_x }
+    pub const fn get_x_size_unscaled(&self) -> i32 {
+        self.size_x
+    }
     #[inline]
-    pub const fn get_y_size_unscaled(&self) -> i32 { self.size_y }
+    pub const fn get_y_size_unscaled(&self) -> i32 {
+        self.size_y
+    }
     #[inline]
-    pub const fn get_kerning_unscaled(&self) -> i16 { self.kerning }
+    pub const fn get_kerning_unscaled(&self) -> i16 {
+        self.kerning
+    }
 
     #[inline]
     pub fn get_x_advance_total_scaled(&self, units_per_em: u16, target_font_size: f32) -> f32 {
@@ -2199,7 +2429,12 @@ pub struct ShapedWord {
 
 impl fmt::Debug for ShapedWord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ShapedWord {{ glyph_infos: {} glyphs, word_width: {} }}", self.glyph_infos.len(), self.word_width)
+        write!(
+            f,
+            "ShapedWord {{ glyph_infos: {} glyphs, word_width: {} }}",
+            self.glyph_infos.len(),
+            self.word_width
+        )
     }
 }
 
@@ -2215,7 +2450,10 @@ impl ShapedWord {
     }
     /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
     pub fn number_of_glyphs(&self) -> usize {
-        self.glyph_infos.iter().filter(|i| i.placement == Placement::None).count()
+        self.glyph_infos
+            .iter()
+            .filter(|i| i.placement == Placement::None)
+            .count()
     }
 }
 
@@ -2286,7 +2524,7 @@ pub fn add_fonts_and_images(
         epoch,
         document_id,
         &new_image_keys,
-        insert_into_active_gl_textures
+        insert_into_active_gl_textures,
     );
 
     let add_font_resource_updates = build_add_font_resource_updates(
@@ -2295,14 +2533,14 @@ pub fn add_fonts_and_images(
         render_api_namespace,
         &new_font_keys,
         load_font_fn,
-        parse_font_fn
+        parse_font_fn,
     );
 
     add_resources(
         renderer_resources,
         all_resource_updates,
         add_font_resource_updates,
-        add_image_resource_updates
+        add_image_resource_updates,
     );
 }
 
@@ -2314,25 +2552,25 @@ pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
 pub type FontInstanceFlags = u32;
 
 // Common flags
-pub const FONT_INSTANCE_FLAG_SYNTHETIC_BOLD: u32    = 1 << 1;
-pub const FONT_INSTANCE_FLAG_EMBEDDED_BITMAPS: u32  = 1 << 2;
-pub const FONT_INSTANCE_FLAG_SUBPIXEL_BGR: u32      = 1 << 3;
-pub const FONT_INSTANCE_FLAG_TRANSPOSE: u32         = 1 << 4;
-pub const FONT_INSTANCE_FLAG_FLIP_X: u32            = 1 << 5;
-pub const FONT_INSTANCE_FLAG_FLIP_Y: u32            = 1 << 6;
+pub const FONT_INSTANCE_FLAG_SYNTHETIC_BOLD: u32 = 1 << 1;
+pub const FONT_INSTANCE_FLAG_EMBEDDED_BITMAPS: u32 = 1 << 2;
+pub const FONT_INSTANCE_FLAG_SUBPIXEL_BGR: u32 = 1 << 3;
+pub const FONT_INSTANCE_FLAG_TRANSPOSE: u32 = 1 << 4;
+pub const FONT_INSTANCE_FLAG_FLIP_X: u32 = 1 << 5;
+pub const FONT_INSTANCE_FLAG_FLIP_Y: u32 = 1 << 6;
 pub const FONT_INSTANCE_FLAG_SUBPIXEL_POSITION: u32 = 1 << 7;
 
 // Windows flags
-pub const FONT_INSTANCE_FLAG_FORCE_GDI: u32         = 1 << 16;
+pub const FONT_INSTANCE_FLAG_FORCE_GDI: u32 = 1 << 16;
 
 // Mac flags
-pub const FONT_INSTANCE_FLAG_FONT_SMOOTHING: u32    = 1 << 16;
+pub const FONT_INSTANCE_FLAG_FONT_SMOOTHING: u32 = 1 << 16;
 
 // FreeType flags
-pub const FONT_INSTANCE_FLAG_FORCE_AUTOHINT: u32    = 1 << 16;
-pub const FONT_INSTANCE_FLAG_NO_AUTOHINT: u32       = 1 << 17;
-pub const FONT_INSTANCE_FLAG_VERTICAL_LAYOUT: u32   = 1 << 18;
-pub const FONT_INSTANCE_FLAG_LCD_VERTICAL: u32      = 1 << 19;
+pub const FONT_INSTANCE_FLAG_FORCE_AUTOHINT: u32 = 1 << 16;
+pub const FONT_INSTANCE_FLAG_NO_AUTOHINT: u32 = 1 << 17;
+pub const FONT_INSTANCE_FLAG_VERTICAL_LAYOUT: u32 = 1 << 18;
+pub const FONT_INSTANCE_FLAG_LCD_VERTICAL: u32 = 1 << 19;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct GlyphOptions {
@@ -2392,7 +2630,9 @@ pub enum FontLCDFilter {
 }
 
 impl Default for FontLCDFilter {
-    fn default() -> Self { FontLCDFilter::Default }
+    fn default() -> Self {
+        FontLCDFilter::Default
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -2416,7 +2656,6 @@ impl Default for FontInstanceOptions {
         }
     }
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct SyntheticItalics {
@@ -2457,14 +2696,18 @@ pub enum ExternalImageType {
 /// image.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct ExternalImageId { pub inner: u64 }
+pub struct ExternalImageId {
+    pub inner: u64,
+}
 
 static LAST_EXTERNAL_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
 
 impl ExternalImageId {
     /// Creates a new, unique ExternalImageId
     pub fn new() -> Self {
-        Self { inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u64 }
+        Self {
+            inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u64,
+        }
     }
 }
 
@@ -2506,7 +2749,7 @@ pub type TileSize = u16;
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum ImageDirtyRect {
     All,
-    Partial(LayoutRect)
+    Partial(LayoutRect),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -2545,7 +2788,13 @@ pub struct AddFont {
 
 impl fmt::Debug for AddFont {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "AddFont {{ key: {:?}, font_bytes: [u8;{}], font_index: {} }}", self.key, self.font_bytes.len(), self.font_index)
+        write!(
+            f,
+            "AddFont {{ key: {:?}, font_bytes: [u8;{}], font_index: {} }}",
+            self.key,
+            self.font_bytes.len(),
+            self.font_index
+        )
     }
 }
 
@@ -2568,7 +2817,9 @@ pub struct FontVariation {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Epoch { inner: u32 }
+pub struct Epoch {
+    inner: u32,
+}
 
 impl fmt::Display for Epoch {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -2577,13 +2828,18 @@ impl fmt::Display for Epoch {
 }
 
 impl Epoch {
-
     // prevent raw access to the .inner field so that
     // you can grep the codebase for .increment() to see
     // exactly where the epoch is being incremented
-    pub const fn new() -> Self { Self { inner: 0 } }
-    pub const fn from(i: u32) -> Self { Self { inner: i } }
-    pub const fn into_u32(&self) -> u32 { self.inner }
+    pub const fn new() -> Self {
+        Self { inner: 0 }
+    }
+    pub const fn from(i: u32) -> Self {
+        Self { inner: i }
+    }
+    pub const fn into_u32(&self) -> u32 {
+        self.inner
+    }
 
     // We don't want the epoch to increase to u32::MAX, since
     // u32::MAX represents an invalid epoch, which could confuse webrender
@@ -2592,7 +2848,9 @@ impl Epoch {
         const MAX_ID: u32 = u32::MAX - 1;
         *self = match self.inner {
             MAX_ID => Epoch { inner: 0 },
-            other => Epoch { inner: other.saturating_add(1) },
+            other => Epoch {
+                inner: other.saturating_add(1),
+            },
         };
     }
 }
@@ -2609,7 +2867,9 @@ impl Au {
         let target_app_units = (px * AU_PER_PX as f32) as i32;
         Au(target_app_units.min(MAX_AU).max(MIN_AU))
     }
-    pub fn into_px(&self) -> f32 { self.0 as f32 / AU_PER_PX as f32 }
+    pub fn into_px(&self) -> f32 {
+        self.0 as f32 / AU_PER_PX as f32
+    }
 }
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
@@ -2698,60 +2958,66 @@ pub fn build_add_font_resource_updates(
     font_source_load_fn: LoadFontFn,
     parse_font_fn: ParseFontFn,
 ) -> Vec<(StyleFontFamilyHash, AddFontMsg)> {
-
     let mut resource_updates = alloc::vec::Vec::new();
     let mut font_instances_added_this_frame = FastBTreeSet::new();
 
     'outer: for (im_font_id, font_sizes) in fonts_in_dom {
+        macro_rules! insert_font_instances {
+            ($font_family_hash:expr, $font_key:expr, $font_size:expr) => {{
+                let font_instance_key_exists = renderer_resources
+                    .currently_registered_fonts
+                    .get(&$font_key)
+                    .and_then(|(_, font_instances)| font_instances.get(&$font_size))
+                    .is_some()
+                    || font_instances_added_this_frame.contains(&($font_key, $font_size));
 
-        macro_rules! insert_font_instances {($font_family_hash:expr, $font_key:expr, $font_size:expr) => ({
+                if !font_instance_key_exists {
+                    let font_instance_key = FontInstanceKey::unique(id_namespace);
 
-            let font_instance_key_exists = renderer_resources.currently_registered_fonts
-                .get(&$font_key)
-                .and_then(|(_, font_instances)| font_instances.get(&$font_size))
-                .is_some() || font_instances_added_this_frame.contains(&($font_key, $font_size));
+                    // For some reason the gamma is way to low on Windows
+                    #[cfg(target_os = "windows")]
+                    let platform_options = FontInstancePlatformOptions {
+                        gamma: 300,
+                        contrast: 100,
+                        cleartype_level: 100,
+                    };
 
-            if !font_instance_key_exists {
+                    #[cfg(target_os = "linux")]
+                    let platform_options = FontInstancePlatformOptions {
+                        lcd_filter: FontLCDFilter::Default,
+                        hinting: FontHinting::Normal,
+                    };
 
-                let font_instance_key = FontInstanceKey::unique(id_namespace);
+                    #[cfg(target_os = "macos")]
+                    let platform_options = FontInstancePlatformOptions::default();
 
-                // For some reason the gamma is way to low on Windows
-                #[cfg(target_os = "windows")]
-                let platform_options = FontInstancePlatformOptions {
-                    gamma: 300,
-                    contrast: 100,
-                    cleartype_level: 100,
-                };
+                    #[cfg(target_arch = "wasm32")]
+                    let platform_options = FontInstancePlatformOptions::default();
 
-                #[cfg(target_os = "linux")]
-                let platform_options = FontInstancePlatformOptions {
-                    lcd_filter: FontLCDFilter::Default,
-                    hinting: FontHinting::Normal,
-                };
+                    let options = FontInstanceOptions {
+                        render_mode: FontRenderMode::Subpixel,
+                        flags: 0 | FONT_INSTANCE_FLAG_NO_AUTOHINT,
+                        ..Default::default()
+                    };
 
-                #[cfg(target_os = "macos")]
-                let platform_options = FontInstancePlatformOptions::default();
-
-                #[cfg(target_arch = "wasm32")]
-                let platform_options = FontInstancePlatformOptions::default();
-
-                let options = FontInstanceOptions {
-                    render_mode: FontRenderMode::Subpixel,
-                    flags: 0 | FONT_INSTANCE_FLAG_NO_AUTOHINT,
-                    .. Default::default()
-                };
-
-                font_instances_added_this_frame.insert(($font_key, $font_size));
-                resource_updates.push(($font_family_hash, AddFontMsg::Instance(AddFontInstance {
-                    key: font_instance_key,
-                    font_key: $font_key,
-                    glyph_size: $font_size,
-                    options: Some(options),
-                    platform_options: Some(platform_options),
-                    variations: alloc::vec::Vec::new(),
-                }, $font_size)));
-            }
-        })}
+                    font_instances_added_this_frame.insert(($font_key, $font_size));
+                    resource_updates.push((
+                        $font_family_hash,
+                        AddFontMsg::Instance(
+                            AddFontInstance {
+                                key: font_instance_key,
+                                font_key: $font_key,
+                                glyph_size: $font_size,
+                                options: Some(options),
+                                platform_options: Some(platform_options),
+                                variations: alloc::vec::Vec::new(),
+                            },
+                            $font_size,
+                        ),
+                    ));
+                }
+            }};
+        }
 
         match im_font_id {
             ImmediateFontId::Resolved((font_family_hash, font_id)) => {
@@ -2760,9 +3026,8 @@ pub fn build_add_font_resource_updates(
                 for font_size in font_sizes.iter() {
                     insert_font_instances!(*font_family_hash, *font_id, *font_size);
                 }
-            },
+            }
             ImmediateFontId::Unresolved(style_font_families) => {
-
                 // If the font is already loaded during the current frame,
                 // do not attempt to load it again
                 //
@@ -2777,10 +3042,10 @@ pub fn build_add_font_resource_updates(
 
                 // Find the first font that can be loaded and parsed
                 'inner: for family in style_font_families.as_ref().iter() {
-
                     let current_family_hash = StyleFontFamilyHash::new(&family);
 
-                    if let Some(font_id) = renderer_resources.font_id_map.get(&current_family_hash) {
+                    if let Some(font_id) = renderer_resources.font_id_map.get(&current_family_hash)
+                    {
                         // font key already exists
                         for font_size in font_sizes {
                             insert_font_instances!(current_family_hash, *font_id, *font_size);
@@ -2791,7 +3056,6 @@ pub fn build_add_font_resource_updates(
                     let font_ref = match family {
                         StyleFontFamily::Ref(r) => r.clone(), // Clone the FontRef
                         other => {
-
                             // Load and parse the font
                             let font_data = match (font_source_load_fn)(&other, fc_cache) {
                                 Some(s) => s,
@@ -2821,8 +3085,12 @@ pub fn build_add_font_resource_updates(
                 let font_key = FontKey::unique(id_namespace);
                 let add_font_msg = AddFontMsg::Font(font_key, font_family_hash, font_ref);
 
-                renderer_resources.font_id_map.insert(font_family_hash, font_key);
-                renderer_resources.font_families_map.insert(font_families_hash, font_family_hash);
+                renderer_resources
+                    .font_id_map
+                    .insert(font_family_hash, font_key);
+                renderer_resources
+                    .font_families_map
+                    .insert(font_families_hash, font_family_hash);
                 resource_updates.push((font_family_hash, add_font_msg));
 
                 // Insert font sizes for the newly generated font key
@@ -2854,52 +3122,66 @@ pub fn build_add_image_resource_updates(
     images_in_dom: &FastBTreeSet<ImageRef>,
     insert_into_active_gl_textures: GlStoreImageFn,
 ) -> Vec<(ImageRefHash, AddImageMsg)> {
-
     use rayon::prelude::*;
 
     images_in_dom
-    .par_iter()
-    .filter_map(|image_ref| {
-        let image_ref_hash = image_ref.get_hash();
+        .par_iter()
+        .filter_map(|image_ref| {
+            let image_ref_hash = image_ref.get_hash();
 
-        if renderer_resources.currently_registered_images.contains_key(&image_ref_hash) {
-            return None;
-        }
+            if renderer_resources
+                .currently_registered_images
+                .contains_key(&image_ref_hash)
+            {
+                return None;
+            }
 
-        // NOTE: The image_ref.clone() is a shallow clone,
-        // does not actually clone the data
-        match image_ref.get_data() {
-            DecodedImage::Gl(texture) => {
-                let descriptor = texture.get_descriptor();
-                let key = ImageKey::unique(id_namespace);
-                // NOTE: The texture is not really cloned here,
-                let external_image_id = (insert_into_active_gl_textures)(*document_id, epoch, texture.clone());
-                Some((image_ref_hash, AddImageMsg(
-                    AddImage {
-                        key,
-                        data: ImageData::External(ExternalImageData {
-                            id: external_image_id,
-                            channel_index: 0,
-                            image_type: ExternalImageType::TextureHandle(ImageBufferKind::Texture2D),
+            // NOTE: The image_ref.clone() is a shallow clone,
+            // does not actually clone the data
+            match image_ref.get_data() {
+                DecodedImage::Gl(texture) => {
+                    let descriptor = texture.get_descriptor();
+                    let key = ImageKey::unique(id_namespace);
+                    // NOTE: The texture is not really cloned here,
+                    let external_image_id =
+                        (insert_into_active_gl_textures)(*document_id, epoch, texture.clone());
+                    Some((
+                        image_ref_hash,
+                        AddImageMsg(AddImage {
+                            key,
+                            data: ImageData::External(ExternalImageData {
+                                id: external_image_id,
+                                channel_index: 0,
+                                image_type: ExternalImageType::TextureHandle(
+                                    ImageBufferKind::Texture2D,
+                                ),
+                            }),
+                            descriptor,
+                            tiling: None,
                         }),
-                        descriptor,
-                        tiling: None,
-                    }
-                )))
-            },
-            DecodedImage::Raw((descriptor, data)) => {
-                let key = ImageKey::unique(id_namespace);
-                Some((image_ref_hash, AddImageMsg(AddImage {
-                    key,
-                    data: data.clone(), // deep-copy except in the &'static case
-                    descriptor: descriptor.clone(), // deep-copy, but struct is not very large
-                    tiling: None
-                })))
-            },
-            DecodedImage::NullImage { width, height, format } => None,
-            DecodedImage::Callback(_) => None, // Texture callbacks are handled after layout is done
-        }
-    }).collect()
+                    ))
+                }
+                DecodedImage::Raw((descriptor, data)) => {
+                    let key = ImageKey::unique(id_namespace);
+                    Some((
+                        image_ref_hash,
+                        AddImageMsg(AddImage {
+                            key,
+                            data: data.clone(), // deep-copy except in the &'static case
+                            descriptor: descriptor.clone(), // deep-copy, but struct is not very large
+                            tiling: None,
+                        }),
+                    ))
+                }
+                DecodedImage::NullImage {
+                    width,
+                    height,
+                    format,
+                } => None,
+                DecodedImage::Callback(_) => None, // Texture callbacks are handled after layout is done
+            }
+        })
+        .collect()
 }
 
 fn add_gl_resources(
@@ -2917,7 +3199,7 @@ fn add_gl_resources(
         renderer_resources,
         all_resource_updates,
         Vec::new(),
-        add_image_resources
+        add_image_resources,
     );
 }
 
@@ -2931,30 +3213,44 @@ pub fn add_resources(
     add_font_resources: Vec<(StyleFontFamilyHash, AddFontMsg)>,
     add_image_resources: Vec<(ImageRefHash, AddImageMsg)>,
 ) {
-    all_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
-    all_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
+    all_resource_updates.extend(
+        add_font_resources
+            .iter()
+            .map(|(_, f)| f.into_resource_update()),
+    );
+    all_resource_updates.extend(
+        add_image_resources
+            .iter()
+            .map(|(_, i)| i.into_resource_update()),
+    );
 
     for (image_ref_hash, add_image_msg) in add_image_resources.iter() {
-        renderer_resources.currently_registered_images
-        .insert(*image_ref_hash, ResolvedImage {
-            key: add_image_msg.0.key,
-            descriptor: add_image_msg.0.descriptor
-        });
+        renderer_resources.currently_registered_images.insert(
+            *image_ref_hash,
+            ResolvedImage {
+                key: add_image_msg.0.key,
+                descriptor: add_image_msg.0.descriptor,
+            },
+        );
     }
 
     for (_, add_font_msg) in add_font_resources {
         use self::AddFontMsg::*;
         match add_font_msg {
             Font(fk, _hash, font_ref) => {
-                renderer_resources.currently_registered_fonts
-                .entry(fk)
-                .or_insert_with(|| (font_ref, FastHashMap::default()));
-            },
+                renderer_resources
+                    .currently_registered_fonts
+                    .entry(fk)
+                    .or_insert_with(|| (font_ref, FastHashMap::default()));
+            }
             Instance(fi, size) => {
-                if let Some((_, instances)) = renderer_resources.currently_registered_fonts.get_mut(&fi.font_key) {
+                if let Some((_, instances)) = renderer_resources
+                    .currently_registered_fonts
+                    .get_mut(&fi.font_key)
+                {
                     instances.insert(size, fi.key);
                 }
-            },
+            }
         }
     }
 }

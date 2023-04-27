@@ -1,46 +1,40 @@
-use core::fmt;
-#[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::__m256;
-use core::sync::atomic::Ordering as AtomicOrdering;
-use core::sync::atomic::AtomicBool;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::vec::Vec;
-use alloc::boxed::Box;
-use azul_css::{
-    LayoutRect, LayoutRectVec, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
-    StyleTextColor, ColorU as StyleColorU, OptionF32, LayoutOverflow, LayoutDisplay,
-    StyleTextAlign, StyleVerticalAlign, LayoutPosition,
-    CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
-    LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
-    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutFlexDirection, LayoutJustifyContent,
-    LayoutBoxSizing, LayoutBorderRightWidth, LayoutBorderLeftWidth, LayoutBorderTopWidth,
-    LayoutBorderBottomWidth, StyleTransform, StyleTransformOrigin, StyleBoxShadow,
-};
 use crate::{
-    display_list::{CachedDisplayList, RenderCallbacks},
-    styled_dom::{StyledDom, NodeHierarchyItemId, DomId},
     app_resources::{
-        Words, ShapedWords, TransformKey, OpacityKey,
-        FontInstanceKey, WordPositions, Epoch,
-        RendererResources, ImageCache, GlTextureCache,
-        IdNamespace, UpdateImageResult,
+        Epoch, FontInstanceKey, GlTextureCache, IdNamespace, ImageCache, OpacityKey,
+        RendererResources, ShapedWords, TransformKey, UpdateImageResult, WordPositions, Words,
     },
-    id_tree::{NodeId, NodeDataContainer, NodeDataContainerRef},
-    dom::{DomNodeHash, ScrollTagId, TagId},
     callbacks::{
-        PipelineId, DocumentId,
-        HitTestItem, ScrollHitTestItem,
-        IFrameCallbackReturn, HidpiAdjustedBounds,
-        IFrameCallbackInfo,
+        DocumentId, HidpiAdjustedBounds, HitTestItem, IFrameCallbackInfo, IFrameCallbackReturn,
+        PipelineId, ScrollHitTestItem,
     },
+    display_list::{CachedDisplayList, RenderCallbacks},
+    dom::{DomNodeHash, ScrollTagId, TagId},
     gl::OptionGlContextPtr,
+    id_tree::{NodeDataContainer, NodeDataContainerRef, NodeId},
+    styled_dom::{DomId, NodeHierarchyItemId, StyledDom},
     window::{
-        ScrollStates, WindowSize, WindowTheme,
-        FullWindowState, LogicalPosition, LogicalRect,
-        LogicalSize, LogicalRectVec,
+        FullWindowState, LogicalPosition, LogicalRect, LogicalRectVec, LogicalSize, ScrollStates,
+        WindowSize, WindowTheme,
     },
     window_state::RelayoutFn,
 };
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::vec::Vec;
+use azul_css::{
+    ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+    LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom, LayoutBoxSizing, LayoutDisplay,
+    LayoutFlexDirection, LayoutJustifyContent, LayoutLeft, LayoutMarginBottom, LayoutMarginLeft,
+    LayoutMarginRight, LayoutMarginTop, LayoutOverflow, LayoutPaddingBottom, LayoutPaddingLeft,
+    LayoutPaddingRight, LayoutPaddingTop, LayoutPoint, LayoutPosition, LayoutRect, LayoutRectVec,
+    LayoutRight, LayoutSize, LayoutTop, OptionF32, PixelValue, StyleBoxShadow, StyleFontSize,
+    StyleTextAlign, StyleTextColor, StyleTransform, StyleTransformOrigin, StyleVerticalAlign,
+};
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::__m256;
+use core::fmt;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering as AtomicOrdering;
 use rust_fontconfig::FcFontCache;
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -48,9 +42,18 @@ static USE_AVX: AtomicBool = AtomicBool::new(false);
 static USE_SSE: AtomicBool = AtomicBool::new(false);
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
-pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize { inner: PixelValue::const_px(DEFAULT_FONT_SIZE_PX) };
+pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize {
+    inner: PixelValue::const_px(DEFAULT_FONT_SIZE_PX),
+};
 pub const DEFAULT_FONT_ID: &str = "serif";
-pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor { inner: StyleColorU { r: 0, b: 0, g: 0, a: 255 } };
+pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
+    inner: StyleColorU {
+        r: 0,
+        b: 0,
+        g: 0,
+        a: 255,
+    },
+};
 pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
 pub const DEFAULT_WORD_SPACING: f32 = 1.0;
 pub const DEFAULT_LETTER_SPACING: f32 = 0.0;
@@ -63,8 +66,16 @@ pub struct InlineTextLayout {
     pub content_size: LogicalSize,
 }
 
-impl_vec!(InlineTextLayout, InlineTextLayoutVec, InlineTextLayoutVecDestructor);
-impl_vec_clone!(InlineTextLayout, InlineTextLayoutVec, InlineTextLayoutVecDestructor);
+impl_vec!(
+    InlineTextLayout,
+    InlineTextLayoutVec,
+    InlineTextLayoutVecDestructor
+);
+impl_vec_clone!(
+    InlineTextLayout,
+    InlineTextLayoutVec,
+    InlineTextLayoutVecDestructor
+);
 impl_vec_debug!(InlineTextLayout, InlineTextLayoutVec);
 impl_vec_partialeq!(InlineTextLayout, InlineTextLayoutVec);
 impl_vec_partialord!(InlineTextLayout, InlineTextLayoutVec);
@@ -81,8 +92,16 @@ pub struct InlineTextLine {
     pub word_end: usize,
 }
 
-impl_vec!(InlineTextLine, InlineTextLineVec, InlineTextLineVecDestructor);
-impl_vec_clone!(InlineTextLine, InlineTextLineVec, InlineTextLineVecDestructor);
+impl_vec!(
+    InlineTextLine,
+    InlineTextLineVec,
+    InlineTextLineVecDestructor
+);
+impl_vec_clone!(
+    InlineTextLine,
+    InlineTextLineVec,
+    InlineTextLineVecDestructor
+);
 impl_vec_mut!(InlineTextLine, InlineTextLineVec);
 impl_vec_debug!(InlineTextLine, InlineTextLineVec);
 impl_vec_partialeq!(InlineTextLine, InlineTextLineVec);
@@ -90,12 +109,15 @@ impl_vec_partialord!(InlineTextLine, InlineTextLineVec);
 
 impl InlineTextLine {
     pub const fn new(bounds: LogicalRect, word_start: usize, word_end: usize) -> Self {
-        Self { bounds, word_start, word_end }
+        Self {
+            bounds,
+            word_start,
+            word_end,
+        }
     }
 }
 
 impl InlineTextLayout {
-
     #[inline]
     pub fn get_leading(&self) -> f32 {
         match self.lines.as_ref().first() {
@@ -116,10 +138,10 @@ impl InlineTextLayout {
     pub fn align_children_horizontal(
         &mut self,
         parent_size: &LogicalSize,
-        horizontal_alignment: StyleTextAlign
+        horizontal_alignment: StyleTextAlign,
     ) {
         let shift_multiplier = match calculate_horizontal_shift_multiplier(horizontal_alignment) {
-            None =>  return,
+            None => return,
             Some(s) => s,
         };
 
@@ -132,15 +154,19 @@ impl InlineTextLayout {
     pub fn align_children_vertical_in_parent_bounds(
         &mut self,
         parent_size: &LogicalSize,
-        vertical_alignment: StyleVerticalAlign
+        vertical_alignment: StyleVerticalAlign,
     ) {
-
         let shift_multiplier = match calculate_vertical_shift_multiplier(vertical_alignment) {
-            None =>  return,
+            None => return,
             Some(s) => s,
         };
 
-        let glyphs_vertical_bottom = self.lines.as_ref().last().map(|l| l.bounds.origin.y).unwrap_or(0.0);
+        let glyphs_vertical_bottom = self
+            .lines
+            .as_ref()
+            .last()
+            .map(|l| l.bounds.origin.y)
+            .unwrap_or(0.0);
         let vertical_shift = (parent_size.height - glyphs_vertical_bottom) * shift_multiplier;
 
         for line in self.lines.as_mut().iter_mut() {
@@ -155,7 +181,7 @@ pub fn calculate_horizontal_shift_multiplier(horizontal_alignment: StyleTextAlig
     match horizontal_alignment {
         Left => None,
         Center => Some(0.5), // move the line by the half width
-        Right => Some(1.0), // move the line by the full width
+        Right => Some(1.0),  // move the line by the full width
     }
 }
 
@@ -228,11 +254,12 @@ pub enum WhConstraint {
 }
 
 impl Default for WhConstraint {
-    fn default() -> Self { WhConstraint::Unconstrained }
+    fn default() -> Self {
+        WhConstraint::Unconstrained
+    }
 }
 
 impl WhConstraint {
-
     /// Returns the minimum value or 0 on `Unconstrained`
     /// (warning: this might not be what you want)
     pub fn min_needed_space(&self) -> Option<f32> {
@@ -249,7 +276,7 @@ impl WhConstraint {
     pub fn max_available_space(&self) -> Option<f32> {
         use self::WhConstraint::*;
         match self {
-            Between(_, max) => { Some(*max) },
+            Between(_, max) => Some(*max),
             EqualTo(exact) => Some(*exact),
             Unconstrained => None,
         }
@@ -269,9 +296,7 @@ impl WhConstraint {
     pub fn calculate_from_relative_parent(&self, relative_parent_width: f32) -> f32 {
         match self {
             WhConstraint::EqualTo(e) => *e,
-            WhConstraint::Between(min, max) => {
-                relative_parent_width.max(*min).min(*max)
-            },
+            WhConstraint::Between(min, max) => relative_parent_width.max(*min).min(*max),
             WhConstraint::Unconstrained => relative_parent_width,
         }
     }
@@ -300,7 +325,6 @@ pub struct WidthCalculatedRect {
 }
 
 impl WidthCalculatedRect {
-
     pub fn overflow_width(&self) -> f32 {
         if !self.flex_grow_px.is_sign_positive() {
             self.min_inner_size_px
@@ -310,77 +334,96 @@ impl WidthCalculatedRect {
     }
 
     pub fn get_border_left(&self, percent_resolve: f32) -> f32 {
-        self.border_left.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.border_left
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_border_right(&self, percent_resolve: f32) -> f32 {
-        self.border_right.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.border_right
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_raw_padding_left(&self, percent_resolve: f32) -> f32 {
-        self.padding_left.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.padding_left
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_raw_padding_right(&self, percent_resolve: f32) -> f32 {
-        self.padding_right.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.padding_right
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_padding_left(&self, percent_resolve: f32) -> f32 {
-        self.get_raw_padding_left(percent_resolve) +
-        self.get_border_left(percent_resolve)
+        self.get_raw_padding_left(percent_resolve) + self.get_border_left(percent_resolve)
     }
 
     pub fn get_padding_right(&self, percent_resolve: f32) -> f32 {
-        self.get_raw_padding_right(percent_resolve) +
-        self.get_border_right(percent_resolve)
+        self.get_raw_padding_right(percent_resolve) + self.get_border_right(percent_resolve)
     }
 
     pub fn get_margin_left(&self, percent_resolve: f32) -> f32 {
-        self.margin_left.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        self.margin_left
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
             .unwrap_or(0.0)
     }
 
     pub fn get_margin_right(&self, percent_resolve: f32) -> f32 {
-        self.margin_right.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        self.margin_right
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
             .unwrap_or(0.0)
     }
 
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
-        self.min_inner_size_px +
-        self.get_margin_left(parent_width) +
-        self.get_margin_right(parent_width) +
-        self.get_raw_padding_left(parent_width) +
-        self.get_raw_padding_right(parent_width) +
-        self.get_border_left(parent_width) +
-        self.get_border_right(parent_width)
+        self.min_inner_size_px
+            + self.get_margin_left(parent_width)
+            + self.get_margin_right(parent_width)
+            + self.get_raw_padding_left(parent_width)
+            + self.get_raw_padding_right(parent_width)
+            + self.get_border_left(parent_width)
+            + self.get_border_right(parent_width)
     }
 
     pub fn get_horizontal_border(&self, parent_width: f32) -> f32 {
-        self.get_border_left(parent_width) +
-        self.get_border_right(parent_width)
+        self.get_border_left(parent_width) + self.get_border_right(parent_width)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
     pub fn get_horizontal_padding(&self, parent_width: f32) -> f32 {
-        self.get_padding_left(parent_width) +
-        self.get_padding_right(parent_width)
+        self.get_padding_left(parent_width) + self.get_padding_right(parent_width)
     }
 
     /// Get the sum of the horizontal padding amount (`margin.left + margin.right`)
     pub fn get_horizontal_margin(&self, parent_width: f32) -> f32 {
-        self.get_margin_left(parent_width) +
-        self.get_margin_right(parent_width)
+        self.get_margin_left(parent_width) + self.get_margin_right(parent_width)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -419,7 +462,6 @@ pub struct HeightCalculatedRect {
 }
 
 impl HeightCalculatedRect {
-
     pub fn overflow_height(&self) -> f32 {
         if !self.flex_grow_px.is_sign_positive() {
             self.min_inner_size_px
@@ -429,78 +471,97 @@ impl HeightCalculatedRect {
     }
 
     pub fn get_border_top(&self, percent_resolve: f32) -> f32 {
-        self.border_top.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.border_top
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_border_bottom(&self, percent_resolve: f32) -> f32 {
-        self.border_bottom.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.border_bottom
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_raw_padding_top(&self, percent_resolve: f32) -> f32 {
-        self.padding_top.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.padding_top
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_raw_padding_bottom(&self, percent_resolve: f32) -> f32 {
-        self.padding_bottom.as_ref()
-        .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
-        .unwrap_or(0.0)
+        self.padding_bottom
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
+            .unwrap_or(0.0)
     }
 
     pub fn get_padding_bottom(&self, percent_resolve: f32) -> f32 {
-        self.get_raw_padding_bottom(percent_resolve) +
-        self.get_border_bottom(percent_resolve)
+        self.get_raw_padding_bottom(percent_resolve) + self.get_border_bottom(percent_resolve)
     }
 
     pub fn get_padding_top(&self, percent_resolve: f32) -> f32 {
-        self.get_raw_padding_top(percent_resolve) +
-        self.get_border_top(percent_resolve)
+        self.get_raw_padding_top(percent_resolve) + self.get_border_top(percent_resolve)
     }
 
     pub fn get_margin_top(&self, percent_resolve: f32) -> f32 {
-        self.margin_top.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        self.margin_top
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
             .unwrap_or(0.0)
     }
 
     pub fn get_margin_bottom(&self, percent_resolve: f32) -> f32 {
-        self.margin_bottom.as_ref()
-            .and_then(|p| p.get_property().map(|px| px.inner.to_pixels(percent_resolve)))
+        self.margin_bottom
+            .as_ref()
+            .and_then(|p| {
+                p.get_property()
+                    .map(|px| px.inner.to_pixels(percent_resolve))
+            })
             .unwrap_or(0.0)
     }
 
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
-        self.min_inner_size_px +
-        self.get_margin_top(parent_height) +
-        self.get_margin_bottom(parent_height) +
-        self.get_raw_padding_top(parent_height) +
-        self.get_raw_padding_bottom(parent_height) +
-        self.get_border_top(parent_height) +
-        self.get_border_bottom(parent_height)
+        self.min_inner_size_px
+            + self.get_margin_top(parent_height)
+            + self.get_margin_bottom(parent_height)
+            + self.get_raw_padding_top(parent_height)
+            + self.get_raw_padding_bottom(parent_height)
+            + self.get_border_top(parent_height)
+            + self.get_border_bottom(parent_height)
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
     pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
-        self.get_padding_top(parent_height) +
-        self.get_padding_bottom(parent_height)
+        self.get_padding_top(parent_height) + self.get_padding_bottom(parent_height)
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
     pub fn get_vertical_border(&self, parent_height: f32) -> f32 {
-        self.get_border_top(parent_height) +
-        self.get_border_bottom(parent_height)
+        self.get_border_top(parent_height) + self.get_border_bottom(parent_height)
     }
 
     /// Get the sum of the horizontal margin amount (`margin_top + margin_bottom`)
     pub fn get_vertical_margin(&self, parent_height: f32) -> f32 {
-        self.get_margin_top(parent_height) +
-        self.get_margin_bottom(parent_height)
+        self.get_margin_top(parent_height) + self.get_margin_bottom(parent_height)
     }
 
     /// Called after solver has run: Solved height of rectangle
@@ -554,7 +615,7 @@ pub struct LayoutResult {
     pub layout_positions: NodeDataContainer<LayoutPosition>,
     pub layout_flex_directions: NodeDataContainer<LayoutFlexDirection>,
     pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,
-    pub rects: NodeDataContainer<PositionedRectangle>,  // TODO: warning: large struct
+    pub rects: NodeDataContainer<PositionedRectangle>, // TODO: warning: large struct
     pub words_cache: BTreeMap<NodeId, Words>,
     pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
     pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
@@ -565,7 +626,9 @@ pub struct LayoutResult {
 
 impl fmt::Debug for LayoutResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "LayoutResult {{
+        write!(
+            f,
+            "LayoutResult {{
             dom_id: {},
             bounds: {:?} @ {:?},
             styled_dom (len = {}): {:#?},
@@ -623,7 +686,6 @@ pub struct QuickResizeResult {
 }
 
 impl LayoutResult {
-
     pub fn get_bounds(&self) -> LayoutRect {
         LayoutRect::new(self.root_position, self.root_size)
     }
@@ -639,11 +701,9 @@ impl LayoutResult {
         renderer_resources: &RendererResources,
         image_cache: &ImageCache,
     ) -> CachedDisplayList {
-
         use crate::display_list::{
-            LayoutRectContent, push_rectangles_into_displaylist,
-            RectBackground, DisplayListParametersRef, displaylist_handle_rect,
-            DisplayListFrame, DisplayListMsg,
+            displaylist_handle_rect, push_rectangles_into_displaylist, DisplayListFrame,
+            DisplayListMsg, DisplayListParametersRef, LayoutRectContent, RectBackground,
         };
         use rayon::prelude::*;
 
@@ -664,25 +724,29 @@ impl LayoutResult {
             image_cache,
         };
 
-        let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
-        let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+        let root_width =
+            layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
+        let root_height =
+            layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
         let root_size = LogicalSize::new(root_width, root_height);
 
         let mut root_content = displaylist_handle_rect(
             rects_in_rendering_order.root.into_crate_internal().unwrap(),
             &referenced_content,
-        ).unwrap_or(DisplayListMsg::Frame(DisplayListFrame::root(LayoutSize::zero(), LayoutPoint::zero())));
+        )
+        .unwrap_or(DisplayListMsg::Frame(DisplayListFrame::root(
+            LayoutSize::zero(),
+            LayoutPoint::zero(),
+        )));
 
-        let children = rects_in_rendering_order.children
-        .as_ref()
-        .par_iter()
-        .filter_map(|child_content_group| {
-            push_rectangles_into_displaylist(
-                child_content_group,
-                &referenced_content,
-            )
-        })
-        .collect();
+        let children = rects_in_rendering_order
+            .children
+            .as_ref()
+            .par_iter()
+            .filter_map(|child_content_group| {
+                push_rectangles_into_displaylist(child_content_group, &referenced_content)
+            })
+            .collect();
 
         root_content.append_children(children);
 
@@ -726,7 +790,6 @@ impl LayoutResult {
         window_size: &WindowSize,
         window_theme: WindowTheme,
     ) -> QuickResizeResult {
-
         let dom_bounds = LogicalRect::new(LogicalPosition::zero(), window_size.dimensions);
         let mut dom_ids_to_resize = vec![(dom_id, dom_bounds)];
         let mut gpu_event_changes = GpuEventChanges::default();
@@ -736,7 +799,6 @@ impl LayoutResult {
             let mut new_dom_ids_to_resize = Vec::new();
 
             for (dom_id, new_size) in dom_ids_to_resize.iter() {
-
                 let layout_size = new_size.to_layout_rect();
 
                 // Call the relayout function on the DOM to get the resized DOM
@@ -756,27 +818,28 @@ impl LayoutResult {
                 gpu_event_changes.merge(&mut resized_nodes.gpu_key_changes);
 
                 for node_id in resized_nodes.resized_nodes.into_iter() {
-
-                    let iframe_dom_id = match layout_results[dom_id.inner].iframe_mapping.get(&node_id) {
-                        Some(dom_id) => *dom_id,
-                        None => continue,
-                    };
+                    let iframe_dom_id =
+                        match layout_results[dom_id.inner].iframe_mapping.get(&node_id) {
+                            Some(dom_id) => *dom_id,
+                            None => continue,
+                        };
 
                     let iframe_rect_relative_to_parent = LayoutRect {
                         origin: layout_results[iframe_dom_id.inner].root_position,
                         size: layout_results[iframe_dom_id.inner].root_size,
                     };
 
-                    let iframe_needs_to_be_invoked = !layout_size.contains_rect(&iframe_rect_relative_to_parent);
+                    let iframe_needs_to_be_invoked =
+                        !layout_size.contains_rect(&iframe_rect_relative_to_parent);
 
                     if !iframe_needs_to_be_invoked {
                         continue; // old iframe size still covers the new extent
                     }
 
                     let iframe_return: IFrameCallbackReturn = {
-
                         let layout_result = &mut layout_results[dom_id.inner];
-                        let mut node_data_mut = layout_result.styled_dom.node_data.as_container_mut();
+                        let mut node_data_mut =
+                            layout_result.styled_dom.node_data.as_container_mut();
                         let mut node = &mut node_data_mut[node_id];
                         let iframe_node = match node.get_iframe_node() {
                             Some(iframe_node) => iframe_node,
@@ -784,8 +847,13 @@ impl LayoutResult {
                         };
 
                         // invoke the iframe with the new size and replace the dom with the DOM ID
-                        let hidpi_bounds = HidpiAdjustedBounds::from_bounds(layout_size.size, window_size.hidpi_factor);
-                        let scroll_node = layout_result.scrollable_nodes.overflowing_nodes
+                        let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
+                            layout_size.size,
+                            window_size.hidpi_factor,
+                        );
+                        let scroll_node = layout_result
+                            .scrollable_nodes
+                            .overflowing_nodes
                             .get(&NodeHierarchyItemId::from_crate_internal(Some(node_id)))
                             .cloned()
                             .unwrap_or_default();
@@ -795,12 +863,14 @@ impl LayoutResult {
                             image_cache,
                             window_theme,
                             hidpi_bounds,
-
                             // see /examples/assets/images/scrollbounds.png for documentation!
-                            /* scroll_size  */ scroll_node.child_rect.size,
-                            /* scroll_offset */ scroll_node.child_rect.origin - scroll_node.parent_rect.origin,
-                            /* virtual_scroll_size  */scroll_node.virtual_child_rect.size,
-                            /* virtual_scroll_offset */ scroll_node.virtual_child_rect.origin - scroll_node.parent_rect.origin,
+                            /* scroll_size  */
+                            scroll_node.child_rect.size,
+                            /* scroll_offset */
+                            scroll_node.child_rect.origin - scroll_node.parent_rect.origin,
+                            /* virtual_scroll_size  */ scroll_node.virtual_child_rect.size,
+                            /* virtual_scroll_offset */
+                            scroll_node.virtual_child_rect.origin - scroll_node.parent_rect.origin,
                         );
                         (iframe_node.callback.cb)(&mut iframe_node.data, &mut iframe_callback_info)
                     };
@@ -818,7 +888,9 @@ impl LayoutResult {
 
                     // Store the new scroll position
                     // (trust the iframe to return these values correctly)
-                    let osn = layout_results[dom_id.inner].scrollable_nodes.overflowing_nodes
+                    let osn = layout_results[dom_id.inner]
+                        .scrollable_nodes
+                        .overflowing_nodes
                         .entry(NodeHierarchyItemId::from_crate_internal(Some(node_id)))
                         .or_insert_with(|| OverflowingScrollNode::default());
 
@@ -937,7 +1009,12 @@ pub struct GpuValueCache {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum GpuTransformKeyEvent {
     Added(NodeId, TransformKey, ComputedTransform3D),
-    Changed(NodeId, TransformKey, ComputedTransform3D, ComputedTransform3D),
+    Changed(
+        NodeId,
+        TransformKey,
+        ComputedTransform3D,
+        ComputedTransform3D,
+    ),
     Removed(NodeId, TransformKey),
 }
 
@@ -959,12 +1036,13 @@ impl GpuEventChanges {
         Self::default()
     }
     pub fn is_empty(&self) -> bool {
-        self.transform_key_changes.is_empty() &&
-        self.opacity_key_changes.is_empty()
+        self.transform_key_changes.is_empty() && self.opacity_key_changes.is_empty()
     }
     pub fn merge(&mut self, other: &mut Self) {
-        self.transform_key_changes.extend(other.transform_key_changes.drain(..));
-        self.opacity_key_changes.extend(other.opacity_key_changes.drain(..));
+        self.transform_key_changes
+            .extend(other.transform_key_changes.drain(..));
+        self.opacity_key_changes
+            .extend(other.opacity_key_changes.drain(..));
     }
 }
 
@@ -980,7 +1058,7 @@ impl RelayoutChanges {
         gpu_key_changes: GpuEventChanges {
             transform_key_changes: Vec::new(),
             opacity_key_changes: Vec::new(),
-        }
+        },
     };
 
     pub fn empty() -> Self {
@@ -989,7 +1067,6 @@ impl RelayoutChanges {
 }
 
 impl GpuValueCache {
-
     pub fn empty() -> Self {
         Self::default()
     }
@@ -1001,7 +1078,6 @@ impl GpuValueCache {
         positioned_rects: &NodeDataContainerRef<'a, PositionedRectangle>,
         styled_dom: &StyledDom,
     ) -> GpuEventChanges {
-
         use rayon::prelude::*;
 
         let css_property_cache = styled_dom.get_css_property_cache();
@@ -1010,14 +1086,16 @@ impl GpuValueCache {
 
         let default_transform_origin = StyleTransformOrigin::default();
 
-        #[cfg(target_arch = "x86_64")] unsafe {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
             if !INITIALIZED.load(AtomicOrdering::SeqCst) {
                 use core::arch::x86_64::__cpuid;
 
                 let mut cpuid = __cpuid(0);
                 let n_ids = cpuid.eax;
 
-                if n_ids > 0 { // cpuid instruction is present
+                if n_ids > 0 {
+                    // cpuid instruction is present
                     cpuid = __cpuid(1);
                     USE_SSE.store((cpuid.edx & (1_u32 << 25)) != 0, AtomicOrdering::SeqCst);
                     USE_AVX.store((cpuid.ecx & (1_u32 << 28)) != 0, AtomicOrdering::SeqCst);
@@ -1028,40 +1106,57 @@ impl GpuValueCache {
 
         // calculate the transform values of every single node that has a non-default transform
         let all_current_transform_events = (0..styled_dom.node_data.len())
-        .into_par_iter()
-        .filter_map(|node_id| {
-            let node_id = NodeId::new(node_id);
-            let styled_node_state = &node_states[node_id].state;
-            let node_data = &node_data[node_id];
-            let current_transform = css_property_cache
-            .get_transform(node_data, &node_id, styled_node_state)?
-            .get_property().map(|t| {
+            .into_par_iter()
+            .filter_map(|node_id| {
+                let node_id = NodeId::new(node_id);
+                let styled_node_state = &node_states[node_id].state;
+                let node_data = &node_data[node_id];
+                let current_transform = css_property_cache
+                    .get_transform(node_data, &node_id, styled_node_state)?
+                    .get_property()
+                    .map(|t| {
+                        let parent_size = positioned_rects[node_id].size;
+                        let transform_origin = css_property_cache.get_transform_origin(
+                            node_data,
+                            &node_id,
+                            styled_node_state,
+                        );
+                        let transform_origin = transform_origin
+                            .as_ref()
+                            .and_then(|o| o.get_property())
+                            .unwrap_or(&default_transform_origin);
 
-                let parent_size = positioned_rects[node_id].size;
-                let transform_origin = css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
-                let transform_origin = transform_origin
-                    .as_ref()
-                    .and_then(|o| o.get_property())
-                    .unwrap_or(&default_transform_origin);
+                        ComputedTransform3D::from_style_transform_vec(
+                            t.as_ref(),
+                            transform_origin,
+                            parent_size.width,
+                            parent_size.height,
+                            RotationMode::ForWebRender,
+                        )
+                    });
 
-                ComputedTransform3D::from_style_transform_vec(
-                    t.as_ref(),
-                    transform_origin,
-                    parent_size.width,
-                    parent_size.height,
-                    RotationMode::ForWebRender,
-                )
-            });
+                let existing_transform = self.current_transform_values.get(&node_id);
 
-            let existing_transform = self.current_transform_values.get(&node_id);
-
-            match (existing_transform, current_transform) {
-                (None, None) => None, // no new transform, no old transform
-                (None, Some(new)) => Some(GpuTransformKeyEvent::Added(node_id, TransformKey::unique(), new)),
-                (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(node_id, self.transform_keys.get(&node_id).copied()?, *old, new)),
-                (Some(_old), None) => Some(GpuTransformKeyEvent::Removed(node_id, self.transform_keys.get(&node_id).copied()?)),
-            }
-        }).collect::<Vec<GpuTransformKeyEvent>>();
+                match (existing_transform, current_transform) {
+                    (None, None) => None, // no new transform, no old transform
+                    (None, Some(new)) => Some(GpuTransformKeyEvent::Added(
+                        node_id,
+                        TransformKey::unique(),
+                        new,
+                    )),
+                    (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(
+                        node_id,
+                        self.transform_keys.get(&node_id).copied()?,
+                        *old,
+                        new,
+                    )),
+                    (Some(_old), None) => Some(GpuTransformKeyEvent::Removed(
+                        node_id,
+                        self.transform_keys.get(&node_id).copied()?,
+                    )),
+                }
+            })
+            .collect::<Vec<GpuTransformKeyEvent>>();
 
         // remove / add the transform keys accordingly
         for event in all_current_transform_events.iter() {
@@ -1069,35 +1164,49 @@ impl GpuValueCache {
                 GpuTransformKeyEvent::Added(node_id, key, matrix) => {
                     self.transform_keys.insert(*node_id, *key);
                     self.current_transform_values.insert(*node_id, *matrix);
-                },
+                }
                 GpuTransformKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
                     self.current_transform_values.insert(*node_id, *new_state);
-                },
+                }
                 GpuTransformKeyEvent::Removed(node_id, _key) => {
                     self.transform_keys.remove(node_id);
                     self.current_transform_values.remove(node_id);
-                },
+                }
             }
         }
 
         // calculate the opacity of every single node that has a non-default opacity
         let all_current_opacity_events = (0..styled_dom.node_data.len())
-        .into_par_iter()
-        .filter_map(|node_id| {
-            let node_id = NodeId::new(node_id);
-            let styled_node_state = &node_states[node_id].state;
-            let node_data = &node_data[node_id];
-            let current_opacity = css_property_cache.get_opacity(node_data, &node_id, styled_node_state)?;
-            let current_opacity = current_opacity.get_property();
-            let existing_opacity = self.current_opacity_values.get(&node_id);
+            .into_par_iter()
+            .filter_map(|node_id| {
+                let node_id = NodeId::new(node_id);
+                let styled_node_state = &node_states[node_id].state;
+                let node_data = &node_data[node_id];
+                let current_opacity =
+                    css_property_cache.get_opacity(node_data, &node_id, styled_node_state)?;
+                let current_opacity = current_opacity.get_property();
+                let existing_opacity = self.current_opacity_values.get(&node_id);
 
-            match (existing_opacity, current_opacity) {
-                (None, None) => None, // no new opacity, no old transform
-                (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(node_id, OpacityKey::unique(), new.inner.normalized())),
-                (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(node_id, self.opacity_keys.get(&node_id).copied()?, *old, new.inner.normalized())),
-                (Some(_old), None) => Some(GpuOpacityKeyEvent::Removed(node_id, self.opacity_keys.get(&node_id).copied()?)),
-            }
-        }).collect::<Vec<GpuOpacityKeyEvent>>();
+                match (existing_opacity, current_opacity) {
+                    (None, None) => None, // no new opacity, no old transform
+                    (None, Some(new)) => Some(GpuOpacityKeyEvent::Added(
+                        node_id,
+                        OpacityKey::unique(),
+                        new.inner.normalized(),
+                    )),
+                    (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(
+                        node_id,
+                        self.opacity_keys.get(&node_id).copied()?,
+                        *old,
+                        new.inner.normalized(),
+                    )),
+                    (Some(_old), None) => Some(GpuOpacityKeyEvent::Removed(
+                        node_id,
+                        self.opacity_keys.get(&node_id).copied()?,
+                    )),
+                }
+            })
+            .collect::<Vec<GpuOpacityKeyEvent>>();
 
         // remove / add the opacity keys accordingly
         for event in all_current_opacity_events.iter() {
@@ -1105,14 +1214,14 @@ impl GpuValueCache {
                 GpuOpacityKeyEvent::Added(node_id, key, opacity) => {
                     self.opacity_keys.insert(*node_id, *key);
                     self.current_opacity_values.insert(*node_id, *opacity);
-                },
+                }
                 GpuOpacityKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
                     self.current_opacity_values.insert(*node_id, *new_state);
-                },
+                }
                 GpuOpacityKeyEvent::Removed(node_id, _key) => {
                     self.opacity_keys.remove(node_id);
                     self.current_opacity_values.remove(node_id);
-                },
+                }
             }
         }
 
@@ -1195,7 +1304,12 @@ pub struct ResolvedTextLayoutOptions {
     pub holes: LogicalRectVec,
 }
 
-impl_option!(ResolvedTextLayoutOptions, OptionResolvedTextLayoutOptions, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    ResolvedTextLayoutOptions,
+    OptionResolvedTextLayoutOptions,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1207,9 +1321,20 @@ pub struct ResolvedOffsets {
 }
 
 impl ResolvedOffsets {
-    pub const fn zero() -> Self { Self { top: 0.0, left: 0.0, right: 0.0, bottom: 0.0 } }
-    pub fn total_vertical(&self) -> f32 { self.top + self.bottom }
-    pub fn total_horizontal(&self) -> f32 { self.left + self.right }
+    pub const fn zero() -> Self {
+        Self {
+            top: 0.0,
+            left: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        }
+    }
+    pub fn total_vertical(&self) -> f32 {
+        self.top + self.bottom
+    }
+    pub fn total_horizontal(&self) -> f32 {
+        self.left + self.right
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -1248,7 +1373,7 @@ impl Default for PositionedRectangle {
                 x_offset: 0.0,
                 y_offset: 0.0,
                 static_x_offset: 0.0,
-                static_y_offset: 0.0
+                static_y_offset: 0.0,
             }),
             padding: ResolvedOffsets::zero(),
             margin: ResolvedOffsets::zero(),
@@ -1261,7 +1386,6 @@ impl Default for PositionedRectangle {
 }
 
 impl PositionedRectangle {
-
     #[inline]
     pub fn get_approximate_static_bounds(&self) -> LayoutRect {
         LayoutRect::new(self.get_static_offset(), self.get_content_size())
@@ -1270,92 +1394,109 @@ impl PositionedRectangle {
     // Returns the rect where the content should be placed (for example the text itself)
     #[inline]
     fn get_content_size(&self) -> LayoutSize {
-        LayoutSize::new(libm::roundf(self.size.width) as isize, libm::roundf(self.size.height) as isize)
+        LayoutSize::new(
+            libm::roundf(self.size.width) as isize,
+            libm::roundf(self.size.height) as isize,
+        )
     }
 
     #[inline]
     fn get_logical_static_offset(&self) -> LogicalPosition {
         match self.position {
-            PositionInfo::Static(p) |
-            PositionInfo::Fixed(p) |
-            PositionInfo::Absolute(p) |
-            PositionInfo::Relative(p) => {
+            PositionInfo::Static(p)
+            | PositionInfo::Fixed(p)
+            | PositionInfo::Absolute(p)
+            | PositionInfo::Relative(p) => {
                 LogicalPosition::new(p.static_x_offset, p.static_y_offset)
-            },
+            }
         }
     }
 
     #[inline]
     fn get_logical_relative_offset(&self) -> LogicalPosition {
         match self.position {
-            PositionInfo::Static(p) |
-            PositionInfo::Fixed(p) |
-            PositionInfo::Absolute(p) |
-            PositionInfo::Relative(p) => {
-                LogicalPosition::new(p.x_offset, p.y_offset)
-            },
+            PositionInfo::Static(p)
+            | PositionInfo::Fixed(p)
+            | PositionInfo::Absolute(p)
+            | PositionInfo::Relative(p) => LogicalPosition::new(p.x_offset, p.y_offset),
         }
     }
 
     #[inline]
     fn get_static_offset(&self) -> LayoutPoint {
         match self.position {
-            PositionInfo::Static(p) |
-            PositionInfo::Fixed(p) |
-            PositionInfo::Absolute(p) |
-            PositionInfo::Relative(p) => {
-                LayoutPoint::new(libm::roundf(p.static_x_offset) as isize, libm::roundf(p.static_y_offset) as isize)
-            },
+            PositionInfo::Static(p)
+            | PositionInfo::Fixed(p)
+            | PositionInfo::Absolute(p)
+            | PositionInfo::Relative(p) => LayoutPoint::new(
+                libm::roundf(p.static_x_offset) as isize,
+                libm::roundf(p.static_y_offset) as isize,
+            ),
         }
     }
 
     // Returns the rect that includes bounds, expanded by the padding + the border widths
     #[inline]
     pub fn get_background_bounds(&self) -> (LogicalSize, PositionInfo) {
-
         use crate::ui_solver::PositionInfo::*;
 
         let b_size = LogicalSize {
-            width: self.size.width + self.padding.total_horizontal() + self.border_widths.total_horizontal(),
-            height: self.size.height + self.padding.total_vertical() + self.border_widths.total_vertical(),
+            width: self.size.width
+                + self.padding.total_horizontal()
+                + self.border_widths.total_horizontal(),
+            height: self.size.height
+                + self.padding.total_vertical()
+                + self.border_widths.total_vertical(),
         };
 
         let x_offset_add = 0.0 - self.padding.left - self.border_widths.left;
         let y_offset_add = 0.0 - self.padding.top - self.border_widths.top;
 
         let b_position = match self.position {
-            Static(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
-                Static(PositionInfoInner {
-                    x_offset: x_offset + x_offset_add,
-                    y_offset: y_offset + y_offset_add,
-                    static_x_offset,
-                    static_y_offset
-                })
-            },
-            Fixed(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
-                Fixed(PositionInfoInner {
-                    x_offset: x_offset + x_offset_add,
-                    y_offset: y_offset + y_offset_add,
-                    static_x_offset,
-                    static_y_offset
-                })
-            },
-            Relative(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
-                Relative(PositionInfoInner {
-                    x_offset: x_offset + x_offset_add,
-                    y_offset: y_offset + y_offset_add,
-                    static_x_offset,
-                    static_y_offset
-                })
-            },
-            Absolute(PositionInfoInner { x_offset, y_offset, static_x_offset, static_y_offset }) => {
-                Absolute(PositionInfoInner {
-                    x_offset: x_offset + x_offset_add,
-                    y_offset: y_offset + y_offset_add,
-                    static_x_offset,
-                    static_y_offset
-                })
-            },
+            Static(PositionInfoInner {
+                x_offset,
+                y_offset,
+                static_x_offset,
+                static_y_offset,
+            }) => Static(PositionInfoInner {
+                x_offset: x_offset + x_offset_add,
+                y_offset: y_offset + y_offset_add,
+                static_x_offset,
+                static_y_offset,
+            }),
+            Fixed(PositionInfoInner {
+                x_offset,
+                y_offset,
+                static_x_offset,
+                static_y_offset,
+            }) => Fixed(PositionInfoInner {
+                x_offset: x_offset + x_offset_add,
+                y_offset: y_offset + y_offset_add,
+                static_x_offset,
+                static_y_offset,
+            }),
+            Relative(PositionInfoInner {
+                x_offset,
+                y_offset,
+                static_x_offset,
+                static_y_offset,
+            }) => Relative(PositionInfoInner {
+                x_offset: x_offset + x_offset_add,
+                y_offset: y_offset + y_offset_add,
+                static_x_offset,
+                static_y_offset,
+            }),
+            Absolute(PositionInfoInner {
+                x_offset,
+                y_offset,
+                static_x_offset,
+                static_y_offset,
+            }) => Absolute(PositionInfoInner {
+                x_offset: x_offset + x_offset_add,
+                y_offset: y_offset + y_offset_add,
+                static_x_offset,
+                static_y_offset,
+            }),
         };
 
         (b_size, b_position)
@@ -1363,32 +1504,28 @@ impl PositionedRectangle {
 
     #[inline]
     pub fn get_margin_box_width(&self) -> f32 {
-        self.size.width +
-        self.padding.total_horizontal() +
-        self.border_widths.total_horizontal() +
-        self.margin.total_horizontal()
+        self.size.width
+            + self.padding.total_horizontal()
+            + self.border_widths.total_horizontal()
+            + self.margin.total_horizontal()
     }
 
     #[inline]
     pub fn get_margin_box_height(&self) -> f32 {
-        self.size.height +
-        self.padding.total_vertical() +
-        self.border_widths.total_vertical() +
-        self.margin.total_vertical()
+        self.size.height
+            + self.padding.total_vertical()
+            + self.border_widths.total_vertical()
+            + self.margin.total_vertical()
     }
 
     #[inline]
     pub fn get_left_leading(&self) -> f32 {
-        self.margin.left +
-        self.padding.left +
-        self.border_widths.left
+        self.margin.left + self.padding.left + self.border_widths.left
     }
 
     #[inline]
     pub fn get_top_leading(&self) -> f32 {
-        self.margin.top +
-        self.padding.top +
-        self.border_widths.top
+        self.margin.top + self.padding.top + self.border_widths.top
     }
 }
 
@@ -1416,37 +1553,36 @@ impl Default for DirectionalOverflowInfo {
 }
 
 impl DirectionalOverflowInfo {
-
     #[inline]
     pub fn get_amount(&self) -> Option<isize> {
         match self {
-            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-            DirectionalOverflowInfo::Auto { amount: Some(s) } |
-            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
-            DirectionalOverflowInfo::Visible { amount: Some(s) } => Some(*s),
-            _ => None
+            DirectionalOverflowInfo::Scroll { amount: Some(s) }
+            | DirectionalOverflowInfo::Auto { amount: Some(s) }
+            | DirectionalOverflowInfo::Hidden { amount: Some(s) }
+            | DirectionalOverflowInfo::Visible { amount: Some(s) } => Some(*s),
+            _ => None,
         }
     }
 
     #[inline]
     pub fn is_negative(&self) -> bool {
         match self {
-            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
-            DirectionalOverflowInfo::Auto { amount: Some(s) } |
-            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
-            DirectionalOverflowInfo::Visible { amount: Some(s) } => { *s < 0_isize },
-            _ => true // no overflow = no scrollbar
+            DirectionalOverflowInfo::Scroll { amount: Some(s) }
+            | DirectionalOverflowInfo::Auto { amount: Some(s) }
+            | DirectionalOverflowInfo::Hidden { amount: Some(s) }
+            | DirectionalOverflowInfo::Visible { amount: Some(s) } => *s < 0_isize,
+            _ => true, // no overflow = no scrollbar
         }
     }
 
     #[inline]
     pub fn is_none(&self) -> bool {
         match self {
-            DirectionalOverflowInfo::Scroll { amount: None } |
-            DirectionalOverflowInfo::Auto { amount: None } |
-            DirectionalOverflowInfo::Hidden { amount: None } |
-            DirectionalOverflowInfo::Visible { amount: None } => true,
-            _ => false
+            DirectionalOverflowInfo::Scroll { amount: None }
+            | DirectionalOverflowInfo::Auto { amount: None }
+            | DirectionalOverflowInfo::Hidden { amount: None }
+            | DirectionalOverflowInfo::Visible { amount: None } => true,
+            _ => false,
         }
     }
 }
@@ -1472,7 +1608,11 @@ impl ::core::fmt::Debug for PositionInfo {
     }
 }
 */
-impl_option!(PositionInfo, OptionPositionInfo, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    PositionInfo,
+    OptionPositionInfo,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1480,7 +1620,7 @@ pub struct PositionInfoInner {
     pub x_offset: f32,
     pub y_offset: f32,
     pub static_x_offset: f32,
-    pub static_y_offset: f32
+    pub static_y_offset: f32,
 }
 
 impl PositionInfoInner {
@@ -1509,30 +1649,26 @@ impl PositionInfo {
     #[inline]
     pub fn get_relative_offset(&self) -> LogicalPosition {
         match self {
-            PositionInfo::Static(p) |
-            PositionInfo::Fixed(p) |
-            PositionInfo::Absolute(p) |
-            PositionInfo::Relative(p) => {
-                LogicalPosition {
-                    x: p.x_offset,
-                    y: p.y_offset,
-                }
-            }
+            PositionInfo::Static(p)
+            | PositionInfo::Fixed(p)
+            | PositionInfo::Absolute(p)
+            | PositionInfo::Relative(p) => LogicalPosition {
+                x: p.x_offset,
+                y: p.y_offset,
+            },
         }
     }
 
     #[inline]
     pub fn get_static_offset(&self) -> LogicalPosition {
         match self {
-            PositionInfo::Static(p) |
-            PositionInfo::Fixed(p) |
-            PositionInfo::Absolute(p) |
-            PositionInfo::Relative(p) => {
-                LogicalPosition {
-                    x: p.static_x_offset,
-                    y: p.static_y_offset,
-                }
-            }
+            PositionInfo::Static(p)
+            | PositionInfo::Fixed(p)
+            | PositionInfo::Absolute(p)
+            | PositionInfo::Relative(p) => LogicalPosition {
+                x: p.static_x_offset,
+                y: p.static_y_offset,
+            },
         }
     }
 }
@@ -1563,25 +1699,36 @@ pub enum RotationMode {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ComputedTransform3D {
-    pub m:[[f32;4];4]
+    pub m: [[f32; 4]; 4],
 }
 
 impl ComputedTransform3D {
-
     pub const IDENTITY: Self = Self {
         m: [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
-        ]
+        ],
     };
 
     pub const fn new(
-        m11: f32, m12: f32, m13: f32, m14: f32,
-        m21: f32, m22: f32, m23: f32, m24: f32,
-        m31: f32, m32: f32, m33: f32, m34: f32,
-        m41: f32, m42: f32, m43: f32, m44: f32
+        m11: f32,
+        m12: f32,
+        m13: f32,
+        m14: f32,
+        m21: f32,
+        m22: f32,
+        m23: f32,
+        m24: f32,
+        m31: f32,
+        m32: f32,
+        m33: f32,
+        m34: f32,
+        m41: f32,
+        m42: f32,
+        m43: f32,
+        m44: f32,
     ) -> Self {
         Self {
             m: [
@@ -1589,132 +1736,161 @@ impl ComputedTransform3D {
                 [m21, m22, m23, m24],
                 [m31, m32, m33, m34],
                 [m41, m42, m43, m44],
-            ]
+            ],
         }
     }
 
-    pub const fn new_2d(
-        m11: f32, m12: f32,
-        m21: f32, m22: f32,
-        m41: f32, m42: f32
-    ) -> Self {
-         Self::new(
-             m11,  m12, 0.0, 0.0,
-             m21,  m22, 0.0, 0.0,
-             0.0,  0.0, 1.0, 0.0,
-             m41,  m42, 0.0, 1.0
+    pub const fn new_2d(m11: f32, m12: f32, m21: f32, m22: f32, m41: f32, m42: f32) -> Self {
+        Self::new(
+            m11, m12, 0.0, 0.0, m21, m22, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, m41, m42, 0.0, 1.0,
         )
     }
 
     // very slow inverse function
     pub fn inverse(&self) -> Self {
-
         let det = self.determinant();
 
         // if det == 0.0 { return None; }
 
         let m = ComputedTransform3D::new(
-             self.m[1][2]*self.m[2][3]*self.m[3][1] - self.m[1][3]*self.m[2][2]*self.m[3][1] +
-             self.m[1][3]*self.m[2][1]*self.m[3][2] - self.m[1][1]*self.m[2][3]*self.m[3][2] -
-             self.m[1][2]*self.m[2][1]*self.m[3][3] + self.m[1][1]*self.m[2][2]*self.m[3][3],
-
-             self.m[0][3]*self.m[2][2]*self.m[3][1] - self.m[0][2]*self.m[2][3]*self.m[3][1] -
-             self.m[0][3]*self.m[2][1]*self.m[3][2] + self.m[0][1]*self.m[2][3]*self.m[3][2] +
-             self.m[0][2]*self.m[2][1]*self.m[3][3] - self.m[0][1]*self.m[2][2]*self.m[3][3],
-
-             self.m[0][2]*self.m[1][3]*self.m[3][1] - self.m[0][3]*self.m[1][2]*self.m[3][1] +
-             self.m[0][3]*self.m[1][1]*self.m[3][2] - self.m[0][1]*self.m[1][3]*self.m[3][2] -
-             self.m[0][2]*self.m[1][1]*self.m[3][3] + self.m[0][1]*self.m[1][2]*self.m[3][3],
-
-             self.m[0][3]*self.m[1][2]*self.m[2][1] - self.m[0][2]*self.m[1][3]*self.m[2][1] -
-             self.m[0][3]*self.m[1][1]*self.m[2][2] + self.m[0][1]*self.m[1][3]*self.m[2][2] +
-             self.m[0][2]*self.m[1][1]*self.m[2][3] - self.m[0][1]*self.m[1][2]*self.m[2][3],
-
-             self.m[1][3]*self.m[2][2]*self.m[3][0] - self.m[1][2]*self.m[2][3]*self.m[3][0] -
-             self.m[1][3]*self.m[2][0]*self.m[3][2] + self.m[1][0]*self.m[2][3]*self.m[3][2] +
-             self.m[1][2]*self.m[2][0]*self.m[3][3] - self.m[1][0]*self.m[2][2]*self.m[3][3],
-
-             self.m[0][2]*self.m[2][3]*self.m[3][0] - self.m[0][3]*self.m[2][2]*self.m[3][0] +
-             self.m[0][3]*self.m[2][0]*self.m[3][2] - self.m[0][0]*self.m[2][3]*self.m[3][2] -
-             self.m[0][2]*self.m[2][0]*self.m[3][3] + self.m[0][0]*self.m[2][2]*self.m[3][3],
-
-             self.m[0][3]*self.m[1][2]*self.m[3][0] - self.m[0][2]*self.m[1][3]*self.m[3][0] -
-             self.m[0][3]*self.m[1][0]*self.m[3][2] + self.m[0][0]*self.m[1][3]*self.m[3][2] +
-             self.m[0][2]*self.m[1][0]*self.m[3][3] - self.m[0][0]*self.m[1][2]*self.m[3][3],
-
-             self.m[0][2]*self.m[1][3]*self.m[2][0] - self.m[0][3]*self.m[1][2]*self.m[2][0] +
-             self.m[0][3]*self.m[1][0]*self.m[2][2] - self.m[0][0]*self.m[1][3]*self.m[2][2] -
-             self.m[0][2]*self.m[1][0]*self.m[2][3] + self.m[0][0]*self.m[1][2]*self.m[2][3],
-
-             self.m[1][1]*self.m[2][3]*self.m[3][0] - self.m[1][3]*self.m[2][1]*self.m[3][0] +
-             self.m[1][3]*self.m[2][0]*self.m[3][1] - self.m[1][0]*self.m[2][3]*self.m[3][1] -
-             self.m[1][1]*self.m[2][0]*self.m[3][3] + self.m[1][0]*self.m[2][1]*self.m[3][3],
-
-             self.m[0][3]*self.m[2][1]*self.m[3][0] - self.m[0][1]*self.m[2][3]*self.m[3][0] -
-             self.m[0][3]*self.m[2][0]*self.m[3][1] + self.m[0][0]*self.m[2][3]*self.m[3][1] +
-             self.m[0][1]*self.m[2][0]*self.m[3][3] - self.m[0][0]*self.m[2][1]*self.m[3][3],
-
-             self.m[0][1]*self.m[1][3]*self.m[3][0] - self.m[0][3]*self.m[1][1]*self.m[3][0] +
-             self.m[0][3]*self.m[1][0]*self.m[3][1] - self.m[0][0]*self.m[1][3]*self.m[3][1] -
-             self.m[0][1]*self.m[1][0]*self.m[3][3] + self.m[0][0]*self.m[1][1]*self.m[3][3],
-
-             self.m[0][3]*self.m[1][1]*self.m[2][0] - self.m[0][1]*self.m[1][3]*self.m[2][0] -
-             self.m[0][3]*self.m[1][0]*self.m[2][1] + self.m[0][0]*self.m[1][3]*self.m[2][1] +
-             self.m[0][1]*self.m[1][0]*self.m[2][3] - self.m[0][0]*self.m[1][1]*self.m[2][3],
-
-             self.m[1][2]*self.m[2][1]*self.m[3][0] - self.m[1][1]*self.m[2][2]*self.m[3][0] -
-             self.m[1][2]*self.m[2][0]*self.m[3][1] + self.m[1][0]*self.m[2][2]*self.m[3][1] +
-             self.m[1][1]*self.m[2][0]*self.m[3][2] - self.m[1][0]*self.m[2][1]*self.m[3][2],
-
-             self.m[0][1]*self.m[2][2]*self.m[3][0] - self.m[0][2]*self.m[2][1]*self.m[3][0] +
-             self.m[0][2]*self.m[2][0]*self.m[3][1] - self.m[0][0]*self.m[2][2]*self.m[3][1] -
-             self.m[0][1]*self.m[2][0]*self.m[3][2] + self.m[0][0]*self.m[2][1]*self.m[3][2],
-
-             self.m[0][2]*self.m[1][1]*self.m[3][0] - self.m[0][1]*self.m[1][2]*self.m[3][0] -
-             self.m[0][2]*self.m[1][0]*self.m[3][1] + self.m[0][0]*self.m[1][2]*self.m[3][1] +
-             self.m[0][1]*self.m[1][0]*self.m[3][2] - self.m[0][0]*self.m[1][1]*self.m[3][2],
-
-             self.m[0][1]*self.m[1][2]*self.m[2][0] - self.m[0][2]*self.m[1][1]*self.m[2][0] +
-             self.m[0][2]*self.m[1][0]*self.m[2][1] - self.m[0][0]*self.m[1][2]*self.m[2][1] -
-             self.m[0][1]*self.m[1][0]*self.m[2][2] + self.m[0][0]*self.m[1][1]*self.m[2][2]
+            self.m[1][2] * self.m[2][3] * self.m[3][1] - self.m[1][3] * self.m[2][2] * self.m[3][1]
+                + self.m[1][3] * self.m[2][1] * self.m[3][2]
+                - self.m[1][1] * self.m[2][3] * self.m[3][2]
+                - self.m[1][2] * self.m[2][1] * self.m[3][3]
+                + self.m[1][1] * self.m[2][2] * self.m[3][3],
+            self.m[0][3] * self.m[2][2] * self.m[3][1]
+                - self.m[0][2] * self.m[2][3] * self.m[3][1]
+                - self.m[0][3] * self.m[2][1] * self.m[3][2]
+                + self.m[0][1] * self.m[2][3] * self.m[3][2]
+                + self.m[0][2] * self.m[2][1] * self.m[3][3]
+                - self.m[0][1] * self.m[2][2] * self.m[3][3],
+            self.m[0][2] * self.m[1][3] * self.m[3][1] - self.m[0][3] * self.m[1][2] * self.m[3][1]
+                + self.m[0][3] * self.m[1][1] * self.m[3][2]
+                - self.m[0][1] * self.m[1][3] * self.m[3][2]
+                - self.m[0][2] * self.m[1][1] * self.m[3][3]
+                + self.m[0][1] * self.m[1][2] * self.m[3][3],
+            self.m[0][3] * self.m[1][2] * self.m[2][1]
+                - self.m[0][2] * self.m[1][3] * self.m[2][1]
+                - self.m[0][3] * self.m[1][1] * self.m[2][2]
+                + self.m[0][1] * self.m[1][3] * self.m[2][2]
+                + self.m[0][2] * self.m[1][1] * self.m[2][3]
+                - self.m[0][1] * self.m[1][2] * self.m[2][3],
+            self.m[1][3] * self.m[2][2] * self.m[3][0]
+                - self.m[1][2] * self.m[2][3] * self.m[3][0]
+                - self.m[1][3] * self.m[2][0] * self.m[3][2]
+                + self.m[1][0] * self.m[2][3] * self.m[3][2]
+                + self.m[1][2] * self.m[2][0] * self.m[3][3]
+                - self.m[1][0] * self.m[2][2] * self.m[3][3],
+            self.m[0][2] * self.m[2][3] * self.m[3][0] - self.m[0][3] * self.m[2][2] * self.m[3][0]
+                + self.m[0][3] * self.m[2][0] * self.m[3][2]
+                - self.m[0][0] * self.m[2][3] * self.m[3][2]
+                - self.m[0][2] * self.m[2][0] * self.m[3][3]
+                + self.m[0][0] * self.m[2][2] * self.m[3][3],
+            self.m[0][3] * self.m[1][2] * self.m[3][0]
+                - self.m[0][2] * self.m[1][3] * self.m[3][0]
+                - self.m[0][3] * self.m[1][0] * self.m[3][2]
+                + self.m[0][0] * self.m[1][3] * self.m[3][2]
+                + self.m[0][2] * self.m[1][0] * self.m[3][3]
+                - self.m[0][0] * self.m[1][2] * self.m[3][3],
+            self.m[0][2] * self.m[1][3] * self.m[2][0] - self.m[0][3] * self.m[1][2] * self.m[2][0]
+                + self.m[0][3] * self.m[1][0] * self.m[2][2]
+                - self.m[0][0] * self.m[1][3] * self.m[2][2]
+                - self.m[0][2] * self.m[1][0] * self.m[2][3]
+                + self.m[0][0] * self.m[1][2] * self.m[2][3],
+            self.m[1][1] * self.m[2][3] * self.m[3][0] - self.m[1][3] * self.m[2][1] * self.m[3][0]
+                + self.m[1][3] * self.m[2][0] * self.m[3][1]
+                - self.m[1][0] * self.m[2][3] * self.m[3][1]
+                - self.m[1][1] * self.m[2][0] * self.m[3][3]
+                + self.m[1][0] * self.m[2][1] * self.m[3][3],
+            self.m[0][3] * self.m[2][1] * self.m[3][0]
+                - self.m[0][1] * self.m[2][3] * self.m[3][0]
+                - self.m[0][3] * self.m[2][0] * self.m[3][1]
+                + self.m[0][0] * self.m[2][3] * self.m[3][1]
+                + self.m[0][1] * self.m[2][0] * self.m[3][3]
+                - self.m[0][0] * self.m[2][1] * self.m[3][3],
+            self.m[0][1] * self.m[1][3] * self.m[3][0] - self.m[0][3] * self.m[1][1] * self.m[3][0]
+                + self.m[0][3] * self.m[1][0] * self.m[3][1]
+                - self.m[0][0] * self.m[1][3] * self.m[3][1]
+                - self.m[0][1] * self.m[1][0] * self.m[3][3]
+                + self.m[0][0] * self.m[1][1] * self.m[3][3],
+            self.m[0][3] * self.m[1][1] * self.m[2][0]
+                - self.m[0][1] * self.m[1][3] * self.m[2][0]
+                - self.m[0][3] * self.m[1][0] * self.m[2][1]
+                + self.m[0][0] * self.m[1][3] * self.m[2][1]
+                + self.m[0][1] * self.m[1][0] * self.m[2][3]
+                - self.m[0][0] * self.m[1][1] * self.m[2][3],
+            self.m[1][2] * self.m[2][1] * self.m[3][0]
+                - self.m[1][1] * self.m[2][2] * self.m[3][0]
+                - self.m[1][2] * self.m[2][0] * self.m[3][1]
+                + self.m[1][0] * self.m[2][2] * self.m[3][1]
+                + self.m[1][1] * self.m[2][0] * self.m[3][2]
+                - self.m[1][0] * self.m[2][1] * self.m[3][2],
+            self.m[0][1] * self.m[2][2] * self.m[3][0] - self.m[0][2] * self.m[2][1] * self.m[3][0]
+                + self.m[0][2] * self.m[2][0] * self.m[3][1]
+                - self.m[0][0] * self.m[2][2] * self.m[3][1]
+                - self.m[0][1] * self.m[2][0] * self.m[3][2]
+                + self.m[0][0] * self.m[2][1] * self.m[3][2],
+            self.m[0][2] * self.m[1][1] * self.m[3][0]
+                - self.m[0][1] * self.m[1][2] * self.m[3][0]
+                - self.m[0][2] * self.m[1][0] * self.m[3][1]
+                + self.m[0][0] * self.m[1][2] * self.m[3][1]
+                + self.m[0][1] * self.m[1][0] * self.m[3][2]
+                - self.m[0][0] * self.m[1][1] * self.m[3][2],
+            self.m[0][1] * self.m[1][2] * self.m[2][0] - self.m[0][2] * self.m[1][1] * self.m[2][0]
+                + self.m[0][2] * self.m[1][0] * self.m[2][1]
+                - self.m[0][0] * self.m[1][2] * self.m[2][1]
+                - self.m[0][1] * self.m[1][0] * self.m[2][2]
+                + self.m[0][0] * self.m[1][1] * self.m[2][2],
         );
 
         m.multiply_scalar(1.0 / det)
     }
 
     fn determinant(&self) -> f32 {
-        self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0] -
-        self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0] -
-        self.m[0][3] * self.m[1][1] * self.m[2][2] * self.m[3][0] +
-        self.m[0][1] * self.m[1][3] * self.m[2][2] * self.m[3][0] +
-        self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0] -
-        self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0] -
-        self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1] +
-        self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1] +
-        self.m[0][3] * self.m[1][0] * self.m[2][2] * self.m[3][1] -
-        self.m[0][0] * self.m[1][3] * self.m[2][2] * self.m[3][1] -
-        self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1] +
-        self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1] +
-        self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2] -
-        self.m[0][1] * self.m[1][3] * self.m[2][0] * self.m[3][2] -
-        self.m[0][3] * self.m[1][0] * self.m[2][1] * self.m[3][2] +
-        self.m[0][0] * self.m[1][3] * self.m[2][1] * self.m[3][2] +
-        self.m[0][1] * self.m[1][0] * self.m[2][3] * self.m[3][2] -
-        self.m[0][0] * self.m[1][1] * self.m[2][3] * self.m[3][2] -
-        self.m[0][2] * self.m[1][1] * self.m[2][0] * self.m[3][3] +
-        self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3] +
-        self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3] -
-        self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3] -
-        self.m[0][1] * self.m[1][0] * self.m[2][2] * self.m[3][3] +
-        self.m[0][0] * self.m[1][1] * self.m[2][2] * self.m[3][3]
+        self.m[0][3] * self.m[1][2] * self.m[2][1] * self.m[3][0]
+            - self.m[0][2] * self.m[1][3] * self.m[2][1] * self.m[3][0]
+            - self.m[0][3] * self.m[1][1] * self.m[2][2] * self.m[3][0]
+            + self.m[0][1] * self.m[1][3] * self.m[2][2] * self.m[3][0]
+            + self.m[0][2] * self.m[1][1] * self.m[2][3] * self.m[3][0]
+            - self.m[0][1] * self.m[1][2] * self.m[2][3] * self.m[3][0]
+            - self.m[0][3] * self.m[1][2] * self.m[2][0] * self.m[3][1]
+            + self.m[0][2] * self.m[1][3] * self.m[2][0] * self.m[3][1]
+            + self.m[0][3] * self.m[1][0] * self.m[2][2] * self.m[3][1]
+            - self.m[0][0] * self.m[1][3] * self.m[2][2] * self.m[3][1]
+            - self.m[0][2] * self.m[1][0] * self.m[2][3] * self.m[3][1]
+            + self.m[0][0] * self.m[1][2] * self.m[2][3] * self.m[3][1]
+            + self.m[0][3] * self.m[1][1] * self.m[2][0] * self.m[3][2]
+            - self.m[0][1] * self.m[1][3] * self.m[2][0] * self.m[3][2]
+            - self.m[0][3] * self.m[1][0] * self.m[2][1] * self.m[3][2]
+            + self.m[0][0] * self.m[1][3] * self.m[2][1] * self.m[3][2]
+            + self.m[0][1] * self.m[1][0] * self.m[2][3] * self.m[3][2]
+            - self.m[0][0] * self.m[1][1] * self.m[2][3] * self.m[3][2]
+            - self.m[0][2] * self.m[1][1] * self.m[2][0] * self.m[3][3]
+            + self.m[0][1] * self.m[1][2] * self.m[2][0] * self.m[3][3]
+            + self.m[0][2] * self.m[1][0] * self.m[2][1] * self.m[3][3]
+            - self.m[0][0] * self.m[1][2] * self.m[2][1] * self.m[3][3]
+            - self.m[0][1] * self.m[1][0] * self.m[2][2] * self.m[3][3]
+            + self.m[0][0] * self.m[1][1] * self.m[2][2] * self.m[3][3]
     }
 
     fn multiply_scalar(&self, x: f32) -> Self {
         ComputedTransform3D::new(
-            self.m[0][0] * x, self.m[0][1] * x, self.m[0][2] * x, self.m[0][3] * x,
-            self.m[1][0] * x, self.m[1][1] * x, self.m[1][2] * x, self.m[1][3] * x,
-            self.m[2][0] * x, self.m[2][1] * x, self.m[2][2] * x, self.m[2][3] * x,
-            self.m[3][0] * x, self.m[3][1] * x, self.m[3][2] * x, self.m[3][3] * x,
+            self.m[0][0] * x,
+            self.m[0][1] * x,
+            self.m[0][2] * x,
+            self.m[0][3] * x,
+            self.m[1][0] * x,
+            self.m[1][1] * x,
+            self.m[1][2] * x,
+            self.m[1][3] * x,
+            self.m[2][0] * x,
+            self.m[2][1] * x,
+            self.m[2][2] * x,
+            self.m[2][3] * x,
+            self.m[3][0] * x,
+            self.m[3][1] * x,
+            self.m[3][2] * x,
+            self.m[3][3] * x,
         )
     }
 
@@ -1726,11 +1902,13 @@ impl ComputedTransform3D {
         percent_resolve_y: f32,
         rotation_mode: RotationMode,
     ) -> Self {
-
         // TODO: use correct SIMD optimization!
         let mut matrix = Self::IDENTITY;
-        let use_avx = INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst);
-        let use_sse = !use_avx && INITIALIZED.load(AtomicOrdering::SeqCst) && USE_SSE.load(AtomicOrdering::SeqCst);
+        let use_avx =
+            INITIALIZED.load(AtomicOrdering::SeqCst) && USE_AVX.load(AtomicOrdering::SeqCst);
+        let use_sse = !use_avx
+            && INITIALIZED.load(AtomicOrdering::SeqCst)
+            && USE_SSE.load(AtomicOrdering::SeqCst);
 
         if use_avx {
             for t in t_vec.iter() {
@@ -1794,7 +1972,7 @@ impl ComputedTransform3D {
                 let ty = mat2d.ty.to_pixels(percent_resolve_x);
 
                 Self::new_2d(a, b, c, d, tx, ty)
-            },
+            }
             Matrix3D(mat3d) => {
                 let m11 = mat3d.m11.to_pixels(percent_resolve_x);
                 let m12 = mat3d.m12.to_pixels(percent_resolve_x);
@@ -1814,41 +1992,32 @@ impl ComputedTransform3D {
                 let m44 = mat3d.m44.to_pixels(percent_resolve_x);
 
                 Self::new(
-                    m11,
-                    m12,
-                    m13,
-                    m14,
-                    m21,
-                    m22,
-                    m23,
-                    m24,
-                    m31,
-                    m32,
-                    m33,
-                    m34,
-                    m41,
-                    m42,
-                    m43,
-                    m44,
+                    m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44,
                 )
-            },
+            }
             Translate(trans2d) => Self::new_translation(
                 trans2d.x.to_pixels(percent_resolve_x),
                 trans2d.y.to_pixels(percent_resolve_y),
-                0.0
+                0.0,
             ),
             Translate3D(trans3d) => Self::new_translation(
                 trans3d.x.to_pixels(percent_resolve_x),
                 trans3d.y.to_pixels(percent_resolve_y),
-                trans3d.z.to_pixels(percent_resolve_x) // ???
+                trans3d.z.to_pixels(percent_resolve_x), // ???
             ),
-            TranslateX(trans_x) => Self::new_translation(trans_x.to_pixels(percent_resolve_x), 0.0, 0.0),
-            TranslateY(trans_y) => Self::new_translation(0.0, trans_y.to_pixels(percent_resolve_y), 0.0),
-            TranslateZ(trans_z) => Self::new_translation(0.0, 0.0, trans_z.to_pixels(percent_resolve_x)), // ???
+            TranslateX(trans_x) => {
+                Self::new_translation(trans_x.to_pixels(percent_resolve_x), 0.0, 0.0)
+            }
+            TranslateY(trans_y) => {
+                Self::new_translation(0.0, trans_y.to_pixels(percent_resolve_y), 0.0)
+            }
+            TranslateZ(trans_z) => {
+                Self::new_translation(0.0, 0.0, trans_z.to_pixels(percent_resolve_x))
+            } // ???
             Rotate3D(rot3d) => {
                 let rotation_origin = (
                     transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y)
+                    transform_origin.y.to_pixels(percent_resolve_y),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -1856,13 +2025,13 @@ impl ComputedTransform3D {
                     rot3d.x.normalized(),
                     rot3d.y.normalized(),
                     rot3d.z.normalized(),
-                    rotation_mode
+                    rotation_mode,
                 )
-            },
+            }
             RotateX(angle_x) => {
                 let rotation_origin = (
                     transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y)
+                    transform_origin.y.to_pixels(percent_resolve_y),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -1870,13 +2039,13 @@ impl ComputedTransform3D {
                     1.0,
                     0.0,
                     0.0,
-                    rotation_mode
+                    rotation_mode,
                 )
-            },
+            }
             RotateY(angle_y) => {
                 let rotation_origin = (
                     transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y)
+                    transform_origin.y.to_pixels(percent_resolve_y),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -1884,13 +2053,13 @@ impl ComputedTransform3D {
                     0.0,
                     1.0,
                     0.0,
-                    rotation_mode
+                    rotation_mode,
                 )
-            },
+            }
             Rotate(angle_z) | RotateZ(angle_z) => {
                 let rotation_origin = (
                     transform_origin.x.to_pixels(percent_resolve_x),
-                    transform_origin.y.to_pixels(percent_resolve_y)
+                    transform_origin.y.to_pixels(percent_resolve_y),
                 );
                 Self::make_rotation(
                     rotation_origin,
@@ -1898,14 +2067,10 @@ impl ComputedTransform3D {
                     0.0,
                     0.0,
                     1.0,
-                    rotation_mode
+                    rotation_mode,
                 )
-            },
-            Scale(scale2d) => Self::new_scale(
-                scale2d.x.normalized(),
-                scale2d.y.normalized(),
-                1.0,
-            ),
+            }
+            Scale(scale2d) => Self::new_scale(scale2d.x.normalized(), scale2d.y.normalized(), 1.0),
             Scale3D(scale3d) => Self::new_scale(
                 scale3d.x.normalized(),
                 scale3d.y.normalized(),
@@ -1924,30 +2089,36 @@ impl ComputedTransform3D {
     #[inline]
     pub const fn new_scale(x: f32, y: f32, z: f32) -> Self {
         Self::new(
-            x,   0.0, 0.0, 0.0,
-            0.0, y,   0.0, 0.0,
-            0.0, 0.0, z,   0.0,
-            0.0, 0.0, 0.0, 1.0,
+            x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0,
         )
     }
 
     #[inline]
     pub const fn new_translation(x: f32, y: f32, z: f32) -> Self {
         Self::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-             x,  y,   z,   1.0,
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0,
         )
     }
 
     #[inline]
     pub fn new_perspective(d: f32) -> Self {
         Self::new(
-            1.0, 0.0, 0.0,  0.0,
-            0.0, 1.0, 0.0,  0.0,
-            0.0, 0.0, 1.0, -1.0 / d,
-            0.0, 0.0, 0.0,  1.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            -1.0 / d,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
         )
     }
 
@@ -1955,7 +2126,6 @@ impl ComputedTransform3D {
     /// The supplied axis must be normalized.
     #[inline]
     pub fn new_rotation(x: f32, y: f32, z: f32, theta_radians: f32) -> Self {
-
         let xx = x * x;
         let yy = y * y;
         let zz = z * z;
@@ -1969,22 +2139,18 @@ impl ComputedTransform3D {
             2.0 * (x * y * sq + z * sc),
             2.0 * (x * z * sq - y * sc),
             0.0,
-
-
             2.0 * (x * y * sq - z * sc),
             1.0 - 2.0 * (xx + zz) * sq,
             2.0 * (y * z * sq + x * sc),
             0.0,
-
             2.0 * (x * z * sq + y * sc),
             2.0 * (y * z * sq - x * sc),
             1.0 - 2.0 * (xx + yy) * sq,
             0.0,
-
             0.0,
             0.0,
             0.0,
-            1.0
+            1.0,
         )
     }
 
@@ -1992,31 +2158,45 @@ impl ComputedTransform3D {
     pub fn new_skew(alpha: f32, beta: f32) -> Self {
         let (sx, sy) = (beta.to_radians().tan(), alpha.to_radians().tan());
         Self::new(
-            1.0, sx,  0.0, 0.0,
-            sy,  1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,
+            1.0, sx, 0.0, 0.0, sy, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         )
     }
 
     pub fn get_column_major(&self) -> Self {
         ComputedTransform3D::new(
-            self.m[0][0], self.m[1][0], self.m[2][0], self.m[3][0],
-            self.m[0][1], self.m[1][1], self.m[2][1], self.m[3][1],
-            self.m[0][2], self.m[1][2], self.m[2][2], self.m[3][2],
-            self.m[0][3], self.m[1][3], self.m[2][3], self.m[3][3],
+            self.m[0][0],
+            self.m[1][0],
+            self.m[2][0],
+            self.m[3][0],
+            self.m[0][1],
+            self.m[1][1],
+            self.m[2][1],
+            self.m[3][1],
+            self.m[0][2],
+            self.m[1][2],
+            self.m[2][2],
+            self.m[3][2],
+            self.m[0][3],
+            self.m[1][3],
+            self.m[2][3],
+            self.m[3][3],
         )
     }
 
     // Transforms a 2D point into the target coordinate space
     #[must_use]
     pub fn transform_point2d(&self, p: LogicalPosition) -> Option<LogicalPosition> {
-        let w = p.x.mul_add(self.m[0][3], p.y.mul_add(self.m[1][3], self.m[3][3]));
+        let w =
+            p.x.mul_add(self.m[0][3], p.y.mul_add(self.m[1][3], self.m[3][3]));
 
-        if !w.is_sign_positive() { return None; }
+        if !w.is_sign_positive() {
+            return None;
+        }
 
-        let x = p.x.mul_add(self.m[0][0], p.y.mul_add(self.m[1][0], self.m[3][0]));
-        let y = p.x.mul_add(self.m[0][1], p.y.mul_add(self.m[1][1], self.m[3][1]));
+        let x =
+            p.x.mul_add(self.m[0][0], p.y.mul_add(self.m[1][0], self.m[3][0]));
+        let y =
+            p.x.mul_add(self.m[0][1], p.y.mul_add(self.m[1][1], self.m[3][1]));
 
         Some(LogicalPosition { x: x / w, y: y / w })
     }
@@ -2026,25 +2206,118 @@ impl ComputedTransform3D {
     #[inline]
     pub fn then(&self, other: &Self) -> Self {
         Self::new(
-            self.m[0][0].mul_add(other.m[0][0], self.m[0][1].mul_add(other.m[1][0], self.m[0][2].mul_add(other.m[2][0], self.m[0][3] * other.m[3][0]))),
-            self.m[0][0].mul_add(other.m[0][1], self.m[0][1].mul_add(other.m[1][1], self.m[0][2].mul_add(other.m[2][1], self.m[0][3] * other.m[3][1]))),
-            self.m[0][0].mul_add(other.m[0][2], self.m[0][1].mul_add(other.m[1][2], self.m[0][2].mul_add(other.m[2][2], self.m[0][3] * other.m[3][2]))),
-            self.m[0][0].mul_add(other.m[0][3], self.m[0][1].mul_add(other.m[1][3], self.m[0][2].mul_add(other.m[2][3], self.m[0][3] * other.m[3][3]))),
-
-            self.m[1][0].mul_add(other.m[0][0], self.m[1][1].mul_add(other.m[1][0], self.m[1][2].mul_add(other.m[2][0], self.m[1][3] * other.m[3][0]))),
-            self.m[1][0].mul_add(other.m[0][1], self.m[1][1].mul_add(other.m[1][1], self.m[1][2].mul_add(other.m[2][1], self.m[1][3] * other.m[3][1]))),
-            self.m[1][0].mul_add(other.m[0][2], self.m[1][1].mul_add(other.m[1][2], self.m[1][2].mul_add(other.m[2][2], self.m[1][3] * other.m[3][2]))),
-            self.m[1][0].mul_add(other.m[0][3], self.m[1][1].mul_add(other.m[1][3], self.m[1][2].mul_add(other.m[2][3], self.m[1][3] * other.m[3][3]))),
-
-            self.m[2][0].mul_add(other.m[0][0], self.m[2][1].mul_add(other.m[1][0], self.m[2][2].mul_add(other.m[2][0], self.m[2][3] * other.m[3][0]))),
-            self.m[2][0].mul_add(other.m[0][1], self.m[2][1].mul_add(other.m[1][1], self.m[2][2].mul_add(other.m[2][1], self.m[2][3] * other.m[3][1]))),
-            self.m[2][0].mul_add(other.m[0][2], self.m[2][1].mul_add(other.m[1][2], self.m[2][2].mul_add(other.m[2][2], self.m[2][3] * other.m[3][2]))),
-            self.m[2][0].mul_add(other.m[0][3], self.m[2][1].mul_add(other.m[1][3], self.m[2][2].mul_add(other.m[2][3], self.m[2][3] * other.m[3][3]))),
-
-            self.m[3][0].mul_add(other.m[0][0], self.m[3][1].mul_add(other.m[1][0], self.m[3][2].mul_add(other.m[2][0], self.m[3][3] * other.m[3][0]))),
-            self.m[3][0].mul_add(other.m[0][1], self.m[3][1].mul_add(other.m[1][1], self.m[3][2].mul_add(other.m[2][1], self.m[3][3] * other.m[3][1]))),
-            self.m[3][0].mul_add(other.m[0][2], self.m[3][1].mul_add(other.m[1][2], self.m[3][2].mul_add(other.m[2][2], self.m[3][3] * other.m[3][2]))),
-            self.m[3][0].mul_add(other.m[0][3], self.m[3][1].mul_add(other.m[1][3], self.m[3][2].mul_add(other.m[2][3], self.m[3][3] * other.m[3][3]))),
+            self.m[0][0].mul_add(
+                other.m[0][0],
+                self.m[0][1].mul_add(
+                    other.m[1][0],
+                    self.m[0][2].mul_add(other.m[2][0], self.m[0][3] * other.m[3][0]),
+                ),
+            ),
+            self.m[0][0].mul_add(
+                other.m[0][1],
+                self.m[0][1].mul_add(
+                    other.m[1][1],
+                    self.m[0][2].mul_add(other.m[2][1], self.m[0][3] * other.m[3][1]),
+                ),
+            ),
+            self.m[0][0].mul_add(
+                other.m[0][2],
+                self.m[0][1].mul_add(
+                    other.m[1][2],
+                    self.m[0][2].mul_add(other.m[2][2], self.m[0][3] * other.m[3][2]),
+                ),
+            ),
+            self.m[0][0].mul_add(
+                other.m[0][3],
+                self.m[0][1].mul_add(
+                    other.m[1][3],
+                    self.m[0][2].mul_add(other.m[2][3], self.m[0][3] * other.m[3][3]),
+                ),
+            ),
+            self.m[1][0].mul_add(
+                other.m[0][0],
+                self.m[1][1].mul_add(
+                    other.m[1][0],
+                    self.m[1][2].mul_add(other.m[2][0], self.m[1][3] * other.m[3][0]),
+                ),
+            ),
+            self.m[1][0].mul_add(
+                other.m[0][1],
+                self.m[1][1].mul_add(
+                    other.m[1][1],
+                    self.m[1][2].mul_add(other.m[2][1], self.m[1][3] * other.m[3][1]),
+                ),
+            ),
+            self.m[1][0].mul_add(
+                other.m[0][2],
+                self.m[1][1].mul_add(
+                    other.m[1][2],
+                    self.m[1][2].mul_add(other.m[2][2], self.m[1][3] * other.m[3][2]),
+                ),
+            ),
+            self.m[1][0].mul_add(
+                other.m[0][3],
+                self.m[1][1].mul_add(
+                    other.m[1][3],
+                    self.m[1][2].mul_add(other.m[2][3], self.m[1][3] * other.m[3][3]),
+                ),
+            ),
+            self.m[2][0].mul_add(
+                other.m[0][0],
+                self.m[2][1].mul_add(
+                    other.m[1][0],
+                    self.m[2][2].mul_add(other.m[2][0], self.m[2][3] * other.m[3][0]),
+                ),
+            ),
+            self.m[2][0].mul_add(
+                other.m[0][1],
+                self.m[2][1].mul_add(
+                    other.m[1][1],
+                    self.m[2][2].mul_add(other.m[2][1], self.m[2][3] * other.m[3][1]),
+                ),
+            ),
+            self.m[2][0].mul_add(
+                other.m[0][2],
+                self.m[2][1].mul_add(
+                    other.m[1][2],
+                    self.m[2][2].mul_add(other.m[2][2], self.m[2][3] * other.m[3][2]),
+                ),
+            ),
+            self.m[2][0].mul_add(
+                other.m[0][3],
+                self.m[2][1].mul_add(
+                    other.m[1][3],
+                    self.m[2][2].mul_add(other.m[2][3], self.m[2][3] * other.m[3][3]),
+                ),
+            ),
+            self.m[3][0].mul_add(
+                other.m[0][0],
+                self.m[3][1].mul_add(
+                    other.m[1][0],
+                    self.m[3][2].mul_add(other.m[2][0], self.m[3][3] * other.m[3][0]),
+                ),
+            ),
+            self.m[3][0].mul_add(
+                other.m[0][1],
+                self.m[3][1].mul_add(
+                    other.m[1][1],
+                    self.m[3][2].mul_add(other.m[2][1], self.m[3][3] * other.m[3][1]),
+                ),
+            ),
+            self.m[3][0].mul_add(
+                other.m[0][2],
+                self.m[3][1].mul_add(
+                    other.m[1][2],
+                    self.m[3][2].mul_add(other.m[2][2], self.m[3][3] * other.m[3][2]),
+                ),
+            ),
+            self.m[3][0].mul_add(
+                other.m[0][3],
+                self.m[3][1].mul_add(
+                    other.m[1][3],
+                    self.m[3][2].mul_add(other.m[2][3], self.m[3][3] * other.m[3][3]),
+                ),
+            ),
         )
     }
 
@@ -2054,17 +2327,25 @@ impl ComputedTransform3D {
     // a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] + a[3] * B.row[3]
     #[cfg(target_arch = "x86_64")]
     #[inline]
-    unsafe fn linear_combine_sse(a: [f32;4], b: &ComputedTransform3D) -> [f32;4] {
-
+    unsafe fn linear_combine_sse(a: [f32; 4], b: &ComputedTransform3D) -> [f32; 4] {
         use core::arch::x86_64::__m128;
-        use core::arch::x86_64::{_mm_mul_ps, _mm_shuffle_ps, _mm_add_ps};
+        use core::arch::x86_64::{_mm_add_ps, _mm_mul_ps, _mm_shuffle_ps};
         use core::mem;
 
         let a: __m128 = mem::transmute(a);
         let mut result = _mm_mul_ps(_mm_shuffle_ps(a, a, 0x00), mem::transmute(b.m[0]));
-        result = _mm_add_ps(result, _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute(b.m[1])));
-        result = _mm_add_ps(result, _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute(b.m[2])));
-        result = _mm_add_ps(result, _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute(b.m[3])));
+        result = _mm_add_ps(
+            result,
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0x55), mem::transmute(b.m[1])),
+        );
+        result = _mm_add_ps(
+            result,
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xaa), mem::transmute(b.m[2])),
+        );
+        result = _mm_add_ps(
+            result,
+            _mm_mul_ps(_mm_shuffle_ps(a, a, 0xff), mem::transmute(b.m[3])),
+        );
 
         mem::transmute(result)
     }
@@ -2078,29 +2359,50 @@ impl ComputedTransform3D {
                 Self::linear_combine_sse(self.m[1], other),
                 Self::linear_combine_sse(self.m[2], other),
                 Self::linear_combine_sse(self.m[3], other),
-            ]
+            ],
         }
     }
 
     // dual linear combination using AVX instructions on YMM regs
     #[cfg(target_arch = "x86_64")]
     pub unsafe fn linear_combine_avx8(a01: __m256, b: &ComputedTransform3D) -> __m256 {
-
-        use core::arch::x86_64::{_mm256_add_ps, _mm256_mul_ps, _mm256_shuffle_ps, _mm256_broadcast_ps};
+        use core::arch::x86_64::{
+            _mm256_add_ps, _mm256_broadcast_ps, _mm256_mul_ps, _mm256_shuffle_ps,
+        };
         use core::mem;
 
-        let mut result = _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0x00), _mm256_broadcast_ps(mem::transmute(&b.m[0])));
-        result = _mm256_add_ps(result, _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0x55), _mm256_broadcast_ps(mem::transmute(&b.m[1]))));
-        result = _mm256_add_ps(result, _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0xaa), _mm256_broadcast_ps(mem::transmute(&b.m[2]))));
-        result = _mm256_add_ps(result, _mm256_mul_ps(_mm256_shuffle_ps(a01, a01, 0xff), _mm256_broadcast_ps(mem::transmute(&b.m[3]))));
+        let mut result = _mm256_mul_ps(
+            _mm256_shuffle_ps(a01, a01, 0x00),
+            _mm256_broadcast_ps(mem::transmute(&b.m[0])),
+        );
+        result = _mm256_add_ps(
+            result,
+            _mm256_mul_ps(
+                _mm256_shuffle_ps(a01, a01, 0x55),
+                _mm256_broadcast_ps(mem::transmute(&b.m[1])),
+            ),
+        );
+        result = _mm256_add_ps(
+            result,
+            _mm256_mul_ps(
+                _mm256_shuffle_ps(a01, a01, 0xaa),
+                _mm256_broadcast_ps(mem::transmute(&b.m[2])),
+            ),
+        );
+        result = _mm256_add_ps(
+            result,
+            _mm256_mul_ps(
+                _mm256_shuffle_ps(a01, a01, 0xff),
+                _mm256_broadcast_ps(mem::transmute(&b.m[3])),
+            ),
+        );
         result
     }
 
     #[cfg(target_arch = "x86_64")]
     #[inline]
     pub unsafe fn then_avx8(&self, other: &Self) -> Self {
-
-        use core::arch::x86_64::{_mm256_zeroupper, _mm256_loadu_ps, _mm256_storeu_ps};
+        use core::arch::x86_64::{_mm256_loadu_ps, _mm256_storeu_ps, _mm256_zeroupper};
         use core::mem;
 
         _mm256_zeroupper();
@@ -2112,12 +2414,7 @@ impl ComputedTransform3D {
         let out23x = Self::linear_combine_avx8(a23, other);
 
         let mut out = Self {
-            m: [
-                self.m[0],
-                self.m[1],
-                self.m[2],
-                self.m[3],
-            ],
+            m: [self.m[0], self.m[1], self.m[2], self.m[3]],
         };
 
         _mm256_storeu_ps(mem::transmute(&mut out.m[0][0]), out01x);
@@ -2138,7 +2435,6 @@ impl ComputedTransform3D {
         // see documentation for RotationMode
         rotation_mode: RotationMode,
     ) -> Self {
-
         degrees = match rotation_mode {
             RotationMode::ForWebRender => -degrees, // CSS rotations are clockwise
             RotationMode::ForHitTesting => degrees, // hit-testing turns counter-clockwise
@@ -2148,10 +2444,9 @@ impl ComputedTransform3D {
         let pre_transform = Self::new_translation(-origin_x, -origin_y, -0.0);
         let post_transform = Self::new_translation(origin_x, origin_y, 0.0);
         let theta = 2.0_f32 * core::f32::consts::PI - degrees.to_radians();
-        let rotate_transform = Self::new_rotation(axis_x, axis_y, axis_z, theta).then(&Self::IDENTITY);
+        let rotate_transform =
+            Self::new_rotation(axis_x, axis_y, axis_z, theta).then(&Self::IDENTITY);
 
-        pre_transform
-        .then(&rotate_transform)
-        .then(&post_transform)
+        pre_transform.then(&rotate_transform).then(&post_transform)
     }
 }

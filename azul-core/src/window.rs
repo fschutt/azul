@@ -1,48 +1,41 @@
-use core::{
-    ops,
-    hash::{Hash, Hasher},
-    cmp::Ordering,
-    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-    ffi::c_void,
-};
-use alloc::vec::Vec;
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::collections::btree_set::BTreeSet;
-use azul_css::{
-    CssProperty, LayoutSize, U8Vec, ColorU, OptionF32,
-    AzString, OptionAzString, LayoutPoint, LayoutRect,
-    CssPath, OptionI32,
-};
+use crate::gl::OptionGlContextPtr;
 use crate::{
-    FastBTreeSet,
-    FastHashMap,
     app_resources::{
-        ImageRef, ImageCache, RendererResources,
-        IdNamespace, ResourceUpdate, Epoch,
-        ImageMask, GlTextureCache,
+        Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, RendererResources,
+        ResourceUpdate,
     },
-    callbacks::{Callback, UpdateImageType, HitTestItem},
+    callbacks::{Callback, HitTestItem, UpdateImageType},
     callbacks::{
-        OptionCallback, PipelineId, RefAny, DocumentId,
-        DomNodeId, ScrollPosition, Update, CallbackType,
-        LayoutCallback, LayoutCallbackType,
+        CallbackType, DocumentId, DomNodeId, LayoutCallback, LayoutCallbackType, OptionCallback,
+        PipelineId, RefAny, ScrollPosition, Update,
     },
     display_list::RenderCallbacks,
     dom::NodeHierarchy,
     id_tree::NodeId,
     styled_dom::{DomId, NodeHierarchyItemId},
-    task::{
-        TimerId, ExternalSystemCallbacks, ThreadId, Timer,
-        Thread, Instant
-    },
+    task::{ExternalSystemCallbacks, Instant, Thread, ThreadId, Timer, TimerId},
     ui_solver::{
-        QuickResizeResult, OverflowingScrollNode,
-        HitTest, LayoutResult, ExternalScrollId
-    }, window_state::RelayoutFn
+        ExternalScrollId, HitTest, LayoutResult, OverflowingScrollNode, QuickResizeResult,
+    },
+    window_state::RelayoutFn,
+    FastBTreeSet, FastHashMap,
+};
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::collections::btree_set::BTreeSet;
+use alloc::vec::Vec;
+use azul_css::{
+    AzString, ColorU, CssPath, CssProperty, LayoutPoint, LayoutRect, LayoutSize, OptionAzString,
+    OptionF32, OptionI32, U8Vec,
+};
+use core::{
+    cmp::Ordering,
+    ffi::c_void,
+    hash::{Hash, Hasher},
+    ops,
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 use rust_fontconfig::FcFontCache;
-use crate::gl::OptionGlContextPtr;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 
@@ -52,11 +45,15 @@ static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 /// since multiple IDs could point to the same function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(C)]
-pub struct WindowId { id: usize }
+pub struct WindowId {
+    id: usize,
+}
 
 impl WindowId {
     pub fn new() -> Self {
-        WindowId { id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst) }
+        WindowId {
+            id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst),
+        }
     }
 }
 
@@ -67,11 +64,15 @@ static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 /// Use `IconKey::new()` to generate a new, unique key
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
-pub struct IconKey { id: usize }
+pub struct IconKey {
+    id: usize,
+}
 
 impl IconKey {
     pub fn new() -> Self {
-        Self { id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst) }
+        Self {
+            id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst),
+        }
     }
 }
 
@@ -83,7 +84,11 @@ pub struct RendererOptions {
     pub hw_accel: HwAcceleration,
 }
 
-impl_option!(RendererOptions, OptionRendererOptions, [PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash]);
+impl_option!(
+    RendererOptions,
+    OptionRendererOptions,
+    [PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash]
+);
 
 impl Default for RendererOptions {
     fn default() -> Self {
@@ -96,24 +101,62 @@ impl Default for RendererOptions {
 }
 
 impl RendererOptions {
-    pub const fn new(vsync: Vsync, srgb: Srgb, hw_accel: HwAcceleration) -> Self { Self { vsync, srgb, hw_accel } }
+    pub const fn new(vsync: Vsync, srgb: Srgb, hw_accel: HwAcceleration) -> Self {
+        Self {
+            vsync,
+            srgb,
+            hw_accel,
+        }
+    }
 }
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
-pub enum Vsync { Enabled, Disabled, DontCare }
-impl Vsync { pub const fn is_enabled(&self) -> bool { match self { Vsync::Enabled => true, _ => false } }}
+pub enum Vsync {
+    Enabled,
+    Disabled,
+    DontCare,
+}
+impl Vsync {
+    pub const fn is_enabled(&self) -> bool {
+        match self {
+            Vsync::Enabled => true,
+            _ => false,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
-pub enum Srgb { Enabled, Disabled, DontCare }
-impl Srgb { pub const fn is_enabled(&self) -> bool { match self { Srgb::Enabled => true, _ => false } }}
+pub enum Srgb {
+    Enabled,
+    Disabled,
+    DontCare,
+}
+impl Srgb {
+    pub const fn is_enabled(&self) -> bool {
+        match self {
+            Srgb::Enabled => true,
+            _ => false,
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(PartialEq, Copy, Clone, Debug, PartialOrd, Ord, Eq, Hash)]
-pub enum HwAcceleration { Enabled, Disabled, DontCare }
-impl HwAcceleration { pub const fn is_enabled(&self) -> bool { match self { HwAcceleration::Enabled => true, _ => false } }}
-
+pub enum HwAcceleration {
+    Enabled,
+    Disabled,
+    DontCare,
+}
+impl HwAcceleration {
+    pub const fn is_enabled(&self) -> bool {
+        match self {
+            HwAcceleration::Enabled => true,
+            _ => false,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -129,7 +172,7 @@ pub enum RawWindowHandle {
     Unsupported,
 }
 
-unsafe impl Send for RawWindowHandle { }
+unsafe impl Send for RawWindowHandle {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -276,24 +319,55 @@ pub struct KeyboardState {
 }
 
 impl KeyboardState {
-    pub fn shift_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LShift) || self.is_key_down(VirtualKeyCode::RShift) }
-    pub fn ctrl_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LControl) || self.is_key_down(VirtualKeyCode::RControl) }
-    pub fn alt_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LAlt) || self.is_key_down(VirtualKeyCode::RAlt) }
-    pub fn super_down(&self) -> bool { self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin) }
-    pub fn is_key_down(&self, key: VirtualKeyCode) -> bool { self.pressed_virtual_keycodes.iter().any(|k| *k == key) }
+    pub fn shift_down(&self) -> bool {
+        self.is_key_down(VirtualKeyCode::LShift) || self.is_key_down(VirtualKeyCode::RShift)
+    }
+    pub fn ctrl_down(&self) -> bool {
+        self.is_key_down(VirtualKeyCode::LControl) || self.is_key_down(VirtualKeyCode::RControl)
+    }
+    pub fn alt_down(&self) -> bool {
+        self.is_key_down(VirtualKeyCode::LAlt) || self.is_key_down(VirtualKeyCode::RAlt)
+    }
+    pub fn super_down(&self) -> bool {
+        self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin)
+    }
+    pub fn is_key_down(&self, key: VirtualKeyCode) -> bool {
+        self.pressed_virtual_keycodes.iter().any(|k| *k == key)
+    }
 }
 
-impl_option!(KeyboardState, OptionKeyboardState, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    KeyboardState,
+    OptionKeyboardState,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 // char is not ABI-stable, use u32 instead
-impl_option!(u32, OptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(VirtualKeyCode, OptionVirtualKeyCode, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    u32,
+    OptionChar,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_option!(
+    VirtualKeyCode,
+    OptionVirtualKeyCode,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
-impl_vec!(VirtualKeyCode, VirtualKeyCodeVec, VirtualKeyCodeVecDestructor);
+impl_vec!(
+    VirtualKeyCode,
+    VirtualKeyCodeVec,
+    VirtualKeyCodeVecDestructor
+);
 impl_vec_debug!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_partialord!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_ord!(VirtualKeyCode, VirtualKeyCodeVec);
-impl_vec_clone!(VirtualKeyCode, VirtualKeyCodeVec, VirtualKeyCodeVecDestructor);
+impl_vec_clone!(
+    VirtualKeyCode,
+    VirtualKeyCodeVec,
+    VirtualKeyCodeVecDestructor
+);
 impl_vec_partialeq!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_eq!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
@@ -344,9 +418,17 @@ impl MouseState {
     }
 }
 
-impl_option!(MouseState, OptionMouseState, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    MouseState,
+    OptionMouseState,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
-impl_option!(MouseCursorType, OptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    MouseCursorType,
+    OptionMouseCursorType,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl Default for MouseState {
     fn default() -> Self {
@@ -364,7 +446,6 @@ impl Default for MouseState {
 }
 
 impl MouseState {
-
     /// Returns whether any mouse button (left, right or center) is currently held down
     pub fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
@@ -408,9 +489,7 @@ impl MouseState {
 
 // TODO: returned by process_system_scroll
 #[derive(Debug)]
-pub struct ScrollResult {
-
-}
+pub struct ScrollResult {}
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C, u8)]
@@ -473,18 +552,20 @@ pub struct DebugState {
     pub force_picture_invalidation: bool,
 }
 
-
 #[derive(Debug, Default)]
 pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
-
     /// Special rendering function that skips building a layout and only does
     /// hit-testing and rendering - called on pure scroll events, since it's
     /// significantly less CPU-intensive to just render the last display list instead of
     /// re-layouting on every single scroll event.
     #[must_use]
-    pub fn should_scroll_render(&mut self, (scroll_x, scroll_y): &(f32, f32), hit_test: &FullHitTest) -> bool {
+    pub fn should_scroll_render(
+        &mut self,
+        (scroll_x, scroll_y): &(f32, f32),
+        hit_test: &FullHitTest,
+    ) -> bool {
         let mut should_scroll_render = false;
 
         for hit_test in hit_test.hovered_nodes.values() {
@@ -508,18 +589,29 @@ impl ScrollStates {
 
     /// Set the scroll amount - does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub fn set_scroll_position(&mut self, node: &OverflowingScrollNode, scroll_position: LogicalPosition) {
-        self.0.entry(node.parent_external_scroll_id)
-        .or_insert_with(|| ScrollState::default())
-        .set(scroll_position.x, scroll_position.y, &node.child_rect);
+    pub fn set_scroll_position(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_position: LogicalPosition,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .set(scroll_position.x, scroll_position.y, &node.child_rect);
     }
 
     /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
-        self.0.entry(node.parent_external_scroll_id)
-        .or_insert_with(|| ScrollState::default())
-        .add(scroll_by_x, scroll_by_y, &node.child_rect);
+    pub fn scroll_node(
+        &mut self,
+        node: &OverflowingScrollNode,
+        scroll_by_x: f32,
+        scroll_by_y: f32,
+    ) {
+        self.0
+            .entry(node.parent_external_scroll_id)
+            .or_insert_with(|| ScrollState::default())
+            .add(scroll_by_x, scroll_by_y, &node.child_rect);
     }
 }
 
@@ -530,7 +622,6 @@ pub struct ScrollState {
 }
 
 impl ScrollState {
-
     /// Return the current position of the scroll state
     pub fn get(&self) -> LogicalPosition {
         self.scroll_position
@@ -538,8 +629,12 @@ impl ScrollState {
 
     /// Add a scroll X / Y onto the existing scroll state
     pub fn add(&mut self, x: f32, y: f32, child_rect: &LogicalRect) {
-        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
-        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
+        self.scroll_position.x = (self.scroll_position.x + x)
+            .max(0.0)
+            .min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y)
+            .max(0.0)
+            .min(child_rect.size.height);
     }
 
     /// Set the scroll state to a new position
@@ -561,7 +656,7 @@ impl Default for ScrollState {
 /// but leaves the extra fields such as `.hover_nodes` untouched
 pub fn update_full_window_state(
     full_window_state: &mut FullWindowState,
-    window_state: &WindowState
+    window_state: &WindowState,
 ) {
     full_window_state.title = window_state.title.clone();
     full_window_state.size = window_state.size.into();
@@ -630,7 +725,6 @@ pub struct CursorTypeHitTest {
 
 impl CursorTypeHitTest {
     pub fn new(hit_test: &FullHitTest, layout_results: &[LayoutResult]) -> Self {
-
         use azul_css::StyleCursor;
 
         let mut cursor_node = None;
@@ -638,11 +732,14 @@ impl CursorTypeHitTest {
 
         for (dom_id, hit_nodes) in hit_test.hovered_nodes.iter() {
             for (node_id, _) in hit_nodes.regular_hit_test_nodes.iter() {
-
                 // if the node has a non-default cursor: property, insert it
                 let styled_dom = &layout_results[dom_id.inner].styled_dom;
                 let node_data_container = styled_dom.node_data.as_container();
-                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(&node_data_container[*node_id], node_id, &styled_dom.styled_nodes.as_container()[*node_id].state) {
+                if let Some(cursor_prop) = styled_dom.get_css_property_cache().get_cursor(
+                    &node_data_container[*node_id],
+                    node_id,
+                    &styled_dom.styled_nodes.as_container()[*node_id].state,
+                ) {
                     cursor_node = Some((*dom_id, *node_id));
                     cursor_icon = match cursor_prop.get_property().copied().unwrap_or_default() {
                         StyleCursor::Alias => MouseCursorType::Alias,
@@ -693,7 +790,6 @@ pub struct WindowInternalInit {
 }
 
 impl WindowInternal {
-
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
     #[cfg(all(feature = "multithreading", feature = "std"))]
     pub fn new<F>(
@@ -707,8 +803,9 @@ impl WindowInternal {
         relayout_fn: RelayoutFn,
         hit_test_func: F,
     ) -> Self
-    where F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
-
+    where
+        F: Fn(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest,
+    {
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
         use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
@@ -718,7 +815,6 @@ impl WindowInternal {
         let epoch = Epoch::new();
 
         let styled_dom = {
-
             let layout_callback = &mut init.window_create_options.state.layout_callback;
             let mut layout_info = LayoutCallbackInfo::new(
                 init.window_create_options.state.size,
@@ -735,7 +831,6 @@ impl WindowInternal {
                     (m.cb.cb)(marshal_data, data, &mut layout_info)
                 }
             }
-
         };
 
         let mut current_window_state = FullWindowState::from_window_state(
@@ -769,7 +864,7 @@ impl WindowInternal {
         let nodes_to_check = NodesToCheck::simulated_mouse_move(
             &ht,
             None, // focused_node
-            current_window_state.mouse_state.mouse_down()
+            current_window_state.mouse_state.mouse_down(),
         );
 
         let _ = StyleAndLayoutChanges::new(
@@ -827,18 +922,18 @@ impl WindowInternal {
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
         mut hit_test_func: F,
-    ) where F: FnMut(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest {
-
+    ) where
+        F: FnMut(&FullWindowState, &ScrollStates, &[LayoutResult]) -> FullHitTest,
+    {
         use crate::callbacks::LayoutCallbackInfo;
         use crate::display_list::SolvedLayout;
-        use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
-        use crate::styled_dom::DefaultCallbacksCfg;
         use crate::gl::gl_textures_remove_epochs_from_pipeline;
+        use crate::styled_dom::DefaultCallbacksCfg;
+        use crate::window_state::{NodesToCheck, StyleAndLayoutChanges};
 
         let id_namespace = self.id_namespace;
 
         let mut styled_dom = {
-
             let layout_callback = &mut self.current_window_state.layout_callback;
             let mut layout_info = LayoutCallbackInfo::new(
                 self.current_window_state.size,
@@ -862,9 +957,7 @@ impl WindowInternal {
             enable_autotab: self.current_window_state.flags.autotab_enabled,
         });
 
-        let SolvedLayout {
-            mut layout_results,
-        } = SolvedLayout::new(
+        let SolvedLayout { mut layout_results } = SolvedLayout::new(
             styled_dom,
             self.epoch,
             &self.document_id,
@@ -878,14 +971,18 @@ impl WindowInternal {
         );
 
         // apply the changes for the first frame
-        let ht = hit_test_func(&self.current_window_state, &self.scroll_states, &layout_results);
+        let ht = hit_test_func(
+            &self.current_window_state,
+            &self.scroll_states,
+            &layout_results,
+        );
         self.current_window_state.last_hit_test = ht.clone();
 
         // hit_test
         let nodes_to_check = NodesToCheck::simulated_mouse_move(
             &ht,
             self.current_window_state.focused_node,
-            self.current_window_state.mouse_state.mouse_down()
+            self.current_window_state.mouse_state.mouse_down(),
         );
 
         let sl = StyleAndLayoutChanges::new(
@@ -924,7 +1021,7 @@ impl WindowInternal {
             all_resource_updates,
             image_cache,
             &layout_results,
-            &gl_texture_cache
+            &gl_texture_cache,
         );
 
         // Increment epoch here!
@@ -934,25 +1031,33 @@ impl WindowInternal {
     }
 
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> {
+    pub fn get_current_scroll_states(
+        &self,
+    ) -> BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> {
         self.layout_results
-        .iter()
-        .enumerate()
-        .filter_map(|(dom_id, layout_result)| {
-            let scroll_positions = layout_result.scrollable_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
-                let scroll_position = ScrollPosition {
-                    parent_rect: overflowing_node.parent_rect,
-                    children_rect: overflowing_node.child_rect,
-                };
-                Some((*node_id, scroll_position))
-            }).collect::<BTreeMap<_, _>>();
+            .iter()
+            .enumerate()
+            .filter_map(|(dom_id, layout_result)| {
+                let scroll_positions = layout_result
+                    .scrollable_nodes
+                    .overflowing_nodes
+                    .iter()
+                    .filter_map(|(node_id, overflowing_node)| {
+                        let scroll_position = ScrollPosition {
+                            parent_rect: overflowing_node.parent_rect,
+                            children_rect: overflowing_node.child_rect,
+                        };
+                        Some((*node_id, scroll_position))
+                    })
+                    .collect::<BTreeMap<_, _>>();
 
-            if scroll_positions.is_empty() {
-                None
-            } else {
-                Some((DomId { inner: dom_id }, scroll_positions))
-            }
-        }).collect()
+                if scroll_positions.is_empty() {
+                    None
+                } else {
+                    Some((DomId { inner: dom_id }, scroll_positions))
+                }
+            })
+            .collect()
     }
 
     /// Returns the overflowing size of the root body node. If WindowCreateOptions.size_to_content
@@ -962,8 +1067,10 @@ impl WindowInternal {
             Some(s) => s,
             None => return LogicalSize::zero(),
         };
-        let root_width = layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
-        let root_height = layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
+        let root_width =
+            layout_result.width_calculated_rects.as_ref()[NodeId::ZERO].overflow_width();
+        let root_height =
+            layout_result.height_calculated_rects.as_ref()[NodeId::ZERO].overflow_height();
         LogicalSize::new(root_width, root_height)
     }
 
@@ -1007,14 +1114,13 @@ impl WindowInternal {
         };
         let current = &self.current_window_state;
 
-        previous.size.dimensions != current.size.dimensions &&
-        previous.position != current.position
+        previous.size.dimensions != current.size.dimensions && previous.position != current.position
     }
 
     pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
             libm::roundf(self.current_window_state.size.dimensions.width) as isize,
-            libm::roundf(self.current_window_state.size.dimensions.height) as isize
+            libm::roundf(self.current_window_state.size.dimensions.height) as isize,
         )
     }
 
@@ -1037,9 +1143,19 @@ impl WindowInternal {
             let layout_result = self.layout_results.get(dom_id.inner)?;
             for (node_id, hit) in hit_test.regular_hit_test_nodes.iter() {
                 let ndc = layout_result.styled_dom.node_data.as_container();
-                if let Some(cm) = ndc.get_extended_lifetime(*node_id).and_then(|node| node.get_context_menu()) {
-                    if self.current_window_state.mouse_state.matches(&cm.context_mouse_btn) {
-                        let domnode = DomNodeId { dom: *dom_id, node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)) };
+                if let Some(cm) = ndc
+                    .get_extended_lifetime(*node_id)
+                    .and_then(|node| node.get_context_menu())
+                {
+                    if self
+                        .current_window_state
+                        .mouse_state
+                        .matches(&cm.context_mouse_btn)
+                    {
+                        let domnode = DomNodeId {
+                            dom: *dom_id,
+                            node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+                        };
                         context_menu = Some((cm, hit.clone(), domnode));
                     }
                 }
@@ -1062,9 +1178,8 @@ impl WindowInternal {
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
-
-        use crate::task::TerminateTimer;
         use crate::callbacks::CallbackInfo;
+        use crate::task::TerminateTimer;
 
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
@@ -1102,13 +1217,15 @@ impl WindowInternal {
         let current_scroll_states = self.get_current_scroll_states();
 
         if let Some(timer) = self.timers.get_mut(&TimerId { id: timer_id }) {
-
             let mut stop_propagation = false;
 
             // TODO: store the hit DOM of the timer?
             let hit_dom_node = match timer.node_id.into_option() {
                 Some(s) => s,
-                None => DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::from_crate_internal(None) },
+                None => DomNodeId {
+                    dom: DomId::ROOT_ID,
+                    node: NodeHierarchyItemId::from_crate_internal(None),
+                },
             };
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
@@ -1145,35 +1262,56 @@ impl WindowInternal {
             let tcr = timer.invoke(
                 callback_info,
                 frame_start.clone(),
-                system_callbacks.get_system_time_fn
+                system_callbacks.get_system_time_fn,
             );
 
             ret.callbacks_update_screen = tcr.should_update;
             should_terminate = tcr.should_terminate;
 
-            if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
-            if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+            if !ret_timers.is_empty() {
+                ret.timers = Some(ret_timers);
+            }
+            if !ret_threads.is_empty() {
+                ret.threads = Some(ret_threads);
+            }
             if ret_modified_window_state != ret_window_state {
                 ret.modified_window_state = Some(ret_modified_window_state);
             }
-            if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
-            if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
-            if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
-            if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
-            if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
-            if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
-            if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
-
+            if !ret_threads_removed.is_empty() {
+                ret.threads_removed = Some(ret_threads_removed);
+            }
+            if !ret_timers_removed.is_empty() {
+                ret.timers_removed = Some(ret_timers_removed);
+            }
+            if !ret_words_changed.is_empty() {
+                ret.words_changed = Some(ret_words_changed);
+            }
+            if !ret_images_changed.is_empty() {
+                ret.images_changed = Some(ret_images_changed);
+            }
+            if !ret_image_masks_changed.is_empty() {
+                ret.image_masks_changed = Some(ret_image_masks_changed);
+            }
+            if !ret_css_properties_changed.is_empty() {
+                ret.css_properties_changed = Some(ret_css_properties_changed);
+            }
+            if !ret_nodes_scrolled_in_callbacks.is_empty() {
+                ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+            }
         }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+            if let Ok(new_focus_node) =
+                ft.resolve(&self.layout_results, self.current_window_state.focused_node)
+            {
                 ret.update_focused_node = Some(new_focus_node);
             }
         }
 
         if should_terminate == TerminateTimer::Terminate {
-            ret.timers_removed.get_or_insert_with(|| BTreeSet::new()).insert(TimerId { id: timer_id });
+            ret.timers_removed
+                .get_or_insert_with(|| BTreeSet::new())
+                .insert(TimerId { id: timer_id });
         }
 
         return ret;
@@ -1188,12 +1326,10 @@ impl WindowInternal {
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
-
         use crate::callbacks::CallbackInfo;
         use crate::task::{
-            ThreadSendMsg, OptionThreadSendMsg,
-            OptionThreadReceiveMsg, ThreadReceiver,
-            ThreadWriteBackMsg, ThreadReceiveMsg,
+            OptionThreadReceiveMsg, OptionThreadSendMsg, ThreadReceiveMsg, ThreadReceiver,
+            ThreadSendMsg, ThreadWriteBackMsg,
         };
 
         let mut ret = CallCallbacksResult {
@@ -1230,17 +1366,21 @@ impl WindowInternal {
         let current_scroll_states = self.get_current_scroll_states();
 
         for (thread_id, thread) in self.threads.iter_mut() {
-
-            let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: NodeHierarchyItemId::from_crate_internal(None) };
+            let hit_dom_node = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(None),
+            };
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
             let thread = &mut *match thread.ptr.lock().ok() {
                 Some(s) => s,
                 None => {
-                    ret.threads_removed.get_or_insert_with(|| BTreeSet::default()).insert(*thread_id);
-                    continue
-                },
+                    ret.threads_removed
+                        .get_or_insert_with(|| BTreeSet::default())
+                        .insert(*thread_id);
+                    continue;
+                }
             };
 
             let _ = thread.sender_send(ThreadSendMsg::Tick);
@@ -1254,7 +1394,7 @@ impl WindowInternal {
                 ThreadReceiveMsg::Update(update_screen) => {
                     ret.callbacks_update_screen.max_self(update_screen);
                     continue;
-                },
+                }
                 ThreadReceiveMsg::WriteBack(t) => t,
             };
 
@@ -1287,29 +1427,52 @@ impl WindowInternal {
                 cursor_in_viewport,
             );
 
-            let callback_update = (callback.cb)(&mut thread.writeback_data, &mut data, &mut callback_info);
+            let callback_update =
+                (callback.cb)(&mut thread.writeback_data, &mut data, &mut callback_info);
             ret.callbacks_update_screen.max_self(callback_update);
 
             if thread.is_finished() {
-                ret.threads_removed.get_or_insert_with(|| BTreeSet::default()).insert(*thread_id);
+                ret.threads_removed
+                    .get_or_insert_with(|| BTreeSet::default())
+                    .insert(*thread_id);
             }
         }
 
-        if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
-        if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+        if !ret_timers.is_empty() {
+            ret.timers = Some(ret_timers);
+        }
+        if !ret_threads.is_empty() {
+            ret.threads = Some(ret_threads);
+        }
         if ret_modified_window_state != ret_window_state {
             ret.modified_window_state = Some(ret_modified_window_state);
         }
-        if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
-        if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
-        if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
-        if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
-        if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
-        if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
+        if !ret_threads_removed.is_empty() {
+            ret.threads_removed = Some(ret_threads_removed);
+        }
+        if !ret_timers_removed.is_empty() {
+            ret.timers_removed = Some(ret_timers_removed);
+        }
+        if !ret_words_changed.is_empty() {
+            ret.words_changed = Some(ret_words_changed);
+        }
+        if !ret_images_changed.is_empty() {
+            ret.images_changed = Some(ret_images_changed);
+        }
+        if !ret_image_masks_changed.is_empty() {
+            ret.image_masks_changed = Some(ret_image_masks_changed);
+        }
+        if !ret_css_properties_changed.is_empty() {
+            ret.css_properties_changed = Some(ret_css_properties_changed);
+        }
+        if !ret_nodes_scrolled_in_callbacks.is_empty() {
+            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+        }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+            if let Ok(new_focus_node) =
+                ft.resolve(&self.layout_results, self.current_window_state.focused_node)
+            {
                 ret.update_focused_node = Some(new_focus_node);
             }
         }
@@ -1329,10 +1492,9 @@ impl WindowInternal {
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
-
         let hit_dom_node = DomNodeId {
             dom: DomId::ROOT_ID,
-            node: NodeHierarchyItemId::from_crate_internal(None)
+            node: NodeHierarchyItemId::from_crate_internal(None),
         };
 
         use crate::callbacks::CallbackInfo;
@@ -1354,7 +1516,6 @@ impl WindowInternal {
             windows_created: Vec::new(),
             cursor_changed: false,
         };
-
 
         let mut ret_modified_window_state: WindowState = self.current_window_state.clone().into();
         let ret_window_state = ret_modified_window_state.clone();
@@ -1405,21 +1566,41 @@ impl WindowInternal {
 
         ret.callbacks_update_screen = (callback.cb)(data, &mut callback_info);
 
-        if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
-        if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+        if !ret_timers.is_empty() {
+            ret.timers = Some(ret_timers);
+        }
+        if !ret_threads.is_empty() {
+            ret.threads = Some(ret_threads);
+        }
         if ret_modified_window_state != ret_window_state {
             ret.modified_window_state = Some(ret_modified_window_state);
         }
-        if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
-        if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
-        if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
-        if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
-        if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
-        if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
+        if !ret_threads_removed.is_empty() {
+            ret.threads_removed = Some(ret_threads_removed);
+        }
+        if !ret_timers_removed.is_empty() {
+            ret.timers_removed = Some(ret_timers_removed);
+        }
+        if !ret_words_changed.is_empty() {
+            ret.words_changed = Some(ret_words_changed);
+        }
+        if !ret_images_changed.is_empty() {
+            ret.images_changed = Some(ret_images_changed);
+        }
+        if !ret_image_masks_changed.is_empty() {
+            ret.image_masks_changed = Some(ret_image_masks_changed);
+        }
+        if !ret_css_properties_changed.is_empty() {
+            ret.css_properties_changed = Some(ret_css_properties_changed);
+        }
+        if !ret_nodes_scrolled_in_callbacks.is_empty() {
+            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+        }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+            if let Ok(new_focus_node) =
+                ft.resolve(&self.layout_results, self.current_window_state.focused_node)
+            {
                 ret.update_focused_node = Some(new_focus_node);
             }
         }
@@ -1437,7 +1618,6 @@ impl WindowInternal {
         system_fonts: &mut FcFontCache,
         system_callbacks: &ExternalSystemCallbacks,
     ) -> CallCallbacksResult {
-
         use crate::callbacks::CallbackInfo;
 
         let mut ret = CallCallbacksResult {
@@ -1505,23 +1685,44 @@ impl WindowInternal {
             cursor_in_viewport,
         );
 
-        ret.callbacks_update_screen = (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
+        ret.callbacks_update_screen =
+            (menu_callback.callback.cb)(&mut menu_callback.data, &mut callback_info);
 
-        if !ret_timers.is_empty() { ret.timers = Some(ret_timers); }
-        if !ret_threads.is_empty() { ret.threads = Some(ret_threads); }
+        if !ret_timers.is_empty() {
+            ret.timers = Some(ret_timers);
+        }
+        if !ret_threads.is_empty() {
+            ret.threads = Some(ret_threads);
+        }
         if ret_modified_window_state != ret_window_state {
             ret.modified_window_state = Some(ret_modified_window_state);
         }
-        if !ret_threads_removed.is_empty() { ret.threads_removed = Some(ret_threads_removed); }
-        if !ret_timers_removed.is_empty() { ret.timers_removed = Some(ret_timers_removed); }
-        if !ret_words_changed.is_empty() { ret.words_changed = Some(ret_words_changed); }
-        if !ret_images_changed.is_empty() { ret.images_changed = Some(ret_images_changed); }
-        if !ret_image_masks_changed.is_empty() { ret.image_masks_changed = Some(ret_image_masks_changed); }
-        if !ret_css_properties_changed.is_empty() { ret.css_properties_changed = Some(ret_css_properties_changed); }
-        if !ret_nodes_scrolled_in_callbacks.is_empty() { ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks); }
+        if !ret_threads_removed.is_empty() {
+            ret.threads_removed = Some(ret_threads_removed);
+        }
+        if !ret_timers_removed.is_empty() {
+            ret.timers_removed = Some(ret_timers_removed);
+        }
+        if !ret_words_changed.is_empty() {
+            ret.words_changed = Some(ret_words_changed);
+        }
+        if !ret_images_changed.is_empty() {
+            ret.images_changed = Some(ret_images_changed);
+        }
+        if !ret_image_masks_changed.is_empty() {
+            ret.image_masks_changed = Some(ret_image_masks_changed);
+        }
+        if !ret_css_properties_changed.is_empty() {
+            ret.css_properties_changed = Some(ret_css_properties_changed);
+        }
+        if !ret_nodes_scrolled_in_callbacks.is_empty() {
+            ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
+        }
 
         if let Some(ft) = new_focus_target {
-            if let Ok(new_focus_node) = ft.resolve(&self.layout_results, self.current_window_state.focused_node) {
+            if let Ok(new_focus_node) =
+                ft.resolve(&self.layout_results, self.current_window_state.focused_node)
+            {
                 ret.update_focused_node = Some(new_focus_node);
             }
         }
@@ -1551,8 +1752,11 @@ impl Default for WindowTheme {
     }
 }
 
-impl_option!(WindowTheme, OptionWindowTheme, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
-
+impl_option!(
+    WindowTheme,
+    OptionWindowTheme,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
+);
 
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
@@ -1573,7 +1777,10 @@ impl_vec_partialeq!(Monitor, MonitorVec);
 impl_vec_partialord!(Monitor, MonitorVec);
 
 impl core::hash::Hash for Monitor {
-    fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: core::hash::Hasher,
+    {
         self.id.hash(state)
     }
 }
@@ -1656,13 +1863,18 @@ pub struct WindowState {
     pub close_callback: OptionCallback,
 }
 
-impl_option!(WindowState, OptionWindowState, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(
+    WindowState,
+    OptionWindowState,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum WindowPosition {
     Uninitialized,
-    Initialized(PhysicalPositionI32)
+    Initialized(PhysicalPositionI32),
 }
 
 impl Default for WindowPosition {
@@ -1675,7 +1887,7 @@ impl Default for WindowPosition {
 #[repr(C, u8)]
 pub enum ImePosition {
     Uninitialized,
-    Initialized(LogicalPosition)
+    Initialized(LogicalPosition),
 }
 
 impl Default for ImePosition {
@@ -1769,7 +1981,6 @@ impl Default for FullWindowState {
             renderer_options: RendererOptions::default(),
             monitor: Monitor::default(),
             // --
-
             hovered_file: None,
             dropped_file: None,
             focused_node: None,
@@ -1779,7 +1990,6 @@ impl Default for FullWindowState {
 }
 
 impl FullWindowState {
-
     pub fn get_mouse_state(&self) -> &MouseState {
         &self.mouse_state
     }
@@ -1846,7 +2056,7 @@ impl FullWindowState {
     pub fn process_system_scroll(&mut self, scroll_states: &ScrollStates) -> Option<ScrollResult> {
         let (x, y) = self.mouse_state.get_scroll_amount()?;
         // TODO
-        Some(ScrollResult { })
+        Some(ScrollResult {})
     }
 }
 
@@ -1894,7 +2104,8 @@ pub struct CallCallbacksResult {
     /// restyle the DOM and set the new focus target
     pub css_properties_changed: Option<BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>>,
     /// If the callbacks have scrolled any nodes, the new scroll position will be stored here
-    pub nodes_scrolled_in_callbacks: Option<BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>>,
+    pub nodes_scrolled_in_callbacks:
+        Option<BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, LogicalPosition>>>,
     /// Whether the focused node was changed from the callbacks
     pub update_focused_node: Option<Option<DomNodeId>>,
     /// Timers that were added in the callbacks
@@ -1984,8 +2195,8 @@ pub struct PlatformSpecificOptions {
     pub wasm_options: WasmWindowOptions,
 }
 
-unsafe impl Sync for PlatformSpecificOptions { }
-unsafe impl Send for PlatformSpecificOptions { }
+unsafe impl Sync for PlatformSpecificOptions {}
+unsafe impl Send for PlatformSpecificOptions {}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -2019,7 +2230,12 @@ impl Default for WindowsWindowOptions {
 /// Note: this should be a *mut HWND
 type HwndHandle = *mut c_void;
 
-impl_option!(HwndHandle, OptionHwndHandle, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    HwndHandle,
+    OptionHwndHandle,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// X window type. Maps directly to
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
@@ -2122,7 +2338,11 @@ pub struct LinuxWindowOptions {
 }
 
 type X11Visual = *const c_void;
-impl_option!(X11Visual, OptionX11Visual, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    X11Visual,
+    OptionX11Visual,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -2141,21 +2361,37 @@ impl_vec_partialeq!(AzStringPair, StringPairVec);
 impl_vec_eq!(AzStringPair, StringPairVec);
 impl_vec_hash!(AzStringPair, StringPairVec);
 
-impl_option!(StringPairVec, OptionStringPairVec, copy = false, [Debug, Clone, PartialOrd, PartialEq, Ord, Eq, Hash]);
+impl_option!(
+    StringPairVec,
+    OptionStringPairVec,
+    copy = false,
+    [Debug, Clone, PartialOrd, PartialEq, Ord, Eq, Hash]
+);
 
 impl StringPairVec {
     pub fn get_key(&self, search_key: &str) -> Option<&AzString> {
-        self.as_ref().iter().find_map(|v| if v.key.as_str() == search_key { Some(&v.value) } else { None })
+        self.as_ref().iter().find_map(|v| {
+            if v.key.as_str() == search_key {
+                Some(&v.value)
+            } else {
+                None
+            }
+        })
     }
     pub fn get_key_mut(&mut self, search_key: &str) -> Option<&mut AzStringPair> {
-        self.as_mut().iter_mut().find(|v| v.key.as_str() == search_key)
+        self.as_mut()
+            .iter_mut()
+            .find(|v| v.key.as_str() == search_key)
     }
     pub fn insert_kv<I: Into<AzString>>(&mut self, key: I, value: I) {
         let key = key.into();
         let value = value.into();
         match self.get_key_mut(key.as_str()) {
-            None => { },
-            Some(s) => { s.value = value; return; }
+            None => {}
+            Some(s) => {
+                s.value = value;
+                return;
+            }
         }
         self.push(AzStringPair { key, value });
     }
@@ -2170,7 +2406,12 @@ impl_vec_partialeq!(XWindowType, XWindowTypeVec);
 impl_vec_eq!(XWindowType, XWindowTypeVec);
 impl_vec_hash!(XWindowType, XWindowTypeVec);
 
-impl_option!(WaylandTheme, OptionWaylandTheme, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    WaylandTheme,
+    OptionWaylandTheme,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -2186,15 +2427,12 @@ pub struct WasmWindowOptions {
 }
 
 impl WindowState {
-
     /// Creates a new, default `WindowState` with the given CSS style
     pub fn new(callback: LayoutCallbackType) -> Self {
         use crate::callbacks::LayoutCallbackInner;
         Self {
-            layout_callback: LayoutCallback::Raw(
-                LayoutCallbackInner { cb: callback }
-            ),
-            .. Default::default()
+            layout_callback: LayoutCallback::Raw(LayoutCallbackInner { cb: callback }),
+            ..Default::default()
         }
     }
 
@@ -2212,7 +2450,10 @@ impl WindowState {
 
     /// Returns the physical (width, height) in pixel of this window
     pub fn get_physical_size(&self) -> (usize, usize) {
-        (self.size.dimensions.width as usize, self.size.dimensions.height as usize)
+        (
+            self.size.dimensions.width as usize,
+            self.size.dimensions.height as usize,
+        )
     }
 
     /// Returns the current HiDPI factor for this window.
@@ -2241,48 +2482,48 @@ pub enum FullScreenMode {
 // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
 // of a struct, which makes things more complicated
 pub struct WaylandTheme {
-    pub title_bar_active_background_color: [u8;4],
-    pub title_bar_active_separator_color: [u8;4],
-    pub title_bar_active_text_color: [u8;4],
-    pub title_bar_inactive_background_color: [u8;4],
-    pub title_bar_inactive_separator_color: [u8;4],
-    pub title_bar_inactive_text_color: [u8;4],
-    pub maximize_idle_foreground_inactive_color: [u8;4],
-    pub minimize_idle_foreground_inactive_color: [u8;4],
-    pub close_idle_foreground_inactive_color: [u8;4],
-    pub maximize_hovered_foreground_inactive_color: [u8;4],
-    pub minimize_hovered_foreground_inactive_color: [u8;4],
-    pub close_hovered_foreground_inactive_color: [u8;4],
-    pub maximize_disabled_foreground_inactive_color: [u8;4],
-    pub minimize_disabled_foreground_inactive_color: [u8;4],
-    pub close_disabled_foreground_inactive_color: [u8;4],
-    pub maximize_idle_background_inactive_color: [u8;4],
-    pub minimize_idle_background_inactive_color: [u8;4],
-    pub close_idle_background_inactive_color: [u8;4],
-    pub maximize_hovered_background_inactive_color: [u8;4],
-    pub minimize_hovered_background_inactive_color: [u8;4],
-    pub close_hovered_background_inactive_color: [u8;4],
-    pub maximize_disabled_background_inactive_color: [u8;4],
-    pub minimize_disabled_background_inactive_color: [u8;4],
-    pub close_disabled_background_inactive_color: [u8;4],
-    pub maximize_idle_foreground_active_color: [u8;4],
-    pub minimize_idle_foreground_active_color: [u8;4],
-    pub close_idle_foreground_active_color: [u8;4],
-    pub maximize_hovered_foreground_active_color: [u8;4],
-    pub minimize_hovered_foreground_active_color: [u8;4],
-    pub close_hovered_foreground_active_color: [u8;4],
-    pub maximize_disabled_foreground_active_color: [u8;4],
-    pub minimize_disabled_foreground_active_color: [u8;4],
-    pub close_disabled_foreground_active_color: [u8;4],
-    pub maximize_idle_background_active_color: [u8;4],
-    pub minimize_idle_background_active_color: [u8;4],
-    pub close_idle_background_active_color: [u8;4],
-    pub maximize_hovered_background_active_color: [u8;4],
-    pub minimize_hovered_background_active_color: [u8;4],
-    pub close_hovered_background_active_color: [u8;4],
-    pub maximize_disabled_background_active_color: [u8;4],
-    pub minimize_disabled_background_active_color: [u8;4],
-    pub close_disabled_background_active_color: [u8;4],
+    pub title_bar_active_background_color: [u8; 4],
+    pub title_bar_active_separator_color: [u8; 4],
+    pub title_bar_active_text_color: [u8; 4],
+    pub title_bar_inactive_background_color: [u8; 4],
+    pub title_bar_inactive_separator_color: [u8; 4],
+    pub title_bar_inactive_text_color: [u8; 4],
+    pub maximize_idle_foreground_inactive_color: [u8; 4],
+    pub minimize_idle_foreground_inactive_color: [u8; 4],
+    pub close_idle_foreground_inactive_color: [u8; 4],
+    pub maximize_hovered_foreground_inactive_color: [u8; 4],
+    pub minimize_hovered_foreground_inactive_color: [u8; 4],
+    pub close_hovered_foreground_inactive_color: [u8; 4],
+    pub maximize_disabled_foreground_inactive_color: [u8; 4],
+    pub minimize_disabled_foreground_inactive_color: [u8; 4],
+    pub close_disabled_foreground_inactive_color: [u8; 4],
+    pub maximize_idle_background_inactive_color: [u8; 4],
+    pub minimize_idle_background_inactive_color: [u8; 4],
+    pub close_idle_background_inactive_color: [u8; 4],
+    pub maximize_hovered_background_inactive_color: [u8; 4],
+    pub minimize_hovered_background_inactive_color: [u8; 4],
+    pub close_hovered_background_inactive_color: [u8; 4],
+    pub maximize_disabled_background_inactive_color: [u8; 4],
+    pub minimize_disabled_background_inactive_color: [u8; 4],
+    pub close_disabled_background_inactive_color: [u8; 4],
+    pub maximize_idle_foreground_active_color: [u8; 4],
+    pub minimize_idle_foreground_active_color: [u8; 4],
+    pub close_idle_foreground_active_color: [u8; 4],
+    pub maximize_hovered_foreground_active_color: [u8; 4],
+    pub minimize_hovered_foreground_active_color: [u8; 4],
+    pub close_hovered_foreground_active_color: [u8; 4],
+    pub maximize_disabled_foreground_active_color: [u8; 4],
+    pub minimize_disabled_foreground_active_color: [u8; 4],
+    pub close_disabled_foreground_active_color: [u8; 4],
+    pub maximize_idle_background_active_color: [u8; 4],
+    pub minimize_idle_background_active_color: [u8; 4],
+    pub close_idle_background_active_color: [u8; 4],
+    pub maximize_hovered_background_active_color: [u8; 4],
+    pub minimize_hovered_background_active_color: [u8; 4],
+    pub close_hovered_background_active_color: [u8; 4],
+    pub maximize_disabled_background_active_color: [u8; 4],
+    pub minimize_disabled_background_active_color: [u8; 4],
+    pub close_disabled_background_active_color: [u8; 4],
     pub title_bar_font: AzString,
     pub title_bar_font_size: f32,
 }
@@ -2306,7 +2547,6 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
-
     pub fn get_layout_size(&self) -> LayoutSize {
         LayoutSize::new(
             libm::roundf(self.dimensions.width) as isize,
@@ -2390,7 +2630,7 @@ impl WindowCreateOptions {
     pub fn new(callback: LayoutCallbackType) -> Self {
         Self {
             state: WindowState::new(callback),
-            .. WindowCreateOptions::default()
+            ..WindowCreateOptions::default()
         }
     }
 }
@@ -2404,7 +2644,11 @@ pub enum RendererType {
     Software,
 }
 
-impl_option!(RendererType, OptionRendererType, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
+impl_option!(
+    RendererType,
+    OptionRendererType,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
+);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum UpdateFocusWarning {
@@ -2418,8 +2662,12 @@ impl ::core::fmt::Display for UpdateFocusWarning {
         use self::UpdateFocusWarning::*;
         match self {
             FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {:?}", dom_id),
-            FocusInvalidNodeId(node_id) => write!(f, "Focusing on node with invalid ID: {}", node_id),
-            CouldNotFindFocusNode(css_path) => write!(f, "Could not find focus node for path: {}", css_path),
+            FocusInvalidNodeId(node_id) => {
+                write!(f, "Focusing on node with invalid ID: {}", node_id)
+            }
+            CouldNotFindFocusNode(css_path) => {
+                write!(f, "Could not find focus node for path: {}", css_path)
+            }
         }
     }
 }
@@ -2444,24 +2692,33 @@ impl core::fmt::Display for LogicalRect {
 }
 
 impl LogicalRect {
-
-    pub const fn zero() -> Self { Self::new(LogicalPosition::zero(), LogicalSize::zero()) }
+    pub const fn zero() -> Self {
+        Self::new(LogicalPosition::zero(), LogicalSize::zero())
+    }
     pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
         Self { origin, size }
     }
 
     #[inline(always)]
-    pub fn max_x(&self) -> f32 { self.origin.x + self.size.width }
+    pub fn max_x(&self) -> f32 {
+        self.origin.x + self.size.width
+    }
     #[inline(always)]
-    pub fn min_x(&self) -> f32 { self.origin.x }
+    pub fn min_x(&self) -> f32 {
+        self.origin.x
+    }
     #[inline(always)]
-    pub fn max_y(&self) -> f32 { self.origin.y + self.size.height }
+    pub fn max_y(&self) -> f32 {
+        self.origin.y + self.size.height
+    }
     #[inline(always)]
-    pub fn min_y(&self) -> f32 { self.origin.y }
+    pub fn min_y(&self) -> f32 {
+        self.origin.y
+    }
 
     /// Faster union for a Vec<LayoutRect>
     #[inline]
-    pub fn union<I: Iterator<Item=Self>>(mut rects: I) -> Option<Self> {
+    pub fn union<I: Iterator<Item = Self>>(mut rects: I) -> Option<Self> {
         let first = rects.next()?;
 
         let mut max_width = first.size.width;
@@ -2469,7 +2726,11 @@ impl LogicalRect {
         let mut min_x = first.origin.x;
         let mut min_y = first.origin.y;
 
-        while let Some(Self { origin: LogicalPosition { x, y }, size: LogicalSize { width, height } }) = rects.next() {
+        while let Some(Self {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width, height },
+        }) = rects.next()
+        {
             let cur_lower_right_x = x + width;
             let cur_lower_right_y = y + height;
             max_width = max_width.max(cur_lower_right_x - min_x);
@@ -2480,7 +2741,10 @@ impl LogicalRect {
 
         Some(Self {
             origin: LogicalPosition { x: min_x, y: min_y },
-            size: LogicalSize { width: max_width, height: max_height },
+            size: LogicalSize {
+                width: max_width,
+                height: max_height,
+            },
         })
     }
 
@@ -2493,11 +2757,7 @@ impl LogicalRect {
         let dx_right_edge = self.max_x() - other.x;
         let dy_top_edge = other.y - self.min_y();
         let dy_bottom_edge = self.max_y() - other.y;
-        if dx_left_edge > 0.0 &&
-           dx_right_edge > 0.0 &&
-           dy_top_edge > 0.0 &&
-           dy_bottom_edge > 0.0
-        {
+        if dx_left_edge > 0.0 && dx_right_edge > 0.0 && dy_top_edge > 0.0 && dy_bottom_edge > 0.0 {
             Some(LogicalPosition::new(dx_left_edge, dy_top_edge))
         } else {
             None
@@ -2513,7 +2773,7 @@ impl LogicalRect {
             size: LayoutSize::new(
                 libm::roundf(self.size.width) as isize,
                 libm::roundf(self.size.height) as isize,
-            )
+            ),
         }
     }
 }
@@ -2527,8 +2787,8 @@ impl_vec_ord!(LogicalRect, LogicalRectVec);
 impl_vec_hash!(LogicalRect, LogicalRectVec);
 impl_vec_eq!(LogicalRect, LogicalRectVec);
 
-use core::ops::SubAssign;
 use core::ops::AddAssign;
+use core::ops::SubAssign;
 
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -2589,7 +2849,11 @@ impl ops::Sub for LogicalPosition {
 
 const DECIMAL_MULTIPLIER: f32 = 1000.0;
 
-impl_option!(LogicalPosition, OptionLogicalPosition, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    LogicalPosition,
+    OptionLogicalPosition,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
 impl Ord for LogicalPosition {
     fn cmp(&self, other: &LogicalPosition) -> Ordering {
@@ -2601,10 +2865,13 @@ impl Ord for LogicalPosition {
     }
 }
 
-impl Eq for LogicalPosition { }
+impl Eq for LogicalPosition {}
 
 impl Hash for LogicalPosition {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         let self_x = (self.x * DECIMAL_MULTIPLIER) as usize;
         let self_y = (self.y * DECIMAL_MULTIPLIER) as usize;
         self_x.hash(state);
@@ -2631,7 +2898,11 @@ impl core::fmt::Display for LogicalSize {
     }
 }
 
-impl_option!(LogicalSize, OptionLogicalSize, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    LogicalSize,
+    OptionLogicalSize,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
 impl Ord for LogicalSize {
     fn cmp(&self, other: &LogicalSize) -> Ordering {
@@ -2639,14 +2910,19 @@ impl Ord for LogicalSize {
         let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
         let other_width = (other.width * DECIMAL_MULTIPLIER) as usize;
         let other_height = (other.height * DECIMAL_MULTIPLIER) as usize;
-        self_width.cmp(&other_width).then(self_height.cmp(&other_height))
+        self_width
+            .cmp(&other_width)
+            .then(self_height.cmp(&other_height))
     }
 }
 
-impl Eq for LogicalSize { }
+impl Eq for LogicalSize {}
 
 impl Hash for LogicalSize {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         let self_width = (self.width * DECIMAL_MULTIPLIER) as usize;
         let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
         self_width.hash(state);
@@ -2668,7 +2944,11 @@ impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalPosition<T> {
 }
 
 pub type PhysicalPositionI32 = PhysicalPosition<i32>;
-impl_option!(PhysicalPositionI32, OptionPhysicalPositionI32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    PhysicalPositionI32,
+    OptionPhysicalPositionI32,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
 #[derive(Ord, Hash, Eq, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -2684,15 +2964,27 @@ impl<T: ::core::fmt::Display> ::core::fmt::Debug for PhysicalSize<T> {
 }
 
 pub type PhysicalSizeU32 = PhysicalSize<u32>;
-impl_option!(PhysicalSizeU32, OptionPhysicalSizeU32, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+impl_option!(
+    PhysicalSizeU32,
+    OptionPhysicalSizeU32,
+    [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
+);
 pub type PhysicalSizeF32 = PhysicalSize<f32>;
-impl_option!(PhysicalSizeF32, OptionPhysicalSizeF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(
+    PhysicalSizeF32,
+    OptionPhysicalSizeF32,
+    [Debug, Copy, Clone, PartialEq, PartialOrd]
+);
 
 impl LogicalPosition {
     #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
         PhysicalPosition {
@@ -2704,12 +2996,16 @@ impl LogicalPosition {
 
 impl<T> PhysicalPosition<T> {
     #[inline(always)]
-    pub const fn new(x: T, y: T) -> Self { Self { x, y } }
+    pub const fn new(x: T, y: T) -> Self {
+        Self { x, y }
+    }
 }
 
 impl PhysicalPosition<i32> {
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0, 0) }
+    pub const fn zero() -> Self {
+        Self::new(0, 0)
+    }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
@@ -2721,7 +3017,9 @@ impl PhysicalPosition<i32> {
 
 impl PhysicalPosition<f64> {
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
@@ -2733,9 +3031,13 @@ impl PhysicalPosition<f64> {
 
 impl LogicalSize {
     #[inline(always)]
-    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    pub const fn new(width: f32, height: f32) -> Self {
+        Self { width, height }
+    }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self {
+        Self::new(0.0, 0.0)
+    }
     #[inline(always)]
     pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
         PhysicalSize {
@@ -2747,12 +3049,16 @@ impl LogicalSize {
 
 impl<T> PhysicalSize<T> {
     #[inline(always)]
-    pub const fn new(width: T, height: T) -> Self { Self { width, height } }
+    pub const fn new(width: T, height: T) -> Self {
+        Self { width, height }
+    }
 }
 
 impl PhysicalSize<u32> {
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0, 0) }
+    pub const fn zero() -> Self {
+        Self::new(0, 0)
+    }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
@@ -2773,7 +3079,6 @@ pub enum AcceleratorKey {
 }
 
 impl AcceleratorKey {
-
     /// Checks if the current keyboard state contains the given char or modifier,
     /// i.e. if the keyboard state currently has the shift key pressed and the
     /// accelerator key is `Shift`, evaluates to true, otherwise to false.
@@ -2982,7 +3287,12 @@ pub enum WindowIcon {
     Large(LargeWindowIconBytes),
 }
 
-impl_option!(WindowIcon, OptionWindowIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
+impl_option!(
+    WindowIcon,
+    OptionWindowIcon,
+    copy = false,
+    [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]
+);
 
 impl WindowIcon {
     pub fn get_key(&self) -> IconKey {
@@ -3006,7 +3316,7 @@ impl PartialOrd for WindowIcon {
     }
 }
 
-impl Eq for WindowIcon { }
+impl Eq for WindowIcon {}
 
 impl Ord for WindowIcon {
     fn cmp(&self, rhs: &Self) -> Ordering {
@@ -3015,7 +3325,10 @@ impl Ord for WindowIcon {
 }
 
 impl Hash for WindowIcon {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         self.get_key().hash(state);
     }
 }
@@ -3028,7 +3341,12 @@ pub struct TaskBarIcon {
     pub rgba_bytes: U8Vec,
 }
 
-impl_option!(TaskBarIcon, OptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
+impl_option!(
+    TaskBarIcon,
+    OptionTaskBarIcon,
+    copy = false,
+    [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]
+);
 
 impl PartialEq for TaskBarIcon {
     fn eq(&self, rhs: &Self) -> bool {
@@ -3042,7 +3360,7 @@ impl PartialOrd for TaskBarIcon {
     }
 }
 
-impl Eq for TaskBarIcon { }
+impl Eq for TaskBarIcon {}
 
 impl Ord for TaskBarIcon {
     fn cmp(&self, rhs: &Self) -> Ordering {
@@ -3051,7 +3369,10 @@ impl Ord for TaskBarIcon {
 }
 
 impl Hash for TaskBarIcon {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         self.key.hash(state);
     }
 }
@@ -3067,14 +3388,19 @@ pub struct Menu {
     pub context_mouse_btn: ContextMenuMouseButton,
 }
 
-impl_option!(Menu, OptionMenu, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+impl_option!(
+    Menu,
+    OptionMenu,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
+);
 
 impl Menu {
     pub fn new(items: MenuItemVec) -> Self {
         Self {
             items,
             position: MenuPopupPosition::AutoCursor,
-            context_mouse_btn: ContextMenuMouseButton::Right
+            context_mouse_btn: ContextMenuMouseButton::Right,
         }
     }
 }
@@ -3134,8 +3460,8 @@ impl Default for MenuPopupPosition {
 
 impl Menu {
     pub fn get_hash(&self) -> u64 {
-        use highway::{HighwayHasher, HighwayHash, Key};
-        let mut hasher = HighwayHasher::new(Key([0;4]));
+        use highway::{HighwayHash, HighwayHasher, Key};
+        let mut hasher = HighwayHasher::new(Key([0; 4]));
         self.hash(&mut hasher);
         hasher.finalize64()
     }
@@ -3180,7 +3506,6 @@ pub struct StringMenuItem {
 }
 
 impl StringMenuItem {
-
     pub fn new(label: AzString) -> Self {
         StringMenuItem {
             label,
@@ -3211,7 +3536,11 @@ impl StringMenuItem {
     }
 
     pub fn with_callback(mut self, data: RefAny, callback: CallbackType) -> Self {
-        self.callback = Some(MenuCallback { data, callback: Callback { cb: callback } }).into();
+        self.callback = Some(MenuCallback {
+            data,
+            callback: Callback { cb: callback },
+        })
+        .into();
         self
     }
 }
@@ -3222,7 +3551,12 @@ pub struct VirtualKeyCodeCombo {
     pub keys: VirtualKeyCodeVec,
 }
 
-impl_option!(VirtualKeyCodeCombo, OptionVirtualKeyCodeCombo, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+impl_option!(
+    VirtualKeyCodeCombo,
+    OptionVirtualKeyCodeCombo,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
+);
 
 /// Menu callback: What data / function pointer should
 /// be called when the menu item is clicked?
@@ -3233,7 +3567,12 @@ pub struct MenuCallback {
     pub data: RefAny,
 }
 
-impl_option!(MenuCallback, OptionMenuCallback, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+impl_option!(
+    MenuCallback,
+    OptionMenuCallback,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
+);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
@@ -3244,7 +3583,12 @@ pub enum MenuItemIcon {
     Image(ImageRef),
 }
 
-impl_option!(MenuItemIcon, OptionMenuItemIcon, copy = false, [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]);
+impl_option!(
+    MenuItemIcon,
+    OptionMenuItemIcon,
+    copy = false,
+    [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
+);
 
 /// Describes the state of the menu
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
