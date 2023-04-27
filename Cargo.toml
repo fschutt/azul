@@ -9,7 +9,7 @@ members = [
     "azul-layout",
     "azul-text-layout",
     "azul-css-parser",
-    "examples",
+    "examples/rust",
 ]
 
 [profile.dev]

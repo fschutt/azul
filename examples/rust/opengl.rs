@@ -11,7 +11,7 @@ extern crate serde_json;
 
 static DATA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/assets/data/testdata.json"
+    "/../assets/data/testdata.json"
 ));
 
 #[derive(Debug, Clone, Deserialize)]

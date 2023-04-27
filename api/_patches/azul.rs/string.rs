@@ -1,11 +1,11 @@
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::string;
 
-    #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+    #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
     use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     #[cfg(feature = "serde-support")]
     impl Serialize for crate::str::String {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -15,7 +15,7 @@
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     #[cfg(feature = "serde-support")]
     impl<'de> Deserialize<'de> for crate::str::String {
         fn deserialize<D>(deserializer: D) -> Result<crate::str::String, D::Error>
@@ -27,42 +27,42 @@
     }
 
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&'static str> for crate::str::String {
         fn from(v: &'static str) -> crate::str::String {
             crate::str::String::from_const_str(v)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<string::String> for crate::str::String {
         fn from(s: string::String) -> crate::str::String {
             crate::str::String::from_string(s)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl AsRef<str> for crate::str::String {
         fn as_ref(&self) -> &str {
             self.as_str()
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::fmt::Debug for crate::str::String {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_str().fmt(f)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::fmt::Display for crate::str::String {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_str().fmt(f)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl crate::str::String {
 
         #[inline(always)]

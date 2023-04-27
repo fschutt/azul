@@ -414,7 +414,7 @@ pub mod prelude {
 
 mod dll {
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl AzString {
         #[inline]
         pub fn as_str(&self) -> &str {
@@ -426,252 +426,252 @@ mod dll {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzCallback                          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzLayoutCallbackInner               { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzMarshaledLayoutCallbackInner      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzRenderImageCallback               { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzIFrameCallback                    { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzTimerCallback                     { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzWriteBackCallback                 { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzThreadDestructorFn                { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzLibraryReceiveThreadMsgFn         { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzLibrarySendThreadMsgFn            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzCheckThreadFinishedFn             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzGetSystemTimeFn                   { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzCreateThreadFn                    { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzThreadRecvFn                      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzThreadReceiverDestructorFn        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzThreadSenderDestructorFn          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzInstantPtrDestructorFn            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzInstantPtrCloneFn                 { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzThreadSendFn                      { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzFileInputOnPathChangeCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzCheckBoxOnToggleCallback                  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzColorInputOnValueChangeCallback           { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzTextInputOnTextInputCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzTextInputOnVirtualKeyDownCallback         { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzTextInputOnFocusLostCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNumberInputOnFocusLostCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNumberInputOnValueChangeCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeAddedCallback              { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeRemovedCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeDraggedCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeGraphDraggedCallback       { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeConnectedCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeInputDisconnectedCallback  { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeOutputDisconnectedCallback { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzNodeGraphOnNodeFieldEditedCallback        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzDropDownOnChoiceChangeCallback            { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzTabOnClickCallback                        { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzListViewOnRowClickCallback                { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzListViewOnColumnClickCallback             { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for AzListViewOnLazyLoadScrollCallback          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzLayoutCallbackInner { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzMarshaledLayoutCallbackInner { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzRenderImageCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzIFrameCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzTimerCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzWriteBackCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzThreadDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzLibraryReceiveThreadMsgFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzLibrarySendThreadMsgFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzCheckThreadFinishedFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzGetSystemTimeFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzCreateThreadFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzThreadRecvFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzThreadReceiverDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzThreadSenderDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzInstantPtrDestructorFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzInstantPtrCloneFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzThreadSendFn { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzFileInputOnPathChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzCheckBoxOnToggleCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzColorInputOnValueChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzTextInputOnTextInputCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzTextInputOnVirtualKeyDownCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzTextInputOnFocusLostCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNumberInputOnFocusLostCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNumberInputOnValueChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeAddedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeRemovedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeDraggedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeGraphDraggedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeConnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeInputDisconnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeOutputDisconnectedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzNodeGraphOnNodeFieldEditedCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzDropDownOnChoiceChangeCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzTabOnClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzListViewOnLazyLoadScrollCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzListViewOnColumnClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for AzListViewOnRowClickCallback { fn eq(&self, rhs: &Self) -> bool { (self.cb as usize).eq(&(rhs.cb as usize)) } }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzLayoutCallbackInner { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzMarshaledLayoutCallbackInner { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzRenderImageCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzIFrameCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzTimerCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzWriteBackCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzThreadDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzLibraryReceiveThreadMsgFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzLibrarySendThreadMsgFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzCheckThreadFinishedFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzGetSystemTimeFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzCreateThreadFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzThreadRecvFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzThreadReceiverDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzThreadSenderDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzInstantPtrDestructorFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzInstantPtrCloneFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzThreadSendFn { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzFileInputOnPathChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzCheckBoxOnToggleCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzColorInputOnValueChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzTextInputOnTextInputCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzTextInputOnVirtualKeyDownCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzTextInputOnFocusLostCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNumberInputOnFocusLostCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNumberInputOnValueChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) }}
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeAddedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeRemovedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeDraggedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeGraphDraggedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeConnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeInputDisconnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeOutputDisconnectedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzNodeGraphOnNodeFieldEditedCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzDropDownOnChoiceChangeCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzTabOnClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzListViewOnLazyLoadScrollCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzListViewOnColumnClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for AzListViewOnRowClickCallback { fn partial_cmp(&self, rhs: &Self) -> Option<::core::cmp::Ordering> { (self.cb as usize).partial_cmp(&(rhs.cb as usize)) } }
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     mod dynamic_link {
     use core::ffi::c_void;
 
@@ -11218,9 +11218,9 @@ mod dll {
 
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     pub use self::dynamic_link::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::*;
 
 
@@ -11229,39 +11229,39 @@ mod dll {
 pub mod app {
     #![allow(dead_code, unused_imports)]
     //! `App` construction and configuration
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzApp as App;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAppConfig as AppConfig;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAppLogLevel as AppLogLevel;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutSolver as LayoutSolver;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSystemCallbacks as SystemCallbacks;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::RefAny;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefAny as RefAny;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::window::WindowCreateOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzWindowCreateOptions as WindowCreateOptions;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::image::ImageRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzImageRef as ImageRef;
     /// Main application class
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzApp as App;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzApp as App;
+    #[cfg(not(feature = "link-static"))]
     impl App {
 
         /// Creates a new App instance from the given `AppConfig`
@@ -11276,12 +11276,12 @@ pub mod app {
         pub fn run(&self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_run(self, window) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for App { fn clone(&self) -> Self { unsafe { crate::dll::AzApp_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for App { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzApp_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for App { fn clone(&self) -> Self { unsafe { crate::dll::AzApp_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for App { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzApp_delete(self) } } } }
     /// Configuration for optional features, such as whether to enable logging or panic hooks
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAppConfig as AppConfig;
+    #[cfg(not(feature = "link-static"))]
     impl AppConfig {
 
         /// Constructs a default `AppConfig`, uses the layout solver currently available
@@ -11290,14 +11290,14 @@ pub mod app {
 
     /// Configuration to set which messages should be logged.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAppLogLevel as AppLogLevel;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAppLogLevel as AppLogLevel;
     /// Version of the layout solver to use - future binary versions of azul may have more fields here, necessary so that old compiled applications don't break with newer releases of azul. Newer layout versions are opt-in only.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutSolver as LayoutSolver;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutSolver as LayoutSolver;
     /// External system callbacks to get the system time or create / manage threads
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSystemCallbacks as SystemCallbacks;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSystemCallbacks as SystemCallbacks;
+    #[cfg(not(feature = "link-static"))]
     impl SystemCallbacks {
 
         /// Use the default, library-internal callbacks instead of providing your own
@@ -11309,119 +11309,119 @@ pub mod app {
 pub mod window {
     #![allow(dead_code, unused_imports)]
     //! Window creation / startup configuration
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowCreateOptions as WindowCreateOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRendererOptions as RendererOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVsync as Vsync;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSrgb as Srgb;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzHwAcceleration as HwAcceleration;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPoint as LayoutPoint;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutSize as LayoutSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutRect as LayoutRect;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRawWindowHandle as RawWindowHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIOSHandle as IOSHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMacOSHandle as MacOSHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXlibHandle as XlibHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXcbHandle as XcbHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWaylandHandle as WaylandHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowsHandle as WindowsHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWebHandle as WebHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAndroidHandle as AndroidHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXWindowType as XWindowType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPhysicalPositionI32 as PhysicalPositionI32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPhysicalSizeU32 as PhysicalSizeU32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLogicalRect as LogicalRect;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLogicalPosition as LogicalPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLogicalSize as LogicalSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIconKey as IconKey;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSmallWindowIconBytes as SmallWindowIconBytes;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLargeWindowIconBytes as LargeWindowIconBytes;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowIcon as WindowIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTaskBarIcon as TaskBarIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVirtualKeyCode as VirtualKeyCode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAcceleratorKey as AcceleratorKey;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowSize as WindowSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowFlags as WindowFlags;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowFrame as WindowFrame;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDebugState as DebugState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzKeyboardState as KeyboardState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMouseCursorType as MouseCursorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCursorPosition as CursorPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMouseState as MouseState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPlatformSpecificOptions as PlatformSpecificOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowsWindowOptions as WindowsWindowOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWaylandTheme as WaylandTheme;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRendererType as RendererType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringPair as StringPair;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLinuxWindowOptions as LinuxWindowOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMacWindowOptions as MacWindowOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWasmWindowOptions as WasmWindowOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFullScreenMode as FullScreenMode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowTheme as WindowTheme;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowPosition as WindowPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzImePosition as ImePosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTouchState as TouchState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMonitor as Monitor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVideoMode as VideoMode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowState as WindowState;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl LayoutSize {
         #[inline(always)]
         pub const fn new(width: isize, height: isize) -> Self { Self { width, height } }
@@ -11429,7 +11429,7 @@ pub mod window {
         pub const fn zero() -> Self { Self::new(0, 0) }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl LayoutPoint {
         #[inline(always)]
         pub const fn new(x: isize, y: isize) -> Self { Self { x, y } }
@@ -11437,7 +11437,7 @@ pub mod window {
         pub const fn zero() -> Self { Self::new(0, 0) }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl LayoutRect {
         #[inline(always)]
         pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
@@ -11503,14 +11503,14 @@ pub mod window {
             b_x + b_width <= a_x + a_width &&
             b_y + b_height <= a_y + a_height
         }
-    }    #[cfg(not(feature = "link_static"))]
+    }    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::LayoutCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzLayoutCallbackType as LayoutCallbackType;
     /// Options on how to initially create the window
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
+    #[cfg(not(feature = "link-static"))]
     impl WindowCreateOptions {
 
         /// Creates a new window configuration with a custom layout callback
@@ -11519,68 +11519,68 @@ pub mod window {
 
     /// Force a specific renderer: note that azul will **crash** on startup if the `RendererOptions` are not satisfied.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRendererOptions as RendererOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRendererOptions as RendererOptions;
     /// Whether the renderer has VSync enabled
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVsync as Vsync;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVsync as Vsync;
     /// Does the renderer render in SRGB color space? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSrgb as Srgb;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSrgb as Srgb;
     /// Does the renderer render using hardware acceleration? By default, azul tries to set it to `Enabled` and falls back to `Disabled` if the OpenGL context can't be initialized properly
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzHwAcceleration as HwAcceleration;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzHwAcceleration as HwAcceleration;
     /// Offset in physical pixels (integer units)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPoint as LayoutPoint;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPoint as LayoutPoint;
     /// Size in physical pixels (integer units)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutSize as LayoutSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutSize as LayoutSize;
     /// Represents a rectangle in physical pixels (integer units)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutRect as LayoutRect;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutRect as LayoutRect;
     /// Raw platform handle, for integration in / with other toolkits and custom non-azul window extensions
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
     /// `IOSHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIOSHandle as IOSHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIOSHandle as IOSHandle;
     /// `MacOSHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMacOSHandle as MacOSHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMacOSHandle as MacOSHandle;
     /// `XlibHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXlibHandle as XlibHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXlibHandle as XlibHandle;
     /// `XcbHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXcbHandle as XcbHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXcbHandle as XcbHandle;
     /// `WaylandHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWaylandHandle as WaylandHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWaylandHandle as WaylandHandle;
     /// `WindowsHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowsHandle as WindowsHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowsHandle as WindowsHandle;
     /// `WebHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWebHandle as WebHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWebHandle as WebHandle;
     /// `AndroidHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAndroidHandle as AndroidHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAndroidHandle as AndroidHandle;
     /// X11 window hint: Type of window
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXWindowType as XWindowType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXWindowType as XWindowType;
     /// Same as `LayoutPoint`, but uses `i32` instead of `isize`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
     /// Same as `LayoutPoint`, but uses `u32` instead of `isize`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;
     /// Logical rectangle area (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalRect as LogicalRect;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLogicalRect as LogicalRect;
     /// Logical position (can differ based on HiDPI settings). Usually this is what you'd want for hit-testing and positioning elements.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;
+    #[cfg(not(feature = "link-static"))]
     impl LogicalPosition {
 
         /// Creates a new `LogicalPosition` instance.
@@ -11591,8 +11591,8 @@ pub mod window {
 
     /// A size in "logical" (non-HiDPI-adjusted) pixels in floating-point units
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;
+    #[cfg(not(feature = "link-static"))]
     impl LogicalSize {
 
         /// Calls the `LogicalSize::to_physical` function.
@@ -11601,41 +11601,41 @@ pub mod window {
 
     /// Unique hash of a window icon, so that azul does not have to compare the actual bytes to see wether the window icon has changed.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIconKey as IconKey;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIconKey as IconKey;
     /// Small (16x16x4) window icon, usually shown in the window titlebar
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
     /// Large (32x32x4) window icon, usually used on high-resolution displays (instead of `SmallWindowIcon`)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
     /// Window "favicon", usually shown in the top left of the window on Windows
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;
     /// Application taskbar icon, 256x256x4 bytes in size
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
     /// Symbolic name for a keyboard key, does **not** take the keyboard locale into account
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
     /// Symbolic accelerator key (ctrl, alt, shift)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
     /// Minimum / maximum / current size of the window in logical dimensions
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowSize as WindowSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowSize as WindowSize;
     /// Boolean flags relating to the current window state
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;
     /// State of the window frame (minimized, maximized, fullscreen or normal window)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowFrame as WindowFrame;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowFrame as WindowFrame;
     /// Debugging information, will be rendered as an overlay on top of the UI
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDebugState as DebugState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDebugState as DebugState;
     /// Current keyboard state, stores what keys / characters have been pressed
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;
+    #[cfg(not(feature = "link-static"))]
     impl KeyboardState {
 
         /// Returns if the `SHIFT` key is held down (left OR right shift)
@@ -11652,11 +11652,11 @@ pub mod window {
 
     /// Current icon of the mouse cursor
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMouseCursorType as MouseCursorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMouseCursorType as MouseCursorType;
     /// Current position of the mouse cursor, relative to the window. Set to `Uninitialized` on startup (gets initialized on the first frame).
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCursorPosition as CursorPosition;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCursorPosition as CursorPosition;
+    #[cfg(not(feature = "link-static"))]
     impl CursorPosition {
 
         /// Calls the `CursorPosition::get_position` function.
@@ -11665,56 +11665,56 @@ pub mod window {
 
     /// Current mouse / cursor state
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMouseState as MouseState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMouseState as MouseState;
     /// Platform-specific window configuration, i.e. WM options that are not cross-platform
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
     /// Window configuration specific to Win32
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
     /// CSD theme of the window title / button controls
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWaylandTheme as WaylandTheme;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWaylandTheme as WaylandTheme;
     /// Renderer type of the current windows OpenGL context
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRendererType as RendererType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRendererType as RendererType;
     /// Key-value pair, used for setting WM hints values specific to GNOME
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringPair as StringPair;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringPair as StringPair;
     /// `LinuxWindowOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
     /// `MacWindowOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
     /// `WasmWindowOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
     /// `FullScreenMode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFullScreenMode as FullScreenMode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFullScreenMode as FullScreenMode;
     /// Window theme, set by the operating system or `WindowCreateOptions.theme` on startup
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowTheme as WindowTheme;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowTheme as WindowTheme;
     /// Position of the top left corner of the window relative to the top left of the monitor
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowPosition as WindowPosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowPosition as WindowPosition;
     /// Position of the virtual keyboard necessary to insert CJK characters
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzImePosition as ImePosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzImePosition as ImePosition;
     /// Current state of touch devices / touch inputs
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTouchState as TouchState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTouchState as TouchState;
     /// Information about a single (or many) monitors, useful for dock widgets
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMonitor as Monitor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMonitor as Monitor;
     /// Describes a rendering configuration for a monitor
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVideoMode as VideoMode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVideoMode as VideoMode;
     /// `WindowState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowState as WindowState;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowState as WindowState;
+    #[cfg(not(feature = "link-static"))]
     impl WindowState {
 
         /// Creates a new WindowState with default settings and a custom layout callback
@@ -11728,117 +11728,117 @@ pub mod window {
 pub mod callbacks {
     #![allow(dead_code, unused_imports)]
     //! Callback type definitions + struct definitions of `CallbackInfo`s
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutCallback as LayoutCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMarshaledLayoutCallback as MarshaledLayoutCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMarshaledLayoutCallbackInner as MarshaledLayoutCallbackInner;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMarshaledLayoutCallbackType as MarshaledLayoutCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutCallbackInner as LayoutCallbackInner;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutCallbackType as LayoutCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallback as Callback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallbackType as CallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallbackInfo as CallbackInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzUpdateImageType as UpdateImageType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzUpdate as Update;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeId as NodeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDomId as DomId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDomNodeId as DomNodeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPositionInfo as PositionInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPositionInfoInner as PositionInfoInner;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineText as InlineText;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineLine as InlineLine;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineWord as InlineWord;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineTextContents as InlineTextContents;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineGlyph as InlineGlyph;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineTextHit as InlineTextHit;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFocusTarget as FocusTarget;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFocusTargetPath as FocusTargetPath;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAnimation as Animation;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAnimationRepeat as AnimationRepeat;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAnimationRepeatCount as AnimationRepeatCount;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAnimationEasing as AnimationEasing;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIFrameCallback as IFrameCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIFrameCallbackType as IFrameCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIFrameCallbackInfo as IFrameCallbackInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIFrameCallbackReturn as IFrameCallbackReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRenderImageCallback as RenderImageCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRenderImageCallbackType as RenderImageCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRenderImageCallbackInfo as RenderImageCallbackInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTimerCallback as TimerCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTimerCallbackType as TimerCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTimerCallbackInfo as TimerCallbackInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTimerCallbackReturn as TimerCallbackReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWriteBackCallbackType as WriteBackCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWriteBackCallback as WriteBackCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadCallback as ThreadCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadCallbackType as ThreadCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRefAnyDestructorType as RefAnyDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRefCount as RefCount;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRefAny as RefAny;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutCallbackInfo as LayoutCallbackInfo;
     use core::ffi::c_void;
 
     static NULL_REF: [u8;0] = [];
 
-    #[cfg_attr(not(feature = "link_static"), derive(Debug))]
+    #[cfg_attr(not(feature = "link-static"), derive(Debug))]
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         sharing_info: RefCount,
-        #[cfg(feature = "link_static")]
+        #[cfg(feature = "link-static")]
         sharing_info: azul::AzRefCountTT,
     }
 
@@ -11856,13 +11856,13 @@ pub mod callbacks {
         }
     }
 
-    #[cfg_attr(not(feature = "link_static"), derive(Debug))]
+    #[cfg_attr(not(feature = "link-static"), derive(Debug))]
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         sharing_info: RefCount,
-        #[cfg(feature = "link_static")]
+        #[cfg(feature = "link-static")]
         sharing_info: azul::AzRefCountTT,
     }
 
@@ -11886,7 +11886,7 @@ pub mod callbacks {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl RefAny {
 
         /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
@@ -11972,68 +11972,68 @@ pub mod callbacks {
             let struct_as_bytes = unsafe { ::core::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
-    }    #[cfg(not(feature = "link_static"))]
+    }    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::css::{CssProperty, CssPropertyType};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCssProperty as CssProperty;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCssPropertyType as CssPropertyType;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::window::{LogicalPosition, WindowCreateOptions, WindowState};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzLogicalPosition as LogicalPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzWindowCreateOptions as WindowCreateOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzWindowState as WindowState;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::image::{ImageMask, ImageRef};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzImageMask as ImageMask;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzImageRef as ImageRef;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::task::{ThreadId, ThreadSendMsg, Timer, TimerId};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzThreadId as ThreadId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzThreadSendMsg as ThreadSendMsg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzTimer as Timer;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzTimerId as TimerId;
     /// `LayoutCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
     /// C-ABI stable wrapper over a `MarshaledLayoutCallback`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallback as MarshaledLayoutCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallback as MarshaledLayoutCallback;
     /// C-ABI stable wrapper over a `MarshaledLayoutCallbackInner`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallbackInner as MarshaledLayoutCallbackInner;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallbackInner as MarshaledLayoutCallbackInner;
     /// Marshaled version of LayoutCallback, carrys an extra "marshal_data" containing the (usually external) function object
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallbackType as MarshaledLayoutCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMarshaledLayoutCallbackType as MarshaledLayoutCallbackType;
     /// C-ABI stable wrapper over a `LayoutCallbackType`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallbackInner as LayoutCallbackInner;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallbackInner as LayoutCallbackInner;
     /// Main callback to layout the UI. azul will only call this callback when necessary (usually when one of the callback or timer returns `RegenerateStyledDomForCurrentWindow`), however azul may also call this callback at any given time, so it should be performant. This is the main entry point for your app UI.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
     /// C-ABI stable wrapper over a `CallbackType`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallback as Callback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallback as Callback;
     /// Generic UI callback function pointer: called when the `EventFilter` is active
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallbackType as CallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallbackType as CallbackType;
     /// `CallbackInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;
+    #[cfg(not(feature = "link-static"))]
     impl CallbackInfo {
 
         /// Returns the `DomNodeId` of the element that the callback was attached to.
@@ -12136,23 +12136,23 @@ pub mod callbacks {
 
     /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzUpdateImageType as UpdateImageType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzUpdateImageType as UpdateImageType;
     /// Specifies if the screen should be updated after the callback function has returned
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzUpdate as Update;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzUpdate as Update;
     /// Index of a Node in the internal `NodeDataContainer`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeId as NodeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeId as NodeId;
     /// ID of a DOM - one window can contain multiple, nested DOMs (such as iframes)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDomId as DomId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDomId as DomId;
     /// Combination of node ID + DOM ID, both together can identify a node
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;
     /// `PositionInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPositionInfo as PositionInfo;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPositionInfo as PositionInfo;
+    #[cfg(not(feature = "link-static"))]
     impl PositionInfo {
 
         /// Calls the `PositionInfo::is_positioned` function.
@@ -12165,11 +12165,11 @@ pub mod callbacks {
 
     /// `PositionInfoInner` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPositionInfoInner as PositionInfoInner;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPositionInfoInner as PositionInfoInner;
     /// `HidpiAdjustedBounds` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
+    #[cfg(not(feature = "link-static"))]
     impl HidpiAdjustedBounds {
 
         /// Returns the size of the bounds in logical units
@@ -12182,8 +12182,8 @@ pub mod callbacks {
 
     /// `InlineText` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineText as InlineText;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineText as InlineText;
+    #[cfg(not(feature = "link-static"))]
     impl InlineText {
 
         /// Hit-tests the inline text, returns detailed information about which glyph / word / line, etc. the position (usually the mouse cursor) is currently over. Result may be empty (no hits) or contain more than one result (cursor is hovering over multiple overlapping glyphs at once).
@@ -12192,29 +12192,29 @@ pub mod callbacks {
 
     /// `InlineLine` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineLine as InlineLine;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineLine as InlineLine;
     /// `InlineWord` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineWord as InlineWord;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineWord as InlineWord;
     /// `InlineTextContents` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineTextContents as InlineTextContents;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineTextContents as InlineTextContents;
     /// `InlineGlyph` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyph as InlineGlyph;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyph as InlineGlyph;
     /// `InlineTextHit` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHit as InlineTextHit;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHit as InlineTextHit;
     /// Defines the keyboard input focus target
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
     /// CSS path to set the keyboard input focus
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
     /// `ResolvedTextLayoutOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
+    #[cfg(not(feature = "link-static"))]
     impl ResolvedTextLayoutOptions {
 
         /// Creates a new `ResolvedTextLayoutOptions` instance.
@@ -12223,38 +12223,38 @@ pub mod callbacks {
 
     /// Animation struct to start a new animation
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAnimation as Animation;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAnimation as Animation;
     /// How should an animation repeat (loop, ping-pong, etc.)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAnimationRepeat as AnimationRepeat;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAnimationRepeat as AnimationRepeat;
     /// How many times should an animation repeat
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAnimationRepeatCount as AnimationRepeatCount;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAnimationRepeatCount as AnimationRepeatCount;
     /// Easing function of the animation (ease-in, ease-out, ease-in-out, custom)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAnimationEasing as AnimationEasing;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAnimationEasing as AnimationEasing;
     /// C-ABI wrapper over an `IFrameCallbackType`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;
     /// For rendering large or infinite datasets such as tables or lists, azul uses `IFrameCallbacks` that allow the library user to only render the visible portion of DOM nodes, not the entire set. IFrames are rendered after the screen has been laid out, but before it gets composited. IFrames can be used recursively (i.e. iframes within iframes are possible). IFrames are re-rendered once the user scrolls to the bounds (see `IFrameCallbackReturn` on how to set the bounds) or the parent DOM was recreated.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
     /// `IFrameCallbackInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
     /// <img src="../images/scrollbounds.png"/>
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
     /// `RenderImageCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRenderImageCallback as RenderImageCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRenderImageCallback as RenderImageCallback;
     /// `RenderImageCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRenderImageCallbackType as RenderImageCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRenderImageCallbackType as RenderImageCallbackType;
     /// `RenderImageCallbackInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRenderImageCallbackInfo as RenderImageCallbackInfo;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRenderImageCallbackInfo as RenderImageCallbackInfo;
+    #[cfg(not(feature = "link-static"))]
     impl RenderImageCallbackInfo {
 
         /// Returns a copy of the internal `Gl`
@@ -12281,35 +12281,35 @@ pub mod callbacks {
 
     /// `TimerCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTimerCallback as TimerCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTimerCallback as TimerCallback;
     /// `TimerCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
     /// `TimerCallbackInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
     /// `TimerCallbackReturn` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
     /// `WriteBackCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
     /// `WriteBackCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
     /// `ThreadCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadCallback as ThreadCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadCallback as ThreadCallback;
     /// `ThreadCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
     /// `RefAnyDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
     /// `RefCount` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRefCount as RefCount;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRefCount as RefCount;
+    #[cfg(not(feature = "link-static"))]
     impl RefCount {
 
         /// Calls the `RefCount::can_be_shared` function.
@@ -12326,12 +12326,12 @@ pub mod callbacks {
         pub fn decrease_refmut(&mut self)  { unsafe { crate::dll::AzRefCount_decreaseRefmut(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for RefCount { fn clone(&self) -> Self { unsafe { crate::dll::AzRefCount_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for RefCount { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzRefCount_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for RefCount { fn clone(&self) -> Self { unsafe { crate::dll::AzRefCount_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for RefCount { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzRefCount_delete(self) } } } }
     /// RefAny is a reference-counted, opaque pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
+    #[cfg(not(feature = "link-static"))]
     impl RefAny {
 
         /// Creates a new `RefAny` instance.
@@ -12342,12 +12342,12 @@ pub mod callbacks {
         pub fn get_type_name(&self)  -> crate::str::String { unsafe { crate::dll::AzRefAny_getTypeName(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for RefAny { fn clone(&self) -> Self { unsafe { crate::dll::AzRefAny_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for RefAny { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzRefAny_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for RefAny { fn clone(&self) -> Self { unsafe { crate::dll::AzRefAny_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for RefAny { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzRefAny_delete(self) } } } }
     /// `LayoutCallbackInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallbackInfo as LayoutCallbackInfo;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutCallbackInfo as LayoutCallbackInfo;
+    #[cfg(not(feature = "link-static"))]
     impl LayoutCallbackInfo {
 
         /// Returns a copy of the OpenGL context
@@ -12363,70 +12363,70 @@ pub mod callbacks {
 pub mod dom {
     #![allow(dead_code, unused_imports)]
     //! `Dom` construction and configuration
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDom as Dom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIFrameNode as IFrameNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallbackData as CallbackData;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeData as NodeData;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeType as NodeType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOn as On;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzEventFilter as EventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzHoverEventFilter as HoverEventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFocusEventFilter as FocusEventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNotEventFilter as NotEventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzWindowEventFilter as WindowEventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzComponentEventFilter as ComponentEventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzApplicationEventFilter as ApplicationEventFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAccessibilityInfo as AccessibilityInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAccessibilityRole as AccessibilityRole;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAccessibilityState as AccessibilityState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabIndex as TabIndex;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIdOrClass as IdOrClass;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Default for Dom {
         fn default() -> Self {
             Dom::div()
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Default for NodeData {
         fn default() -> Self {
             NodeData::new(NodeType::Div)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Default for TabIndex {
         fn default() -> Self {
             TabIndex::Auto
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::iter::FromIterator<Dom> for Dom {
         fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
             use crate::vec::DomVec;
@@ -12444,7 +12444,7 @@ pub mod dom {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::iter::FromIterator<NodeData> for Dom {
         fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
             use crate::vec::DomVec;
@@ -12463,7 +12463,7 @@ pub mod dom {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::iter::FromIterator<NodeType> for Dom {
         fn from_iter<I: core::iter::IntoIterator<Item=NodeType>>(iter: I) -> Self {
             iter.into_iter().map(|i| {
@@ -12474,14 +12474,14 @@ pub mod dom {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<On> for AzEventFilter {
         fn from(on: On) -> AzEventFilter {
             on.into_event_filter()
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl NodeData {
         pub const fn const_new(node_type: NodeType) -> Self {
             use crate::option::{OptionRefAny, OptionTabIndex};
@@ -12509,7 +12509,7 @@ pub mod dom {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Dom {
 
         pub const fn const_new(node_data: NodeData) -> Self {
@@ -12531,48 +12531,48 @@ pub mod dom {
         pub const fn const_text(text: AzString) -> Self {
             Self::const_new(NodeData::const_text(text))
         }
-    }    #[cfg(not(feature = "link_static"))]
+    }    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::image::{ImageMask, ImageRef};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzImageMask as ImageMask;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzImageRef as ImageRef;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::{CallbackType, IFrameCallbackType, RefAny};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCallbackType as CallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzIFrameCallbackType as IFrameCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefAny as RefAny;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::vec::{CallbackDataVec, DomVec, IdOrClassVec, NodeDataInlineCssPropertyVec};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCallbackDataVec as CallbackDataVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzDomVec as DomVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzIdOrClassVec as IdOrClassVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::css::{Css, CssProperty};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCss as Css;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCssProperty as CssProperty;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::menu::Menu;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzMenu as Menu;
     /// `Dom` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDom as Dom;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDom as Dom;
+    #[cfg(not(feature = "link-static"))]
     impl Dom {
 
         /// Creates a new `Dom` instance.
@@ -12695,14 +12695,14 @@ pub mod dom {
 
     /// `IFrameNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIFrameNode as IFrameNode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIFrameNode as IFrameNode;
     /// `CallbackData` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallbackData as CallbackData;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallbackData as CallbackData;
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeData as NodeData;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeData as NodeData;
+    #[cfg(not(feature = "link-static"))]
     impl NodeData {
 
         /// Creates an new, empty `NodeData` struct
@@ -12775,11 +12775,11 @@ pub mod dom {
 
     /// List of core DOM node types built-into by `azul`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeType as NodeType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeType as NodeType;
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOn as On;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOn as On;
+    #[cfg(not(feature = "link-static"))]
     impl On {
 
         /// Converts the `On` shorthand into a `EventFilter`
@@ -12788,86 +12788,86 @@ pub mod dom {
 
     /// `EventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzEventFilter as EventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzEventFilter as EventFilter;
     /// `HoverEventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
     /// `FocusEventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
     /// `NotEventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNotEventFilter as NotEventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNotEventFilter as NotEventFilter;
     /// `WindowEventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
     /// `ComponentEventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
     /// `ApplicationEventFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
     /// Accessibility information (MSAA wrapper). See `NodeData.set_accessibility_info()`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityInfo as AccessibilityInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityInfo as AccessibilityInfo;
     /// MSAA Accessibility role constants. For information on what each role does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-roles">MSDN Role Constants page</a>
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityRole as AccessibilityRole;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityRole as AccessibilityRole;
     /// MSAA accessibility state. For information on what each state does, see the <a href="https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants">MSDN State Constants page</a>.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityState as AccessibilityState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityState as AccessibilityState;
     /// `TabIndex` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabIndex as TabIndex;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabIndex as TabIndex;
     /// `IdOrClass` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIdOrClass as IdOrClass;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIdOrClass as IdOrClass;
     /// `NodeDataInlineCssProperty` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssProperty as NodeDataInlineCssProperty;
 }
 
 pub mod menu {
     #![allow(dead_code, unused_imports)]
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenu as Menu;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzContextMenuMouseButton as ContextMenuMouseButton;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuPopupPosition as MenuPopupPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuItem as MenuItem;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringMenuItem as StringMenuItem;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuCallback as MenuCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuItemIcon as MenuItemIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuItemState as MenuItemState;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::vec::MenuItemVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzMenuItemVec as MenuItemVec;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::{CallbackType, RefAny};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCallbackType as CallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefAny as RefAny;
     /// Menu struct (application / window menu, dropdown menu, context menu). Modeled after the Windows API
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenu as Menu;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenu as Menu;
+    #[cfg(not(feature = "link-static"))]
     impl Menu {
 
         /// Creates an new, empty Menu
@@ -12880,17 +12880,17 @@ pub mod menu {
 
     /// Determines whether this context menu should pop up on a left, right or middle click
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzContextMenuMouseButton as ContextMenuMouseButton;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzContextMenuMouseButton as ContextMenuMouseButton;
     /// Position of where the context menu should pop up
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuPopupPosition as MenuPopupPosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuPopupPosition as MenuPopupPosition;
     /// Item entry in a menu or menu bar
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuItem as MenuItem;
     /// Regular labeled menu item
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringMenuItem as StringMenuItem;
+    #[cfg(not(feature = "link-static"))]
     impl StringMenuItem {
 
         /// Creates a new menu item
@@ -12911,11 +12911,11 @@ pub mod menu {
 
     /// Combination of virtual key codes that have to be pressed together
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeCombo as VirtualKeyCodeCombo;
     /// Similar to `dom.CallbackData`, stores some data + a callback to call when the menu is activated
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuCallback as MenuCallback;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuCallback as MenuCallback;
+    #[cfg(not(feature = "link-static"))]
     impl MenuCallback {
 
         /// Creates a new `MenuCallback` instance.
@@ -12924,394 +12924,394 @@ pub mod menu {
 
     /// Icon of a menu entry
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuItemIcon as MenuItemIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuItemIcon as MenuItemIcon;
     /// Describes the state of a menu item
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuItemState as MenuItemState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuItemState as MenuItemState;
 }
 
 pub mod css {
     #![allow(dead_code, unused_imports)]
     //! `Css` parsing module
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssRuleBlock as CssRuleBlock;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssDeclaration as CssDeclaration;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDynamicCssProperty as DynamicCssProperty;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPath as CssPath;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPathSelector as CssPathSelector;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeKey as NodeTypeKey;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPathPseudoSelector as CssPathPseudoSelector;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssNthChildSelector as CssNthChildSelector;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssNthChildPattern as CssNthChildPattern;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStylesheet as Stylesheet;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCss as Css;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPropertyType as CssPropertyType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAnimationInterpolationFunction as AnimationInterpolationFunction;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInterpolateContext as InterpolateContext;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorU as ColorU;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSizeMetric as SizeMetric;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFloatValue as FloatValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPixelValue as PixelValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPixelValueNoPercent as PixelValueNoPercent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzBoxShadowClipMode as BoxShadowClipMode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBoxShadow as StyleBoxShadow;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleMixBlendMode as StyleMixBlendMode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFilter as StyleFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBlur as StyleBlur;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleColorMatrix as StyleColorMatrix;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFilterOffset as StyleFilterOffset;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleCompositeFilter as StyleCompositeFilter;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutAlignContent as LayoutAlignContent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutAlignItems as LayoutAlignItems;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBottom as LayoutBottom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBoxSizing as LayoutBoxSizing;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexDirection as LayoutFlexDirection;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutDisplay as LayoutDisplay;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexGrow as LayoutFlexGrow;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexShrink as LayoutFlexShrink;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFloat as LayoutFloat;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutHeight as LayoutHeight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutJustifyContent as LayoutJustifyContent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutLeft as LayoutLeft;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginBottom as LayoutMarginBottom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginLeft as LayoutMarginLeft;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginRight as LayoutMarginRight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginTop as LayoutMarginTop;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMaxHeight as LayoutMaxHeight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMaxWidth as LayoutMaxWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMinHeight as LayoutMinHeight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMinWidth as LayoutMinWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingBottom as LayoutPaddingBottom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingLeft as LayoutPaddingLeft;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingRight as LayoutPaddingRight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingTop as LayoutPaddingTop;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPosition as LayoutPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutRight as LayoutRight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutTop as LayoutTop;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutWidth as LayoutWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexWrap as LayoutFlexWrap;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutOverflow as LayoutOverflow;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzPercentageValue as PercentageValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAngleMetric as AngleMetric;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAngleValue as AngleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedLinearColorStop as NormalizedLinearColorStop;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedRadialColorStop as NormalizedRadialColorStop;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDirectionCorner as DirectionCorner;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDirectionCorners as DirectionCorners;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDirection as Direction;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzExtendMode as ExtendMode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLinearGradient as LinearGradient;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzShape as Shape;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRadialGradientSize as RadialGradientSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRadialGradient as RadialGradient;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzConicGradient as ConicGradient;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundContent as StyleBackgroundContent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzBackgroundPositionVertical as BackgroundPositionVertical;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundPosition as StyleBackgroundPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundSize as StyleBackgroundSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomColor as StyleBorderBottomColor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzBorderStyle as BorderStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderBottomWidth as LayoutBorderBottomWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderLeftColor as StyleBorderLeftColor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderLeftWidth as LayoutBorderLeftWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderRightColor as StyleBorderRightColor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderRightStyle as StyleBorderRightStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderRightWidth as LayoutBorderRightWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopColor as StyleBorderTopColor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopStyle as StyleBorderTopStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderTopWidth as LayoutBorderTopWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzScrollbarInfo as ScrollbarInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzScrollbarStyle as ScrollbarStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleCursor as StyleCursor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontFamily as StyleFontFamily;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontSize as StyleFontSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleLetterSpacing as StyleLetterSpacing;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleLineHeight as StyleLineHeight;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTabWidth as StyleTabWidth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleOpacity as StyleOpacity;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformOrigin as StyleTransformOrigin;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStylePerspectiveOrigin as StylePerspectiveOrigin;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackfaceVisibility as StyleBackfaceVisibility;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransform as StyleTransform;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformMatrix2D as StyleTransformMatrix2D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformMatrix3D as StyleTransformMatrix3D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformTranslate2D as StyleTransformTranslate2D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformTranslate3D as StyleTransformTranslate3D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformRotate3D as StyleTransformRotate3D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformScale2D as StyleTransformScale2D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformScale3D as StyleTransformScale3D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformSkew2D as StyleTransformSkew2D;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTextAlign as StyleTextAlign;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTextColor as StyleTextColor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleWordSpacing as StyleWordSpacing;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBoxShadowValue as StyleBoxShadowValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutAlignContentValue as LayoutAlignContentValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBottomValue as LayoutBottomValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexDirectionValue as LayoutFlexDirectionValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutDisplayValue as LayoutDisplayValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFloatValue as LayoutFloatValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutHeightValue as LayoutHeightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutLeftValue as LayoutLeftValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginRightValue as LayoutMarginRightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMarginTopValue as LayoutMarginTopValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMinHeightValue as LayoutMinHeightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutMinWidthValue as LayoutMinWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutPositionValue as LayoutPositionValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutRightValue as LayoutRightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutTopValue as LayoutTopValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutWidthValue as LayoutWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutFlexWrapValue as LayoutFlexWrapValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutOverflowValue as LayoutOverflowValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzScrollbarStyleValue as ScrollbarStyleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundContentVecValue as StyleBackgroundContentVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderBottomWidthValue as LayoutBorderBottomWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderLeftWidthValue as LayoutBorderLeftWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderRightWidthValue as LayoutBorderRightWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLayoutBorderTopWidthValue as LayoutBorderTopWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleCursorValue as StyleCursorValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontFamilyVecValue as StyleFontFamilyVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontSizeValue as StyleFontSizeValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleLineHeightValue as StyleLineHeightValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTabWidthValue as StyleTabWidthValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTextAlignValue as StyleTextAlignValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTextColorValue as StyleTextColorValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleWordSpacingValue as StyleWordSpacingValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleOpacityValue as StyleOpacityValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformVecValue as StyleTransformVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformOriginValue as StyleTransformOriginValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStylePerspectiveOriginValue as StylePerspectiveOriginValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleMixBlendModeValue as StyleMixBlendModeValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFilterVecValue as StyleFilterVecValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssProperty as CssProperty;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::vec::{
         StyleBackgroundPositionVec,
         StyleBackgroundContentVec,
@@ -13401,7 +13401,7 @@ pub mod css {
         }
     })}
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl CssProperty {
 
         /// Return the type (key) of this property as a statically typed enum
@@ -13569,7 +13569,7 @@ pub mod css {
     const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
     const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl FloatValue {
         /// Same as `FloatValue::new()`, but only accepts whole numbers,
         /// since using `f32` in const fn is not yet stabilized.
@@ -13586,14 +13586,14 @@ pub mod css {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<f32> for FloatValue {
         fn from(val: f32) -> Self {
             Self::new(val)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl AngleValue {
 
         #[inline]
@@ -13677,7 +13677,7 @@ pub mod css {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PixelValue {
 
         #[inline]
@@ -13751,7 +13751,7 @@ pub mod css {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PixelValueNoPercent {
 
         #[inline]
@@ -13806,7 +13806,7 @@ pub mod css {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PercentageValue {
 
         /// Same as `PercentageValue::new()`, but only accepts whole numbers,
@@ -13831,7 +13831,7 @@ pub mod css {
     /// `PixelValue` as it's self.0 field.
     macro_rules! impl_pixel_value {($struct:ident) => (
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct {
 
             #[inline]
@@ -13930,7 +13930,7 @@ pub mod css {
     impl_pixel_value!(StyleFontSize);
 
     macro_rules! impl_float_value {($struct:ident) => (
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct {
             /// Same as `FloatValue::new()`, but only accepts whole numbers,
             /// since using `f32` in const fn is not yet stabilized.
@@ -13947,7 +13947,7 @@ pub mod css {
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl From<f32> for $struct {
             fn from(val: f32) -> Self {
                 Self { inner: FloatValue::from(val) }
@@ -13959,7 +13959,7 @@ pub mod css {
     impl_float_value!(LayoutFlexShrink);
 
     macro_rules! impl_percentage_value{($struct:ident) => (
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct {
             /// Same as `PercentageValue::new()`, but only accepts whole numbers,
             /// since using `f32` in const fn is not yet stabilized.
@@ -13973,44 +13973,44 @@ pub mod css {
     impl_percentage_value!(StyleLineHeight);
     impl_percentage_value!(StyleTabWidth);
     impl_percentage_value!(StyleOpacity);
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
     /// `CssRuleBlock` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlock as CssRuleBlock;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlock as CssRuleBlock;
     /// `CssDeclaration` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssDeclaration as CssDeclaration;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssDeclaration as CssDeclaration;
     /// `DynamicCssProperty` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;
     /// `CssPath` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPath as CssPath;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPath as CssPath;
     /// `CssPathSelector` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelector as CssPathSelector;
     /// `NodeTypeKey` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeKey as NodeTypeKey;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeKey as NodeTypeKey;
     /// `CssPathPseudoSelector` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;
     /// `CssNthChildSelector` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssNthChildSelector as CssNthChildSelector;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssNthChildSelector as CssNthChildSelector;
     /// `CssNthChildPattern` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssNthChildPattern as CssNthChildPattern;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssNthChildPattern as CssNthChildPattern;
     /// `Stylesheet` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStylesheet as Stylesheet;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStylesheet as Stylesheet;
     /// `Css` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCss as Css;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCss as Css;
+    #[cfg(not(feature = "link-static"))]
     impl Css {
 
         /// Returns an empty CSS style
@@ -14021,17 +14021,17 @@ pub mod css {
 
     /// `CssPropertyType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyType as CssPropertyType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyType as CssPropertyType;
     /// `AnimationInterpolationFunction` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAnimationInterpolationFunction as AnimationInterpolationFunction;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAnimationInterpolationFunction as AnimationInterpolationFunction;
     /// `InterpolateContext` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInterpolateContext as InterpolateContext;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInterpolateContext as InterpolateContext;
     /// `ColorU` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorU as ColorU;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorU as ColorU;
+    #[cfg(not(feature = "link-static"))]
     impl ColorU {
 
         /// Creates a new `ColorU` instance.
@@ -14048,140 +14048,140 @@ pub mod css {
 
     /// `SizeMetric` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSizeMetric as SizeMetric;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSizeMetric as SizeMetric;
     /// `FloatValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFloatValue as FloatValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFloatValue as FloatValue;
     /// `PixelValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPixelValue as PixelValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPixelValue as PixelValue;
     /// `PixelValueNoPercent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
     /// `BoxShadowClipMode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
     /// `StyleBoxShadow` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBoxShadow as StyleBoxShadow;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBoxShadow as StyleBoxShadow;
     /// `StyleMixBlendMode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleMixBlendMode as StyleMixBlendMode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleMixBlendMode as StyleMixBlendMode;
     /// `StyleFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilter as StyleFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFilter as StyleFilter;
     /// `StyleBlur` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBlur as StyleBlur;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBlur as StyleBlur;
     /// `StyleColorMatrix` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleColorMatrix as StyleColorMatrix;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleColorMatrix as StyleColorMatrix;
     /// `StyleFilterOffset` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterOffset as StyleFilterOffset;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterOffset as StyleFilterOffset;
     /// `StyleCompositeFilter` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleCompositeFilter as StyleCompositeFilter;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleCompositeFilter as StyleCompositeFilter;
     /// `LayoutAlignContent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
     /// `LayoutAlignItems` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
     /// `LayoutBottom` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBottom as LayoutBottom;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBottom as LayoutBottom;
     /// `LayoutBoxSizing` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
     /// `LayoutFlexDirection` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexDirection as LayoutFlexDirection;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexDirection as LayoutFlexDirection;
     /// `LayoutDisplay` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
     /// `LayoutFlexGrow` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
     /// `LayoutFlexShrink` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
     /// `LayoutFloat` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFloat as LayoutFloat;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFloat as LayoutFloat;
     /// `LayoutHeight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutHeight as LayoutHeight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutHeight as LayoutHeight;
     /// `LayoutJustifyContent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
     /// `LayoutLeft` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutLeft as LayoutLeft;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutLeft as LayoutLeft;
     /// `LayoutMarginBottom` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
     /// `LayoutMarginLeft` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
     /// `LayoutMarginRight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
     /// `LayoutMarginTop` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
     /// `LayoutMaxHeight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
     /// `LayoutMaxWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
     /// `LayoutMinHeight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
     /// `LayoutMinWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
     /// `LayoutPaddingBottom` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
     /// `LayoutPaddingLeft` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
     /// `LayoutPaddingRight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
     /// `LayoutPaddingTop` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
     /// `LayoutPosition` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPosition as LayoutPosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPosition as LayoutPosition;
     /// `LayoutRight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutRight as LayoutRight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutRight as LayoutRight;
     /// `LayoutTop` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutTop as LayoutTop;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutTop as LayoutTop;
     /// `LayoutWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutWidth as LayoutWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutWidth as LayoutWidth;
     /// `LayoutFlexWrap` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexWrap as LayoutFlexWrap;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexWrap as LayoutFlexWrap;
     /// `LayoutOverflow` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutOverflow as LayoutOverflow;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutOverflow as LayoutOverflow;
     /// `PercentageValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzPercentageValue as PercentageValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzPercentageValue as PercentageValue;
     /// `AngleMetric` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAngleMetric as AngleMetric;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAngleMetric as AngleMetric;
     /// `AngleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAngleValue as AngleValue;
+    #[cfg(not(feature = "link-static"))]
     impl AngleValue {
 
         /// Calls the `AngleValue::get_degrees` function.
@@ -14190,386 +14190,386 @@ pub mod css {
 
     /// `NormalizedLinearColorStop` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStop as NormalizedLinearColorStop;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStop as NormalizedLinearColorStop;
     /// `NormalizedRadialColorStop` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStop as NormalizedRadialColorStop;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStop as NormalizedRadialColorStop;
     /// `DirectionCorner` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDirectionCorner as DirectionCorner;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDirectionCorner as DirectionCorner;
     /// `DirectionCorners` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDirectionCorners as DirectionCorners;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDirectionCorners as DirectionCorners;
     /// `Direction` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDirection as Direction;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDirection as Direction;
     /// `ExtendMode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzExtendMode as ExtendMode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzExtendMode as ExtendMode;
     /// `LinearGradient` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLinearGradient as LinearGradient;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLinearGradient as LinearGradient;
     /// `Shape` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzShape as Shape;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzShape as Shape;
     /// `RadialGradientSize` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRadialGradientSize as RadialGradientSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRadialGradientSize as RadialGradientSize;
     /// `RadialGradient` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRadialGradient as RadialGradient;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRadialGradient as RadialGradient;
     /// `ConicGradient` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzConicGradient as ConicGradient;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzConicGradient as ConicGradient;
     /// `StyleBackgroundContent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
     /// `BackgroundPositionHorizontal` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
     /// `BackgroundPositionVertical` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
     /// `StyleBackgroundPosition` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
     /// `StyleBackgroundRepeat` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
     /// `StyleBackgroundSize` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
     /// `StyleBorderBottomColor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
     /// `StyleBorderBottomLeftRadius` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
     /// `StyleBorderBottomRightRadius` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
     /// `BorderStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzBorderStyle as BorderStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzBorderStyle as BorderStyle;
     /// `StyleBorderBottomStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
     /// `LayoutBorderBottomWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidth as LayoutBorderBottomWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidth as LayoutBorderBottomWidth;
     /// `StyleBorderLeftColor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
     /// `StyleBorderLeftStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
     /// `LayoutBorderLeftWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidth as LayoutBorderLeftWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidth as LayoutBorderLeftWidth;
     /// `StyleBorderRightColor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
     /// `StyleBorderRightStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
     /// `LayoutBorderRightWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidth as LayoutBorderRightWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidth as LayoutBorderRightWidth;
     /// `StyleBorderTopColor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
     /// `StyleBorderTopLeftRadius` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
     /// `StyleBorderTopRightRadius` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
     /// `StyleBorderTopStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
     /// `LayoutBorderTopWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidth as LayoutBorderTopWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidth as LayoutBorderTopWidth;
     /// `ScrollbarInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzScrollbarInfo as ScrollbarInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzScrollbarInfo as ScrollbarInfo;
     /// `ScrollbarStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzScrollbarStyle as ScrollbarStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzScrollbarStyle as ScrollbarStyle;
     /// `StyleCursor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleCursor as StyleCursor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleCursor as StyleCursor;
     /// `StyleFontFamily` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
     /// `StyleFontSize` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontSize as StyleFontSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontSize as StyleFontSize;
     /// `StyleLetterSpacing` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
     /// `StyleLineHeight` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
     /// `StyleTabWidth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
     /// `StyleOpacity` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleOpacity as StyleOpacity;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleOpacity as StyleOpacity;
     /// `StyleTransformOrigin` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformOrigin as StyleTransformOrigin;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformOrigin as StyleTransformOrigin;
     /// `StylePerspectiveOrigin` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStylePerspectiveOrigin as StylePerspectiveOrigin;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStylePerspectiveOrigin as StylePerspectiveOrigin;
     /// `StyleBackfaceVisibility` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibility as StyleBackfaceVisibility;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibility as StyleBackfaceVisibility;
     /// `StyleTransform` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransform as StyleTransform;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransform as StyleTransform;
     /// `StyleTransformMatrix2D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformMatrix2D as StyleTransformMatrix2D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformMatrix2D as StyleTransformMatrix2D;
     /// `StyleTransformMatrix3D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformMatrix3D as StyleTransformMatrix3D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformMatrix3D as StyleTransformMatrix3D;
     /// `StyleTransformTranslate2D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformTranslate2D as StyleTransformTranslate2D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformTranslate2D as StyleTransformTranslate2D;
     /// `StyleTransformTranslate3D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformTranslate3D as StyleTransformTranslate3D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformTranslate3D as StyleTransformTranslate3D;
     /// `StyleTransformRotate3D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformRotate3D as StyleTransformRotate3D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformRotate3D as StyleTransformRotate3D;
     /// `StyleTransformScale2D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformScale2D as StyleTransformScale2D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformScale2D as StyleTransformScale2D;
     /// `StyleTransformScale3D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformScale3D as StyleTransformScale3D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformScale3D as StyleTransformScale3D;
     /// `StyleTransformSkew2D` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformSkew2D as StyleTransformSkew2D;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformSkew2D as StyleTransformSkew2D;
     /// `StyleTextAlign` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTextAlign as StyleTextAlign;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTextAlign as StyleTextAlign;
     /// `StyleTextColor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTextColor as StyleTextColor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTextColor as StyleTextColor;
     /// `StyleWordSpacing` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
     /// `StyleBoxShadowValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBoxShadowValue as StyleBoxShadowValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBoxShadowValue as StyleBoxShadowValue;
     /// `LayoutAlignContentValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
     /// `LayoutAlignItemsValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
     /// `LayoutBottomValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
     /// `LayoutBoxSizingValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
     /// `LayoutFlexDirectionValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexDirectionValue as LayoutFlexDirectionValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexDirectionValue as LayoutFlexDirectionValue;
     /// `LayoutDisplayValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
     /// `LayoutFlexGrowValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
     /// `LayoutFlexShrinkValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
     /// `LayoutFloatValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
     /// `LayoutHeightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
     /// `LayoutJustifyContentValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
     /// `LayoutLeftValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
     /// `LayoutMarginBottomValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
     /// `LayoutMarginLeftValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
     /// `LayoutMarginRightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
     /// `LayoutMarginTopValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
     /// `LayoutMaxHeightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
     /// `LayoutMaxWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
     /// `LayoutMinHeightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
     /// `LayoutMinWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
     /// `LayoutPaddingBottomValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
     /// `LayoutPaddingLeftValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
     /// `LayoutPaddingRightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
     /// `LayoutPaddingTopValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
     /// `LayoutPositionValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
     /// `LayoutRightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
     /// `LayoutTopValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
     /// `LayoutWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
     /// `LayoutFlexWrapValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexWrapValue as LayoutFlexWrapValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutFlexWrapValue as LayoutFlexWrapValue;
     /// `LayoutOverflowValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutOverflowValue as LayoutOverflowValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutOverflowValue as LayoutOverflowValue;
     /// `ScrollbarStyleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzScrollbarStyleValue as ScrollbarStyleValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzScrollbarStyleValue as ScrollbarStyleValue;
     /// `StyleBackgroundContentVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecValue as StyleBackgroundContentVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecValue as StyleBackgroundContentVecValue;
     /// `StyleBackgroundPositionVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecValue as StyleBackgroundPositionVecValue;
     /// `StyleBackgroundRepeatVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecValue as StyleBackgroundRepeatVecValue;
     /// `StyleBackgroundSizeVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecValue as StyleBackgroundSizeVecValue;
     /// `StyleBorderBottomColorValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
     /// `StyleBorderBottomLeftRadiusValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
     /// `StyleBorderBottomRightRadiusValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
     /// `StyleBorderBottomStyleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
     /// `LayoutBorderBottomWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidthValue as LayoutBorderBottomWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderBottomWidthValue as LayoutBorderBottomWidthValue;
     /// `StyleBorderLeftColorValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
     /// `StyleBorderLeftStyleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
     /// `LayoutBorderLeftWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidthValue as LayoutBorderLeftWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderLeftWidthValue as LayoutBorderLeftWidthValue;
     /// `StyleBorderRightColorValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
     /// `StyleBorderRightStyleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
     /// `LayoutBorderRightWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidthValue as LayoutBorderRightWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderRightWidthValue as LayoutBorderRightWidthValue;
     /// `StyleBorderTopColorValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
     /// `StyleBorderTopLeftRadiusValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
     /// `StyleBorderTopRightRadiusValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
     /// `StyleBorderTopStyleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
     /// `LayoutBorderTopWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidthValue as LayoutBorderTopWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLayoutBorderTopWidthValue as LayoutBorderTopWidthValue;
     /// `StyleCursorValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
     /// `StyleFontFamilyVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecValue as StyleFontFamilyVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecValue as StyleFontFamilyVecValue;
     /// `StyleFontSizeValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
     /// `StyleLetterSpacingValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
     /// `StyleLineHeightValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
     /// `StyleTabWidthValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
     /// `StyleTextAlignValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTextAlignValue as StyleTextAlignValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTextAlignValue as StyleTextAlignValue;
     /// `StyleTextColorValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
     /// `StyleWordSpacingValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
     /// `StyleOpacityValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleOpacityValue as StyleOpacityValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleOpacityValue as StyleOpacityValue;
     /// `StyleTransformVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVecValue as StyleTransformVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVecValue as StyleTransformVecValue;
     /// `StyleTransformOriginValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformOriginValue as StyleTransformOriginValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformOriginValue as StyleTransformOriginValue;
     /// `StylePerspectiveOriginValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStylePerspectiveOriginValue as StylePerspectiveOriginValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStylePerspectiveOriginValue as StylePerspectiveOriginValue;
     /// `StyleBackfaceVisibilityValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;
     /// `StyleMixBlendModeValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleMixBlendModeValue as StyleMixBlendModeValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleMixBlendModeValue as StyleMixBlendModeValue;
     /// `StyleFilterVecValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecValue as StyleFilterVecValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecValue as StyleFilterVecValue;
     /// Parsed CSS key-value pair
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssProperty as CssProperty;
+    #[cfg(not(feature = "link-static"))]
     impl CssProperty {
 
         /// Returns the key of the CSS property as a string, i.e. `background`
@@ -14587,287 +14587,287 @@ pub mod css {
 pub mod widgets {
     #![allow(dead_code, unused_imports)]
     //! Default, built-in widgets (button, label, textinput, etc.)
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRibbon as Ribbon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRibbonOnTabClickedCallback as RibbonOnTabClickedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRibbonOnTabClickedCallbackType as RibbonOnTabClickedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzButton as Button;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzButtonOnClick as ButtonOnClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileInput as FileInput;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileInputStateWrapper as FileInputStateWrapper;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileInputState as FileInputState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileInputOnPathChange as FileInputOnPathChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileInputOnPathChangeCallback as FileInputOnPathChangeCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileInputOnPathChangeCallbackType as FileInputOnPathChangeCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckBox as CheckBox;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckBoxStateWrapper as CheckBoxStateWrapper;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckBoxOnToggle as CheckBoxOnToggle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckBoxOnToggleCallback as CheckBoxOnToggleCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckBoxOnToggleCallbackType as CheckBoxOnToggleCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckBoxState as CheckBoxState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLabel as Label;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorInput as ColorInput;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorInputStateWrapper as ColorInputStateWrapper;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorInputState as ColorInputState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorInputOnValueChange as ColorInputOnValueChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorInputOnValueChangeCallback as ColorInputOnValueChangeCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorInputOnValueChangeCallbackType as ColorInputOnValueChangeCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInput as TextInput;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputStateWrapper as TextInputStateWrapper;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputState as TextInputState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputSelection as TextInputSelection;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputSelectionRange as TextInputSelectionRange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnTextInput as TextInputOnTextInput;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnTextInputCallback as TextInputOnTextInputCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnTextInputCallbackType as TextInputOnTextInputCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnVirtualKeyDown as TextInputOnVirtualKeyDown;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnVirtualKeyDownCallback as TextInputOnVirtualKeyDownCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnVirtualKeyDownCallbackType as TextInputOnVirtualKeyDownCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnFocusLost as TextInputOnFocusLost;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnFocusLostCallback as TextInputOnFocusLostCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputOnFocusLostCallbackType as TextInputOnFocusLostCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOnTextInputReturn as OnTextInputReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextInputValid as TextInputValid;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInput as NumberInput;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputStateWrapper as NumberInputStateWrapper;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputState as NumberInputState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputOnValueChange as NumberInputOnValueChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputOnValueChangeCallback as NumberInputOnValueChangeCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputOnValueChangeCallbackType as NumberInputOnValueChangeCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputOnFocusLost as NumberInputOnFocusLost;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputOnFocusLostCallback as NumberInputOnFocusLostCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNumberInputOnFocusLostCallbackType as NumberInputOnFocusLostCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzProgressBar as ProgressBar;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzProgressBarState as ProgressBarState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabHeader as TabHeader;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabHeaderState as TabHeaderState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabContent as TabContent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabOnClick as TabOnClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabOnClickCallback as TabOnClickCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTabOnClickCallbackType as TabOnClickCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFrame as Frame;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraph as NodeGraph;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeIdInfoMap as NodeTypeIdInfoMap;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdInfoMap as InputOutputTypeIdInfoMap;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdNodeMap as NodeIdNodeMap;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphStyle as NodeGraphStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphCallbacks as NodeGraphCallbacks;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeAddedCallbackType as NodeGraphOnNodeAddedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeAddedCallback as NodeGraphOnNodeAddedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeAdded as NodeGraphOnNodeAdded;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeRemovedCallbackType as NodeGraphOnNodeRemovedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeRemovedCallback as NodeGraphOnNodeRemovedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeRemoved as NodeGraphOnNodeRemoved;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeGraphDraggedCallbackType as NodeGraphOnNodeGraphDraggedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeGraphDraggedCallback as NodeGraphOnNodeGraphDraggedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeGraphDragged as NodeGraphOnNodeGraphDragged;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeDraggedCallbackType as NodeGraphOnNodeDraggedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeDraggedCallback as NodeGraphOnNodeDraggedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeDragged as NodeGraphOnNodeDragged;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeConnectedCallbackType as NodeGraphOnNodeConnectedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeConnectedCallback as NodeGraphOnNodeConnectedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeConnected as NodeGraphOnNodeConnected;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeInputDisconnectedCallbackType as NodeGraphOnNodeInputDisconnectedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeInputDisconnectedCallback as NodeGraphOnNodeInputDisconnectedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeInputDisconnected as NodeGraphOnNodeInputDisconnected;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeOutputDisconnectedCallbackType as NodeGraphOnNodeOutputDisconnectedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeOutputDisconnectedCallback as NodeGraphOnNodeOutputDisconnectedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeOutputDisconnected as NodeGraphOnNodeOutputDisconnected;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeFieldEditedCallbackType as NodeGraphOnNodeFieldEditedCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeFieldEditedCallback as NodeGraphOnNodeFieldEditedCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphOnNodeFieldEdited as NodeGraphOnNodeFieldEdited;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeId as InputOutputTypeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeId as NodeTypeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeGraphNodeId as NodeGraphNodeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNode as Node;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeField as NodeTypeField;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeFieldValue as NodeTypeFieldValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputConnection as InputConnection;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputNodeAndIndex as OutputNodeAndIndex;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputConnection as OutputConnection;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputNodeAndIndex as InputNodeAndIndex;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeInfo as NodeTypeInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputInfo as InputOutputInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodePosition as NodePosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGraphDragAmount as GraphDragAmount;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDragAmount as NodeDragAmount;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListView as ListView;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewRow as ListViewRow;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewState as ListViewState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnLazyLoadScrollCallbackType as ListViewOnLazyLoadScrollCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnLazyLoadScrollCallback as ListViewOnLazyLoadScrollCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnLazyLoadScroll as ListViewOnLazyLoadScroll;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnColumnClickCallbackType as ListViewOnColumnClickCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnColumnClickCallback as ListViewOnColumnClickCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnColumnClick as ListViewOnColumnClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnRowClickCallbackType as ListViewOnRowClickCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnRowClickCallback as ListViewOnRowClickCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewOnRowClick as ListViewOnRowClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTreeView as TreeView;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDropDown as DropDown;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDropDownOnChoiceChangeCallbackType as DropDownOnChoiceChangeCallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDropDownOnChoiceChangeCallback as DropDownOnChoiceChangeCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDropDownOnChoiceChange as DropDownOnChoiceChange;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::{CallbackType, RefAny};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCallbackType as CallbackType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefAny as RefAny;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::option::OptionString;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzOptionString as OptionString;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::css::{ColorU, PixelValue};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzColorU as ColorU;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzPixelValue as PixelValue;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::vec::{ListViewRowVec, NodeDataInlineCssPropertyVec, StringVec, StyleBackgroundContentVec};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzListViewRowVec as ListViewRowVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzStringVec as StringVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzStyleBackgroundContentVec as StyleBackgroundContentVec;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dom::Dom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzDom as Dom;
     /// `Ribbon` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRibbon as Ribbon;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRibbon as Ribbon;
+    #[cfg(not(feature = "link-static"))]
     impl Ribbon {
 
         /// Calls the `Ribbon::dom` function.
@@ -14876,14 +14876,14 @@ pub mod widgets {
 
     /// `RibbonOnTabClickedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRibbonOnTabClickedCallback as RibbonOnTabClickedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRibbonOnTabClickedCallback as RibbonOnTabClickedCallback;
     /// `RibbonOnTabClickedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRibbonOnTabClickedCallbackType as RibbonOnTabClickedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRibbonOnTabClickedCallbackType as RibbonOnTabClickedCallbackType;
     /// `Button` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzButton as Button;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzButton as Button;
+    #[cfg(not(feature = "link-static"))]
     impl Button {
 
         /// Creates a new labeled button
@@ -14898,11 +14898,11 @@ pub mod widgets {
 
     /// `ButtonOnClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzButtonOnClick as ButtonOnClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzButtonOnClick as ButtonOnClick;
     /// `FileInput` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileInput as FileInput;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileInput as FileInput;
+    #[cfg(not(feature = "link-static"))]
     impl FileInput {
 
         /// Creates a new file input button
@@ -14921,23 +14921,23 @@ pub mod widgets {
 
     /// `FileInputStateWrapper` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileInputStateWrapper as FileInputStateWrapper;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileInputStateWrapper as FileInputStateWrapper;
     /// `FileInputState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileInputState as FileInputState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileInputState as FileInputState;
     /// `FileInputOnPathChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileInputOnPathChange as FileInputOnPathChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileInputOnPathChange as FileInputOnPathChange;
     /// `FileInputOnPathChangeCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileInputOnPathChangeCallback as FileInputOnPathChangeCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileInputOnPathChangeCallback as FileInputOnPathChangeCallback;
     /// `FileInputOnPathChangeCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileInputOnPathChangeCallbackType as FileInputOnPathChangeCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileInputOnPathChangeCallbackType as FileInputOnPathChangeCallbackType;
     /// `CheckBox` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckBox as CheckBox;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckBox as CheckBox;
+    #[cfg(not(feature = "link-static"))]
     impl CheckBox {
 
         /// Creates a new checkbox, disabled or enabled
@@ -14952,23 +14952,23 @@ pub mod widgets {
 
     /// `CheckBoxStateWrapper` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxStateWrapper as CheckBoxStateWrapper;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxStateWrapper as CheckBoxStateWrapper;
     /// `CheckBoxOnToggle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxOnToggle as CheckBoxOnToggle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxOnToggle as CheckBoxOnToggle;
     /// `CheckBoxOnToggleCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxOnToggleCallback as CheckBoxOnToggleCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxOnToggleCallback as CheckBoxOnToggleCallback;
     /// `CheckBoxOnToggleCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxOnToggleCallbackType as CheckBoxOnToggleCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxOnToggleCallbackType as CheckBoxOnToggleCallbackType;
     /// `CheckBoxState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxState as CheckBoxState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckBoxState as CheckBoxState;
     /// `Label` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLabel as Label;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLabel as Label;
+    #[cfg(not(feature = "link-static"))]
     impl Label {
 
         /// Creates a new `Label` instance.
@@ -14979,8 +14979,8 @@ pub mod widgets {
 
     /// `ColorInput` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorInput as ColorInput;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorInput as ColorInput;
+    #[cfg(not(feature = "link-static"))]
     impl ColorInput {
 
         /// Creates a new `ColorInput` instance.
@@ -14995,23 +14995,23 @@ pub mod widgets {
 
     /// `ColorInputStateWrapper` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorInputStateWrapper as ColorInputStateWrapper;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorInputStateWrapper as ColorInputStateWrapper;
     /// `ColorInputState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorInputState as ColorInputState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorInputState as ColorInputState;
     /// `ColorInputOnValueChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorInputOnValueChange as ColorInputOnValueChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorInputOnValueChange as ColorInputOnValueChange;
     /// `ColorInputOnValueChangeCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorInputOnValueChangeCallback as ColorInputOnValueChangeCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorInputOnValueChangeCallback as ColorInputOnValueChangeCallback;
     /// `ColorInputOnValueChangeCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorInputOnValueChangeCallbackType as ColorInputOnValueChangeCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorInputOnValueChangeCallbackType as ColorInputOnValueChangeCallbackType;
     /// `TextInput` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInput as TextInput;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInput as TextInput;
+    #[cfg(not(feature = "link-static"))]
     impl TextInput {
 
         /// Creates a new `TextInput` instance.
@@ -15054,11 +15054,11 @@ pub mod widgets {
 
     /// `TextInputStateWrapper` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputStateWrapper as TextInputStateWrapper;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputStateWrapper as TextInputStateWrapper;
     /// `TextInputState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputState as TextInputState;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputState as TextInputState;
+    #[cfg(not(feature = "link-static"))]
     impl TextInputState {
 
         /// Calls the `TextInputState::get_text` function.
@@ -15067,47 +15067,47 @@ pub mod widgets {
 
     /// `TextInputSelection` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputSelection as TextInputSelection;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputSelection as TextInputSelection;
     /// `TextInputSelectionRange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputSelectionRange as TextInputSelectionRange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputSelectionRange as TextInputSelectionRange;
     /// `TextInputOnTextInput` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnTextInput as TextInputOnTextInput;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnTextInput as TextInputOnTextInput;
     /// `TextInputOnTextInputCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnTextInputCallback as TextInputOnTextInputCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnTextInputCallback as TextInputOnTextInputCallback;
     /// `TextInputOnTextInputCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnTextInputCallbackType as TextInputOnTextInputCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnTextInputCallbackType as TextInputOnTextInputCallbackType;
     /// `TextInputOnVirtualKeyDown` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDown as TextInputOnVirtualKeyDown;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDown as TextInputOnVirtualKeyDown;
     /// `TextInputOnVirtualKeyDownCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDownCallback as TextInputOnVirtualKeyDownCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDownCallback as TextInputOnVirtualKeyDownCallback;
     /// `TextInputOnVirtualKeyDownCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDownCallbackType as TextInputOnVirtualKeyDownCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnVirtualKeyDownCallbackType as TextInputOnVirtualKeyDownCallbackType;
     /// `TextInputOnFocusLost` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnFocusLost as TextInputOnFocusLost;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnFocusLost as TextInputOnFocusLost;
     /// `TextInputOnFocusLostCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnFocusLostCallback as TextInputOnFocusLostCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnFocusLostCallback as TextInputOnFocusLostCallback;
     /// `TextInputOnFocusLostCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnFocusLostCallbackType as TextInputOnFocusLostCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputOnFocusLostCallbackType as TextInputOnFocusLostCallbackType;
     /// `OnTextInputReturn` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOnTextInputReturn as OnTextInputReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOnTextInputReturn as OnTextInputReturn;
     /// `TextInputValid` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextInputValid as TextInputValid;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextInputValid as TextInputValid;
     /// `NumberInput` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInput as NumberInput;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInput as NumberInput;
+    #[cfg(not(feature = "link-static"))]
     impl NumberInput {
 
         /// Creates a new `NumberInput` instance.
@@ -15146,32 +15146,32 @@ pub mod widgets {
 
     /// `NumberInputStateWrapper` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputStateWrapper as NumberInputStateWrapper;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputStateWrapper as NumberInputStateWrapper;
     /// `NumberInputState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputState as NumberInputState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputState as NumberInputState;
     /// `NumberInputOnValueChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChange as NumberInputOnValueChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChange as NumberInputOnValueChange;
     /// `NumberInputOnValueChangeCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallback as NumberInputOnValueChangeCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallback as NumberInputOnValueChangeCallback;
     /// `NumberInputOnValueChangeCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallbackType as NumberInputOnValueChangeCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnValueChangeCallbackType as NumberInputOnValueChangeCallbackType;
     /// `NumberInputOnFocusLost` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLost as NumberInputOnFocusLost;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLost as NumberInputOnFocusLost;
     /// `NumberInputOnFocusLostCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLostCallback as NumberInputOnFocusLostCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLostCallback as NumberInputOnFocusLostCallback;
     /// `NumberInputOnFocusLostCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLostCallbackType as NumberInputOnFocusLostCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNumberInputOnFocusLostCallbackType as NumberInputOnFocusLostCallbackType;
     /// `ProgressBar` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzProgressBar as ProgressBar;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzProgressBar as ProgressBar;
+    #[cfg(not(feature = "link-static"))]
     impl ProgressBar {
 
         /// Creates a new `ProgressBar` instance.
@@ -15194,11 +15194,11 @@ pub mod widgets {
 
     /// `ProgressBarState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzProgressBarState as ProgressBarState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzProgressBarState as ProgressBarState;
     /// `TabHeader` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabHeader as TabHeader;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabHeader as TabHeader;
+    #[cfg(not(feature = "link-static"))]
     impl TabHeader {
 
         /// Creates a new `TabHeader` instance.
@@ -15217,11 +15217,11 @@ pub mod widgets {
 
     /// `TabHeaderState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabHeaderState as TabHeaderState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabHeaderState as TabHeaderState;
     /// `TabContent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabContent as TabContent;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabContent as TabContent;
+    #[cfg(not(feature = "link-static"))]
     impl TabContent {
 
         /// Creates a new `TabContent` instance.
@@ -15236,17 +15236,17 @@ pub mod widgets {
 
     /// `TabOnClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabOnClick as TabOnClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabOnClick as TabOnClick;
     /// `TabOnClickCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabOnClickCallback as TabOnClickCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabOnClickCallback as TabOnClickCallback;
     /// `TabOnClickCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTabOnClickCallbackType as TabOnClickCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTabOnClickCallbackType as TabOnClickCallbackType;
     /// `Frame` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFrame as Frame;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFrame as Frame;
+    #[cfg(not(feature = "link-static"))]
     impl Frame {
 
         /// Creates a new `Frame` instance.
@@ -15261,8 +15261,8 @@ pub mod widgets {
 
     /// `NodeGraph` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraph as NodeGraph;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraph as NodeGraph;
+    #[cfg(not(feature = "link-static"))]
     impl NodeGraph {
 
         /// Calls the `NodeGraph::dom` function.
@@ -15271,140 +15271,140 @@ pub mod widgets {
 
     /// `NodeTypeIdInfoMap` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMap as NodeTypeIdInfoMap;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMap as NodeTypeIdInfoMap;
     /// `InputOutputTypeIdInfoMap` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMap as InputOutputTypeIdInfoMap;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMap as InputOutputTypeIdInfoMap;
     /// `NodeIdNodeMap` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMap as NodeIdNodeMap;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMap as NodeIdNodeMap;
     /// `NodeGraphStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphStyle as NodeGraphStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphStyle as NodeGraphStyle;
     /// `NodeGraphCallbacks` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphCallbacks as NodeGraphCallbacks;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphCallbacks as NodeGraphCallbacks;
     /// `NodeGraphOnNodeAddedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAddedCallbackType as NodeGraphOnNodeAddedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAddedCallbackType as NodeGraphOnNodeAddedCallbackType;
     /// `NodeGraphOnNodeAddedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAddedCallback as NodeGraphOnNodeAddedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAddedCallback as NodeGraphOnNodeAddedCallback;
     /// `NodeGraphOnNodeAdded` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAdded as NodeGraphOnNodeAdded;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeAdded as NodeGraphOnNodeAdded;
     /// `NodeGraphOnNodeRemovedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemovedCallbackType as NodeGraphOnNodeRemovedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemovedCallbackType as NodeGraphOnNodeRemovedCallbackType;
     /// `NodeGraphOnNodeRemovedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemovedCallback as NodeGraphOnNodeRemovedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemovedCallback as NodeGraphOnNodeRemovedCallback;
     /// `NodeGraphOnNodeRemoved` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemoved as NodeGraphOnNodeRemoved;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeRemoved as NodeGraphOnNodeRemoved;
     /// `NodeGraphOnNodeGraphDraggedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDraggedCallbackType as NodeGraphOnNodeGraphDraggedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDraggedCallbackType as NodeGraphOnNodeGraphDraggedCallbackType;
     /// `NodeGraphOnNodeGraphDraggedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDraggedCallback as NodeGraphOnNodeGraphDraggedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDraggedCallback as NodeGraphOnNodeGraphDraggedCallback;
     /// `NodeGraphOnNodeGraphDragged` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDragged as NodeGraphOnNodeGraphDragged;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeGraphDragged as NodeGraphOnNodeGraphDragged;
     /// `NodeGraphOnNodeDraggedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDraggedCallbackType as NodeGraphOnNodeDraggedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDraggedCallbackType as NodeGraphOnNodeDraggedCallbackType;
     /// `NodeGraphOnNodeDraggedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDraggedCallback as NodeGraphOnNodeDraggedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDraggedCallback as NodeGraphOnNodeDraggedCallback;
     /// `NodeGraphOnNodeDragged` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDragged as NodeGraphOnNodeDragged;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeDragged as NodeGraphOnNodeDragged;
     /// `NodeGraphOnNodeConnectedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnectedCallbackType as NodeGraphOnNodeConnectedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnectedCallbackType as NodeGraphOnNodeConnectedCallbackType;
     /// `NodeGraphOnNodeConnectedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnectedCallback as NodeGraphOnNodeConnectedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnectedCallback as NodeGraphOnNodeConnectedCallback;
     /// `NodeGraphOnNodeConnected` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnected as NodeGraphOnNodeConnected;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeConnected as NodeGraphOnNodeConnected;
     /// `NodeGraphOnNodeInputDisconnectedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnectedCallbackType as NodeGraphOnNodeInputDisconnectedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnectedCallbackType as NodeGraphOnNodeInputDisconnectedCallbackType;
     /// `NodeGraphOnNodeInputDisconnectedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnectedCallback as NodeGraphOnNodeInputDisconnectedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnectedCallback as NodeGraphOnNodeInputDisconnectedCallback;
     /// `NodeGraphOnNodeInputDisconnected` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnected as NodeGraphOnNodeInputDisconnected;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeInputDisconnected as NodeGraphOnNodeInputDisconnected;
     /// `NodeGraphOnNodeOutputDisconnectedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnectedCallbackType as NodeGraphOnNodeOutputDisconnectedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnectedCallbackType as NodeGraphOnNodeOutputDisconnectedCallbackType;
     /// `NodeGraphOnNodeOutputDisconnectedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnectedCallback as NodeGraphOnNodeOutputDisconnectedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnectedCallback as NodeGraphOnNodeOutputDisconnectedCallback;
     /// `NodeGraphOnNodeOutputDisconnected` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnected as NodeGraphOnNodeOutputDisconnected;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeOutputDisconnected as NodeGraphOnNodeOutputDisconnected;
     /// `NodeGraphOnNodeFieldEditedCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEditedCallbackType as NodeGraphOnNodeFieldEditedCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEditedCallbackType as NodeGraphOnNodeFieldEditedCallbackType;
     /// `NodeGraphOnNodeFieldEditedCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEditedCallback as NodeGraphOnNodeFieldEditedCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEditedCallback as NodeGraphOnNodeFieldEditedCallback;
     /// `NodeGraphOnNodeFieldEdited` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEdited as NodeGraphOnNodeFieldEdited;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphOnNodeFieldEdited as NodeGraphOnNodeFieldEdited;
     /// `InputOutputTypeId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeId as InputOutputTypeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeId as InputOutputTypeId;
     /// `NodeTypeId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeId as NodeTypeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeId as NodeTypeId;
     /// `NodeGraphNodeId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphNodeId as NodeGraphNodeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeGraphNodeId as NodeGraphNodeId;
     /// `Node` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNode as Node;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNode as Node;
     /// `NodeTypeField` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeField as NodeTypeField;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeField as NodeTypeField;
     /// `NodeTypeFieldValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldValue as NodeTypeFieldValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldValue as NodeTypeFieldValue;
     /// `InputConnection` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputConnection as InputConnection;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputConnection as InputConnection;
     /// `OutputNodeAndIndex` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndex as OutputNodeAndIndex;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndex as OutputNodeAndIndex;
     /// `OutputConnection` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputConnection as OutputConnection;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputConnection as OutputConnection;
     /// `InputNodeAndIndex` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndex as InputNodeAndIndex;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndex as InputNodeAndIndex;
     /// `NodeTypeInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeInfo as NodeTypeInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeInfo as NodeTypeInfo;
     /// `InputOutputInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputInfo as InputOutputInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputInfo as InputOutputInfo;
     /// `NodePosition` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodePosition as NodePosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodePosition as NodePosition;
     /// `GraphDragAmount` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGraphDragAmount as GraphDragAmount;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGraphDragAmount as GraphDragAmount;
     /// `NodeDragAmount` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDragAmount as NodeDragAmount;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDragAmount as NodeDragAmount;
     /// `ListView` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListView as ListView;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListView as ListView;
+    #[cfg(not(feature = "link-static"))]
     impl ListView {
 
         /// Creates a new `ListView` instance.
@@ -15417,41 +15417,41 @@ pub mod widgets {
 
     /// `ListViewRow` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRow as ListViewRow;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewRow as ListViewRow;
     /// `ListViewState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewState as ListViewState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewState as ListViewState;
     /// `ListViewOnLazyLoadScrollCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScrollCallbackType as ListViewOnLazyLoadScrollCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScrollCallbackType as ListViewOnLazyLoadScrollCallbackType;
     /// `ListViewOnLazyLoadScrollCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScrollCallback as ListViewOnLazyLoadScrollCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScrollCallback as ListViewOnLazyLoadScrollCallback;
     /// `ListViewOnLazyLoadScroll` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScroll as ListViewOnLazyLoadScroll;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnLazyLoadScroll as ListViewOnLazyLoadScroll;
     /// `ListViewOnColumnClickCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClickCallbackType as ListViewOnColumnClickCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClickCallbackType as ListViewOnColumnClickCallbackType;
     /// `ListViewOnColumnClickCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClickCallback as ListViewOnColumnClickCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClickCallback as ListViewOnColumnClickCallback;
     /// `ListViewOnColumnClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClick as ListViewOnColumnClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnColumnClick as ListViewOnColumnClick;
     /// `ListViewOnRowClickCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClickCallbackType as ListViewOnRowClickCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClickCallbackType as ListViewOnRowClickCallbackType;
     /// `ListViewOnRowClickCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClickCallback as ListViewOnRowClickCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClickCallback as ListViewOnRowClickCallback;
     /// `ListViewOnRowClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClick as ListViewOnRowClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewOnRowClick as ListViewOnRowClick;
     /// `TreeView` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTreeView as TreeView;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTreeView as TreeView;
+    #[cfg(not(feature = "link-static"))]
     impl TreeView {
 
         /// Creates a new `TreeView` instance.
@@ -15462,8 +15462,8 @@ pub mod widgets {
 
     /// `DropDown` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDropDown as DropDown;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDropDown as DropDown;
+    #[cfg(not(feature = "link-static"))]
     impl DropDown {
 
         /// Creates a new `DropDown` instance.
@@ -15474,90 +15474,90 @@ pub mod widgets {
 
     /// `DropDownOnChoiceChangeCallbackType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChangeCallbackType as DropDownOnChoiceChangeCallbackType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChangeCallbackType as DropDownOnChoiceChangeCallbackType;
     /// `DropDownOnChoiceChangeCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChangeCallback as DropDownOnChoiceChangeCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChangeCallback as DropDownOnChoiceChangeCallback;
     /// `DropDownOnChoiceChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChange as DropDownOnChoiceChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDropDownOnChoiceChange as DropDownOnChoiceChange;
 }
 
 pub mod style {
     #![allow(dead_code, unused_imports)]
     //! DOM to CSS cascading and styling module
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeHierarchyItem as NodeHierarchyItem;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCascadeInfo as CascadeInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPropertySource as CssPropertySource;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyledNodeState as StyledNodeState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyledNode as StyledNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTagId as TagId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTagIdToNodeIdMapping as TagIdToNodeIdMapping;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzParentWithNodeDepth as ParentWithNodeDepth;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPropertyCache as CssPropertyCache;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyledDom as StyledDom;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dom::Dom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzDom as Dom;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::css::Css;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzCss as Css;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::menu::Menu;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzMenu as Menu;
     /// `NodeHierarchyItem` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItem as NodeHierarchyItem;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItem as NodeHierarchyItem;
     /// `CascadeInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfo as CascadeInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfo as CascadeInfo;
     /// `CssPropertySource` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPropertySource as CssPropertySource;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPropertySource as CssPropertySource;
     /// `StyledNodeState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeState as StyledNodeState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeState as StyledNodeState;
     /// `StyledNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyledNode as StyledNode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyledNode as StyledNode;
     /// `TagId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTagId as TagId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTagId as TagId;
     /// `TagIdToNodeIdMapping` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMapping as TagIdToNodeIdMapping;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMapping as TagIdToNodeIdMapping;
     /// `ParentWithNodeDepth` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepth as ParentWithNodeDepth;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepth as ParentWithNodeDepth;
     /// `CssPropertyCache` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;
-    #[cfg(not(feature = "link_static"))] impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::AzCssPropertyCache_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for CssPropertyCache { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzCssPropertyCache_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyCache as CssPropertyCache;
+    #[cfg(not(feature = "link-static"))] impl Clone for CssPropertyCache { fn clone(&self) -> Self { unsafe { crate::dll::AzCssPropertyCache_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for CssPropertyCache { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzCssPropertyCache_delete(self) } } } }
     /// `StyledDom` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyledDom as StyledDom;
+    #[cfg(not(feature = "link-static"))]
     impl StyledDom {
 
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
@@ -15595,255 +15595,255 @@ pub mod style {
 pub mod gl {
     #![allow(dead_code, unused_imports)]
     //! OpenGl helper types (`Texture`, `Gl`, etc.)
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTexture as Texture;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGlVoidPtrConst as GlVoidPtrConst;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGlVoidPtrMut as GlVoidPtrMut;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGl as Gl;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexAttributeType as VertexAttributeType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexAttribute as VertexAttribute;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexLayout as VertexLayout;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexArrayObject as VertexArrayObject;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIndexBufferFormat as IndexBufferFormat;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexBuffer as VertexBuffer;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGlType as GlType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDebugMessage as DebugMessage;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU8VecRef as U8VecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU8VecRefMut as U8VecRefMut;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzF32VecRef as F32VecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzI32VecRef as I32VecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLuintVecRef as GLuintVecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLenumVecRef as GLenumVecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLintVecRefMut as GLintVecRefMut;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLint64VecRefMut as GLint64VecRefMut;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLfloatVecRefMut as GLfloatVecRefMut;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRefstrVecRef as RefstrVecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRefstr as Refstr;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGetActiveAttribReturn as GetActiveAttribReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLsyncPtr as GLsyncPtr;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGetActiveUniformReturn as GetActiveUniformReturn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextureFlags as TextureFlags;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Refstr {
         fn as_str(&self) -> &str { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(self.ptr, self.len)) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&str> for Refstr {
         fn from(s: &str) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl RefstrVecRef {
         fn as_slice(&self) -> &[Refstr] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&[Refstr]> for RefstrVecRef {
         fn from(s: &[Refstr]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&mut [GLint64]> for GLint64VecRefMut {
         fn from(s: &mut [GLint64]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl GLint64VecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&mut [GLfloat]> for GLfloatVecRefMut {
         fn from(s: &mut [GLfloat]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl GLfloatVecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&mut [GLint]> for GLintVecRefMut {
         fn from(s: &mut [GLint]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl GLintVecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&[GLuint]> for GLuintVecRef {
         fn from(s: &[GLuint]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl GLuintVecRef {
         fn as_slice(&self) -> &[GLuint] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&[GLenum]> for GLenumVecRef {
         fn from(s: &[GLenum]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl GLenumVecRef {
         fn as_slice(&self) -> &[GLenum] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&[u8]> for U8VecRef {
         fn from(s: &[u8]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl U8VecRef {
         fn as_slice(&self) -> &[u8] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl ::core::fmt::Debug for U8VecRef {
         fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
             self.as_slice().fmt(f)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Clone for U8VecRef {
         fn clone(&self) -> Self {
             U8VecRef::from(self.as_slice())
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialOrd for U8VecRef {
         fn partial_cmp(&self, rhs: &Self) -> Option<core::cmp::Ordering> {
             self.as_slice().partial_cmp(rhs.as_slice())
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Ord for U8VecRef {
         fn cmp(&self, rhs: &Self) -> core::cmp::Ordering {
             self.as_slice().cmp(rhs.as_slice())
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PartialEq for U8VecRef {
         fn eq(&self, rhs: &Self) -> bool {
             self.as_slice().eq(rhs.as_slice())
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl Eq for U8VecRef { }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::hash::Hash for U8VecRef {
         fn hash<H>(&self, state: &mut H) where H: core::hash::Hasher {
             self.as_slice().hash(state)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&[f32]> for F32VecRef {
         fn from(s: &[f32]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl F32VecRef {
         fn as_slice(&self) -> &[f32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&[i32]> for I32VecRef {
         fn from(s: &[i32]) -> Self {
             Self { ptr: s.as_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl I32VecRef {
         fn as_slice(&self) -> &[i32] { unsafe { core::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
         fn from(s: &mut [GLboolean]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl GLbooleanVecRefMut {
         fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&mut [u8]> for U8VecRefMut {
         fn from(s: &mut [u8]) -> Self {
             Self { ptr: s.as_mut_ptr(), len: s.len() }
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl U8VecRefMut {
         fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) } }
     }
@@ -15928,40 +15928,40 @@ pub mod gl {
 
 
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::window::PhysicalSizeU32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzPhysicalSizeU32 as PhysicalSizeU32;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::css::ColorU;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzColorU as ColorU;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::image::RawImageFormat;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRawImageFormat as RawImageFormat;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::svg::{TessellatedGPUSvgNode, TessellatedSvgNode};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzTessellatedGPUSvgNode as TessellatedGPUSvgNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzTessellatedSvgNode as TessellatedSvgNode;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::vec::{GLuintVec, StringVec, StyleTransformVec};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzGLuintVec as GLuintVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzStringVec as StringVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzStyleTransformVec as StyleTransformVec;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::option::OptionU8VecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzOptionU8VecRef as OptionU8VecRef;
     /// `Texture` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTexture as Texture;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTexture as Texture;
+    #[cfg(not(feature = "link-static"))]
     impl Texture {
 
         /// Creates a new `Texture` instance.
@@ -15980,20 +15980,20 @@ pub mod gl {
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for Texture { fn clone(&self) -> Self { unsafe { crate::dll::AzTexture_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for Texture { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzTexture_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for Texture { fn clone(&self) -> Self { unsafe { crate::dll::AzTexture_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for Texture { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzTexture_delete(self) } } } }
     /// `GlVoidPtrConst` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGlVoidPtrConst as GlVoidPtrConst;
-    #[cfg(not(feature = "link_static"))] impl Clone for GlVoidPtrConst { fn clone(&self) -> Self { unsafe { crate::dll::AzGlVoidPtrConst_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for GlVoidPtrConst { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGlVoidPtrConst_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGlVoidPtrConst as GlVoidPtrConst;
+    #[cfg(not(feature = "link-static"))] impl Clone for GlVoidPtrConst { fn clone(&self) -> Self { unsafe { crate::dll::AzGlVoidPtrConst_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for GlVoidPtrConst { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGlVoidPtrConst_delete(self) } } } }
     /// `GlVoidPtrMut` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGlVoidPtrMut as GlVoidPtrMut;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGlVoidPtrMut as GlVoidPtrMut;
     /// `Gl` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGl as Gl;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGl as Gl;
+    #[cfg(not(feature = "link-static"))]
     impl Gl {
 
         pub const ACCUM: u32 = 0x0100;
@@ -17877,107 +17877,107 @@ pub mod gl {
         pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::AzGl_flushMappedBufferRange(self, target, offset, length) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for Gl { fn clone(&self) -> Self { unsafe { crate::dll::AzGl_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for Gl { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGl_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for Gl { fn clone(&self) -> Self { unsafe { crate::dll::AzGl_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for Gl { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGl_delete(self) } } } }
     /// `GlShaderPrecisionFormatReturn` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
     /// `VertexAttributeType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
     /// `VertexAttribute` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
     /// `VertexLayout` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
     /// `VertexArrayObject` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
+    #[cfg(not(feature = "link-static"))]
     impl VertexArrayObject {
 
         /// Creates a new `VertexArrayObject` instance.
         pub fn new(vertex_layout: VertexLayout, vao_id: u32, gl_context: Gl) -> Self { unsafe { crate::dll::AzVertexArrayObject_new(vertex_layout, vao_id, gl_context) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for VertexArrayObject { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexArrayObject_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for VertexArrayObject { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzVertexArrayObject_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for VertexArrayObject { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexArrayObject_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for VertexArrayObject { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzVertexArrayObject_delete(self) } } } }
     /// `IndexBufferFormat` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
     /// `VertexBuffer` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
+    #[cfg(not(feature = "link-static"))]
     impl VertexBuffer {
 
         /// Creates a new `VertexBuffer` instance.
         pub fn new(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: VertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: IndexBufferFormat) -> Self { unsafe { crate::dll::AzVertexBuffer_new(vertex_buffer_id, vertex_buffer_len, vao, index_buffer_id, index_buffer_len, index_buffer_format) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for VertexBuffer { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexBuffer_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for VertexBuffer { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzVertexBuffer_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for VertexBuffer { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexBuffer_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for VertexBuffer { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzVertexBuffer_delete(self) } } } }
     /// `GlType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGlType as GlType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGlType as GlType;
     /// `DebugMessage` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
     /// C-ABI stable reexport of `&[u8]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
     /// C-ABI stable reexport of `&mut [u8]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
     /// C-ABI stable reexport of `&[f32]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
     /// C-ABI stable reexport of `&[i32]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
     /// C-ABI stable reexport of `&str`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
     /// C-ABI stable reexport of `(U8Vec, u32)`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
-    #[cfg(not(feature = "link_static"))] impl Clone for GLsyncPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzGLsyncPtr_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for GLsyncPtr { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGLsyncPtr_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
+    #[cfg(not(feature = "link-static"))] impl Clone for GLsyncPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzGLsyncPtr_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for GLsyncPtr { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzGLsyncPtr_delete(self) } } } }
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
     /// `TextureFlags` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;
+    #[cfg(not(feature = "link-static"))]
     impl TextureFlags {
 
         /// Default texture flags (not opaque, not a video texture)
@@ -17989,49 +17989,49 @@ pub mod gl {
 pub mod image {
     #![allow(dead_code, unused_imports)]
     //! Struct definitions for image loading
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzImageRef as ImageRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRawImage as RawImage;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzImageMask as ImageMask;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRawImageFormat as RawImageFormat;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzEncodeImageError as EncodeImageError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDecodeImageError as DecodeImageError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzRawImageData as RawImageData;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::{Texture, U8VecRef};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzTexture as Texture;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzU8VecRef as U8VecRef;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::{RefAny, RenderImageCallbackType};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefAny as RefAny;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRenderImageCallbackType as RenderImageCallbackType;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::window::LayoutSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzLayoutSize as LayoutSize;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::svg::{SvgNode, SvgStyle};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzSvgNode as SvgNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzSvgStyle as SvgStyle;
     /// `ImageRef` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzImageRef as ImageRef;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzImageRef as ImageRef;
+    #[cfg(not(feature = "link-static"))]
     impl ImageRef {
 
         /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
@@ -18058,12 +18058,12 @@ pub mod image {
         pub fn get_hash(&self)  -> u64 { unsafe { crate::dll::AzImageRef_getHash(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for ImageRef { fn clone(&self) -> Self { unsafe { crate::dll::AzImageRef_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for ImageRef { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzImageRef_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for ImageRef { fn clone(&self) -> Self { unsafe { crate::dll::AzImageRef_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for ImageRef { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzImageRef_delete(self) } } } }
     /// `RawImage` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
+    #[cfg(not(feature = "link-static"))]
     impl RawImage {
 
         /// Returns a zero-sized image
@@ -18092,50 +18092,50 @@ pub mod image {
 
     /// `ImageMask` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
     /// `RawImageFormat` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
     /// `EncodeImageError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzEncodeImageError as EncodeImageError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzEncodeImageError as EncodeImageError;
     /// `DecodeImageError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDecodeImageError as DecodeImageError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDecodeImageError as DecodeImageError;
     /// `RawImageData` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzRawImageData as RawImageData;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzRawImageData as RawImageData;
 }
 
 pub mod font {
     #![allow(dead_code, unused_imports)]
     //! Font decoding / parsing module
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzParsedFontDestructorFnType as ParsedFontDestructorFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFontMetrics as FontMetrics;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFontSource as FontSource;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFontRef as FontRef;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::Refstr;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefstr as Refstr;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::ResolvedTextLayoutOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzResolvedTextLayoutOptions as ResolvedTextLayoutOptions;
     /// `ParsedFontDestructorFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzParsedFontDestructorFnType as ParsedFontDestructorFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzParsedFontDestructorFnType as ParsedFontDestructorFnType;
     /// `FontMetrics` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFontMetrics as FontMetrics;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFontMetrics as FontMetrics;
+    #[cfg(not(feature = "link-static"))]
     impl FontMetrics {
 
         /// Returns a FontMetrics struct with all fields set to 0
@@ -18190,11 +18190,11 @@ pub mod font {
 
     /// Source data of a font file (bytes)
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
     /// Atomically reference-counted parsed font data
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFontRef as FontRef;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFontRef as FontRef;
+    #[cfg(not(feature = "link-static"))]
     impl FontRef {
 
         /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
@@ -18209,102 +18209,102 @@ pub mod font {
         pub fn get_hash(&self)  -> u64 { unsafe { crate::dll::AzFontRef_getHash(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for FontRef { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzFontRef_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for FontRef { fn clone(&self) -> Self { unsafe { crate::dll::AzFontRef_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for FontRef { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzFontRef_delete(self) } } } }
 }
 
 pub mod svg {
     #![allow(dead_code, unused_imports)]
     //! SVG parsing and rendering functions
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvg as Svg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgXmlNode as SvgXmlNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgMultiPolygon as SvgMultiPolygon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgNode as SvgNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgStyledNode as SvgStyledNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgCircle as SvgCircle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPath as SvgPath;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathElement as SvgPathElement;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPoint as SvgPoint;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgVector as SvgVector;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgLine as SvgLine;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgQuadraticCurve as SvgQuadraticCurve;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgCubicCurve as SvgCubicCurve;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgRect as SvgRect;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgVertex as SvgVertex;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTessellatedSvgNode as TessellatedSvgNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTessellatedSvgNodeVecRef as TessellatedSvgNodeVecRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTessellatedGPUSvgNode as TessellatedGPUSvgNode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgParseOptions as SvgParseOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzShapeRendering as ShapeRendering;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTextRendering as TextRendering;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzImageRendering as ImageRendering;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFontDatabase as FontDatabase;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgRenderOptions as SvgRenderOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgRenderTransform as SvgRenderTransform;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgStringFormatOptions as SvgStringFormatOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIndent as Indent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgFitTo as SvgFitTo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgStyle as SvgStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgFillRule as SvgFillRule;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgTransform as SvgTransform;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgFillStyle as SvgFillStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgStrokeStyle as SvgStrokeStyle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgLineJoin as SvgLineJoin;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgLineCap as SvgLineCap;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgDashPattern as SvgDashPattern;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::{Gl, U8VecRef};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzGl as Gl;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzU8VecRef as U8VecRef;
     /// `Svg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvg as Svg;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvg as Svg;
+    #[cfg(not(feature = "link-static"))]
     impl Svg {
 
         /// Creates a new `Svg` instance.
@@ -18319,24 +18319,24 @@ pub mod svg {
         pub fn to_string(&self, options: SvgStringFormatOptions)  -> crate::str::String { unsafe { crate::dll::AzSvg_toString(self, options) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for Svg { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSvg_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for Svg { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSvg_delete(self) } } } }
     /// `SvgXmlNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
+    #[cfg(not(feature = "link-static"))]
     impl SvgXmlNode {
 
         /// Creates a new `SvgXmlNode` instance.
         pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgXmlNodeSvgParseError { unsafe { crate::dll::AzSvgXmlNode_parseFrom(svg_bytes, parse_options) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for SvgXmlNode { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for SvgXmlNode { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSvgXmlNode_delete(self) } } } }
     /// `SvgMultiPolygon` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
+    #[cfg(not(feature = "link-static"))]
     impl SvgMultiPolygon {
 
         /// Returns the bounds of the polygon
@@ -18351,8 +18351,8 @@ pub mod svg {
 
     /// `SvgNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
+    #[cfg(not(feature = "link-static"))]
     impl SvgNode {
 
         /// Calls the `SvgNode::tessellate_fill` function.
@@ -18369,8 +18369,8 @@ pub mod svg {
 
     /// `SvgStyledNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
+    #[cfg(not(feature = "link-static"))]
     impl SvgStyledNode {
 
         /// Calls the `SvgStyledNode::tessellate` function.
@@ -18379,8 +18379,8 @@ pub mod svg {
 
     /// `SvgCircle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;
+    #[cfg(not(feature = "link-static"))]
     impl SvgCircle {
 
         /// Calls the `SvgCircle::tessellate_fill` function.
@@ -18391,8 +18391,8 @@ pub mod svg {
 
     /// `SvgPath` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
+    #[cfg(not(feature = "link-static"))]
     impl SvgPath {
 
         /// Returns whether the path is closed
@@ -18409,8 +18409,8 @@ pub mod svg {
 
     /// `SvgPathElement` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
+    #[cfg(not(feature = "link-static"))]
     impl SvgPathElement {
 
         /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
@@ -18437,8 +18437,8 @@ pub mod svg {
 
     /// `SvgPoint` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
+    #[cfg(not(feature = "link-static"))]
     impl SvgPoint {
 
         /// Returns the euclidean distance to some other point
@@ -18447,8 +18447,8 @@ pub mod svg {
 
     /// `SvgVector` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgVector as SvgVector;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgVector as SvgVector;
+    #[cfg(not(feature = "link-static"))]
     impl SvgVector {
 
         /// Returns the angle of this vector in degrees
@@ -18461,8 +18461,8 @@ pub mod svg {
 
     /// `SvgLine` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
+    #[cfg(not(feature = "link-static"))]
     impl SvgLine {
 
         /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
@@ -18489,8 +18489,8 @@ pub mod svg {
 
     /// `SvgQuadraticCurve` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
+    #[cfg(not(feature = "link-static"))]
     impl SvgQuadraticCurve {
 
         /// Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards
@@ -18517,8 +18517,8 @@ pub mod svg {
 
     /// `SvgCubicCurve` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
+    #[cfg(not(feature = "link-static"))]
     impl SvgCubicCurve {
 
         /// Reverses the order of points in the curve so that the curve runs in the opposite direction afterwards
@@ -18545,8 +18545,8 @@ pub mod svg {
 
     /// `SvgRect` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
+    #[cfg(not(feature = "link-static"))]
     impl SvgRect {
 
         /// Calls the `SvgRect::get_center` function.
@@ -18561,11 +18561,11 @@ pub mod svg {
 
     /// `SvgVertex` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
     /// `TessellatedSvgNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNode as TessellatedSvgNode;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNode as TessellatedSvgNode;
+    #[cfg(not(feature = "link-static"))]
     impl TessellatedSvgNode {
 
         /// Returns an empty buffer vertices / indices
@@ -18576,11 +18576,11 @@ pub mod svg {
 
     /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecRef as TessellatedSvgNodeVecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecRef as TessellatedSvgNodeVecRef;
     /// `TessellatedGPUSvgNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTessellatedGPUSvgNode as TessellatedGPUSvgNode;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTessellatedGPUSvgNode as TessellatedGPUSvgNode;
+    #[cfg(not(feature = "link-static"))]
     impl TessellatedGPUSvgNode {
 
         /// Creates a new `TessellatedGPUSvgNode` instance.
@@ -18589,8 +18589,8 @@ pub mod svg {
 
     /// `SvgParseOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
+    #[cfg(not(feature = "link-static"))]
     impl SvgParseOptions {
 
         /// Creates a new `SvgParseOptions` instance.
@@ -18599,20 +18599,20 @@ pub mod svg {
 
     /// `ShapeRendering` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzShapeRendering as ShapeRendering;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzShapeRendering as ShapeRendering;
     /// `TextRendering` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTextRendering as TextRendering;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTextRendering as TextRendering;
     /// `ImageRendering` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzImageRendering as ImageRendering;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzImageRendering as ImageRendering;
     /// `FontDatabase` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFontDatabase as FontDatabase;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFontDatabase as FontDatabase;
     /// `SvgRenderOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
+    #[cfg(not(feature = "link-static"))]
     impl SvgRenderOptions {
 
         /// Creates a new `SvgRenderOptions` instance.
@@ -18621,29 +18621,29 @@ pub mod svg {
 
     /// `SvgRenderTransform` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgRenderTransform as SvgRenderTransform;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgRenderTransform as SvgRenderTransform;
     /// `SvgStringFormatOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgStringFormatOptions as SvgStringFormatOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgStringFormatOptions as SvgStringFormatOptions;
     /// `Indent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIndent as Indent;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIndent as Indent;
     /// `SvgFitTo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgFitTo as SvgFitTo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgFitTo as SvgFitTo;
     /// `SvgStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;
     /// `SvgFillRule` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgFillRule as SvgFillRule;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgFillRule as SvgFillRule;
     /// `SvgTransform` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgTransform as SvgTransform;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgTransform as SvgTransform;
     /// `SvgFillStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;
+    #[cfg(not(feature = "link-static"))]
     impl SvgFillStyle {
 
         /// Creates a new `SvgFillStyle` instance.
@@ -18652,8 +18652,8 @@ pub mod svg {
 
     /// `SvgStrokeStyle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
+    #[cfg(not(feature = "link-static"))]
     impl SvgStrokeStyle {
 
         /// Creates a new `SvgStrokeStyle` instance.
@@ -18662,33 +18662,33 @@ pub mod svg {
 
     /// `SvgLineJoin` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
     /// `SvgLineCap` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;
     /// `SvgDashPattern` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
 }
 
 pub mod xml {
     #![allow(dead_code, unused_imports)]
     //! XML parsing / decoding module
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXml as Xml;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlNode as XmlNode;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::Refstr;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefstr as Refstr;
     /// `Xml` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXml as Xml;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXml as Xml;
+    #[cfg(not(feature = "link-static"))]
     impl Xml {
 
         /// Parses an XML document with one or more root nodes
@@ -18697,31 +18697,31 @@ pub mod xml {
 
     /// `XmlNode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlNode as XmlNode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlNode as XmlNode;
 }
 
 pub mod fs {
     #![allow(dead_code, unused_imports)]
     //! Filesystem / file input and output module
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFile as File;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::{Refstr, U8VecRef};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefstr as Refstr;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzU8VecRef as U8VecRef;
     /// **Reference-counted** file handle
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFile as File;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFile as File;
+    #[cfg(not(feature = "link-static"))]
     impl File {
 
         /// Opens a file at the given path. If the file exists, replaces it with a new file
@@ -18740,46 +18740,46 @@ pub mod fs {
         pub fn close(&mut self)  { unsafe { crate::dll::AzFile_close(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for File { fn clone(&self) -> Self { unsafe { crate::dll::AzFile_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for File { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzFile_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for File { fn clone(&self) -> Self { unsafe { crate::dll::AzFile_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for File { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzFile_delete(self) } } } }
 }
 
 pub mod dialog {
     #![allow(dead_code, unused_imports)]
     //! Interface for system file selection dialogs / popup message boxes, etc.
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMsgBox as MsgBox;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMsgBoxIcon as MsgBoxIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMsgBoxYesNo as MsgBoxYesNo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMsgBoxOkCancel as MsgBoxOkCancel;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileDialog as FileDialog;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFileTypeList as FileTypeList;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzColorPickerDialog as ColorPickerDialog;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::option::{OptionColorU, OptionFileTypeList, OptionString};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzOptionColorU as OptionColorU;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzOptionFileTypeList as OptionFileTypeList;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzOptionString as OptionString;
     /// `MsgBox` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMsgBox as MsgBox;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMsgBox as MsgBox;
+    #[cfg(not(feature = "link-static"))]
     impl MsgBox {
 
         /// Opens an informational message box with only an "OK" button
@@ -18800,17 +18800,17 @@ pub mod dialog {
 
     /// Type of message box icon
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMsgBoxIcon as MsgBoxIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMsgBoxIcon as MsgBoxIcon;
     /// Value returned from a yes / no message box
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMsgBoxYesNo as MsgBoxYesNo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMsgBoxYesNo as MsgBoxYesNo;
     /// Value returned from an ok / cancel message box
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMsgBoxOkCancel as MsgBoxOkCancel;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMsgBoxOkCancel as MsgBoxOkCancel;
     /// File picker dialog
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileDialog as FileDialog;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileDialog as FileDialog;
+    #[cfg(not(feature = "link-static"))]
     impl FileDialog {
 
         /// Select a single file using the system-native file picker. Blocks the current thread.
@@ -18825,11 +18825,11 @@ pub mod dialog {
 
     /// `FileTypeList` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFileTypeList as FileTypeList;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFileTypeList as FileTypeList;
     /// `ColorPickerDialog` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzColorPickerDialog as ColorPickerDialog;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzColorPickerDialog as ColorPickerDialog;
+    #[cfg(not(feature = "link-static"))]
     impl ColorPickerDialog {
 
         /// Opens a system-native color picker dialog
@@ -18841,19 +18841,19 @@ pub mod dialog {
 pub mod clipboard {
     #![allow(dead_code, unused_imports)]
     //! Classes to talk to the system clipboard manager
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSystemClipboard as SystemClipboard;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::str::String;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzString as String;
     /// Connection to the system clipboard, on some systems this connection can be cached
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSystemClipboard as SystemClipboard;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSystemClipboard as SystemClipboard;
+    #[cfg(not(feature = "link-static"))]
     impl SystemClipboard {
 
         /// Creates a new connection to the system clipboard manager
@@ -18864,40 +18864,40 @@ pub mod clipboard {
         pub fn set_string_contents(&mut self, contents: String)  -> bool { unsafe { crate::dll::AzSystemClipboard_setStringContents(self, contents) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for SystemClipboard { fn clone(&self) -> Self { unsafe { crate::dll::AzSystemClipboard_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for SystemClipboard { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSystemClipboard_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for SystemClipboard { fn clone(&self) -> Self { unsafe { crate::dll::AzSystemClipboard_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for SystemClipboard { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzSystemClipboard_delete(self) } } } }
 }
 
 pub mod time {
     #![allow(dead_code, unused_imports)]
     //! Rust wrappers for `Instant` / `Duration` classes
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInstant as Instant;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInstantPtr as InstantPtr;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInstantPtrCloneFnType as InstantPtrCloneFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInstantPtrCloneFn as InstantPtrCloneFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInstantPtrDestructorFnType as InstantPtrDestructorFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInstantPtrDestructorFn as InstantPtrDestructorFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSystemTick as SystemTick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDuration as Duration;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSystemTimeDiff as SystemTimeDiff;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSystemTickDiff as SystemTickDiff;
     use core::ffi::c_void;
     /// `Instant` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInstant as Instant;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInstant as Instant;
+    #[cfg(not(feature = "link-static"))]
     impl Instant {
 
         /// Returns the duration since and earlier instant or None if the earlier instant is later than self
@@ -18910,118 +18910,118 @@ pub mod time {
 
     /// `InstantPtr` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInstantPtr as InstantPtr;
-    #[cfg(not(feature = "link_static"))] impl Clone for InstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzInstantPtr_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for InstantPtr { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzInstantPtr_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInstantPtr as InstantPtr;
+    #[cfg(not(feature = "link-static"))] impl Clone for InstantPtr { fn clone(&self) -> Self { unsafe { crate::dll::AzInstantPtr_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for InstantPtr { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzInstantPtr_delete(self) } } } }
     /// `InstantPtrCloneFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrCloneFnType as InstantPtrCloneFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrCloneFnType as InstantPtrCloneFnType;
     /// `InstantPtrCloneFn` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrCloneFn as InstantPtrCloneFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrCloneFn as InstantPtrCloneFn;
     /// `InstantPtrDestructorFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrDestructorFnType as InstantPtrDestructorFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrDestructorFnType as InstantPtrDestructorFnType;
     /// `InstantPtrDestructorFn` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrDestructorFn as InstantPtrDestructorFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInstantPtrDestructorFn as InstantPtrDestructorFn;
     /// `SystemTick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSystemTick as SystemTick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSystemTick as SystemTick;
     /// `Duration` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDuration as Duration;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDuration as Duration;
     /// `SystemTimeDiff` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSystemTimeDiff as SystemTimeDiff;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSystemTimeDiff as SystemTimeDiff;
     /// `SystemTickDiff` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSystemTickDiff as SystemTickDiff;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSystemTickDiff as SystemTickDiff;
 }
 
 pub mod task {
     #![allow(dead_code, unused_imports)]
     //! Asyncronous timers / task / thread handlers for easy async loading
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTimerId as TimerId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTimer as Timer;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTerminateTimer as TerminateTimer;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadId as ThreadId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThread as Thread;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadSender as ThreadSender;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadReceiver as ThreadReceiver;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadSendMsg as ThreadSendMsg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadReceiveMsg as ThreadReceiveMsg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadWriteBackMsg as ThreadWriteBackMsg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCreateThreadFnType as CreateThreadFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCreateThreadFn as CreateThreadFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGetSystemTimeFnType as GetSystemTimeFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGetSystemTimeFn as GetSystemTimeFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckThreadFinishedFnType as CheckThreadFinishedFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCheckThreadFinishedFn as CheckThreadFinishedFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLibrarySendThreadMsgFnType as LibrarySendThreadMsgFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLibrarySendThreadMsgFn as LibrarySendThreadMsgFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLibraryReceiveThreadMsgFnType as LibraryReceiveThreadMsgFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLibraryReceiveThreadMsgFn as LibraryReceiveThreadMsgFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadRecvFnType as ThreadRecvFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadRecvFn as ThreadRecvFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadSendFnType as ThreadSendFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadSendFn as ThreadSendFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadDestructorFnType as ThreadDestructorFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadDestructorFn as ThreadDestructorFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadReceiverDestructorFnType as ThreadReceiverDestructorFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadReceiverDestructorFn as ThreadReceiverDestructorFn;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadSenderDestructorFnType as ThreadSenderDestructorFnType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzThreadSenderDestructorFn as ThreadSenderDestructorFn;
     use core::ffi::c_void;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::callbacks::{RefAny, TimerCallbackType};
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzRefAny as RefAny;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzTimerCallbackType as TimerCallbackType;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::time::Duration;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzDuration as Duration;
     /// `TimerId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTimerId as TimerId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTimerId as TimerId;
     /// `Timer` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTimer as Timer;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTimer as Timer;
+    #[cfg(not(feature = "link-static"))]
     impl Timer {
 
         /// Creates a new `Timer` instance.
@@ -19036,130 +19036,130 @@ pub mod task {
 
     /// Should a timer terminate or not - used to remove active timers
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTerminateTimer as TerminateTimer;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTerminateTimer as TerminateTimer;
     /// `ThreadId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadId as ThreadId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadId as ThreadId;
     /// `Thread` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThread as Thread;
-    #[cfg(not(feature = "link_static"))] impl Clone for Thread { fn clone(&self) -> Self { unsafe { crate::dll::AzThread_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for Thread { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThread_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThread as Thread;
+    #[cfg(not(feature = "link-static"))] impl Clone for Thread { fn clone(&self) -> Self { unsafe { crate::dll::AzThread_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for Thread { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThread_delete(self) } } } }
     /// `ThreadSender` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadSender as ThreadSender;
+    #[cfg(not(feature = "link-static"))]
     impl ThreadSender {
 
         /// Calls the `ThreadSender::send` function.
         pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::AzThreadSender_send(self, msg) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for ThreadSender { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadSender_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for ThreadSender { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThreadSender_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for ThreadSender { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadSender_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for ThreadSender { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThreadSender_delete(self) } } } }
     /// `ThreadReceiver` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiver as ThreadReceiver;
+    #[cfg(not(feature = "link-static"))]
     impl ThreadReceiver {
 
         /// Calls the `ThreadReceiver::receive` function.
         pub fn receive(&mut self)  -> crate::option::OptionThreadSendMsg { unsafe { crate::dll::AzThreadReceiver_receive(self) } }
     }
 
-    #[cfg(not(feature = "link_static"))] impl Clone for ThreadReceiver { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadReceiver_deepCopy(self) } } }
-    #[cfg(not(feature = "link_static"))] impl Drop for ThreadReceiver { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThreadReceiver_delete(self) } } } }
+    #[cfg(not(feature = "link-static"))] impl Clone for ThreadReceiver { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadReceiver_deepCopy(self) } } }
+    #[cfg(not(feature = "link-static"))] impl Drop for ThreadReceiver { fn drop(&mut self) { if self.run_destructor { unsafe { crate::dll::AzThreadReceiver_delete(self) } } } }
     /// `ThreadSendMsg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadSendMsg as ThreadSendMsg;
     /// `ThreadReceiveMsg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiveMsg as ThreadReceiveMsg;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiveMsg as ThreadReceiveMsg;
     /// `ThreadWriteBackMsg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadWriteBackMsg as ThreadWriteBackMsg;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadWriteBackMsg as ThreadWriteBackMsg;
     /// `CreateThreadFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCreateThreadFnType as CreateThreadFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCreateThreadFnType as CreateThreadFnType;
     /// `CreateThreadFn` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCreateThreadFn as CreateThreadFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCreateThreadFn as CreateThreadFn;
     /// `GetSystemTimeFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGetSystemTimeFnType as GetSystemTimeFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGetSystemTimeFnType as GetSystemTimeFnType;
     /// Get the current system time, equivalent to `std::time::Instant::now()`, except it also works on systems that work with "ticks" instead of timers
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGetSystemTimeFn as GetSystemTimeFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGetSystemTimeFn as GetSystemTimeFn;
     /// Callback that checks whether the thread has finished - the input argument is the `dropcheck` field on the Thread.
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckThreadFinishedFnType as CheckThreadFinishedFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckThreadFinishedFnType as CheckThreadFinishedFnType;
     /// Function called to check if the thread has finished
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCheckThreadFinishedFn as CheckThreadFinishedFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCheckThreadFinishedFn as CheckThreadFinishedFn;
     /// `LibrarySendThreadMsgFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLibrarySendThreadMsgFnType as LibrarySendThreadMsgFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLibrarySendThreadMsgFnType as LibrarySendThreadMsgFnType;
     /// Function to send a message to the thread
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLibrarySendThreadMsgFn as LibrarySendThreadMsgFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLibrarySendThreadMsgFn as LibrarySendThreadMsgFn;
     /// `LibraryReceiveThreadMsgFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLibraryReceiveThreadMsgFnType as LibraryReceiveThreadMsgFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLibraryReceiveThreadMsgFnType as LibraryReceiveThreadMsgFnType;
     /// Function to receive a message from the thread
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLibraryReceiveThreadMsgFn as LibraryReceiveThreadMsgFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLibraryReceiveThreadMsgFn as LibraryReceiveThreadMsgFn;
     /// `ThreadRecvFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadRecvFnType as ThreadRecvFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadRecvFnType as ThreadRecvFnType;
     /// Function that the running `Thread` can call to receive messages from the main UI thread
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadRecvFn as ThreadRecvFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadRecvFn as ThreadRecvFn;
     /// `ThreadSendFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadSendFnType as ThreadSendFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadSendFnType as ThreadSendFnType;
     /// Function that the running `Thread` can call to receive messages from the main UI thread
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadSendFn as ThreadSendFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadSendFn as ThreadSendFn;
     /// `ThreadDestructorFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadDestructorFnType as ThreadDestructorFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadDestructorFnType as ThreadDestructorFnType;
     /// Destructor of the `Thread`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadDestructorFn as ThreadDestructorFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadDestructorFn as ThreadDestructorFn;
     /// `ThreadReceiverDestructorFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiverDestructorFnType as ThreadReceiverDestructorFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiverDestructorFnType as ThreadReceiverDestructorFnType;
     /// Destructor of the `ThreadReceiver`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiverDestructorFn as ThreadReceiverDestructorFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadReceiverDestructorFn as ThreadReceiverDestructorFn;
     /// `ThreadSenderDestructorFnType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadSenderDestructorFnType as ThreadSenderDestructorFnType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadSenderDestructorFnType as ThreadSenderDestructorFnType;
     /// Destructor of the `ThreadSender`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzThreadSenderDestructorFn as ThreadSenderDestructorFn;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzThreadSenderDestructorFn as ThreadSenderDestructorFn;
 }
 
 pub mod str {
     #![allow(dead_code, unused_imports)]
     //! Definition of azuls internal `String` wrappers
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFmtValue as FmtValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFmtArg as FmtArg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzString as String;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::string;
 
-    #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+    #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
     use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     #[cfg(feature = "serde-support")]
     impl Serialize for crate::str::String {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -19169,7 +19169,7 @@ pub mod str {
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     #[cfg(feature = "serde-support")]
     impl<'de> Deserialize<'de> for crate::str::String {
         fn deserialize<D>(deserializer: D) -> Result<crate::str::String, D::Error>
@@ -19181,42 +19181,42 @@ pub mod str {
     }
 
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<&'static str> for crate::str::String {
         fn from(v: &'static str) -> crate::str::String {
             crate::str::String::from_const_str(v)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<string::String> for crate::str::String {
         fn from(s: string::String) -> crate::str::String {
             crate::str::String::from_string(s)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl AsRef<str> for crate::str::String {
         fn as_ref(&self) -> &str {
             self.as_str()
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::fmt::Debug for crate::str::String {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_str().fmt(f)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl core::fmt::Display for crate::str::String {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             self.as_str().fmt(f)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl crate::str::String {
 
         #[inline(always)]
@@ -19232,20 +19232,20 @@ pub mod str {
                 vec: crate::vec::U8Vec::from_const_slice(s.as_bytes())
             }
         }
-    }    #[cfg(not(feature = "link_static"))]
+    }    #[cfg(not(feature = "link-static"))]
     use crate::vec::FmtArgVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     use azul::AzFmtArgVec as FmtArgVec;
     /// `FmtValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFmtValue as FmtValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFmtValue as FmtValue;
     /// `FmtArg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFmtArg as FmtArg;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFmtArg as FmtArg;
     /// `String` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzString as String;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzString as String;
+    #[cfg(not(feature = "link-static"))]
     impl String {
 
         /// Creates a dynamically formatted String from a fomat string + named arguments
@@ -19263,409 +19263,409 @@ pub mod str {
 pub mod vec {
     #![allow(dead_code, unused_imports)]
     //! Definition of azuls internal `Vec<*>` wrappers
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewRowVec as ListViewRowVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFilterVec as StyleFilterVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLogicalRectVec as LogicalRectVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeIdInfoMapVec as NodeTypeIdInfoMapVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdInfoMapVec as InputOutputTypeIdInfoMapVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdNodeMapVec as NodeIdNodeMapVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdVec as InputOutputTypeIdVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeFieldVec as NodeTypeFieldVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputConnectionVec as InputConnectionVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputNodeAndIndexVec as OutputNodeAndIndexVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputConnectionVec as OutputConnectionVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputNodeAndIndexVec as InputNodeAndIndexVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAccessibilityStateVec as AccessibilityStateVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuItemVec as MenuItemVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTessellatedSvgNodeVec as TessellatedSvgNodeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontFamilyVec as StyleFontFamilyVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlNodeVec as XmlNodeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFmtArgVec as FmtArgVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineLineVec as InlineLineVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineWordVec as InlineWordVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineGlyphVec as InlineGlyphVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineTextHitVec as InlineTextHitVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMonitorVec as MonitorVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVideoModeVec as VideoModeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDomVec as DomVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIdOrClassVec as IdOrClassVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundContentVec as StyleBackgroundContentVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundPositionVec as StyleBackgroundPositionVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundRepeatVec as StyleBackgroundRepeatVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundSizeVec as StyleBackgroundSizeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformVec as StyleTransformVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPropertyVec as CssPropertyVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathVec as SvgPathVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexAttributeVec as VertexAttributeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathElementVec as SvgPathElementVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgVertexVec as SvgVertexVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU32Vec as U32Vec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXWindowTypeVec as XWindowTypeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCascadeInfoVec as CascadeInfoVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzScanCodeVec as ScanCodeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssDeclarationVec as CssDeclarationVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPathSelectorVec as CssPathSelectorVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStylesheetVec as StylesheetVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssRuleBlockVec as CssRuleBlockVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU16Vec as U16Vec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzF32Vec as F32Vec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU8Vec as U8Vec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallbackDataVec as CallbackDataVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDebugMessageVec as DebugMessageVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLuintVec as GLuintVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLintVec as GLintVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringVec as StringVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringPairVec as StringPairVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedLinearColorStopVec as NormalizedLinearColorStopVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedRadialColorStopVec as NormalizedRadialColorStopVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdVec as NodeIdVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeHierarchyItemVec as NodeHierarchyItemVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyledNodeVec as StyledNodeVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTagIdToNodeIdMappingVec as TagIdToNodeIdMappingVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataVec as NodeDataVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontFamilyVecDestructor as StyleFontFamilyVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewRowVecDestructor as ListViewRowVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzListViewRowVecDestructorType as ListViewRowVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFilterVecDestructor as StyleFilterVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleFilterVecDestructorType as StyleFilterVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLogicalRectVecDestructor as LogicalRectVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzLogicalRectVecDestructorType as LogicalRectVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeIdInfoMapVecDestructor as NodeTypeIdInfoMapVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeIdInfoMapVecDestructorType as NodeTypeIdInfoMapVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdInfoMapVecDestructor as InputOutputTypeIdInfoMapVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdInfoMapVecDestructorType as InputOutputTypeIdInfoMapVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdNodeMapVecDestructor as NodeIdNodeMapVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdNodeMapVecDestructorType as NodeIdNodeMapVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdVecDestructor as InputOutputTypeIdVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputOutputTypeIdVecDestructorType as InputOutputTypeIdVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeFieldVecDestructor as NodeTypeFieldVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeTypeFieldVecDestructorType as NodeTypeFieldVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputConnectionVecDestructor as InputConnectionVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputConnectionVecDestructorType as InputConnectionVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputNodeAndIndexVecDestructor as OutputNodeAndIndexVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputNodeAndIndexVecDestructorType as OutputNodeAndIndexVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputConnectionVecDestructor as OutputConnectionVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOutputConnectionVecDestructorType as OutputConnectionVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputNodeAndIndexVecDestructor as InputNodeAndIndexVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInputNodeAndIndexVecDestructorType as InputNodeAndIndexVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAccessibilityStateVecDestructor as AccessibilityStateVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzAccessibilityStateVecDestructorType as AccessibilityStateVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuItemVecDestructor as MenuItemVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMenuItemVecDestructorType as MenuItemVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTessellatedSvgNodeVecDestructor as TessellatedSvgNodeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTessellatedSvgNodeVecDestructorType as TessellatedSvgNodeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlNodeVecDestructor as XmlNodeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlNodeVecDestructorType as XmlNodeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFmtArgVecDestructor as FmtArgVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzFmtArgVecDestructorType as FmtArgVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineLineVecDestructor as InlineLineVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineLineVecDestructorType as InlineLineVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineWordVecDestructor as InlineWordVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineWordVecDestructorType as InlineWordVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineGlyphVecDestructor as InlineGlyphVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineGlyphVecDestructorType as InlineGlyphVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineTextHitVecDestructor as InlineTextHitVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInlineTextHitVecDestructorType as InlineTextHitVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMonitorVecDestructor as MonitorVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzMonitorVecDestructorType as MonitorVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVideoModeVecDestructor as VideoModeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVideoModeVecDestructorType as VideoModeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDomVecDestructor as DomVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDomVecDestructorType as DomVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIdOrClassVecDestructor as IdOrClassVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzIdOrClassVecDestructorType as IdOrClassVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataInlineCssPropertyVecDestructor as NodeDataInlineCssPropertyVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataInlineCssPropertyVecDestructorType as NodeDataInlineCssPropertyVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundContentVecDestructor as StyleBackgroundContentVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundContentVecDestructorType as StyleBackgroundContentVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundPositionVecDestructor as StyleBackgroundPositionVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundPositionVecDestructorType as StyleBackgroundPositionVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundRepeatVecDestructor as StyleBackgroundRepeatVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundRepeatVecDestructorType as StyleBackgroundRepeatVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundSizeVecDestructor as StyleBackgroundSizeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleBackgroundSizeVecDestructorType as StyleBackgroundSizeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformVecDestructor as StyleTransformVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyleTransformVecDestructorType as StyleTransformVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPropertyVecDestructor as CssPropertyVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPropertyVecDestructorType as CssPropertyVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgMultiPolygonVecDestructor as SvgMultiPolygonVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathVecDestructor as SvgPathVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathVecDestructorType as SvgPathVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexAttributeVecDestructor as VertexAttributeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVertexAttributeVecDestructorType as VertexAttributeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathElementVecDestructor as SvgPathElementVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgPathElementVecDestructorType as SvgPathElementVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgVertexVecDestructor as SvgVertexVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU32VecDestructor as U32VecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU32VecDestructorType as U32VecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXWindowTypeVecDestructor as XWindowTypeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXWindowTypeVecDestructorType as XWindowTypeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVirtualKeyCodeVecDestructor as VirtualKeyCodeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzVirtualKeyCodeVecDestructorType as VirtualKeyCodeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCascadeInfoVecDestructor as CascadeInfoVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCascadeInfoVecDestructorType as CascadeInfoVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzScanCodeVecDestructor as ScanCodeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzScanCodeVecDestructorType as ScanCodeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssDeclarationVecDestructor as CssDeclarationVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssDeclarationVecDestructorType as CssDeclarationVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPathSelectorVecDestructor as CssPathSelectorVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssPathSelectorVecDestructorType as CssPathSelectorVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStylesheetVecDestructor as StylesheetVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStylesheetVecDestructorType as StylesheetVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssRuleBlockVecDestructor as CssRuleBlockVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzF32VecDestructor as F32VecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzF32VecDestructorType as F32VecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU16VecDestructor as U16VecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU16VecDestructorType as U16VecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU8VecDestructor as U8VecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzU8VecDestructorType as U8VecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallbackDataVecDestructor as CallbackDataVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzCallbackDataVecDestructorType as CallbackDataVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDebugMessageVecDestructor as DebugMessageVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDebugMessageVecDestructorType as DebugMessageVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLuintVecDestructor as GLuintVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLuintVecDestructorType as GLuintVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLintVecDestructor as GLintVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzGLintVecDestructorType as GLintVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringVecDestructor as StringVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringVecDestructorType as StringVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringPairVecDestructor as StringPairVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStringPairVecDestructorType as StringPairVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedLinearColorStopVecDestructor as NormalizedLinearColorStopVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedLinearColorStopVecDestructorType as NormalizedLinearColorStopVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedRadialColorStopVecDestructor as NormalizedRadialColorStopVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNormalizedRadialColorStopVecDestructorType as NormalizedRadialColorStopVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdVecDestructor as NodeIdVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeIdVecDestructorType as NodeIdVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeHierarchyItemVecDestructor as NodeHierarchyItemVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeHierarchyItemVecDestructorType as NodeHierarchyItemVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyledNodeVecDestructor as StyledNodeVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTagIdToNodeIdMappingVecDestructor as TagIdToNodeIdMappingVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzTagIdToNodeIdMappingVecDestructorType as TagIdToNodeIdMappingVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzParentWithNodeDepthVecDestructorType as ParentWithNodeDepthVecDestructorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataVecDestructor as NodeDataVecDestructor;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNodeDataVecDestructorType as NodeDataVecDestructorType;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use core::iter;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use core::fmt;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use core::cmp;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::vec::{self, Vec};
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::slice;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::string;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::{
         GLint as AzGLint,
         GLuint as AzGLuint,
@@ -19673,12 +19673,12 @@ pub mod vec {
 
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident, $c_destructor_fn_name:ident, $crate_dll_delete_fn:ident) => (
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         unsafe impl Send for $struct_name { }
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         unsafe impl Sync for $struct_name { }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl fmt::Debug for $destructor_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match self {
@@ -19689,7 +19689,7 @@ pub mod vec {
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialEq for $destructor_name {
             fn eq(&self, rhs: &Self) -> bool {
                 match (self, rhs) {
@@ -19701,14 +19701,14 @@ pub mod vec {
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialOrd for $destructor_name {
             fn partial_cmp(&self, _rhs: &Self) -> Option<cmp::Ordering> {
                 None
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct_name {
 
             #[inline]
@@ -19785,35 +19785,35 @@ pub mod vec {
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl AsRef<[$struct_type]> for $struct_name {
             fn as_ref(&self) -> &[$struct_type] {
                 unsafe { slice::from_raw_parts(self.ptr, self.len) }
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl iter::FromIterator<$struct_type> for $struct_name {
             fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
                 Self::from_vec(Vec::from_iter(iter))
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl From<Vec<$struct_type>> for $struct_name {
             fn from(input: Vec<$struct_type>) -> $struct_name {
                 Self::from_vec(input)
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl From<&'static [$struct_type]> for $struct_name {
             fn from(input: &'static [$struct_type]) -> $struct_name {
                 Self::from_const_slice(input)
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl Drop for $struct_name {
             fn drop(&mut self) {
                 match self.destructor {
@@ -19826,21 +19826,21 @@ pub mod vec {
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl fmt::Debug for $struct_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.as_ref().fmt(f)
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialOrd for $struct_name {
             fn partial_cmp(&self, rhs: &Self) -> Option<cmp::Ordering> {
                 self.as_ref().partial_cmp(rhs.as_ref())
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialEq for $struct_name {
             fn eq(&self, rhs: &Self) -> bool {
                 self.as_ref().eq(rhs.as_ref())
@@ -19849,7 +19849,7 @@ pub mod vec {
     )}
 
     macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct_name {
             /// NOTE: CLONES the memory if the memory is external or &'static
             /// Moves the memory out if the memory is library-allocated
@@ -19871,7 +19871,7 @@ pub mod vec {
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl Clone for $struct_name {
             fn clone(&self) -> Self {
                 self.clone_self()
@@ -19880,10 +19880,10 @@ pub mod vec {
     )}
 
     macro_rules! impl_vec_serde {($struct_type:ident, $struct_name:ident) => (
-        #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+        #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
         use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-        #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+        #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
         impl Serialize for $struct_name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: Serializer,
@@ -19892,7 +19892,7 @@ pub mod vec {
             }
         }
 
-        #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+        #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
         impl<'de> Deserialize<'de> for $struct_name {
             fn deserialize<D>(deserializer: D) -> Result<$struct_name, D::Error>
             where D: Deserializer<'de>,
@@ -20035,7 +20035,7 @@ pub mod vec {
     impl_vec!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor, az_menu_item_vec_destructor, AzMenuItemVec_delete);
     impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
             let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
@@ -20044,7 +20044,7 @@ pub mod vec {
         }
     }
 
-    #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+    #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
     impl Serialize for crate::prelude::SvgPathElementVec {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer,
@@ -20053,7 +20053,7 @@ pub mod vec {
         }
     }
 
-    #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+    #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
     impl<'de> Deserialize<'de> for crate::prelude::SvgPathElementVec {
         fn deserialize<D>(deserializer: D) -> Result<crate::prelude::SvgPathElementVec, D::Error>
         where D: Deserializer<'de>,
@@ -20063,50 +20063,50 @@ pub mod vec {
         }
     }    /// Wrapper over a Rust-allocated `Vec<ListViewRow>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVec as ListViewRowVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVec as ListViewRowVec;
     /// Wrapper over a Rust-allocated `Vec<StyleFilter>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVec as StyleFilterVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVec as StyleFilterVec;
     /// Wrapper over a Rust-allocated `Vec<LogicalRect>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalRectVec as LogicalRectVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLogicalRectVec as LogicalRectVec;
     /// Wrapper over a Rust-allocated `Vec<NodeTypeIdInfoMap>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVec as NodeTypeIdInfoMapVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVec as NodeTypeIdInfoMapVec;
     /// Wrapper over a Rust-allocated `Vec<InputOutputTypeIdInfoMap>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVec as InputOutputTypeIdInfoMapVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVec as InputOutputTypeIdInfoMapVec;
     /// Wrapper over a Rust-allocated `Vec<NodeIdNodeMap>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVec as NodeIdNodeMapVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVec as NodeIdNodeMapVec;
     /// Wrapper over a Rust-allocated `Vec<InputOutputTypeId>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVec as InputOutputTypeIdVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVec as InputOutputTypeIdVec;
     /// Wrapper over a Rust-allocated `Vec<NodeTypeField>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldVec as NodeTypeFieldVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldVec as NodeTypeFieldVec;
     /// Wrapper over a Rust-allocated `Vec<InputConnection>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputConnectionVec as InputConnectionVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputConnectionVec as InputConnectionVec;
     /// Wrapper over a Rust-allocated `Vec<OutputNodeAndIndex>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVec as OutputNodeAndIndexVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVec as OutputNodeAndIndexVec;
     /// Wrapper over a Rust-allocated `Vec<OutputConnection>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputConnectionVec as OutputConnectionVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputConnectionVec as OutputConnectionVec;
     /// Wrapper over a Rust-allocated `Vec<InputNodeAndIndex>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVec as InputNodeAndIndexVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVec as InputNodeAndIndexVec;
     /// Wrapper over a Rust-allocated `Vec<AccessibilityState>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityStateVec as AccessibilityStateVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityStateVec as AccessibilityStateVec;
     /// Wrapper over a Rust-allocated `Vec<MenuItem>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuItemVec as MenuItemVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuItemVec as MenuItemVec;
     /// Wrapper over a Rust-allocated `Vec<TessellatedSvgNode>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVec as TessellatedSvgNodeVec;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVec as TessellatedSvgNodeVec;
+    #[cfg(not(feature = "link-static"))]
     impl TessellatedSvgNodeVec {
 
         /// Returns the `TessellatedSvgNodeVec` as a non-owning slice, NOTE: The `U8Vec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
@@ -20115,110 +20115,110 @@ pub mod vec {
 
     /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVec as StyleFontFamilyVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVec as StyleFontFamilyVec;
     /// Wrapper over a Rust-allocated `Vec<XmlNode>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlNodeVec as XmlNodeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlNodeVec as XmlNodeVec;
     /// Wrapper over a Rust-allocated `Vec<FmtArg>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFmtArgVec as FmtArgVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFmtArgVec as FmtArgVec;
     /// Wrapper over a Rust-allocated `Vec<InlineLine>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineLineVec as InlineLineVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineLineVec as InlineLineVec;
     /// Wrapper over a Rust-allocated `Vec<InlineWord>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineWordVec as InlineWordVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineWordVec as InlineWordVec;
     /// Wrapper over a Rust-allocated `Vec<InlineGlyph>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyphVec as InlineGlyphVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyphVec as InlineGlyphVec;
     /// Wrapper over a Rust-allocated `Vec<InlineTextHit>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHitVec as InlineTextHitVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHitVec as InlineTextHitVec;
     /// Wrapper over a Rust-allocated `Vec<Monitor>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMonitorVec as MonitorVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMonitorVec as MonitorVec;
     /// Wrapper over a Rust-allocated `Vec<VideoMode>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVideoModeVec as VideoModeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVideoModeVec as VideoModeVec;
     /// Wrapper over a Rust-allocated `Vec<Dom>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDomVec as DomVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDomVec as DomVec;
     /// Wrapper over a Rust-allocated `Vec<IdOrClass>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIdOrClassVec as IdOrClassVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIdOrClassVec as IdOrClassVec;
     /// Wrapper over a Rust-allocated `Vec<NodeDataInlineCssProperty>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVec as NodeDataInlineCssPropertyVec;
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundContent>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVec as StyleBackgroundContentVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVec as StyleBackgroundContentVec;
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundPosition>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVec as StyleBackgroundPositionVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVec as StyleBackgroundPositionVec;
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundRepeat>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVec as StyleBackgroundRepeatVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVec as StyleBackgroundRepeatVec;
     /// Wrapper over a Rust-allocated `Vec<StyleBackgroundSize>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVec as StyleBackgroundSizeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVec as StyleBackgroundSizeVec;
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVec as StyleTransformVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVec as StyleTransformVec;
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyVec as CssPropertyVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyVec as CssPropertyVec;
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathVec as SvgPathVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathVec as SvgPathVec;
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;
     /// Wrapper over a Rust-allocated `VertexAttribute`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
     /// Wrapper over a Rust-allocated `SvgVertex`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
     /// Wrapper over a Rust-allocated `Vec<u32>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU32Vec as U32Vec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU32Vec as U32Vec;
     /// Wrapper over a Rust-allocated `XWindowType`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
     /// Wrapper over a Rust-allocated `CascadeInfo`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;
     /// Wrapper over a Rust-allocated `ScanCode`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzScanCodeVec as ScanCodeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzScanCodeVec as ScanCodeVec;
     /// Wrapper over a Rust-allocated `CssDeclaration`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;
     /// Wrapper over a Rust-allocated `CssPathSelector`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;
     /// Wrapper over a Rust-allocated `Stylesheet`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStylesheetVec as StylesheetVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStylesheetVec as StylesheetVec;
     /// Wrapper over a Rust-allocated `CssRuleBlock`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
     /// Wrapper over a Rust-allocated `Vec<u16>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU16Vec as U16Vec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU16Vec as U16Vec;
     /// Wrapper over a Rust-allocated `Vec<f32>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzF32Vec as F32Vec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzF32Vec as F32Vec;
     /// Wrapper over a Rust-allocated `U8Vec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
+    #[cfg(not(feature = "link-static"))]
     impl U8Vec {
 
         /// Creates a new, heap-allocated U8Vec by copying the memory into Rust (heap allocation)
@@ -20229,625 +20229,625 @@ pub mod vec {
 
     /// Wrapper over a Rust-allocated `CallbackData`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDebugMessageVec as DebugMessageVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDebugMessageVec as DebugMessageVec;
     /// Wrapper over a Rust-allocated `U32Vec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLuintVec as GLuintVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLuintVec as GLuintVec;
     /// Wrapper over a Rust-allocated `GLintVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLintVec as GLintVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLintVec as GLintVec;
     /// Wrapper over a Rust-allocated `StringVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringVec as StringVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringVec as StringVec;
     /// Wrapper over a Rust-allocated `StringPairVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringPairVec as StringPairVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringPairVec as StringPairVec;
     /// Wrapper over a Rust-allocated `NormalizedLinearColorStopVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVec as NormalizedLinearColorStopVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVec as NormalizedLinearColorStopVec;
     /// Wrapper over a Rust-allocated `NormalizedRadialColorStopVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVec as NormalizedRadialColorStopVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVec as NormalizedRadialColorStopVec;
     /// Wrapper over a Rust-allocated `NodeIdVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;
     /// Wrapper over a Rust-allocated `Vec<NodeHierarchyItem>`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVec as NodeHierarchyItemVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVec as NodeHierarchyItemVec;
     /// Wrapper over a Rust-allocated `StyledNodeVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
     /// Wrapper over a Rust-allocated `TagIdToNodeIdMappingVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVec as TagIdToNodeIdMappingVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVec as TagIdToNodeIdMappingVec;
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
     /// Wrapper over a Rust-allocated `NodeDataVec`
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
     /// `StyleFontFamilyVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructor as StyleFontFamilyVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructor as StyleFontFamilyVecDestructor;
     /// `StyleFontFamilyVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVecDestructorType as StyleFontFamilyVecDestructorType;
     /// `ListViewRowVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVecDestructor as ListViewRowVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVecDestructor as ListViewRowVecDestructor;
     /// `ListViewRowVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVecDestructorType as ListViewRowVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzListViewRowVecDestructorType as ListViewRowVecDestructorType;
     /// `StyleFilterVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructor as StyleFilterVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructor as StyleFilterVecDestructor;
     /// `StyleFilterVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructorType as StyleFilterVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleFilterVecDestructorType as StyleFilterVecDestructorType;
     /// `LogicalRectVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructor as LogicalRectVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructor as LogicalRectVecDestructor;
     /// `LogicalRectVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructorType as LogicalRectVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzLogicalRectVecDestructorType as LogicalRectVecDestructorType;
     /// `NodeTypeIdInfoMapVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructor as NodeTypeIdInfoMapVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructor as NodeTypeIdInfoMapVecDestructor;
     /// `NodeTypeIdInfoMapVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructorType as NodeTypeIdInfoMapVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeIdInfoMapVecDestructorType as NodeTypeIdInfoMapVecDestructorType;
     /// `InputOutputTypeIdInfoMapVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVecDestructor as InputOutputTypeIdInfoMapVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVecDestructor as InputOutputTypeIdInfoMapVecDestructor;
     /// `InputOutputTypeIdInfoMapVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVecDestructorType as InputOutputTypeIdInfoMapVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdInfoMapVecDestructorType as InputOutputTypeIdInfoMapVecDestructorType;
     /// `NodeIdNodeMapVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVecDestructor as NodeIdNodeMapVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVecDestructor as NodeIdNodeMapVecDestructor;
     /// `NodeIdNodeMapVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVecDestructorType as NodeIdNodeMapVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdNodeMapVecDestructorType as NodeIdNodeMapVecDestructorType;
     /// `InputOutputTypeIdVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVecDestructor as InputOutputTypeIdVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVecDestructor as InputOutputTypeIdVecDestructor;
     /// `InputOutputTypeIdVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVecDestructorType as InputOutputTypeIdVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputOutputTypeIdVecDestructorType as InputOutputTypeIdVecDestructorType;
     /// `NodeTypeFieldVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldVecDestructor as NodeTypeFieldVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldVecDestructor as NodeTypeFieldVecDestructor;
     /// `NodeTypeFieldVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldVecDestructorType as NodeTypeFieldVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeTypeFieldVecDestructorType as NodeTypeFieldVecDestructorType;
     /// `InputConnectionVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputConnectionVecDestructor as InputConnectionVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputConnectionVecDestructor as InputConnectionVecDestructor;
     /// `InputConnectionVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputConnectionVecDestructorType as InputConnectionVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputConnectionVecDestructorType as InputConnectionVecDestructorType;
     /// `OutputNodeAndIndexVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVecDestructor as OutputNodeAndIndexVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVecDestructor as OutputNodeAndIndexVecDestructor;
     /// `OutputNodeAndIndexVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVecDestructorType as OutputNodeAndIndexVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputNodeAndIndexVecDestructorType as OutputNodeAndIndexVecDestructorType;
     /// `OutputConnectionVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputConnectionVecDestructor as OutputConnectionVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputConnectionVecDestructor as OutputConnectionVecDestructor;
     /// `OutputConnectionVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOutputConnectionVecDestructorType as OutputConnectionVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOutputConnectionVecDestructorType as OutputConnectionVecDestructorType;
     /// `InputNodeAndIndexVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVecDestructor as InputNodeAndIndexVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVecDestructor as InputNodeAndIndexVecDestructor;
     /// `InputNodeAndIndexVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVecDestructorType as InputNodeAndIndexVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInputNodeAndIndexVecDestructorType as InputNodeAndIndexVecDestructorType;
     /// `AccessibilityStateVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructor as AccessibilityStateVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructor as AccessibilityStateVecDestructor;
     /// `AccessibilityStateVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructorType as AccessibilityStateVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzAccessibilityStateVecDestructorType as AccessibilityStateVecDestructorType;
     /// `MenuItemVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuItemVecDestructor as MenuItemVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuItemVecDestructor as MenuItemVecDestructor;
     /// `MenuItemVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMenuItemVecDestructorType as MenuItemVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMenuItemVecDestructorType as MenuItemVecDestructorType;
     /// `TessellatedSvgNodeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructor as TessellatedSvgNodeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructor as TessellatedSvgNodeVecDestructor;
     /// `TessellatedSvgNodeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructorType as TessellatedSvgNodeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructorType as TessellatedSvgNodeVecDestructorType;
     /// `XmlNodeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructor as XmlNodeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructor as XmlNodeVecDestructor;
     /// `XmlNodeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructorType as XmlNodeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructorType as XmlNodeVecDestructorType;
     /// `FmtArgVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFmtArgVecDestructor as FmtArgVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFmtArgVecDestructor as FmtArgVecDestructor;
     /// `FmtArgVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzFmtArgVecDestructorType as FmtArgVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzFmtArgVecDestructorType as FmtArgVecDestructorType;
     /// `InlineLineVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineLineVecDestructor as InlineLineVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineLineVecDestructor as InlineLineVecDestructor;
     /// `InlineLineVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineLineVecDestructorType as InlineLineVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineLineVecDestructorType as InlineLineVecDestructorType;
     /// `InlineWordVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineWordVecDestructor as InlineWordVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineWordVecDestructor as InlineWordVecDestructor;
     /// `InlineWordVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineWordVecDestructorType as InlineWordVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineWordVecDestructorType as InlineWordVecDestructorType;
     /// `InlineGlyphVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyphVecDestructor as InlineGlyphVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyphVecDestructor as InlineGlyphVecDestructor;
     /// `InlineGlyphVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyphVecDestructorType as InlineGlyphVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineGlyphVecDestructorType as InlineGlyphVecDestructorType;
     /// `InlineTextHitVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHitVecDestructor as InlineTextHitVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHitVecDestructor as InlineTextHitVecDestructor;
     /// `InlineTextHitVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHitVecDestructorType as InlineTextHitVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInlineTextHitVecDestructorType as InlineTextHitVecDestructorType;
     /// `MonitorVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMonitorVecDestructor as MonitorVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMonitorVecDestructor as MonitorVecDestructor;
     /// `MonitorVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzMonitorVecDestructorType as MonitorVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzMonitorVecDestructorType as MonitorVecDestructorType;
     /// `VideoModeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVideoModeVecDestructor as VideoModeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVideoModeVecDestructor as VideoModeVecDestructor;
     /// `VideoModeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVideoModeVecDestructorType as VideoModeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVideoModeVecDestructorType as VideoModeVecDestructorType;
     /// `DomVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDomVecDestructor as DomVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDomVecDestructor as DomVecDestructor;
     /// `DomVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDomVecDestructorType as DomVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDomVecDestructorType as DomVecDestructorType;
     /// `IdOrClassVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructor as IdOrClassVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructor as IdOrClassVecDestructor;
     /// `IdOrClassVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructorType as IdOrClassVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzIdOrClassVecDestructorType as IdOrClassVecDestructorType;
     /// `NodeDataInlineCssPropertyVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructor as NodeDataInlineCssPropertyVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructor as NodeDataInlineCssPropertyVecDestructor;
     /// `NodeDataInlineCssPropertyVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructorType as NodeDataInlineCssPropertyVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataInlineCssPropertyVecDestructorType as NodeDataInlineCssPropertyVecDestructorType;
     /// `StyleBackgroundContentVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructor as StyleBackgroundContentVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructor as StyleBackgroundContentVecDestructor;
     /// `StyleBackgroundContentVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructorType as StyleBackgroundContentVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundContentVecDestructorType as StyleBackgroundContentVecDestructorType;
     /// `StyleBackgroundPositionVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructor as StyleBackgroundPositionVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructor as StyleBackgroundPositionVecDestructor;
     /// `StyleBackgroundPositionVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructorType as StyleBackgroundPositionVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundPositionVecDestructorType as StyleBackgroundPositionVecDestructorType;
     /// `StyleBackgroundRepeatVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructor as StyleBackgroundRepeatVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructor as StyleBackgroundRepeatVecDestructor;
     /// `StyleBackgroundRepeatVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructorType as StyleBackgroundRepeatVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundRepeatVecDestructorType as StyleBackgroundRepeatVecDestructorType;
     /// `StyleBackgroundSizeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructor as StyleBackgroundSizeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructor as StyleBackgroundSizeVecDestructor;
     /// `StyleBackgroundSizeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructorType as StyleBackgroundSizeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleBackgroundSizeVecDestructorType as StyleBackgroundSizeVecDestructorType;
     /// `StyleTransformVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructor as StyleTransformVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructor as StyleTransformVecDestructor;
     /// `StyleTransformVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructorType as StyleTransformVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyleTransformVecDestructorType as StyleTransformVecDestructorType;
     /// `CssPropertyVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructor as CssPropertyVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructor as CssPropertyVecDestructor;
     /// `CssPropertyVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructorType as CssPropertyVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPropertyVecDestructorType as CssPropertyVecDestructorType;
     /// `SvgMultiPolygonVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructor as SvgMultiPolygonVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructor as SvgMultiPolygonVecDestructor;
     /// `SvgMultiPolygonVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;
     /// `SvgPathVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructor as SvgPathVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructor as SvgPathVecDestructor;
     /// `SvgPathVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructorType as SvgPathVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructorType as SvgPathVecDestructorType;
     /// `VertexAttributeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructor as VertexAttributeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructor as VertexAttributeVecDestructor;
     /// `VertexAttributeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructorType as VertexAttributeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVertexAttributeVecDestructorType as VertexAttributeVecDestructorType;
     /// `SvgPathElementVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructor as SvgPathElementVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructor as SvgPathElementVecDestructor;
     /// `SvgPathElementVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructorType as SvgPathElementVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgPathElementVecDestructorType as SvgPathElementVecDestructorType;
     /// `SvgVertexVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructor as SvgVertexVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructor as SvgVertexVecDestructor;
     /// `SvgVertexVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;
     /// `U32VecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU32VecDestructor as U32VecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU32VecDestructor as U32VecDestructor;
     /// `U32VecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU32VecDestructorType as U32VecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU32VecDestructorType as U32VecDestructorType;
     /// `XWindowTypeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructor as XWindowTypeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructor as XWindowTypeVecDestructor;
     /// `XWindowTypeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructorType as XWindowTypeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXWindowTypeVecDestructorType as XWindowTypeVecDestructorType;
     /// `VirtualKeyCodeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructor as VirtualKeyCodeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructor as VirtualKeyCodeVecDestructor;
     /// `VirtualKeyCodeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructorType as VirtualKeyCodeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVecDestructorType as VirtualKeyCodeVecDestructorType;
     /// `CascadeInfoVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructor as CascadeInfoVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructor as CascadeInfoVecDestructor;
     /// `CascadeInfoVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructorType as CascadeInfoVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCascadeInfoVecDestructorType as CascadeInfoVecDestructorType;
     /// `ScanCodeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzScanCodeVecDestructor as ScanCodeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzScanCodeVecDestructor as ScanCodeVecDestructor;
     /// `ScanCodeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzScanCodeVecDestructorType as ScanCodeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzScanCodeVecDestructorType as ScanCodeVecDestructorType;
     /// `CssDeclarationVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructor as CssDeclarationVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructor as CssDeclarationVecDestructor;
     /// `CssDeclarationVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructorType as CssDeclarationVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssDeclarationVecDestructorType as CssDeclarationVecDestructorType;
     /// `CssPathSelectorVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructor as CssPathSelectorVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructor as CssPathSelectorVecDestructor;
     /// `CssPathSelectorVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructorType as CssPathSelectorVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssPathSelectorVecDestructorType as CssPathSelectorVecDestructorType;
     /// `StylesheetVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStylesheetVecDestructor as StylesheetVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStylesheetVecDestructor as StylesheetVecDestructor;
     /// `StylesheetVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStylesheetVecDestructorType as StylesheetVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStylesheetVecDestructorType as StylesheetVecDestructorType;
     /// `CssRuleBlockVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructor as CssRuleBlockVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructor as CssRuleBlockVecDestructor;
     /// `CssRuleBlockVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCssRuleBlockVecDestructorType as CssRuleBlockVecDestructorType;
     /// `F32VecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzF32VecDestructor as F32VecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzF32VecDestructor as F32VecDestructor;
     /// `F32VecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzF32VecDestructorType as F32VecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzF32VecDestructorType as F32VecDestructorType;
     /// `U16VecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU16VecDestructor as U16VecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU16VecDestructor as U16VecDestructor;
     /// `U16VecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU16VecDestructorType as U16VecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU16VecDestructorType as U16VecDestructorType;
     /// `U8VecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU8VecDestructor as U8VecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU8VecDestructor as U8VecDestructor;
     /// `U8VecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzU8VecDestructorType as U8VecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzU8VecDestructorType as U8VecDestructorType;
     /// `CallbackDataVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructor as CallbackDataVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructor as CallbackDataVecDestructor;
     /// `CallbackDataVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructorType as CallbackDataVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzCallbackDataVecDestructorType as CallbackDataVecDestructorType;
     /// `DebugMessageVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructor as DebugMessageVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructor as DebugMessageVecDestructor;
     /// `DebugMessageVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructorType as DebugMessageVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDebugMessageVecDestructorType as DebugMessageVecDestructorType;
     /// `GLuintVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLuintVecDestructor as GLuintVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLuintVecDestructor as GLuintVecDestructor;
     /// `GLuintVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLuintVecDestructorType as GLuintVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLuintVecDestructorType as GLuintVecDestructorType;
     /// `GLintVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLintVecDestructor as GLintVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLintVecDestructor as GLintVecDestructor;
     /// `GLintVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzGLintVecDestructorType as GLintVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzGLintVecDestructorType as GLintVecDestructorType;
     /// `StringVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringVecDestructor as StringVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringVecDestructor as StringVecDestructor;
     /// `StringVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringVecDestructorType as StringVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringVecDestructorType as StringVecDestructorType;
     /// `StringPairVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringPairVecDestructor as StringPairVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringPairVecDestructor as StringPairVecDestructor;
     /// `StringPairVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStringPairVecDestructorType as StringPairVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStringPairVecDestructorType as StringPairVecDestructorType;
     /// `NormalizedLinearColorStopVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVecDestructor as NormalizedLinearColorStopVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVecDestructor as NormalizedLinearColorStopVecDestructor;
     /// `NormalizedLinearColorStopVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVecDestructorType as NormalizedLinearColorStopVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedLinearColorStopVecDestructorType as NormalizedLinearColorStopVecDestructorType;
     /// `NormalizedRadialColorStopVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVecDestructor as NormalizedRadialColorStopVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVecDestructor as NormalizedRadialColorStopVecDestructor;
     /// `NormalizedRadialColorStopVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVecDestructorType as NormalizedRadialColorStopVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNormalizedRadialColorStopVecDestructorType as NormalizedRadialColorStopVecDestructorType;
     /// `NodeIdVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructor as NodeIdVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructor as NodeIdVecDestructor;
     /// `NodeIdVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructorType as NodeIdVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeIdVecDestructorType as NodeIdVecDestructorType;
     /// `NodeHierarchyItemVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVecDestructor as NodeHierarchyItemVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVecDestructor as NodeHierarchyItemVecDestructor;
     /// `NodeHierarchyItemVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVecDestructorType as NodeHierarchyItemVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeHierarchyItemVecDestructorType as NodeHierarchyItemVecDestructorType;
     /// `StyledNodeVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructor as StyledNodeVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructor as StyledNodeVecDestructor;
     /// `StyledNodeVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzStyledNodeVecDestructorType as StyledNodeVecDestructorType;
     /// `TagIdToNodeIdMappingVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVecDestructor as TagIdToNodeIdMappingVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVecDestructor as TagIdToNodeIdMappingVecDestructor;
     /// `TagIdToNodeIdMappingVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVecDestructorType as TagIdToNodeIdMappingVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzTagIdToNodeIdMappingVecDestructorType as TagIdToNodeIdMappingVecDestructorType;
     /// `ParentWithNodeDepthVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructor as ParentWithNodeDepthVecDestructor;
     /// `ParentWithNodeDepthVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructorType as ParentWithNodeDepthVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVecDestructorType as ParentWithNodeDepthVecDestructorType;
     /// `NodeDataVecDestructor` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataVecDestructor as NodeDataVecDestructor;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataVecDestructor as NodeDataVecDestructor;
     /// `NodeDataVecDestructorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNodeDataVecDestructorType as NodeDataVecDestructorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNodeDataVecDestructorType as NodeDataVecDestructorType;
 }
 
 pub mod option {
     #![allow(dead_code, unused_imports)]
     //! Definition of azuls internal `Option<*>` wrappers
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionListViewOnRowClick as OptionListViewOnRowClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionListViewOnColumnClick as OptionListViewOnColumnClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionListViewOnLazyLoadScroll as OptionListViewOnLazyLoadScroll;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionMenu as OptionMenu;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionPixelValueNoPercent as OptionPixelValueNoPercent;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionResolvedTextLayoutOptions as OptionResolvedTextLayoutOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeAdded as OptionNodeGraphOnNodeAdded;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeRemoved as OptionNodeGraphOnNodeRemoved;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeGraphDragged as OptionNodeGraphOnNodeGraphDragged;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeDragged as OptionNodeGraphOnNodeDragged;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeConnected as OptionNodeGraphOnNodeConnected;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeInputDisconnected as OptionNodeGraphOnNodeInputDisconnected;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeOutputDisconnected as OptionNodeGraphOnNodeOutputDisconnected;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeGraphOnNodeFieldEdited as OptionNodeGraphOnNodeFieldEdited;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionColorInputOnValueChange as OptionColorInputOnValueChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionButtonOnClick as OptionButtonOnClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTabOnClick as OptionTabOnClick;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionFileInputOnPathChange as OptionFileInputOnPathChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionCheckBoxOnToggle as OptionCheckBoxOnToggle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTextInputOnTextInput as OptionTextInputOnTextInput;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTextInputOnVirtualKeyDown as OptionTextInputOnVirtualKeyDown;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTextInputOnFocusLost as OptionTextInputOnFocusLost;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTextInputSelection as OptionTextInputSelection;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNumberInputOnFocusLost as OptionNumberInputOnFocusLost;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNumberInputOnValueChange as OptionNumberInputOnValueChange;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionMenuItemIcon as OptionMenuItemIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionMenuCallback as OptionMenuCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionVirtualKeyCodeCombo as OptionVirtualKeyCodeCombo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionCssProperty as OptionCssProperty;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionPositionInfo as OptionPositionInfo;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTimerId as OptionTimerId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionThreadId as OptionThreadId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionI16 as OptionI16;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionU16 as OptionU16;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionU32 as OptionU32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionImageRef as OptionImageRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionFontRef as OptionFontRef;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionSystemClipboard as OptionSystemClipboard;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionFileTypeList as OptionFileTypeList;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionWindowState as OptionWindowState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionMouseState as OptionMouseState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionKeyboardState as OptionKeyboardState;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionStringVec as OptionStringVec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionFile as OptionFile;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionGl as OptionGl;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionThreadReceiveMsg as OptionThreadReceiveMsg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionPercentageValue as OptionPercentageValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionAngleValue as OptionAngleValue;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionRendererOptions as OptionRendererOptions;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionCallback as OptionCallback;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionThreadSendMsg as OptionThreadSendMsg;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionLayoutRect as OptionLayoutRect;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionRefAny as OptionRefAny;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionInlineText as OptionInlineText;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionLayoutPoint as OptionLayoutPoint;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionLayoutSize as OptionLayoutSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionWindowTheme as OptionWindowTheme;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionNodeId as OptionNodeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionDomNodeId as OptionDomNodeId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionColorU as OptionColorU;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionRawImage as OptionRawImage;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionSvgDashPattern as OptionSvgDashPattern;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionWaylandTheme as OptionWaylandTheme;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTaskBarIcon as OptionTaskBarIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionHwndHandle as OptionHwndHandle;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionLogicalPosition as OptionLogicalPosition;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionWindowIcon as OptionWindowIcon;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionString as OptionString;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionX11Visual as OptionX11Visual;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionI32 as OptionI32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionF32 as OptionF32;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionMouseCursorType as OptionMouseCursorType;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionLogicalSize as OptionLogicalSize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionChar as OptionChar;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionVirtualKeyCode as OptionVirtualKeyCode;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionDom as OptionDom;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTexture as OptionTexture;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionImageMask as OptionImageMask;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTabIndex as OptionTabIndex;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionTagId as OptionTagId;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionDuration as OptionDuration;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionInstant as OptionInstant;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionUsize as OptionUsize;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionU8Vec as OptionU8Vec;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzOptionU8VecRef as OptionU8VecRef;
     use core::ffi::c_void;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
 
     macro_rules! impl_option_inner {
         ($struct_type:ident, $struct_name:ident) => (
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl Default for $struct_name {
             fn default() -> $struct_name { $struct_name::None }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct_name {
             pub fn as_option(&self) -> Option<&$struct_type> {
                 match self {
@@ -20883,7 +20883,7 @@ pub mod option {
         ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<$struct_name> for Option<$struct_type> {
                 fn from(o: $struct_name) -> Option<$struct_type> {
                     match &o {
@@ -20893,7 +20893,7 @@ pub mod option {
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<Option<$struct_type>> for $struct_name {
                 fn from(o: Option<$struct_type>) -> $struct_name {
                     match &o {
@@ -20903,7 +20903,7 @@ pub mod option {
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl $struct_name {
                 pub fn into_option(self) -> Option<$struct_type> {
                     self.into()
@@ -20926,7 +20926,7 @@ pub mod option {
         ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<$struct_name> for Option<$struct_type> {
                 fn from(o: $struct_name) -> Option<$struct_type> {
                     match o {
@@ -20936,7 +20936,7 @@ pub mod option {
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<Option<$struct_type>> for $struct_name {
                 fn from(o: Option<$struct_type>) -> $struct_name {
                     match o {
@@ -20946,7 +20946,7 @@ pub mod option {
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl $struct_name {
                 pub fn into_option(self) -> Option<$struct_type> {
                     self.into()
@@ -21024,382 +21024,382 @@ pub mod option {
     impl_option!(AzPixelValueNoPercent, AzOptionPixelValueNoPercent, copy = false, [Debug, Copy, Clone]);
     /// `OptionListViewOnRowClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnRowClick as OptionListViewOnRowClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnRowClick as OptionListViewOnRowClick;
     /// `OptionListViewOnColumnClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnColumnClick as OptionListViewOnColumnClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnColumnClick as OptionListViewOnColumnClick;
     /// `OptionListViewOnLazyLoadScroll` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnLazyLoadScroll as OptionListViewOnLazyLoadScroll;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionListViewOnLazyLoadScroll as OptionListViewOnLazyLoadScroll;
     /// `OptionMenu` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionMenu as OptionMenu;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionMenu as OptionMenu;
     /// `OptionPixelValueNoPercent` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionPixelValueNoPercent as OptionPixelValueNoPercent;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionPixelValueNoPercent as OptionPixelValueNoPercent;
     /// `OptionDropDownOnChoiceChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionDropDownOnChoiceChange as OptionDropDownOnChoiceChange;
     /// `OptionResolvedTextLayoutOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionResolvedTextLayoutOptions as OptionResolvedTextLayoutOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionResolvedTextLayoutOptions as OptionResolvedTextLayoutOptions;
     /// `OptionNodeGraphOnNodeAdded` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeAdded as OptionNodeGraphOnNodeAdded;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeAdded as OptionNodeGraphOnNodeAdded;
     /// `OptionNodeGraphOnNodeRemoved` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeRemoved as OptionNodeGraphOnNodeRemoved;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeRemoved as OptionNodeGraphOnNodeRemoved;
     /// `OptionNodeGraphOnNodeGraphDragged` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeGraphDragged as OptionNodeGraphOnNodeGraphDragged;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeGraphDragged as OptionNodeGraphOnNodeGraphDragged;
     /// `OptionNodeGraphOnNodeDragged` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeDragged as OptionNodeGraphOnNodeDragged;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeDragged as OptionNodeGraphOnNodeDragged;
     /// `OptionNodeGraphOnNodeConnected` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeConnected as OptionNodeGraphOnNodeConnected;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeConnected as OptionNodeGraphOnNodeConnected;
     /// `OptionNodeGraphOnNodeInputDisconnected` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeInputDisconnected as OptionNodeGraphOnNodeInputDisconnected;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeInputDisconnected as OptionNodeGraphOnNodeInputDisconnected;
     /// `OptionNodeGraphOnNodeOutputDisconnected` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeOutputDisconnected as OptionNodeGraphOnNodeOutputDisconnected;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeOutputDisconnected as OptionNodeGraphOnNodeOutputDisconnected;
     /// `OptionNodeGraphOnNodeFieldEdited` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeFieldEdited as OptionNodeGraphOnNodeFieldEdited;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeGraphOnNodeFieldEdited as OptionNodeGraphOnNodeFieldEdited;
     /// `OptionColorInputOnValueChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionColorInputOnValueChange as OptionColorInputOnValueChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionColorInputOnValueChange as OptionColorInputOnValueChange;
     /// `OptionButtonOnClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionButtonOnClick as OptionButtonOnClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionButtonOnClick as OptionButtonOnClick;
     /// `OptionTabOnClick` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTabOnClick as OptionTabOnClick;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTabOnClick as OptionTabOnClick;
     /// `OptionFileInputOnPathChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionFileInputOnPathChange as OptionFileInputOnPathChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionFileInputOnPathChange as OptionFileInputOnPathChange;
     /// `OptionCheckBoxOnToggle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionCheckBoxOnToggle as OptionCheckBoxOnToggle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionCheckBoxOnToggle as OptionCheckBoxOnToggle;
     /// `OptionTextInputOnTextInput` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputOnTextInput as OptionTextInputOnTextInput;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputOnTextInput as OptionTextInputOnTextInput;
     /// `OptionTextInputOnVirtualKeyDown` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputOnVirtualKeyDown as OptionTextInputOnVirtualKeyDown;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputOnVirtualKeyDown as OptionTextInputOnVirtualKeyDown;
     /// `OptionTextInputOnFocusLost` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputOnFocusLost as OptionTextInputOnFocusLost;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputOnFocusLost as OptionTextInputOnFocusLost;
     /// `OptionTextInputSelection` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputSelection as OptionTextInputSelection;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTextInputSelection as OptionTextInputSelection;
     /// `OptionNumberInputOnFocusLost` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNumberInputOnFocusLost as OptionNumberInputOnFocusLost;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNumberInputOnFocusLost as OptionNumberInputOnFocusLost;
     /// `OptionNumberInputOnValueChange` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNumberInputOnValueChange as OptionNumberInputOnValueChange;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNumberInputOnValueChange as OptionNumberInputOnValueChange;
     /// `OptionMenuItemIcon` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionMenuItemIcon as OptionMenuItemIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionMenuItemIcon as OptionMenuItemIcon;
     /// `OptionMenuCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionMenuCallback as OptionMenuCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionMenuCallback as OptionMenuCallback;
     /// `OptionVirtualKeyCodeCombo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCodeCombo as OptionVirtualKeyCodeCombo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCodeCombo as OptionVirtualKeyCodeCombo;
     /// `OptionCssProperty` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionCssProperty as OptionCssProperty;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionCssProperty as OptionCssProperty;
     /// `OptionPositionInfo` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionPositionInfo as OptionPositionInfo;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionPositionInfo as OptionPositionInfo;
     /// `OptionTimerId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTimerId as OptionTimerId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTimerId as OptionTimerId;
     /// `OptionThreadId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionThreadId as OptionThreadId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionThreadId as OptionThreadId;
     /// `OptionI16` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionI16 as OptionI16;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionI16 as OptionI16;
     /// `OptionU16` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionU16 as OptionU16;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionU16 as OptionU16;
     /// `OptionU32` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionU32 as OptionU32;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionU32 as OptionU32;
     /// `OptionImageRef` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionImageRef as OptionImageRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionImageRef as OptionImageRef;
     /// `OptionFontRef` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionFontRef as OptionFontRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionFontRef as OptionFontRef;
     /// `OptionSystemClipboard` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionSystemClipboard as OptionSystemClipboard;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionSystemClipboard as OptionSystemClipboard;
     /// `OptionFileTypeList` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionFileTypeList as OptionFileTypeList;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionFileTypeList as OptionFileTypeList;
     /// `OptionWindowState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionWindowState as OptionWindowState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionWindowState as OptionWindowState;
     /// `OptionMouseState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionMouseState as OptionMouseState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionMouseState as OptionMouseState;
     /// `OptionKeyboardState` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionKeyboardState as OptionKeyboardState;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionKeyboardState as OptionKeyboardState;
     /// `OptionStringVec` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionStringVec as OptionStringVec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionStringVec as OptionStringVec;
     /// `OptionFile` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionFile as OptionFile;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionFile as OptionFile;
     /// `OptionGl` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionGl as OptionGl;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionGl as OptionGl;
     /// `OptionThreadReceiveMsg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionThreadReceiveMsg as OptionThreadReceiveMsg;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionThreadReceiveMsg as OptionThreadReceiveMsg;
     /// `OptionPercentageValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
     /// `OptionAngleValue` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionAngleValue as OptionAngleValue;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionAngleValue as OptionAngleValue;
     /// `OptionRendererOptions` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionRendererOptions as OptionRendererOptions;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionRendererOptions as OptionRendererOptions;
     /// `OptionCallback` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionCallback as OptionCallback;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionCallback as OptionCallback;
     /// `OptionThreadSendMsg` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionThreadSendMsg as OptionThreadSendMsg;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionThreadSendMsg as OptionThreadSendMsg;
     /// `OptionLayoutRect` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionLayoutRect as OptionLayoutRect;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionLayoutRect as OptionLayoutRect;
     /// `OptionRefAny` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionRefAny as OptionRefAny;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionRefAny as OptionRefAny;
     /// `OptionInlineText` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionInlineText as OptionInlineText;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionInlineText as OptionInlineText;
     /// `OptionLayoutPoint` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;
     /// `OptionLayoutSize` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionLayoutSize as OptionLayoutSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionLayoutSize as OptionLayoutSize;
     /// `OptionWindowTheme` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionWindowTheme as OptionWindowTheme;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionWindowTheme as OptionWindowTheme;
     /// `OptionNodeId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeId as OptionNodeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionNodeId as OptionNodeId;
     /// `OptionDomNodeId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionDomNodeId as OptionDomNodeId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionDomNodeId as OptionDomNodeId;
     /// `OptionColorU` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionColorU as OptionColorU;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionColorU as OptionColorU;
     /// `OptionRawImage` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionRawImage as OptionRawImage;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionRawImage as OptionRawImage;
     /// `OptionSvgDashPattern` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionSvgDashPattern as OptionSvgDashPattern;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionSvgDashPattern as OptionSvgDashPattern;
     /// `OptionWaylandTheme` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;
     /// `OptionTaskBarIcon` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTaskBarIcon as OptionTaskBarIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTaskBarIcon as OptionTaskBarIcon;
     /// `OptionHwndHandle` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionHwndHandle as OptionHwndHandle;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionHwndHandle as OptionHwndHandle;
     /// `OptionLogicalPosition` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionLogicalPosition as OptionLogicalPosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionLogicalPosition as OptionLogicalPosition;
     /// `OptionPhysicalPositionI32` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
     /// `OptionWindowIcon` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;
     /// `OptionString` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionString as OptionString;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionString as OptionString;
     /// `OptionX11Visual` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionX11Visual as OptionX11Visual;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionX11Visual as OptionX11Visual;
     /// `OptionI32` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionI32 as OptionI32;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionI32 as OptionI32;
     /// `OptionF32` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionF32 as OptionF32;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionF32 as OptionF32;
     /// `OptionMouseCursorType` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionMouseCursorType as OptionMouseCursorType;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionMouseCursorType as OptionMouseCursorType;
     /// `OptionLogicalSize` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionLogicalSize as OptionLogicalSize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionLogicalSize as OptionLogicalSize;
     /// Option<char> but the char is a u32, for C FFI stability reasons
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionChar as OptionChar;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionChar as OptionChar;
     /// `OptionVirtualKeyCode` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCode as OptionVirtualKeyCode;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionVirtualKeyCode as OptionVirtualKeyCode;
     /// `OptionDom` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionDom as OptionDom;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionDom as OptionDom;
     /// `OptionTexture` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTexture as OptionTexture;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTexture as OptionTexture;
     /// `OptionImageMask` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionImageMask as OptionImageMask;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionImageMask as OptionImageMask;
     /// `OptionTabIndex` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
     /// `OptionTagId` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionTagId as OptionTagId;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionTagId as OptionTagId;
     /// `OptionDuration` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionDuration as OptionDuration;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionDuration as OptionDuration;
     /// `OptionInstant` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionInstant as OptionInstant;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionInstant as OptionInstant;
     /// `OptionUsize` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionUsize as OptionUsize;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionUsize as OptionUsize;
     /// `OptionU8Vec` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionU8Vec as OptionU8Vec;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionU8Vec as OptionU8Vec;
     /// `OptionU8VecRef` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
 }
 
 pub mod error {
     #![allow(dead_code, unused_imports)]
     //! Definition of error and `Result<T, E>`  types
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzResultXmlXmlError as ResultXmlXmlError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzResultRawImageDecodeImageError as ResultRawImageDecodeImageError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzResultU8VecEncodeImageError as ResultU8VecEncodeImageError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzResultSvgXmlNodeSvgParseError as ResultSvgXmlNodeSvgParseError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzResultSvgSvgParseError as ResultSvgSvgParseError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgParseError as SvgParseError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlError as XmlError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDuplicatedNamespaceError as DuplicatedNamespaceError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzUnknownNamespaceError as UnknownNamespaceError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzUnexpectedCloseTagError as UnexpectedCloseTagError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzUnknownEntityReferenceError as UnknownEntityReferenceError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzDuplicatedAttributeError as DuplicatedAttributeError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlParseError as XmlParseError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlTextError as XmlTextError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzXmlStreamError as XmlStreamError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzNonXmlCharError as NonXmlCharError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInvalidCharError as InvalidCharError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInvalidCharMultipleError as InvalidCharMultipleError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInvalidQuoteError as InvalidQuoteError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInvalidSpaceError as InvalidSpaceError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzInvalidStringError as InvalidStringError;
-    #[cfg(feature = "link_static")]
+    #[cfg(feature = "link-static")]
     pub use azul::AzSvgParseErrorPosition as SvgParseErrorPosition;
     use core::ffi::c_void;
     /// `ResultXmlXmlError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzResultXmlXmlError as ResultXmlXmlError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzResultXmlXmlError as ResultXmlXmlError;
     /// `ResultRawImageDecodeImageError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzResultRawImageDecodeImageError as ResultRawImageDecodeImageError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzResultRawImageDecodeImageError as ResultRawImageDecodeImageError;
     /// `ResultU8VecEncodeImageError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzResultU8VecEncodeImageError as ResultU8VecEncodeImageError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzResultU8VecEncodeImageError as ResultU8VecEncodeImageError;
     /// `ResultSvgXmlNodeSvgParseError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzResultSvgXmlNodeSvgParseError as ResultSvgXmlNodeSvgParseError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzResultSvgXmlNodeSvgParseError as ResultSvgXmlNodeSvgParseError;
     /// `ResultSvgSvgParseError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzResultSvgSvgParseError as ResultSvgSvgParseError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzResultSvgSvgParseError as ResultSvgSvgParseError;
     /// `SvgParseError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgParseError as SvgParseError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgParseError as SvgParseError;
     /// `XmlError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlError as XmlError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlError as XmlError;
     /// `DuplicatedNamespaceError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDuplicatedNamespaceError as DuplicatedNamespaceError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDuplicatedNamespaceError as DuplicatedNamespaceError;
     /// `UnknownNamespaceError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzUnknownNamespaceError as UnknownNamespaceError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzUnknownNamespaceError as UnknownNamespaceError;
     /// `UnexpectedCloseTagError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzUnexpectedCloseTagError as UnexpectedCloseTagError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzUnexpectedCloseTagError as UnexpectedCloseTagError;
     /// `UnknownEntityReferenceError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzUnknownEntityReferenceError as UnknownEntityReferenceError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzUnknownEntityReferenceError as UnknownEntityReferenceError;
     /// `DuplicatedAttributeError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzDuplicatedAttributeError as DuplicatedAttributeError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzDuplicatedAttributeError as DuplicatedAttributeError;
     /// `XmlParseError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlParseError as XmlParseError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlParseError as XmlParseError;
     /// `XmlTextError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlTextError as XmlTextError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlTextError as XmlTextError;
     /// `XmlStreamError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzXmlStreamError as XmlStreamError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzXmlStreamError as XmlStreamError;
     /// `NonXmlCharError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzNonXmlCharError as NonXmlCharError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzNonXmlCharError as NonXmlCharError;
     /// `InvalidCharError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInvalidCharError as InvalidCharError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInvalidCharError as InvalidCharError;
     /// `InvalidCharMultipleError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInvalidCharMultipleError as InvalidCharMultipleError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInvalidCharMultipleError as InvalidCharMultipleError;
     /// `InvalidQuoteError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInvalidQuoteError as InvalidQuoteError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInvalidQuoteError as InvalidQuoteError;
     /// `InvalidSpaceError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInvalidSpaceError as InvalidSpaceError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInvalidSpaceError as InvalidSpaceError;
     /// `InvalidStringError` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzInvalidStringError as InvalidStringError;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzInvalidStringError as InvalidStringError;
     /// `SvgParseErrorPosition` struct
     
-    #[cfg(not(feature = "link_static"))] #[doc(inline)] pub use crate::dll::AzSvgParseErrorPosition as SvgParseErrorPosition;
+    #[cfg(not(feature = "link-static"))] #[doc(inline)] pub use crate::dll::AzSvgParseErrorPosition as SvgParseErrorPosition;
 }
 

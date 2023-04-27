@@ -13,62 +13,63 @@ keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
+publish = false
 
-[[bin]]
+[[example]]
 name = "test"
-path = "rust/test.rs"
+path = "test.rs"
 
-[[bin]]
+[[example]]
 name = "async"
-path = "rust/async.rs"
+path = "async.rs"
 
-[[bin]]
+[[example]]
 name = "hello-world"
-path = "rust/hello-world.rs"
+path = "hello-world.rs"
 
-[[bin]]
+[[example]]
 name = "fontdebug"
-path = "rust/fontdebug.rs"
+path = "fontdebug.rs"
 
-[[bin]]
+[[example]]
 name = "widgets"
-path = "rust/widgets.rs"
+path = "widgets.rs"
 
-[[bin]]
+[[example]]
 name = "opengl"
-path = "rust/opengl.rs"
+path = "opengl.rs"
 required-features = ["serde_support"]
 
-[[bin]]
+[[example]]
 name = "calculator"
-path = "rust/calculator.rs"
+path = "calculator.rs"
 
-[[bin]]
+[[example]]
 name = "nodegraph"
-path = "rust/nodegraph.rs"
+path = "nodegraph.rs"
 
-[[bin]]
+[[example]]
 name = "spreadsheet"
-path = "rust/spreadsheet.rs"
+path = "spreadsheet.rs"
 
-[[bin]]
+[[example]]
 name = "svg"
-path = "rust/svg.rs"
+path = "svg.rs"
 
-[[bin]]
+[[example]]
 name = "xml"
-path = "rust/xml.rs"
+path = "xml.rs"
 
-# [[bin]]
+# [[example]]
 # name = "table"
-# path = "rust/table.rs"
+# path = "table.rs"
 
-# [[bin]]
+# [[example]]
 # name = "udp-chat"
-# path = "rust/udp-chat.rs"
+# path = "udp-chat.rs"
 
 [dependencies]
-azul = { path = "../api/rust", default-features = false }
+azul = { path = "../../api/rust", default-features = false }
 serde = { version = "1", optional = true }
 serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }

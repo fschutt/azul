@@ -3,7 +3,7 @@
 use crate::logic::OperandStack;
 use azul::prelude::FontRef;
 
-macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/assets/fonts/KoHo-Light.ttf")};}
+macro_rules! FONT_PATH {() => { concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/assets/fonts/KoHo-Light.ttf")};}
 static FONT: &[u8] = include_bytes!(FONT_PATH!());
 
 pub struct Calculator {

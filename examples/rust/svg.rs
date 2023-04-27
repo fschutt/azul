@@ -10,7 +10,7 @@ const CSS: &str = "
     height: 100%;
 }";
 
-const SVG: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/assets/svg/AJ_Digital_Camera.svg"));
+const SVG: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/assets/svg/AJ_Digital_Camera.svg"));
 const SVG_STRING: AzString = AzString::from_const_str(SVG);
 
 #[derive(Debug)]

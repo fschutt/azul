@@ -234,7 +234,7 @@ pub fn path_contains_point(path: &SvgPath, point: SvgPoint, fill_rule: SvgFillRu
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn path_contains_point(path: &SvgPath, point: SvgPoint, tolerance: f32, fill_rule: SvgFillRule) -> bool {
+pub fn path_contains_point(path: &SvgPath, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
     false
 }
 
@@ -254,7 +254,7 @@ pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, fill_r
 }
 
 #[cfg(not(feature = "svg"))]
-pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, tolerance: f32, fill_rule: SvgFillRule) -> bool {
+pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
     false
 }
 

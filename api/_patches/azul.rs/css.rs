@@ -1,5 +1,5 @@
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::vec::{
         StyleBackgroundPositionVec,
         StyleBackgroundContentVec,
@@ -89,7 +89,7 @@
         }
     })}
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl CssProperty {
 
         /// Return the type (key) of this property as a statically typed enum
@@ -257,7 +257,7 @@
     const FP_PRECISION_MULTIPLIER: f32 = 1000.0;
     const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl FloatValue {
         /// Same as `FloatValue::new()`, but only accepts whole numbers,
         /// since using `f32` in const fn is not yet stabilized.
@@ -274,14 +274,14 @@
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<f32> for FloatValue {
         fn from(val: f32) -> Self {
             Self::new(val)
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl AngleValue {
 
         #[inline]
@@ -365,7 +365,7 @@
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PixelValue {
 
         #[inline]
@@ -439,7 +439,7 @@
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PixelValueNoPercent {
 
         #[inline]
@@ -494,7 +494,7 @@
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl PercentageValue {
 
         /// Same as `PercentageValue::new()`, but only accepts whole numbers,
@@ -519,7 +519,7 @@
     /// `PixelValue` as it's self.0 field.
     macro_rules! impl_pixel_value {($struct:ident) => (
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct {
 
             #[inline]
@@ -618,7 +618,7 @@
     impl_pixel_value!(StyleFontSize);
 
     macro_rules! impl_float_value {($struct:ident) => (
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct {
             /// Same as `FloatValue::new()`, but only accepts whole numbers,
             /// since using `f32` in const fn is not yet stabilized.
@@ -635,7 +635,7 @@
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl From<f32> for $struct {
             fn from(val: f32) -> Self {
                 Self { inner: FloatValue::from(val) }
@@ -647,7 +647,7 @@
     impl_float_value!(LayoutFlexShrink);
 
     macro_rules! impl_percentage_value{($struct:ident) => (
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct {
             /// Same as `PercentageValue::new()`, but only accepts whole numbers,
             /// since using `f32` in const fn is not yet stabilized.

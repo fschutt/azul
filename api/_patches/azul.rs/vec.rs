@@ -1,19 +1,19 @@
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use core::iter;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use core::fmt;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use core::cmp;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::vec::{self, Vec};
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::slice;
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use alloc::string;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::gl::{
         GLint as AzGLint,
         GLuint as AzGLuint,
@@ -21,12 +21,12 @@
 
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident, $destructor_name:ident, $c_destructor_fn_name:ident, $crate_dll_delete_fn:ident) => (
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         unsafe impl Send for $struct_name { }
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         unsafe impl Sync for $struct_name { }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl fmt::Debug for $destructor_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match self {
@@ -37,7 +37,7 @@
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialEq for $destructor_name {
             fn eq(&self, rhs: &Self) -> bool {
                 match (self, rhs) {
@@ -49,14 +49,14 @@
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialOrd for $destructor_name {
             fn partial_cmp(&self, _rhs: &Self) -> Option<cmp::Ordering> {
                 None
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct_name {
 
             #[inline]
@@ -133,35 +133,35 @@
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl AsRef<[$struct_type]> for $struct_name {
             fn as_ref(&self) -> &[$struct_type] {
                 unsafe { slice::from_raw_parts(self.ptr, self.len) }
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl iter::FromIterator<$struct_type> for $struct_name {
             fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
                 Self::from_vec(Vec::from_iter(iter))
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl From<Vec<$struct_type>> for $struct_name {
             fn from(input: Vec<$struct_type>) -> $struct_name {
                 Self::from_vec(input)
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl From<&'static [$struct_type]> for $struct_name {
             fn from(input: &'static [$struct_type]) -> $struct_name {
                 Self::from_const_slice(input)
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl Drop for $struct_name {
             fn drop(&mut self) {
                 match self.destructor {
@@ -174,21 +174,21 @@
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl fmt::Debug for $struct_name {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 self.as_ref().fmt(f)
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialOrd for $struct_name {
             fn partial_cmp(&self, rhs: &Self) -> Option<cmp::Ordering> {
                 self.as_ref().partial_cmp(rhs.as_ref())
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl PartialEq for $struct_name {
             fn eq(&self, rhs: &Self) -> bool {
                 self.as_ref().eq(rhs.as_ref())
@@ -197,7 +197,7 @@
     )}
 
     macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident, $destructor_name:ident) => (
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct_name {
             /// NOTE: CLONES the memory if the memory is external or &'static
             /// Moves the memory out if the memory is library-allocated
@@ -219,7 +219,7 @@
             }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl Clone for $struct_name {
             fn clone(&self) -> Self {
                 self.clone_self()
@@ -228,10 +228,10 @@
     )}
 
     macro_rules! impl_vec_serde {($struct_type:ident, $struct_name:ident) => (
-        #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+        #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
         use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
-        #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+        #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
         impl Serialize for $struct_name {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: Serializer,
@@ -240,7 +240,7 @@
             }
         }
 
-        #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+        #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
         impl<'de> Deserialize<'de> for $struct_name {
             fn deserialize<D>(deserializer: D) -> Result<$struct_name, D::Error>
             where D: Deserializer<'de>,
@@ -383,7 +383,7 @@
     impl_vec!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor, az_menu_item_vec_destructor, AzMenuItemVec_delete);
     impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
             let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
@@ -392,7 +392,7 @@
         }
     }
 
-    #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+    #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
     impl Serialize for crate::prelude::SvgPathElementVec {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer,
@@ -401,7 +401,7 @@
         }
     }
 
-    #[cfg(all(feature = "serde-support", not(feature = "link_static")))]
+    #[cfg(all(feature = "serde-support", not(feature = "link-static")))]
     impl<'de> Deserialize<'de> for crate::prelude::SvgPathElementVec {
         fn deserialize<D>(deserializer: D) -> Result<crate::prelude::SvgPathElementVec, D::Error>
         where D: Deserializer<'de>,

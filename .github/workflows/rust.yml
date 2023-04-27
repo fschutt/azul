@@ -1,57 +1,81 @@
-name: Rust
+name: Build
 
-on: [push]
+on:
+  push:
+    branches:
+      - 'master'
+    tags:
+      # this is _not_ a regex, see: https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet
+      - '[0-9]+.[0-9]+.[0-9]+*'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+          description: 'Make release'
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-
+  setup:
+    name: Set up
+    runs-on: ubuntu-22.04
+    outputs:
+      VERSION: ${{ steps.setup.outputs.VERSION }}
+      DOING_RELEASE: ${{ steps.setup.outputs.DOING_RELEASE }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v1
+      - name: Set up env vars
+        id: setup
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF/refs\/tags\//}
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          DOING_RELEASE=$(echo $VERSION | grep -c '^[0-9]\+\.[0-9]\+\.[0-9]\+\(-\([a-zA-Z]\+\)\?[0-9]*\)\?$' || true)
+          echo "DOING_RELEASE=${DOING_RELEASE}" >> $GITHUB_OUTPUT
+          echo $VERSION
+          echo $DOING_RELEASE
 
-      - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          default: true
-          override: true
-
-      - name: Check (Linux)
-        run: cd azul-dll && cargo check --verbose --release
-
-  build-win:
-    runs-on: windows-latest
-
+  build:
+    name: Build on ${{ matrix.build }}
+    runs-on: ${{ matrix.os }}
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: macos-x64
+            os: macos-11
+          - build: windows-x64
+            os: windows-2019
+          - build: linux-x64
+            os: ubuntu-22.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-
-      - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          default: true
-          override: true
-
-      - name: Check (Windows)
-        run: cd azul-dll && cargo check  --verbose --release
-
-  build-mac:
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-
-      - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: x86_64-apple-darwin
-          default: true
-          override: true
-
-      - name: Check (Mac)
-        run: cd azul-dll && cargo check  --verbose --release
-
+          toolchain: 1.69
+      - name: Check that build.py is up to date
+        run: |
+          python3 ./build.py
+          something_changed=`git diff-index --exit-code --ignore-submodules HEAD`
+          if [ -n "$something_changed" ]
+          then
+              echo >&2 "build.py has changes, please re-run build.py and commit changes"
+              exit 1
+          fi
+      - name: Check azul-css
+        run: cargo check --verbose --manifest-path azul-css/Cargo.toml
+      - name: Check azul-core
+        run: cargo check --verbose --manifest-path azul-core/Cargo.toml
+      - name: Check azul-css-parser
+        run: cargo check --verbose --manifest-path azul-css-parser/Cargo.toml
+      - name: Check azul-text-layout
+        run: cargo check --verbose --manifest-path azul-text-layout/Cargo.toml
+      - name: Check azul-layout
+        run: cargo check --verbose --manifest-path azul-layout/Cargo.toml
+      - name: Check azulc
+        run: cargo check --verbose --manifest-path azulc/Cargo.toml
+      - name: Check azul-desktop
+        run: cargo check --verbose --manifest-path azul-desktop/Cargo.toml
+      - name: Check azul-dll
+        run: cargo check --verbose --manifest-path azul-dll/Cargo.toml
+      - name: Check examples
+        run: cargo check --verbose --examples --all-features

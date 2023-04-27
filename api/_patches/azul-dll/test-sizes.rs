@@ -1,5 +1,5 @@
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     impl AzString {
         #[inline]
         pub fn as_str(&self) -> &str {
@@ -11,10 +11,10 @@
         }
     }
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     pub use self::dummy::*;
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     pub(crate) mod dummy {
         use super::*;
         impl ::core::fmt::Debug for AzCallback                          { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { write!(f, "{:x}", self.cb as usize) }}

@@ -180,9 +180,9 @@ cargo run --release
 
   <h3>Rust</h3>
     <p>In order to link Rust as a regular crates.io dependency, you need to enable the
-      <code>link_static</code> feature:</p>
+      <code>link-static</code> feature:</p>
     <code class="expand">[dependencies]
-azul = { version = "1.0.0-alpha", features = ["link_static", "rlib"]}</code>
+azul = { version = "1.0.0-alpha", features = ["link-static", "rlib"]}</code>
     <p>By default this feature is disabled because re-linking the application can
     take a long time (even if compilation is fast). Usually you'd only want to do
   this when you are finished with the development of your application.</p>

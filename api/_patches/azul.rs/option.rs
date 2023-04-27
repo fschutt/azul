@@ -1,16 +1,16 @@
 
-    #[cfg(not(feature = "link_static"))]
+    #[cfg(not(feature = "link-static"))]
     use crate::dll::*;
 
     macro_rules! impl_option_inner {
         ($struct_type:ident, $struct_name:ident) => (
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl Default for $struct_name {
             fn default() -> $struct_name { $struct_name::None }
         }
 
-        #[cfg(not(feature = "link_static"))]
+        #[cfg(not(feature = "link-static"))]
         impl $struct_name {
             pub fn as_option(&self) -> Option<&$struct_type> {
                 match self {
@@ -46,7 +46,7 @@
         ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<$struct_name> for Option<$struct_type> {
                 fn from(o: $struct_name) -> Option<$struct_type> {
                     match &o {
@@ -56,7 +56,7 @@
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<Option<$struct_type>> for $struct_name {
                 fn from(o: Option<$struct_type>) -> $struct_name {
                     match &o {
@@ -66,7 +66,7 @@
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl $struct_name {
                 pub fn into_option(self) -> Option<$struct_type> {
                     self.into()
@@ -89,7 +89,7 @@
         ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<$struct_name> for Option<$struct_type> {
                 fn from(o: $struct_name) -> Option<$struct_type> {
                     match o {
@@ -99,7 +99,7 @@
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl From<Option<$struct_type>> for $struct_name {
                 fn from(o: Option<$struct_type>) -> $struct_name {
                     match o {
@@ -109,7 +109,7 @@
                 }
             }
 
-            #[cfg(not(feature = "link_static"))]
+            #[cfg(not(feature = "link-static"))]
             impl $struct_name {
                 pub fn into_option(self) -> Option<$struct_type> {
                     self.into()

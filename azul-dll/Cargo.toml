@@ -35,7 +35,8 @@ azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features =
 default = [
     "std", "logging", "css_parser", "image_loading", "ico", "tga",
     "hdr", "jpeg", "dxt", "webp", "pnm", "font_loading",
-    "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp"
+    "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp",
+    "link-static"
 ]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
@@ -70,7 +71,8 @@ no_static_freetype = ["azul-desktop/no_static_freetype"]
 cdylib = []
 rlib = []
 staticlib = []
-
+link-static = ["rlib"]
+link-dynamic = ["cdylib", "staticlib"]
 # Predefined target configurations
 desktop-cdylib = ["cdylib", "use_fern_logger"]
 desktop-staticlib = ["staticlib", "use_fern_logger"]
