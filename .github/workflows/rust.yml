@@ -55,12 +55,8 @@ jobs:
       - name: Check that build.py is up to date
         run: |
           python3 ./build.py
-          something_changed=`git diff-index --exit-code --ignore-submodules HEAD`
-          if [ -n "$something_changed" ]
-          then
-              echo >&2 "build.py has changes, please re-run build.py and commit changes"
-              exit 1
-          fi
+          git update-index --refresh
+          git diff-index --quiet HEAD -- || exit 1;
       - name: Check azul-css
         run: cargo check --verbose --manifest-path azul-css/Cargo.toml
       - name: Check azul-core
