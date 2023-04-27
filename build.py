@@ -1199,6 +1199,7 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
     code += "    }\r\n\r\n"
 
     code += "    #[cfg(feature = \"link-static\")]\r\n"
+    code += "    #[allow(non_snake_case)]\r\n"
     code += "    mod static_link {\r\n"
     code += "        use core::ffi::c_void;\r\n"
     code += "        use core::mem::transmute;\r\n"
@@ -2097,7 +2098,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
 
         module = myapi_data[module_name]["classes"]
 
-        code += "    #![allow(dead_code, unused_imports)]\r\n"
+        code += "    #![allow(dead_code, unused_imports, unused_unsafe)]\r\n"
         if module_doc != None:
             code += "    //! " + module_doc + "\r\n"
 
