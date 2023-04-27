@@ -4,6 +4,8 @@
 //! Win32 implementation of the window shell containing all functions
 //! related to running the application
 
+mod event;
+
 use crate::{
     app::{App, LazyFcCache},
     wr_translate::{
@@ -3904,10 +3906,6 @@ unsafe extern "system" fn WindowProc(
 
         r
     };
-}
-
-mod event {
-    include!("./win32-event.rs");
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
