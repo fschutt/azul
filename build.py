@@ -361,6 +361,7 @@ def class_is_virtual(api_data, className, api):
 # Generate the string for TAKING rust-api function arguments
 def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_data):
     fn_args = ""
+    generics = ""
 
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
@@ -373,6 +374,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_
         else:
             raise Exception("wrong self value " + self_val)
 
+    generic_counter = 0
     if "fn_args" in f.keys():
         for arg_object in f["fn_args"]:
             arg_name = list(arg_object.keys())[0]
@@ -381,6 +383,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_
             arg_type = arg_object[arg_name]
             arg_type = arg_type.strip()
 
+            generic_counter += 1
             type_analyzed = analyze_type(arg_type)
             start = type_analyzed[0]
             arg_type = type_analyzed[1]
@@ -392,15 +395,21 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_
                 if arg_type_class_name is None:
                     raise Exception("arg type " + arg_type + " not found!")
                 arg_type_class = get_class(api_data, arg_type_class_name[0], arg_type_class_name[1])
-
-                if start == "*const " or start == "*mut ":
-                    fn_args += arg_name + ": " + start + prefix + arg_type_class_name[1] + ", "
-                else:
+                if class_is_typedef(arg_type_class):
                     fn_args += arg_name + ": " + start + arg_type_class_name[1] + ", "
+                elif start == "*const " or start == "*mut ":
+                    fn_args += arg_name + ": _" + str(generic_counter) + ", "
+                    generics += "_" + str(generic_counter) + ": Into<" +  start + prefix + arg_type_class_name[1] + ">, "
+                else:
+                    fn_args += arg_name + ": _" + str(generic_counter) + ", "
+                    generics += "_" + str(generic_counter) + ": Into<" +  start + arg_type_class_name[1] + ">, "
 
         fn_args = fn_args[:-2]
 
-    return fn_args
+    if generics == "":
+        return ["", fn_args]
+    else:
+        return ["<" + generics[:-2] + ">", fn_args]
 
 # Generate the string for CALLING rust-api function args
 def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, api_data, class_is_boxed_object, self_ext=""):
@@ -441,16 +450,16 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
 
                 if start == "*const " or start == "*mut ":
                     if len(self_ext) > 0:
-                        fn_args += "unsafe { core::mem::transmute(" + arg_name + ") }, "
+                        fn_args += "unsafe { core::mem::transmute(" + arg_name + ".into()) }, "
                     else:
-                        fn_args += arg_name + self_ext + ", "
+                        fn_args += arg_name + self_ext + ".into(), "
                 else:
                     if class_is_typedef(arg_type_class):
                         fn_args += start + arg_name + self_ext + ", "
                     elif class_is_stack_allocated(arg_type_class):
-                        fn_args += start + arg_name + self_ext + ", " # .object
+                        fn_args += start + arg_name + self_ext + ".into(), " # .object
                     else:
-                        fn_args += start + arg_name + self_ext + ", "
+                        fn_args += start + arg_name + self_ext + ".into(), "
 
         fn_args = fn_args[:-2]
 
@@ -2196,7 +2205,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
                                 returns = analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
                                 fn_body = fn_body
 
-                        class_impl_block += "        pub fn " + fn_name + "(" + fn_args + ") -> " + returns + " { " + fn_body + " }\r\n"
+                        class_impl_block += "        pub fn " + fn_name + "" + fn_args[0] + "(" + fn_args[1] + ") -> " + returns + " { " + fn_body + " }\r\n"
 
                 if "functions" in c.keys():
                     for fn_name in c["functions"]:
@@ -2241,7 +2250,7 @@ def generate_rust_api(api_data, structs_map, functions_map):
                                 returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
                                 fn_body = fn_body
 
-                        class_impl_block += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
+                        class_impl_block += "        pub fn " + fn_name + fn_args[0] + "(" + fn_args[1] + ") " +  returns + " { " + fn_body + " }\r\n"
 
                 code += "    impl " + class_name + " {\r\n"
                 code += class_impl_block

@@ -16,10 +16,10 @@ extern "C" fn myLayoutFunc(
         None => return StyledDom::default(),
     };
 
-    let mut label = Dom::text(counter.into());
+    let mut label = Dom::text(counter);
     label.set_inline_style("font-size: 50px");
 
-    let mut button = Button::new("Update counter".into());
+    let mut button = Button::new("Update counter");
     button.set_on_click(data.clone(), myOnClick);
     let mut button = button.dom();
     button.set_inline_style("flex-grow: 1");

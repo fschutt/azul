@@ -33,9 +33,7 @@ pub(crate) fn set_up_logging(log_level: LevelFilter) {
             InitError::Io(e) => {
                 println!("[WARN] Logging IO init error: \r\nkind: {:?}\r\n\r\ndescription:\r\n{}\r\n\r\ncause:\r\n{:?}\r\n", e.kind(), e, e.source());
             },
-            InitError::SetLoggerError(e) => {
-                println!("[WARN] Logging initalization error: \r\ndescription:\r\n{}\r\n\r\ncause:\r\n{:?}\r\n", e, e.source());
-            }
+            InitError::SetLoggerError(_) => { }
         }
     }
 }

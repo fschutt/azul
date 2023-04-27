@@ -12075,15 +12075,15 @@ pub mod app {
     impl App {
 
         /// Creates a new App instance from the given `AppConfig`
-        pub fn new(data: RefAny, config: AppConfig) -> Self { unsafe { crate::dll::AzApp_new(data, config) } }
+        pub fn new<_1: Into<RefAny>, _2: Into<AppConfig>>(data: _1, config: _2) -> Self { unsafe { crate::dll::AzApp_new(data.into(), config.into()) } }
         /// Spawn a new window on the screen when the app is run.
-        pub fn add_window(&mut self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_addWindow(self, window) } }
+        pub fn add_window<_1: Into<WindowCreateOptions>>(&mut self, window: _1)  { unsafe { crate::dll::AzApp_addWindow(self, window.into()) } }
         /// Adds a new image identified by an ID to the image cache
-        pub fn add_image(&mut self, id: String, image: ImageRef)  { unsafe { crate::dll::AzApp_addImage(self, id, image) } }
+        pub fn add_image<_1: Into<String>, _2: Into<ImageRef>>(&mut self, id: _1, image: _2)  { unsafe { crate::dll::AzApp_addImage(self, id.into(), image.into()) } }
         /// Returns a list of monitors - useful for setting the monitor that a window should spawn on.
         pub fn get_monitors(&self)  -> crate::vec::MonitorVec { unsafe { crate::dll::AzApp_getMonitors(self) } }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(&self, window: WindowCreateOptions)  { unsafe { crate::dll::AzApp_run(self, window) } }
+        pub fn run<_1: Into<WindowCreateOptions>>(&self, window: _1)  { unsafe { crate::dll::AzApp_run(self, window.into()) } }
     }
 
     impl Clone for App { fn clone(&self) -> Self { unsafe { crate::dll::AzApp_deepCopy(self) } } }
@@ -12094,7 +12094,7 @@ pub mod app {
     impl AppConfig {
 
         /// Constructs a default `AppConfig`, uses the layout solver currently available
-        pub fn new(layout_solver: LayoutSolver) -> Self { unsafe { crate::dll::AzAppConfig_new(layout_solver) } }
+        pub fn new<_1: Into<LayoutSolver>>(layout_solver: _1) -> Self { unsafe { crate::dll::AzAppConfig_new(layout_solver.into()) } }
     }
 
     /// Configuration to set which messages should be logged.
@@ -12339,7 +12339,7 @@ pub mod window {
         /// Returns if the `SUPER` ("Windows") key is held down
         pub fn super_down(&self)  -> bool { unsafe { crate::dll::AzKeyboardState_superDown(self) } }
         /// Returns if a key is held down
-        pub fn is_key_down(&self, key: VirtualKeyCode)  -> bool { unsafe { crate::dll::AzKeyboardState_isKeyDown(self, key) } }
+        pub fn is_key_down<_1: Into<VirtualKeyCode>>(&self, key: _1)  -> bool { unsafe { crate::dll::AzKeyboardState_isKeyDown(self, key.into()) } }
     }
 
     /// Current icon of the mouse cursor
@@ -12615,77 +12615,77 @@ pub mod callbacks {
         /// Returns a **reference-counted copy** of the current windows' `Gl` (context). You can use this to render OpenGL textures.
         pub fn get_gl_context(&self)  -> crate::option::OptionGl { unsafe { crate::dll::AzCallbackInfo_getGlContext(self) } }
         /// Returns the x / y offset that this node has been scrolled to by the user or `None` if the node has not been scrolled.
-        pub fn get_scroll_position(&self, node_id: DomNodeId)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getScrollPosition(self, node_id) } }
+        pub fn get_scroll_position<_1: Into<DomNodeId>>(&self, node_id: _1)  -> crate::option::OptionLogicalPosition { unsafe { crate::dll::AzCallbackInfo_getScrollPosition(self, node_id.into()) } }
         /// Returns the `dataset` property of the given Node or `None` if the node doesn't have a `dataset` property.
-        pub fn get_dataset(&mut self, node_id: DomNodeId)  -> crate::option::OptionRefAny { unsafe { crate::dll::AzCallbackInfo_getDataset(self, node_id) } }
+        pub fn get_dataset<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionRefAny { unsafe { crate::dll::AzCallbackInfo_getDataset(self, node_id.into()) } }
         /// Given a dataset, returns the node ID of the "root" `RefAny`, i.e. the `RefAny` with the lowest `instance` count that is set as a `dataset` on any node.
-        pub fn get_node_id_of_root_dataset(&mut self, dataset: RefAny)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNodeIdOfRootDataset(self, dataset) } }
+        pub fn get_node_id_of_root_dataset<_1: Into<RefAny>>(&mut self, dataset: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNodeIdOfRootDataset(self, dataset.into()) } }
         /// If the node is a `Text` node, returns a copy of the internal string contents.
-        pub fn get_string_contents(&self, node_id: DomNodeId)  -> crate::option::OptionString { unsafe { crate::dll::AzCallbackInfo_getStringContents(self, node_id) } }
+        pub fn get_string_contents<_1: Into<DomNodeId>>(&self, node_id: _1)  -> crate::option::OptionString { unsafe { crate::dll::AzCallbackInfo_getStringContents(self, node_id.into()) } }
         /// If the node is a `Text` node, returns the layouted inline glyphs of the text currently rendered on the screen
-        pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_getInlineText(self, node_id) } }
+        pub fn get_inline_text<_1: Into<DomNodeId>>(&self, node_id: _1)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_getInlineText(self, node_id.into()) } }
         /// If the node is a `Text` node, returns the `FontRef` that was used to render this node. Useful for getting font metrics for a text string
-        pub fn get_font_ref(&self, node_id: DomNodeId)  -> crate::option::OptionFontRef { unsafe { crate::dll::AzCallbackInfo_getFontRef(self, node_id) } }
+        pub fn get_font_ref<_1: Into<DomNodeId>>(&self, node_id: _1)  -> crate::option::OptionFontRef { unsafe { crate::dll::AzCallbackInfo_getFontRef(self, node_id.into()) } }
         /// Calls the `CallbackInfo::get_text_layout_options` function.
-        pub fn get_text_layout_options(&self, node_id: DomNodeId)  -> crate::option::OptionResolvedTextLayoutOptions { unsafe { crate::dll::AzCallbackInfo_getTextLayoutOptions(self, node_id) } }
+        pub fn get_text_layout_options<_1: Into<DomNodeId>>(&self, node_id: _1)  -> crate::option::OptionResolvedTextLayoutOptions { unsafe { crate::dll::AzCallbackInfo_getTextLayoutOptions(self, node_id.into()) } }
         /// Similar to `get_inline_text()`: If the node is a `Text` node, shape the `text` string with the same parameters as the current text and return the calculated InlineTextLayout. Necessary to calculate text cursor offsets and to detect when a line overflows content.
-        pub fn shape_text(&self, node_id: DomNodeId, text: String)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_shapeText(self, node_id, text) } }
+        pub fn shape_text<_1: Into<DomNodeId>, _2: Into<String>>(&self, node_id: _1, text: _2)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzCallbackInfo_shapeText(self, node_id.into(), text.into()) } }
         /// Returns the index of the node relative to the parent node.
-        pub fn get_index_in_parent(&mut self, node_id: DomNodeId)  -> usize { unsafe { crate::dll::AzCallbackInfo_getIndexInParent(self, node_id) } }
+        pub fn get_index_in_parent<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> usize { unsafe { crate::dll::AzCallbackInfo_getIndexInParent(self, node_id.into()) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getParent(self, node_id) } }
+        pub fn get_parent<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getParent(self, node_id.into()) } }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getPreviousSibling(self, node_id) } }
+        pub fn get_previous_sibling<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getPreviousSibling(self, node_id.into()) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNextSibling(self, node_id) } }
+        pub fn get_next_sibling<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getNextSibling(self, node_id.into()) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getFirstChild(self, node_id) } }
+        pub fn get_first_child<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getFirstChild(self, node_id.into()) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getLastChild(self, node_id) } }
+        pub fn get_last_child<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzCallbackInfo_getLastChild(self, node_id.into()) } }
         /// Returns the position of a given DOM node in the UI
-        pub fn get_node_position(&mut self, node_id: DomNodeId)  -> crate::option::OptionPositionInfo { unsafe { crate::dll::AzCallbackInfo_getNodePosition(self, node_id) } }
+        pub fn get_node_position<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionPositionInfo { unsafe { crate::dll::AzCallbackInfo_getNodePosition(self, node_id.into()) } }
         /// Returns the size of a given DOM node in the UI
-        pub fn get_node_size(&mut self, node_id: DomNodeId)  -> crate::option::OptionLogicalSize { unsafe { crate::dll::AzCallbackInfo_getNodeSize(self, node_id) } }
+        pub fn get_node_size<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionLogicalSize { unsafe { crate::dll::AzCallbackInfo_getNodeSize(self, node_id.into()) } }
         /// Returns the current computed CSS property of a given DOM node in the UI
-        pub fn get_computed_css_property(&mut self, node_id: DomNodeId, property_type: CssPropertyType)  -> crate::option::OptionCssProperty { unsafe { crate::dll::AzCallbackInfo_getComputedCssProperty(self, node_id, property_type) } }
+        pub fn get_computed_css_property<_1: Into<DomNodeId>, _2: Into<CssPropertyType>>(&mut self, node_id: _1, property_type: _2)  -> crate::option::OptionCssProperty { unsafe { crate::dll::AzCallbackInfo_getComputedCssProperty(self, node_id.into(), property_type.into()) } }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
-        pub fn set_window_state(&mut self, new_state: WindowState)  { unsafe { crate::dll::AzCallbackInfo_setWindowState(self, new_state) } }
+        pub fn set_window_state<_1: Into<WindowState>>(&mut self, new_state: _1)  { unsafe { crate::dll::AzCallbackInfo_setWindowState(self, new_state.into()) } }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
-        pub fn set_focus(&mut self, target: FocusTarget)  { unsafe { crate::dll::AzCallbackInfo_setFocus(self, target) } }
+        pub fn set_focus<_1: Into<FocusTarget>>(&mut self, target: _1)  { unsafe { crate::dll::AzCallbackInfo_setFocus(self, target.into()) } }
         /// Sets a `CssProperty` on a given node to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
-        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { unsafe { crate::dll::AzCallbackInfo_setCssProperty(self, node_id, new_property) } }
+        pub fn set_css_property<_1: Into<DomNodeId>, _2: Into<CssProperty>>(&mut self, node_id: _1, new_property: _2)  { unsafe { crate::dll::AzCallbackInfo_setCssProperty(self, node_id.into(), new_property.into()) } }
         /// Sets the scroll position of the node
-        pub fn set_scroll_position(&mut self, node_id: DomNodeId, scroll_position: LogicalPosition)  { unsafe { crate::dll::AzCallbackInfo_setScrollPosition(self, node_id, scroll_position) } }
+        pub fn set_scroll_position<_1: Into<DomNodeId>, _2: Into<LogicalPosition>>(&mut self, node_id: _1, scroll_position: _2)  { unsafe { crate::dll::AzCallbackInfo_setScrollPosition(self, node_id.into(), scroll_position.into()) } }
         /// If the node is a `Text` node, overwrites the `Text` content with the new string, without requiring the entire UI to be rebuilt.
-        pub fn set_string_contents(&mut self, node_id: DomNodeId, string: String)  { unsafe { crate::dll::AzCallbackInfo_setStringContents(self, node_id, string) } }
+        pub fn set_string_contents<_1: Into<DomNodeId>, _2: Into<String>>(&mut self, node_id: _1, string: _2)  { unsafe { crate::dll::AzCallbackInfo_setStringContents(self, node_id.into(), string.into()) } }
         /// Adds a new image identified by an ID to the image cache
-        pub fn add_image(&mut self, id: String, image: ImageRef)  { unsafe { crate::dll::AzCallbackInfo_addImage(self, id, image) } }
+        pub fn add_image<_1: Into<String>, _2: Into<ImageRef>>(&mut self, id: _1, image: _2)  { unsafe { crate::dll::AzCallbackInfo_addImage(self, id.into(), image.into()) } }
         /// Returns whether an image with a given CSS ID already exists
-        pub fn has_image(&self, id: String)  -> bool { unsafe { crate::dll::AzCallbackInfo_hasImage(self, id) } }
+        pub fn has_image<_1: Into<String>>(&self, id: _1)  -> bool { unsafe { crate::dll::AzCallbackInfo_hasImage(self, id.into()) } }
         /// Returns the image with a given CSS ID
-        pub fn get_image(&self, id: String)  -> crate::option::OptionImageRef { unsafe { crate::dll::AzCallbackInfo_getImage(self, id) } }
+        pub fn get_image<_1: Into<String>>(&self, id: _1)  -> crate::option::OptionImageRef { unsafe { crate::dll::AzCallbackInfo_getImage(self, id.into()) } }
         /// If the node is an `Image`, exchanges the current image with a new source
-        pub fn update_image(&mut self, node_id: DomNodeId, new_image: ImageRef, image_type: UpdateImageType)  { unsafe { crate::dll::AzCallbackInfo_updateImage(self, node_id, new_image, image_type) } }
+        pub fn update_image<_1: Into<DomNodeId>, _2: Into<ImageRef>, _3: Into<UpdateImageType>>(&mut self, node_id: _1, new_image: _2, image_type: _3)  { unsafe { crate::dll::AzCallbackInfo_updateImage(self, node_id.into(), new_image.into(), image_type.into()) } }
         /// Deletes an image identified by a CSS ID from the image cache
-        pub fn delete_image(&mut self, id: String)  { unsafe { crate::dll::AzCallbackInfo_deleteImage(self, id) } }
+        pub fn delete_image<_1: Into<String>>(&mut self, id: _1)  { unsafe { crate::dll::AzCallbackInfo_deleteImage(self, id.into()) } }
         /// If the node has an `ImageMask`, exchanges the current mask for the new mask
-        pub fn update_image_mask(&mut self, node_id: DomNodeId, new_mask: ImageMask)  { unsafe { crate::dll::AzCallbackInfo_updateImageMask(self, node_id, new_mask) } }
+        pub fn update_image_mask<_1: Into<DomNodeId>, _2: Into<ImageMask>>(&mut self, node_id: _1, new_mask: _2)  { unsafe { crate::dll::AzCallbackInfo_updateImageMask(self, node_id.into(), new_mask.into()) } }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
         pub fn stop_propagation(&mut self)  { unsafe { crate::dll::AzCallbackInfo_stopPropagation(self) } }
         /// Spawns a new window with the given `WindowCreateOptions`.
-        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { unsafe { crate::dll::AzCallbackInfo_createWindow(self, new_window) } }
+        pub fn create_window<_1: Into<WindowCreateOptions>>(&mut self, new_window: _1)  { unsafe { crate::dll::AzCallbackInfo_createWindow(self, new_window.into()) } }
         /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-        pub fn start_timer(&mut self, timer: Timer)  -> crate::task::TimerId { unsafe { crate::dll::AzCallbackInfo_startTimer(self, timer) } }
+        pub fn start_timer<_1: Into<Timer>>(&mut self, timer: _1)  -> crate::task::TimerId { unsafe { crate::dll::AzCallbackInfo_startTimer(self, timer.into()) } }
         /// Starts an animation timer on a give NodeId - same as a `Timer`, but uses a pre-configured interpolation function to drive the animation timer
-        pub fn start_animation(&mut self, node: DomNodeId, animation: Animation)  -> crate::option::OptionTimerId { unsafe { crate::dll::AzCallbackInfo_startAnimation(self, node, animation) } }
+        pub fn start_animation<_1: Into<DomNodeId>, _2: Into<Animation>>(&mut self, node: _1, animation: _2)  -> crate::option::OptionTimerId { unsafe { crate::dll::AzCallbackInfo_startAnimation(self, node.into(), animation.into()) } }
         /// Stops / cancels a `Timer`. See the documentation for `Timer` for more information.
-        pub fn stop_timer(&mut self, timer_id: TimerId)  -> bool { unsafe { crate::dll::AzCallbackInfo_stopTimer(self, timer_id) } }
+        pub fn stop_timer<_1: Into<TimerId>>(&mut self, timer_id: _1)  -> bool { unsafe { crate::dll::AzCallbackInfo_stopTimer(self, timer_id.into()) } }
         /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
-        pub fn start_thread(&mut self, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType)  -> crate::option::OptionThreadId { unsafe { crate::dll::AzCallbackInfo_startThread(self, thread_initialize_data, writeback_data, callback) } }
+        pub fn start_thread<_1: Into<RefAny>, _2: Into<RefAny>>(&mut self, thread_initialize_data: _1, writeback_data: _2, callback: ThreadCallbackType)  -> crate::option::OptionThreadId { unsafe { crate::dll::AzCallbackInfo_startThread(self, thread_initialize_data.into(), writeback_data.into(), callback) } }
         /// Sends a message to a background thread
-        pub fn send_thread_msg(&mut self, thread_id: ThreadId, msg: ThreadSendMsg)  -> bool { unsafe { crate::dll::AzCallbackInfo_sendThreadMsg(self, thread_id, msg) } }
+        pub fn send_thread_msg<_1: Into<ThreadId>, _2: Into<ThreadSendMsg>>(&mut self, thread_id: _1, msg: _2)  -> bool { unsafe { crate::dll::AzCallbackInfo_sendThreadMsg(self, thread_id.into(), msg.into()) } }
         /// Stops a thread at the nearest possible opportunity. Sends a `ThreadSendMsg::TerminateThread` message to the thread and joins the thread.
-        pub fn stop_thread(&mut self, thread_id: ThreadId)  -> bool { unsafe { crate::dll::AzCallbackInfo_stopThread(self, thread_id) } }
+        pub fn stop_thread<_1: Into<ThreadId>>(&mut self, thread_id: _1)  -> bool { unsafe { crate::dll::AzCallbackInfo_stopThread(self, thread_id.into()) } }
     }
 
     /// Which type of image should be updated: background image (the CSS background) or content image (the <img src=""> content)
@@ -12738,7 +12738,7 @@ pub mod callbacks {
     impl InlineText {
 
         /// Hit-tests the inline text, returns detailed information about which glyph / word / line, etc. the position (usually the mouse cursor) is currently over. Result may be empty (no hits) or contain more than one result (cursor is hovering over multiple overlapping glyphs at once).
-        pub fn hit_test(&self, position: LogicalPosition)  -> crate::vec::InlineTextHitVec { unsafe { crate::dll::AzInlineText_hitTest(self, position) } }
+        pub fn hit_test<_1: Into<LogicalPosition>>(&self, position: _1)  -> crate::vec::InlineTextHitVec { unsafe { crate::dll::AzInlineText_hitTest(self, position.into()) } }
     }
 
     /// `InlineLine` struct
@@ -12813,19 +12813,19 @@ pub mod callbacks {
         /// Returns the `DomNodeId` that this callback was called on
         pub fn get_callback_node_id(&self)  -> crate::callbacks::DomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getCallbackNodeId(self) } }
         /// If the node is a `Text` node, returns the layouted inline glyphs
-        pub fn get_inline_text(&self, node_id: DomNodeId)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzRenderImageCallbackInfo_getInlineText(self, node_id) } }
+        pub fn get_inline_text<_1: Into<DomNodeId>>(&self, node_id: _1)  -> crate::option::OptionInlineText { unsafe { crate::dll::AzRenderImageCallbackInfo_getInlineText(self, node_id.into()) } }
         /// Returns the index of the node relative to the parent node.
-        pub fn get_index_in_parent(&mut self, node_id: DomNodeId)  -> usize { unsafe { crate::dll::AzRenderImageCallbackInfo_getIndexInParent(self, node_id) } }
+        pub fn get_index_in_parent<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> usize { unsafe { crate::dll::AzRenderImageCallbackInfo_getIndexInParent(self, node_id.into()) } }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_parent(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getParent(self, node_id) } }
+        pub fn get_parent<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getParent(self, node_id.into()) } }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_previous_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getPreviousSibling(self, node_id) } }
+        pub fn get_previous_sibling<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getPreviousSibling(self, node_id.into()) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_next_sibling(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getNextSibling(self, node_id) } }
+        pub fn get_next_sibling<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getNextSibling(self, node_id.into()) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_first_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getFirstChild(self, node_id) } }
+        pub fn get_first_child<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getFirstChild(self, node_id.into()) } }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_last_child(&mut self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getLastChild(self, node_id) } }
+        pub fn get_last_child<_1: Into<DomNodeId>>(&mut self, node_id: _1)  -> crate::option::OptionDomNodeId { unsafe { crate::dll::AzRenderImageCallbackInfo_getLastChild(self, node_id.into()) } }
     }
 
     /// `TimerCallback` struct
@@ -12882,7 +12882,7 @@ pub mod callbacks {
     impl RefAny {
 
         /// Creates a new `RefAny` instance.
-        pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { unsafe { crate::dll::AzRefAny_newC(ptr, len, type_id, type_name, destructor) } }
+        pub fn new_c<_4: Into<String>>(ptr: *const c_void, len: usize, type_id: u64, type_name: _4, destructor: RefAnyDestructorType) -> Self { unsafe { crate::dll::AzRefAny_newC(ptr, len, type_id, type_name.into(), destructor) } }
         /// Calls the `RefAny::get_type_id` function.
         pub fn get_type_id(&self)  -> u64 { unsafe { crate::dll::AzRefAny_getTypeId(self) } }
         /// Calls the `RefAny::get_type_name` function.
@@ -12901,7 +12901,7 @@ pub mod callbacks {
         /// Returns all system-native fonts with their respective file paths as values
         pub fn get_system_fonts(&self)  -> crate::vec::StringPairVec { unsafe { crate::dll::AzLayoutCallbackInfo_getSystemFonts(self) } }
         /// Returns an `ImageRef` referenced by a CSS ID
-        pub fn get_image(&self, id: String)  -> crate::option::OptionImageRef { unsafe { crate::dll::AzLayoutCallbackInfo_getImage(self, id) } }
+        pub fn get_image<_1: Into<String>>(&self, id: _1)  -> crate::option::OptionImageRef { unsafe { crate::dll::AzLayoutCallbackInfo_getImage(self, id.into()) } }
     }
 
 }
@@ -13050,7 +13050,7 @@ pub mod dom {
     impl Dom {
 
         /// Creates a new `Dom` instance.
-        pub fn new(node_type: NodeType) -> Self { unsafe { crate::dll::AzDom_new(node_type) } }
+        pub fn new<_1: Into<NodeType>>(node_type: _1) -> Self { unsafe { crate::dll::AzDom_new(node_type.into()) } }
         /// Creates a new `Dom` instance.
         pub fn body() -> Self { unsafe { crate::dll::AzDom_body() } }
         /// Creates a new `Dom` instance.
@@ -13058,103 +13058,103 @@ pub mod dom {
         /// Creates a new `Dom` instance.
         pub fn br() -> Self { unsafe { crate::dll::AzDom_br() } }
         /// Creates a new `Dom` instance.
-        pub fn text(string: String) -> Self { unsafe { crate::dll::AzDom_text(string) } }
+        pub fn text<_1: Into<String>>(string: _1) -> Self { unsafe { crate::dll::AzDom_text(string.into()) } }
         /// Creates a new `Dom` instance.
-        pub fn image(image: ImageRef) -> Self { unsafe { crate::dll::AzDom_image(image) } }
+        pub fn image<_1: Into<ImageRef>>(image: _1) -> Self { unsafe { crate::dll::AzDom_image(image.into()) } }
         /// Creates a new `Dom` instance.
-        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzDom_iframe(data, callback) } }
+        pub fn iframe<_1: Into<RefAny>>(data: _1, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzDom_iframe(data.into(), callback) } }
         /// Calls the `Dom::set_node_type` function.
-        pub fn set_node_type(&mut self, node_type: NodeType)  { unsafe { crate::dll::AzDom_setNodeType(self, node_type) } }
+        pub fn set_node_type<_1: Into<NodeType>>(&mut self, node_type: _1)  { unsafe { crate::dll::AzDom_setNodeType(self, node_type.into()) } }
         /// Calls the `Dom::with_node_type` function.
-        pub fn with_node_type(&mut self, node_type: NodeType)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withNodeType(self, node_type) } }
+        pub fn with_node_type<_1: Into<NodeType>>(&mut self, node_type: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withNodeType(self, node_type.into()) } }
         /// Calls the `Dom::set_dataset` function.
-        pub fn set_dataset(&mut self, dataset: RefAny)  { unsafe { crate::dll::AzDom_setDataset(self, dataset) } }
+        pub fn set_dataset<_1: Into<RefAny>>(&mut self, dataset: _1)  { unsafe { crate::dll::AzDom_setDataset(self, dataset.into()) } }
         /// Calls the `Dom::with_dataset` function.
-        pub fn with_dataset(&mut self, dataset: RefAny)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withDataset(self, dataset) } }
+        pub fn with_dataset<_1: Into<RefAny>>(&mut self, dataset: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withDataset(self, dataset.into()) } }
         /// Calls the `Dom::set_ids_and_classes` function.
-        pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  { unsafe { crate::dll::AzDom_setIdsAndClasses(self, ids_and_classes) } }
+        pub fn set_ids_and_classes<_1: Into<IdOrClassVec>>(&mut self, ids_and_classes: _1)  { unsafe { crate::dll::AzDom_setIdsAndClasses(self, ids_and_classes.into()) } }
         /// Calls the `Dom::with_ids_and_classes` function.
-        pub fn with_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withIdsAndClasses(self, ids_and_classes) } }
+        pub fn with_ids_and_classes<_1: Into<IdOrClassVec>>(&mut self, ids_and_classes: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withIdsAndClasses(self, ids_and_classes.into()) } }
         /// Calls the `Dom::set_callbacks` function.
-        pub fn set_callbacks(&mut self, callbacks: CallbackDataVec)  { unsafe { crate::dll::AzDom_setCallbacks(self, callbacks) } }
+        pub fn set_callbacks<_1: Into<CallbackDataVec>>(&mut self, callbacks: _1)  { unsafe { crate::dll::AzDom_setCallbacks(self, callbacks.into()) } }
         /// Calls the `Dom::with_callbacks` function.
-        pub fn with_callbacks(&mut self, callbacks: CallbackDataVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCallbacks(self, callbacks) } }
+        pub fn with_callbacks<_1: Into<CallbackDataVec>>(&mut self, callbacks: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCallbacks(self, callbacks.into()) } }
         /// Calls the `Dom::set_inline_css_props` function.
-        pub fn set_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzDom_setInlineCssProps(self, css_properties) } }
+        pub fn set_inline_css_props<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, css_properties: _1)  { unsafe { crate::dll::AzDom_setInlineCssProps(self, css_properties.into()) } }
         /// Calls the `Dom::with_inline_css_props` function.
-        pub fn with_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineCssProps(self, css_properties) } }
+        pub fn with_inline_css_props<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, css_properties: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineCssProps(self, css_properties.into()) } }
         /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
-        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzDom_addCallback(self, event, data, callback) } }
+        pub fn add_callback<_1: Into<EventFilter>, _2: Into<RefAny>>(&mut self, event: _1, data: _2, callback: CallbackType)  { unsafe { crate::dll::AzDom_addCallback(self, event.into(), data.into(), callback) } }
         /// Same as add_child, but as a builder method.
-        pub fn with_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCallback(self, event, data, callback) } }
+        pub fn with_callback<_1: Into<EventFilter>, _2: Into<RefAny>>(&mut self, event: _1, data: _2, callback: CallbackType)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCallback(self, event.into(), data.into(), callback) } }
         /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
-        pub fn add_child(&mut self, child: Dom)  { unsafe { crate::dll::AzDom_addChild(self, child) } }
+        pub fn add_child<_1: Into<Dom>>(&mut self, child: _1)  { unsafe { crate::dll::AzDom_addChild(self, child.into()) } }
         /// Same as add_child, but as a builder method.
-        pub fn with_child(&mut self, child: Dom)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChild(self, child) } }
+        pub fn with_child<_1: Into<Dom>>(&mut self, child: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChild(self, child.into()) } }
         /// Adds a child node to this DOM (potentially heap-allocates in Rust code). Swaps `self` with a default `Dom` in order to prevent accidental copies.
-        pub fn set_children(&mut self, children: DomVec)  { unsafe { crate::dll::AzDom_setChildren(self, children) } }
+        pub fn set_children<_1: Into<DomVec>>(&mut self, children: _1)  { unsafe { crate::dll::AzDom_setChildren(self, children.into()) } }
         /// Same as set_children, but as a builder method.
-        pub fn with_children(&mut self, children: DomVec)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChildren(self, children) } }
+        pub fn with_children<_1: Into<DomVec>>(&mut self, children: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withChildren(self, children.into()) } }
         /// Adds an CSS ID to the DOM root node.
-        pub fn add_id(&mut self, id: String)  { unsafe { crate::dll::AzDom_addId(self, id) } }
+        pub fn add_id<_1: Into<String>>(&mut self, id: _1)  { unsafe { crate::dll::AzDom_addId(self, id.into()) } }
         /// Same as add_id, but as a builder method
-        pub fn with_id(&mut self, id: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withId(self, id) } }
+        pub fn with_id<_1: Into<String>>(&mut self, id: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withId(self, id.into()) } }
         /// Adds a CSS class to the DOM root node.
-        pub fn add_class(&mut self, class: String)  { unsafe { crate::dll::AzDom_addClass(self, class) } }
+        pub fn add_class<_1: Into<String>>(&mut self, class: _1)  { unsafe { crate::dll::AzDom_addClass(self, class.into()) } }
         /// Same as add_class, but as a builder method
-        pub fn with_class(&mut self, class: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withClass(self, class) } }
+        pub fn with_class<_1: Into<String>>(&mut self, class: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withClass(self, class.into()) } }
         /// Adds an inline (normal) CSS property to the DOM root node.
-        pub fn add_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addCssProperty(self, prop) } }
+        pub fn add_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  { unsafe { crate::dll::AzDom_addCssProperty(self, prop.into()) } }
         /// Same as add_class, but as a builder method
-        pub fn with_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCssProperty(self, prop) } }
+        pub fn with_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withCssProperty(self, prop.into()) } }
         /// Adds an inline (hover) CSS property to the DOM root node.
-        pub fn add_hover_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addHoverCssProperty(self, prop) } }
+        pub fn add_hover_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  { unsafe { crate::dll::AzDom_addHoverCssProperty(self, prop.into()) } }
         /// Same as add_class, but as a builder method
-        pub fn with_hover_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withHoverCssProperty(self, prop) } }
+        pub fn with_hover_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withHoverCssProperty(self, prop.into()) } }
         /// Adds an inline (hover) CSS property to the DOM root node.
-        pub fn add_active_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addActiveCssProperty(self, prop) } }
+        pub fn add_active_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  { unsafe { crate::dll::AzDom_addActiveCssProperty(self, prop.into()) } }
         /// Same as add_class, but as a builder method
-        pub fn with_active_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withActiveCssProperty(self, prop) } }
+        pub fn with_active_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withActiveCssProperty(self, prop.into()) } }
         /// Adds an inline (hover) CSS property to the DOM root node.
-        pub fn add_focus_css_property(&mut self, prop: CssProperty)  { unsafe { crate::dll::AzDom_addFocusCssProperty(self, prop) } }
+        pub fn add_focus_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  { unsafe { crate::dll::AzDom_addFocusCssProperty(self, prop.into()) } }
         /// Same as add_class, but as a builder method
-        pub fn with_focus_css_property(&mut self, prop: CssProperty)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withFocusCssProperty(self, prop) } }
+        pub fn with_focus_css_property<_1: Into<CssProperty>>(&mut self, prop: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withFocusCssProperty(self, prop.into()) } }
         /// Calls the `Dom::set_inline_style` function.
-        pub fn set_inline_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineStyle(self, style) } }
+        pub fn set_inline_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzDom_setInlineStyle(self, style.into()) } }
         /// Calls the `Dom::with_inline_style` function.
-        pub fn with_inline_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineStyle(self, style) } }
+        pub fn with_inline_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineStyle(self, style.into()) } }
         /// Calls the `Dom::set_inline_hover_style` function.
-        pub fn set_inline_hover_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineHoverStyle(self, style) } }
+        pub fn set_inline_hover_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzDom_setInlineHoverStyle(self, style.into()) } }
         /// Calls the `Dom::with_inline_hover_style` function.
-        pub fn with_inline_hover_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineHoverStyle(self, style) } }
+        pub fn with_inline_hover_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineHoverStyle(self, style.into()) } }
         /// Calls the `Dom::set_inline_active_style` function.
-        pub fn set_inline_active_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineActiveStyle(self, style) } }
+        pub fn set_inline_active_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzDom_setInlineActiveStyle(self, style.into()) } }
         /// Calls the `Dom::with_inline_active_style` function.
-        pub fn with_inline_active_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineActiveStyle(self, style) } }
+        pub fn with_inline_active_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineActiveStyle(self, style.into()) } }
         /// Calls the `Dom::set_inline_focus_style` function.
-        pub fn set_inline_focus_style(&mut self, style: String)  { unsafe { crate::dll::AzDom_setInlineFocusStyle(self, style) } }
+        pub fn set_inline_focus_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzDom_setInlineFocusStyle(self, style.into()) } }
         /// Calls the `Dom::with_inline_focus_style` function.
-        pub fn with_inline_focus_style(&mut self, style: String)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineFocusStyle(self, style) } }
+        pub fn with_inline_focus_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withInlineFocusStyle(self, style.into()) } }
         /// Sets the clip mask for the DOM root node.
-        pub fn set_clip_mask(&mut self, clip_mask: ImageMask)  { unsafe { crate::dll::AzDom_setClipMask(self, clip_mask) } }
+        pub fn set_clip_mask<_1: Into<ImageMask>>(&mut self, clip_mask: _1)  { unsafe { crate::dll::AzDom_setClipMask(self, clip_mask.into()) } }
         /// Same as set_clip_mask, but as a builder method
-        pub fn with_clip_mask(&mut self, clip_mask: ImageMask)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withClipMask(self, clip_mask) } }
+        pub fn with_clip_mask<_1: Into<ImageMask>>(&mut self, clip_mask: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withClipMask(self, clip_mask.into()) } }
         /// Sets the tab index for the DOM root node.
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { unsafe { crate::dll::AzDom_setTabIndex(self, tab_index) } }
+        pub fn set_tab_index<_1: Into<TabIndex>>(&mut self, tab_index: _1)  { unsafe { crate::dll::AzDom_setTabIndex(self, tab_index.into()) } }
         /// Same as set_tab_index, but as a builder method
-        pub fn with_tab_index(&mut self, tab_index: TabIndex)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withTabIndex(self, tab_index) } }
+        pub fn with_tab_index<_1: Into<TabIndex>>(&mut self, tab_index: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withTabIndex(self, tab_index.into()) } }
         /// Sets accessibility attributes for the DOM root node.
-        pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  { unsafe { crate::dll::AzDom_setAccessibilityInfo(self, accessibility_info) } }
+        pub fn set_accessibility_info<_1: Into<AccessibilityInfo>>(&mut self, accessibility_info: _1)  { unsafe { crate::dll::AzDom_setAccessibilityInfo(self, accessibility_info.into()) } }
         /// Same as set_accessibility_info, but as a builder method
-        pub fn with_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withAccessibilityInfo(self, accessibility_info) } }
+        pub fn with_accessibility_info<_1: Into<AccessibilityInfo>>(&mut self, accessibility_info: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withAccessibilityInfo(self, accessibility_info.into()) } }
         /// Sets the menu bar for the DOM root node. See `NodeData::set_menu_bar` for more information.
-        pub fn set_menu_bar(&mut self, menu_bar: Menu)  { unsafe { crate::dll::AzDom_setMenuBar(self, menu_bar) } }
+        pub fn set_menu_bar<_1: Into<Menu>>(&mut self, menu_bar: _1)  { unsafe { crate::dll::AzDom_setMenuBar(self, menu_bar.into()) } }
         /// Same as set_accessibility_info, but as a builder method
-        pub fn with_menu_bar(&mut self, menu_bar: Menu)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withMenuBar(self, menu_bar) } }
+        pub fn with_menu_bar<_1: Into<Menu>>(&mut self, menu_bar: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withMenuBar(self, menu_bar.into()) } }
         /// Sets the context menu for the DOM root node. See `NodeData::set_context_menu` for more information.
-        pub fn set_context_menu(&mut self, context_menu: Menu)  { unsafe { crate::dll::AzDom_setContextMenu(self, context_menu) } }
+        pub fn set_context_menu<_1: Into<Menu>>(&mut self, context_menu: _1)  { unsafe { crate::dll::AzDom_setContextMenu(self, context_menu.into()) } }
         /// Same as set_context_menu, but as a builder method
-        pub fn with_context_menu(&mut self, context_menu: Menu)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withContextMenu(self, context_menu) } }
+        pub fn with_context_menu<_1: Into<Menu>>(&mut self, context_menu: _1)  -> crate::dom::Dom { unsafe { crate::dll::AzDom_withContextMenu(self, context_menu.into()) } }
         /// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
         pub fn hash(&self)  -> u64 { unsafe { crate::dll::AzDom_hash(self) } }
         /// Returns the number of nodes in the DOM, including all child DOM trees. Result is equal to `self.total_children + 1` (count of all child trees + the root node)
@@ -13164,7 +13164,7 @@ pub mod dom {
         /// Returns a HTML for unit testing
         pub fn get_html_string_test(&mut self)  -> crate::str::String { unsafe { crate::dll::AzDom_getHtmlStringTest(self) } }
         /// Same as `StyledDom::new(dom, css)`: NOTE - replaces self with an empty DOM, in order to prevent cloning the DOM entirely
-        pub fn style(&mut self, css: Css)  -> crate::style::StyledDom { unsafe { crate::dll::AzDom_style(self, css) } }
+        pub fn style<_1: Into<Css>>(&mut self, css: _1)  -> crate::style::StyledDom { unsafe { crate::dll::AzDom_style(self, css.into()) } }
     }
 
     /// `IFrameNode` struct
@@ -13179,7 +13179,7 @@ pub mod dom {
     impl NodeData {
 
         /// Creates an new, empty `NodeData` struct
-        pub fn new(node_type: NodeType) -> Self { unsafe { crate::dll::AzNodeData_new(node_type) } }
+        pub fn new<_1: Into<NodeType>>(node_type: _1) -> Self { unsafe { crate::dll::AzNodeData_new(node_type.into()) } }
         /// Creates a new `NodeData` instance.
         pub fn body() -> Self { unsafe { crate::dll::AzNodeData_body() } }
         /// Creates a new `NodeData` instance.
@@ -13187,61 +13187,61 @@ pub mod dom {
         /// Creates a new `NodeData` instance.
         pub fn br() -> Self { unsafe { crate::dll::AzNodeData_br() } }
         /// Creates a new `NodeData` instance.
-        pub fn text(string: String) -> Self { unsafe { crate::dll::AzNodeData_text(string) } }
+        pub fn text<_1: Into<String>>(string: _1) -> Self { unsafe { crate::dll::AzNodeData_text(string.into()) } }
         /// Creates a new `NodeData` instance.
-        pub fn image(image: ImageRef) -> Self { unsafe { crate::dll::AzNodeData_image(image) } }
+        pub fn image<_1: Into<ImageRef>>(image: _1) -> Self { unsafe { crate::dll::AzNodeData_image(image.into()) } }
         /// Creates a new `NodeData` instance.
-        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzNodeData_iframe(data, callback) } }
+        pub fn iframe<_1: Into<RefAny>>(data: _1, callback: IFrameCallbackType) -> Self { unsafe { crate::dll::AzNodeData_iframe(data.into(), callback) } }
         /// Calls the `NodeData::set_node_type` function.
-        pub fn set_node_type(&mut self, node_type: NodeType)  { unsafe { crate::dll::AzNodeData_setNodeType(self, node_type) } }
+        pub fn set_node_type<_1: Into<NodeType>>(&mut self, node_type: _1)  { unsafe { crate::dll::AzNodeData_setNodeType(self, node_type.into()) } }
         /// Calls the `NodeData::with_node_type` function.
-        pub fn with_node_type(&mut self, node_type: NodeType)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withNodeType(self, node_type) } }
+        pub fn with_node_type<_1: Into<NodeType>>(&mut self, node_type: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withNodeType(self, node_type.into()) } }
         /// Calls the `NodeData::set_dataset` function.
-        pub fn set_dataset(&mut self, dataset: RefAny)  { unsafe { crate::dll::AzNodeData_setDataset(self, dataset) } }
+        pub fn set_dataset<_1: Into<RefAny>>(&mut self, dataset: _1)  { unsafe { crate::dll::AzNodeData_setDataset(self, dataset.into()) } }
         /// Calls the `NodeData::with_dataset` function.
-        pub fn with_dataset(&mut self, dataset: RefAny)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withDataset(self, dataset) } }
+        pub fn with_dataset<_1: Into<RefAny>>(&mut self, dataset: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withDataset(self, dataset.into()) } }
         /// Calls the `NodeData::set_ids_and_classes` function.
-        pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  { unsafe { crate::dll::AzNodeData_setIdsAndClasses(self, ids_and_classes) } }
+        pub fn set_ids_and_classes<_1: Into<IdOrClassVec>>(&mut self, ids_and_classes: _1)  { unsafe { crate::dll::AzNodeData_setIdsAndClasses(self, ids_and_classes.into()) } }
         /// Calls the `NodeData::with_ids_and_classes` function.
-        pub fn with_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withIdsAndClasses(self, ids_and_classes) } }
+        pub fn with_ids_and_classes<_1: Into<IdOrClassVec>>(&mut self, ids_and_classes: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withIdsAndClasses(self, ids_and_classes.into()) } }
         /// Adds a callback this DOM (potentially heap-allocates in Rust code)
-        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzNodeData_addCallback(self, event, data, callback) } }
+        pub fn add_callback<_1: Into<EventFilter>, _2: Into<RefAny>>(&mut self, event: _1, data: _2, callback: CallbackType)  { unsafe { crate::dll::AzNodeData_addCallback(self, event.into(), data.into(), callback) } }
         /// Same as add_child, but as a builder method.
-        pub fn with_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withCallback(self, event, data, callback) } }
+        pub fn with_callback<_1: Into<EventFilter>, _2: Into<RefAny>>(&mut self, event: _1, data: _2, callback: CallbackType)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withCallback(self, event.into(), data.into(), callback) } }
         /// Calls the `NodeData::set_callbacks` function.
-        pub fn set_callbacks(&mut self, callbacks: CallbackDataVec)  { unsafe { crate::dll::AzNodeData_setCallbacks(self, callbacks) } }
+        pub fn set_callbacks<_1: Into<CallbackDataVec>>(&mut self, callbacks: _1)  { unsafe { crate::dll::AzNodeData_setCallbacks(self, callbacks.into()) } }
         /// Calls the `NodeData::with_callbacks` function.
-        pub fn with_callbacks(&mut self, callbacks: CallbackDataVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withCallbacks(self, callbacks) } }
+        pub fn with_callbacks<_1: Into<CallbackDataVec>>(&mut self, callbacks: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withCallbacks(self, callbacks.into()) } }
         /// Calls the `NodeData::set_inline_css_props` function.
-        pub fn set_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNodeData_setInlineCssProps(self, css_properties) } }
+        pub fn set_inline_css_props<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, css_properties: _1)  { unsafe { crate::dll::AzNodeData_setInlineCssProps(self, css_properties.into()) } }
         /// Calls the `NodeData::with_inline_css_props` function.
-        pub fn with_inline_css_props(&mut self, css_properties: NodeDataInlineCssPropertyVec)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineCssProps(self, css_properties) } }
+        pub fn with_inline_css_props<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, css_properties: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineCssProps(self, css_properties.into()) } }
         /// Calls the `NodeData::set_inline_style` function.
-        pub fn set_inline_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineStyle(self, style) } }
+        pub fn set_inline_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzNodeData_setInlineStyle(self, style.into()) } }
         /// Calls the `NodeData::with_inline_style` function.
-        pub fn with_inline_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineStyle(self, style) } }
+        pub fn with_inline_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineStyle(self, style.into()) } }
         /// Calls the `NodeData::set_inline_hover_style` function.
-        pub fn set_inline_hover_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineHoverStyle(self, style) } }
+        pub fn set_inline_hover_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzNodeData_setInlineHoverStyle(self, style.into()) } }
         /// Calls the `NodeData::with_inline_hover_style` function.
-        pub fn with_inline_hover_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineHoverStyle(self, style) } }
+        pub fn with_inline_hover_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineHoverStyle(self, style.into()) } }
         /// Calls the `NodeData::set_inline_active_style` function.
-        pub fn set_inline_active_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineActiveStyle(self, style) } }
+        pub fn set_inline_active_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzNodeData_setInlineActiveStyle(self, style.into()) } }
         /// Calls the `NodeData::with_inline_active_style` function.
-        pub fn with_inline_active_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineActiveStyle(self, style) } }
+        pub fn with_inline_active_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineActiveStyle(self, style.into()) } }
         /// Calls the `NodeData::set_inline_focus_style` function.
-        pub fn set_inline_focus_style(&mut self, style: String)  { unsafe { crate::dll::AzNodeData_setInlineFocusStyle(self, style) } }
+        pub fn set_inline_focus_style<_1: Into<String>>(&mut self, style: _1)  { unsafe { crate::dll::AzNodeData_setInlineFocusStyle(self, style.into()) } }
         /// Calls the `NodeData::with_inline_focus_style` function.
-        pub fn with_inline_focus_style(&mut self, style: String)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineFocusStyle(self, style) } }
+        pub fn with_inline_focus_style<_1: Into<String>>(&mut self, style: _1)  -> crate::dom::NodeData { unsafe { crate::dll::AzNodeData_withInlineFocusStyle(self, style.into()) } }
         /// Sets the `extra.clip_mask` field for this node
-        pub fn set_clip_mask(&mut self, image_mask: ImageMask)  { unsafe { crate::dll::AzNodeData_setClipMask(self, image_mask) } }
+        pub fn set_clip_mask<_1: Into<ImageMask>>(&mut self, image_mask: _1)  { unsafe { crate::dll::AzNodeData_setClipMask(self, image_mask.into()) } }
         /// Sets the tab index for this node
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { unsafe { crate::dll::AzNodeData_setTabIndex(self, tab_index) } }
+        pub fn set_tab_index<_1: Into<TabIndex>>(&mut self, tab_index: _1)  { unsafe { crate::dll::AzNodeData_setTabIndex(self, tab_index.into()) } }
         /// Sets accessibility attributes for this node
-        pub fn set_accessibility_info(&mut self, accessibility_info: AccessibilityInfo)  { unsafe { crate::dll::AzNodeData_setAccessibilityInfo(self, accessibility_info) } }
+        pub fn set_accessibility_info<_1: Into<AccessibilityInfo>>(&mut self, accessibility_info: _1)  { unsafe { crate::dll::AzNodeData_setAccessibilityInfo(self, accessibility_info.into()) } }
         /// Adds a (native) menu bar: If this node is the root node the menu bar will be added to the window, else it will be displayed using the width and position of the bounding rectangle
-        pub fn set_menu_bar(&mut self, menu_bar: Menu)  { unsafe { crate::dll::AzNodeData_setMenuBar(self, menu_bar) } }
+        pub fn set_menu_bar<_1: Into<Menu>>(&mut self, menu_bar: _1)  { unsafe { crate::dll::AzNodeData_setMenuBar(self, menu_bar.into()) } }
         /// Signalizes that this node has a (native) context-aware menu. If set, the user can left-click the node to open the menu
-        pub fn set_context_menu(&mut self, context_menu: Menu)  { unsafe { crate::dll::AzNodeData_setContextMenu(self, context_menu) } }
+        pub fn set_context_menu<_1: Into<Menu>>(&mut self, context_menu: _1)  { unsafe { crate::dll::AzNodeData_setContextMenu(self, context_menu.into()) } }
         /// Calculates the hash of this node (note: in order to be truly unique, you also have to hash the DOM and Node ID).
         pub fn hash(&self)  -> u64 { unsafe { crate::dll::AzNodeData_hash(self) } }
     }
@@ -13312,11 +13312,11 @@ pub mod menu {
     impl Menu {
 
         /// Creates an new, empty Menu
-        pub fn new(items: MenuItemVec) -> Self { unsafe { crate::dll::AzMenu_new(items) } }
+        pub fn new<_1: Into<MenuItemVec>>(items: _1) -> Self { unsafe { crate::dll::AzMenu_new(items.into()) } }
         /// Sets the popup position of the menu, ignored on menu bars
-        pub fn set_popup_position(&mut self, position: MenuPopupPosition)  { unsafe { crate::dll::AzMenu_setPopupPosition(self, position) } }
+        pub fn set_popup_position<_1: Into<MenuPopupPosition>>(&mut self, position: _1)  { unsafe { crate::dll::AzMenu_setPopupPosition(self, position.into()) } }
         /// Sets the popup position of the menu, ignored on menu bars (builder method)
-        pub fn with_popup_position(&mut self, position: MenuPopupPosition)  -> crate::menu::Menu { unsafe { crate::dll::AzMenu_withPopupPosition(self, position) } }
+        pub fn with_popup_position<_1: Into<MenuPopupPosition>>(&mut self, position: _1)  -> crate::menu::Menu { unsafe { crate::dll::AzMenu_withPopupPosition(self, position.into()) } }
     }
 
     /// Determines whether this context menu should pop up on a left, right or middle click
@@ -13334,19 +13334,19 @@ pub mod menu {
     impl StringMenuItem {
 
         /// Creates a new menu item
-        pub fn new(label: String) -> Self { unsafe { crate::dll::AzStringMenuItem_new(label) } }
+        pub fn new<_1: Into<String>>(label: _1) -> Self { unsafe { crate::dll::AzStringMenuItem_new(label.into()) } }
         /// Adds a callback to the menu item
-        pub fn set_callback(&mut self, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzStringMenuItem_setCallback(self, data, callback) } }
+        pub fn set_callback<_1: Into<RefAny>>(&mut self, data: _1, callback: CallbackType)  { unsafe { crate::dll::AzStringMenuItem_setCallback(self, data.into(), callback) } }
         /// Adds a callback to the menu item
-        pub fn with_callback(&mut self, data: RefAny, callback: CallbackType)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withCallback(self, data, callback) } }
+        pub fn with_callback<_1: Into<RefAny>>(&mut self, data: _1, callback: CallbackType)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withCallback(self, data.into(), callback) } }
         /// Adds a single child submenu to the current menu
-        pub fn add_child(&mut self, child: MenuItem)  { unsafe { crate::dll::AzStringMenuItem_addChild(self, child) } }
+        pub fn add_child<_1: Into<MenuItem>>(&mut self, child: _1)  { unsafe { crate::dll::AzStringMenuItem_addChild(self, child.into()) } }
         /// Adds a single child submenu to the current menu
-        pub fn with_child(&mut self, child: MenuItem)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChild(self, child) } }
+        pub fn with_child<_1: Into<MenuItem>>(&mut self, child: _1)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChild(self, child.into()) } }
         /// Sets the children of this menu
-        pub fn set_children(&mut self, children: MenuItemVec)  { unsafe { crate::dll::AzStringMenuItem_setChildren(self, children) } }
+        pub fn set_children<_1: Into<MenuItemVec>>(&mut self, children: _1)  { unsafe { crate::dll::AzStringMenuItem_setChildren(self, children.into()) } }
         /// Adds a child submenu to the current menu
-        pub fn with_children(&mut self, children: MenuItemVec)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChildren(self, children) } }
+        pub fn with_children<_1: Into<MenuItemVec>>(&mut self, children: _1)  -> crate::menu::StringMenuItem { unsafe { crate::dll::AzStringMenuItem_withChildren(self, children.into()) } }
     }
 
     /// Combination of virtual key codes that have to be pressed together
@@ -13358,7 +13358,7 @@ pub mod menu {
     impl MenuCallback {
 
         /// Creates a new `MenuCallback` instance.
-        pub fn new(data: RefAny, callback: CallbackType) -> Self { unsafe { crate::dll::AzMenuCallback_new(data, callback) } }
+        pub fn new<_1: Into<RefAny>>(data: _1, callback: CallbackType) -> Self { unsafe { crate::dll::AzMenuCallback_new(data.into(), callback) } }
     }
 
     /// Icon of a menu entry
@@ -14064,7 +14064,7 @@ pub mod css {
         /// Returns an empty CSS style
         pub fn empty() -> Self { unsafe { crate::dll::AzCss_empty() } }
         /// Returns a CSS style parsed from a `String`
-        pub fn from_string(s: String) -> Self { unsafe { crate::dll::AzCss_fromString(s) } }
+        pub fn from_string<_1: Into<String>>(s: _1) -> Self { unsafe { crate::dll::AzCss_fromString(s.into()) } }
     }
 
     /// `CssPropertyType` struct
@@ -14082,7 +14082,7 @@ pub mod css {
     impl ColorU {
 
         /// Creates a new `ColorU` instance.
-        pub fn from_str(string: String) -> Self { unsafe { crate::dll::AzColorU_fromStr(string) } }
+        pub fn from_str<_1: Into<String>>(string: _1) -> Self { unsafe { crate::dll::AzColorU_fromStr(string.into()) } }
         /// Creates a new `ColorU` instance.
         pub fn transparent() -> Self { unsafe { crate::dll::AzColorU_transparent() } }
         /// Creates a new `ColorU` instance.
@@ -14624,7 +14624,7 @@ pub mod css {
         /// Returns the CSS key-value pair as a string, i.e. `background: linear-gradient(red, blue)`
         pub fn get_key_value_string(&self)  -> crate::str::String { unsafe { crate::dll::AzCssProperty_getKeyValueString(self) } }
         /// Interpolates two CSS properties given a value `t` ranging from 0.0 to 1.0. The interpolation function can be set on the `context` (`Ease`, `Linear`, etc.).
-        pub fn interpolate(&self, other: CssProperty, t: f32, context: InterpolateContext)  -> crate::css::CssProperty { unsafe { crate::dll::AzCssProperty_interpolate(self, other, t, context) } }
+        pub fn interpolate<_1: Into<CssProperty>, _3: Into<InterpolateContext>>(&self, other: _1, t: f32, context: _3)  -> crate::css::CssProperty { unsafe { crate::dll::AzCssProperty_interpolate(self, other.into(), t, context.into()) } }
     }
 
 }
@@ -14646,7 +14646,7 @@ pub mod widgets {
     impl Ribbon {
 
         /// Calls the `Ribbon::dom` function.
-        pub fn dom(&mut self, callback: RibbonOnTabClickedCallback, data: RefAny)  -> crate::dom::Dom { unsafe { crate::dll::AzRibbon_dom(self, callback, data) } }
+        pub fn dom<_1: Into<RibbonOnTabClickedCallback>, _2: Into<RefAny>>(&mut self, callback: _1, data: _2)  -> crate::dom::Dom { unsafe { crate::dll::AzRibbon_dom(self, callback.into(), data.into()) } }
     }
 
     /// `RibbonOnTabClickedCallback` struct
@@ -14661,11 +14661,11 @@ pub mod widgets {
     impl Button {
 
         /// Creates a new labeled button
-        pub fn new(label: String) -> Self { unsafe { crate::dll::AzButton_new(label) } }
+        pub fn new<_1: Into<String>>(label: _1) -> Self { unsafe { crate::dll::AzButton_new(label.into()) } }
         /// Calls the `Button::set_on_click` function.
-        pub fn set_on_click(&mut self, data: RefAny, callback: CallbackType)  { unsafe { crate::dll::AzButton_setOnClick(self, data, callback) } }
+        pub fn set_on_click<_1: Into<RefAny>>(&mut self, data: _1, callback: CallbackType)  { unsafe { crate::dll::AzButton_setOnClick(self, data.into(), callback) } }
         /// Calls the `Button::with_on_click` function.
-        pub fn with_on_click(&mut self, data: RefAny, callback: CallbackType)  -> crate::widgets::Button { unsafe { crate::dll::AzButton_withOnClick(self, data, callback) } }
+        pub fn with_on_click<_1: Into<RefAny>>(&mut self, data: _1, callback: CallbackType)  -> crate::widgets::Button { unsafe { crate::dll::AzButton_withOnClick(self, data.into(), callback) } }
         /// Calls the `Button::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzButton_dom(self) } }
     }
@@ -14679,15 +14679,15 @@ pub mod widgets {
     impl FileInput {
 
         /// Creates a new file input button
-        pub fn new(path: OptionString) -> Self { unsafe { crate::dll::AzFileInput_new(path) } }
+        pub fn new<_1: Into<OptionString>>(path: _1) -> Self { unsafe { crate::dll::AzFileInput_new(path.into()) } }
         /// Calls the `FileInput::set_default_text` function.
-        pub fn set_default_text(&mut self, default_text: String)  { unsafe { crate::dll::AzFileInput_setDefaultText(self, default_text) } }
+        pub fn set_default_text<_1: Into<String>>(&mut self, default_text: _1)  { unsafe { crate::dll::AzFileInput_setDefaultText(self, default_text.into()) } }
         /// Calls the `FileInput::with_default_text` function.
-        pub fn with_default_text(&mut self, default_text: String)  -> crate::widgets::FileInput { unsafe { crate::dll::AzFileInput_withDefaultText(self, default_text) } }
+        pub fn with_default_text<_1: Into<String>>(&mut self, default_text: _1)  -> crate::widgets::FileInput { unsafe { crate::dll::AzFileInput_withDefaultText(self, default_text.into()) } }
         /// Calls the `FileInput::set_on_path_change` function.
-        pub fn set_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType)  { unsafe { crate::dll::AzFileInput_setOnPathChange(self, data, callback) } }
+        pub fn set_on_path_change<_1: Into<RefAny>>(&mut self, data: _1, callback: FileInputOnPathChangeCallbackType)  { unsafe { crate::dll::AzFileInput_setOnPathChange(self, data.into(), callback) } }
         /// Calls the `FileInput::with_on_path_change` function.
-        pub fn with_on_path_change(&mut self, data: RefAny, callback: FileInputOnPathChangeCallbackType)  -> crate::widgets::FileInput { unsafe { crate::dll::AzFileInput_withOnPathChange(self, data, callback) } }
+        pub fn with_on_path_change<_1: Into<RefAny>>(&mut self, data: _1, callback: FileInputOnPathChangeCallbackType)  -> crate::widgets::FileInput { unsafe { crate::dll::AzFileInput_withOnPathChange(self, data.into(), callback) } }
         /// Calls the `FileInput::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzFileInput_dom(self) } }
     }
@@ -14715,9 +14715,9 @@ pub mod widgets {
         /// Creates a new checkbox, disabled or enabled
         pub fn new(checked: bool) -> Self { unsafe { crate::dll::AzCheckBox_new(checked) } }
         /// Calls the `CheckBox::set_on_toggle` function.
-        pub fn set_on_toggle(&mut self, data: RefAny, callback: CheckBoxOnToggleCallbackType)  { unsafe { crate::dll::AzCheckBox_setOnToggle(self, data, callback) } }
+        pub fn set_on_toggle<_1: Into<RefAny>>(&mut self, data: _1, callback: CheckBoxOnToggleCallbackType)  { unsafe { crate::dll::AzCheckBox_setOnToggle(self, data.into(), callback) } }
         /// Calls the `CheckBox::with_on_toggle` function.
-        pub fn with_on_toggle(&mut self, data: RefAny, callback: CheckBoxOnToggleCallbackType)  -> crate::widgets::CheckBox { unsafe { crate::dll::AzCheckBox_withOnToggle(self, data, callback) } }
+        pub fn with_on_toggle<_1: Into<RefAny>>(&mut self, data: _1, callback: CheckBoxOnToggleCallbackType)  -> crate::widgets::CheckBox { unsafe { crate::dll::AzCheckBox_withOnToggle(self, data.into(), callback) } }
         /// Calls the `CheckBox::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzCheckBox_dom(self) } }
     }
@@ -14743,7 +14743,7 @@ pub mod widgets {
     impl Label {
 
         /// Creates a new `Label` instance.
-        pub fn new(text: String) -> Self { unsafe { crate::dll::AzLabel_new(text) } }
+        pub fn new<_1: Into<String>>(text: _1) -> Self { unsafe { crate::dll::AzLabel_new(text.into()) } }
         /// Calls the `Label::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzLabel_dom(self) } }
     }
@@ -14754,11 +14754,11 @@ pub mod widgets {
     impl ColorInput {
 
         /// Creates a new `ColorInput` instance.
-        pub fn new(color: ColorU) -> Self { unsafe { crate::dll::AzColorInput_new(color) } }
+        pub fn new<_1: Into<ColorU>>(color: _1) -> Self { unsafe { crate::dll::AzColorInput_new(color.into()) } }
         /// Calls the `ColorInput::set_on_value_change` function.
-        pub fn set_on_value_change(&mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType)  { unsafe { crate::dll::AzColorInput_setOnValueChange(self, data, callback) } }
+        pub fn set_on_value_change<_1: Into<RefAny>>(&mut self, data: _1, callback: ColorInputOnValueChangeCallbackType)  { unsafe { crate::dll::AzColorInput_setOnValueChange(self, data.into(), callback) } }
         /// Calls the `ColorInput::with_on_value_change` function.
-        pub fn with_on_value_change(&mut self, data: RefAny, callback: ColorInputOnValueChangeCallbackType)  -> crate::widgets::ColorInput { unsafe { crate::dll::AzColorInput_withOnValueChange(self, data, callback) } }
+        pub fn with_on_value_change<_1: Into<RefAny>>(&mut self, data: _1, callback: ColorInputOnValueChangeCallbackType)  -> crate::widgets::ColorInput { unsafe { crate::dll::AzColorInput_withOnValueChange(self, data.into(), callback) } }
         /// Calls the `ColorInput::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzColorInput_dom(self) } }
     }
@@ -14786,37 +14786,37 @@ pub mod widgets {
         /// Creates a new `TextInput` instance.
         pub fn new() -> Self { unsafe { crate::dll::AzTextInput_new() } }
         /// Calls the `TextInput::set_text` function.
-        pub fn set_text(&mut self, text: String)  { unsafe { crate::dll::AzTextInput_setText(self, text) } }
+        pub fn set_text<_1: Into<String>>(&mut self, text: _1)  { unsafe { crate::dll::AzTextInput_setText(self, text.into()) } }
         /// Calls the `TextInput::with_text` function.
-        pub fn with_text(&mut self, text: String)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withText(self, text) } }
+        pub fn with_text<_1: Into<String>>(&mut self, text: _1)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withText(self, text.into()) } }
         /// Calls the `TextInput::set_placeholder` function.
-        pub fn set_placeholder(&mut self, text: String)  { unsafe { crate::dll::AzTextInput_setPlaceholder(self, text) } }
+        pub fn set_placeholder<_1: Into<String>>(&mut self, text: _1)  { unsafe { crate::dll::AzTextInput_setPlaceholder(self, text.into()) } }
         /// Calls the `TextInput::with_placeholder` function.
-        pub fn with_placeholder(&mut self, text: String)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withPlaceholder(self, text) } }
+        pub fn with_placeholder<_1: Into<String>>(&mut self, text: _1)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withPlaceholder(self, text.into()) } }
         /// Calls the `TextInput::set_on_text_input` function.
-        pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzTextInput_setOnTextInput(self, data, callback) } }
+        pub fn set_on_text_input<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzTextInput_setOnTextInput(self, data.into(), callback) } }
         /// Calls the `TextInput::with_on_text_input` function.
-        pub fn with_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnTextInput(self, data, callback) } }
+        pub fn with_on_text_input<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnTextInputCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnTextInput(self, data.into(), callback) } }
         /// Calls the `TextInput::set_on_virtual_key_down` function.
-        pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  { unsafe { crate::dll::AzTextInput_setOnVirtualKeyDown(self, data, callback) } }
+        pub fn set_on_virtual_key_down<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnVirtualKeyDownCallbackType)  { unsafe { crate::dll::AzTextInput_setOnVirtualKeyDown(self, data.into(), callback) } }
         /// Calls the `TextInput::with_on_virtual_key_down` function.
-        pub fn with_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnVirtualKeyDown(self, data, callback) } }
+        pub fn with_on_virtual_key_down<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnVirtualKeyDown(self, data.into(), callback) } }
         /// Calls the `TextInput::set_on_focus_lost` function.
-        pub fn set_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzTextInput_setOnFocusLost(self, data, callback) } }
+        pub fn set_on_focus_lost<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzTextInput_setOnFocusLost(self, data.into(), callback) } }
         /// Calls the `TextInput::with_on_focus_lost` function.
-        pub fn with_on_focus_lost(&mut self, data: RefAny, callback: TextInputOnFocusLostCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnFocusLost(self, data, callback) } }
+        pub fn with_on_focus_lost<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnFocusLostCallbackType)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withOnFocusLost(self, data.into(), callback) } }
         /// Calls the `TextInput::set_placeholder_style` function.
-        pub fn set_placeholder_style(&mut self, placeholder_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setPlaceholderStyle(self, placeholder_style) } }
+        pub fn set_placeholder_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, placeholder_style: _1)  { unsafe { crate::dll::AzTextInput_setPlaceholderStyle(self, placeholder_style.into()) } }
         /// Calls the `TextInput::with_placeholder_style` function.
-        pub fn with_placeholder_style(&mut self, placeholder_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withPlaceholderStyle(self, placeholder_style) } }
+        pub fn with_placeholder_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, placeholder_style: _1)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withPlaceholderStyle(self, placeholder_style.into()) } }
         /// Calls the `TextInput::set_container_style` function.
-        pub fn set_container_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setContainerStyle(self, container_style) } }
+        pub fn set_container_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, container_style: _1)  { unsafe { crate::dll::AzTextInput_setContainerStyle(self, container_style.into()) } }
         /// Calls the `TextInput::with_container_style` function.
-        pub fn with_container_style(&mut self, container_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withContainerStyle(self, container_style) } }
+        pub fn with_container_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, container_style: _1)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withContainerStyle(self, container_style.into()) } }
         /// Calls the `TextInput::set_label_style` function.
-        pub fn set_label_style(&mut self, label_style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzTextInput_setLabelStyle(self, label_style) } }
+        pub fn set_label_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, label_style: _1)  { unsafe { crate::dll::AzTextInput_setLabelStyle(self, label_style.into()) } }
         /// Calls the `TextInput::with_label_style` function.
-        pub fn with_label_style(&mut self, label_style: NodeDataInlineCssPropertyVec)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withLabelStyle(self, label_style) } }
+        pub fn with_label_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, label_style: _1)  -> crate::widgets::TextInput { unsafe { crate::dll::AzTextInput_withLabelStyle(self, label_style.into()) } }
         /// Calls the `TextInput::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTextInput_dom(self) } }
     }
@@ -14880,33 +14880,33 @@ pub mod widgets {
         /// Creates a new `NumberInput` instance.
         pub fn new(number: f32) -> Self { unsafe { crate::dll::AzNumberInput_new(number) } }
         /// Calls the `NumberInput::set_on_text_input` function.
-        pub fn set_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnTextInput(self, data, callback) } }
+        pub fn set_on_text_input<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnTextInputCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnTextInput(self, data.into(), callback) } }
         /// Calls the `NumberInput::with_on_text_input` function.
-        pub fn with_on_text_input(&mut self, data: RefAny, callback: TextInputOnTextInputCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnTextInput(self, data, callback) } }
+        pub fn with_on_text_input<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnTextInputCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnTextInput(self, data.into(), callback) } }
         /// Calls the `NumberInput::set_on_virtual_key_down` function.
-        pub fn set_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnVirtualKeyDown(self, data, callback) } }
+        pub fn set_on_virtual_key_down<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnVirtualKeyDownCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnVirtualKeyDown(self, data.into(), callback) } }
         /// Calls the `NumberInput::with_on_virtual_key_down` function.
-        pub fn with_on_virtual_key_down(&mut self, data: RefAny, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnVirtualKeyDown(self, data, callback) } }
+        pub fn with_on_virtual_key_down<_1: Into<RefAny>>(&mut self, data: _1, callback: TextInputOnVirtualKeyDownCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnVirtualKeyDown(self, data.into(), callback) } }
         /// Calls the `NumberInput::set_on_focus_lost` function.
-        pub fn set_on_focus_lost(&mut self, data: RefAny, callback: NumberInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnFocusLost(self, data, callback) } }
+        pub fn set_on_focus_lost<_1: Into<RefAny>>(&mut self, data: _1, callback: NumberInputOnFocusLostCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnFocusLost(self, data.into(), callback) } }
         /// Calls the `NumberInput::with_on_focus_lost` function.
-        pub fn with_on_focus_lost(&mut self, data: RefAny, callback: NumberInputOnFocusLostCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnFocusLost(self, data, callback) } }
+        pub fn with_on_focus_lost<_1: Into<RefAny>>(&mut self, data: _1, callback: NumberInputOnFocusLostCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnFocusLost(self, data.into(), callback) } }
         /// Calls the `NumberInput::set_placeholder_style` function.
-        pub fn set_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setPlaceholderStyle(self, style) } }
+        pub fn set_placeholder_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, style: _1)  { unsafe { crate::dll::AzNumberInput_setPlaceholderStyle(self, style.into()) } }
         /// Calls the `NumberInput::with_placeholder_style` function.
-        pub fn with_placeholder_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withPlaceholderStyle(self, style) } }
+        pub fn with_placeholder_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, style: _1)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withPlaceholderStyle(self, style.into()) } }
         /// Calls the `NumberInput::set_container_style` function.
-        pub fn set_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setContainerStyle(self, style) } }
+        pub fn set_container_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, style: _1)  { unsafe { crate::dll::AzNumberInput_setContainerStyle(self, style.into()) } }
         /// Calls the `NumberInput::with_container_style` function.
-        pub fn with_container_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withContainerStyle(self, style) } }
+        pub fn with_container_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, style: _1)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withContainerStyle(self, style.into()) } }
         /// Calls the `NumberInput::set_label_style` function.
-        pub fn set_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  { unsafe { crate::dll::AzNumberInput_setLabelStyle(self, style) } }
+        pub fn set_label_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, style: _1)  { unsafe { crate::dll::AzNumberInput_setLabelStyle(self, style.into()) } }
         /// Calls the `NumberInput::with_label_style` function.
-        pub fn with_label_style(&mut self, style: NodeDataInlineCssPropertyVec)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withLabelStyle(self, style) } }
+        pub fn with_label_style<_1: Into<NodeDataInlineCssPropertyVec>>(&mut self, style: _1)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withLabelStyle(self, style.into()) } }
         /// Calls the `NumberInput::set_on_value_change` function.
-        pub fn set_on_value_change(&mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnValueChange(self, data, callback) } }
+        pub fn set_on_value_change<_1: Into<RefAny>>(&mut self, data: _1, callback: NumberInputOnValueChangeCallbackType)  { unsafe { crate::dll::AzNumberInput_setOnValueChange(self, data.into(), callback) } }
         /// Calls the `NumberInput::with_on_value_change` function.
-        pub fn with_on_value_change(&mut self, data: RefAny, callback: NumberInputOnValueChangeCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnValueChange(self, data, callback) } }
+        pub fn with_on_value_change<_1: Into<RefAny>>(&mut self, data: _1, callback: NumberInputOnValueChangeCallbackType)  -> crate::widgets::NumberInput { unsafe { crate::dll::AzNumberInput_withOnValueChange(self, data.into(), callback) } }
         /// Calls the `NumberInput::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzNumberInput_dom(self) } }
     }
@@ -14943,17 +14943,17 @@ pub mod widgets {
         /// Creates a new `ProgressBar` instance.
         pub fn new(percent_done: f32) -> Self { unsafe { crate::dll::AzProgressBar_new(percent_done) } }
         /// Calls the `ProgressBar::set_height` function.
-        pub fn set_height(&mut self, height: PixelValue)  { unsafe { crate::dll::AzProgressBar_setHeight(self, height) } }
+        pub fn set_height<_1: Into<PixelValue>>(&mut self, height: _1)  { unsafe { crate::dll::AzProgressBar_setHeight(self, height.into()) } }
         /// Calls the `ProgressBar::with_height` function.
-        pub fn with_height(&mut self, height: PixelValue)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withHeight(self, height) } }
+        pub fn with_height<_1: Into<PixelValue>>(&mut self, height: _1)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withHeight(self, height.into()) } }
         /// Calls the `ProgressBar::set_container_background` function.
-        pub fn set_container_background(&mut self, background: StyleBackgroundContentVec)  { unsafe { crate::dll::AzProgressBar_setContainerBackground(self, background) } }
+        pub fn set_container_background<_1: Into<StyleBackgroundContentVec>>(&mut self, background: _1)  { unsafe { crate::dll::AzProgressBar_setContainerBackground(self, background.into()) } }
         /// Calls the `ProgressBar::with_container_style` function.
-        pub fn with_container_style(&mut self, background: StyleBackgroundContentVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withContainerStyle(self, background) } }
+        pub fn with_container_style<_1: Into<StyleBackgroundContentVec>>(&mut self, background: _1)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withContainerStyle(self, background.into()) } }
         /// Calls the `ProgressBar::set_bar_background` function.
-        pub fn set_bar_background(&mut self, background: StyleBackgroundContentVec)  { unsafe { crate::dll::AzProgressBar_setBarBackground(self, background) } }
+        pub fn set_bar_background<_1: Into<StyleBackgroundContentVec>>(&mut self, background: _1)  { unsafe { crate::dll::AzProgressBar_setBarBackground(self, background.into()) } }
         /// Calls the `ProgressBar::with_bar_background` function.
-        pub fn with_bar_background(&mut self, background: StyleBackgroundContentVec)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withBarBackground(self, background) } }
+        pub fn with_bar_background<_1: Into<StyleBackgroundContentVec>>(&mut self, background: _1)  -> crate::widgets::ProgressBar { unsafe { crate::dll::AzProgressBar_withBarBackground(self, background.into()) } }
         /// Calls the `ProgressBar::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzProgressBar_dom(self) } }
     }
@@ -14967,15 +14967,15 @@ pub mod widgets {
     impl TabHeader {
 
         /// Creates a new `TabHeader` instance.
-        pub fn new(tabs: StringVec) -> Self { unsafe { crate::dll::AzTabHeader_new(tabs) } }
+        pub fn new<_1: Into<StringVec>>(tabs: _1) -> Self { unsafe { crate::dll::AzTabHeader_new(tabs.into()) } }
         /// Calls the `TabHeader::set_active_tab` function.
         pub fn set_active_tab(&mut self, active_tab: usize)  { unsafe { crate::dll::AzTabHeader_setActiveTab(self, active_tab) } }
         /// Calls the `TabHeader::with_active_tab` function.
         pub fn with_active_tab(&mut self, active_tab: usize)  -> crate::widgets::TabHeader { unsafe { crate::dll::AzTabHeader_withActiveTab(self, active_tab) } }
         /// Calls the `TabHeader::set_on_click` function.
-        pub fn set_on_click(&mut self, data: RefAny, callback: TabOnClickCallbackType)  { unsafe { crate::dll::AzTabHeader_setOnClick(self, data, callback) } }
+        pub fn set_on_click<_1: Into<RefAny>>(&mut self, data: _1, callback: TabOnClickCallbackType)  { unsafe { crate::dll::AzTabHeader_setOnClick(self, data.into(), callback) } }
         /// Calls the `TabHeader::with_on_click` function.
-        pub fn with_on_click(&mut self, data: RefAny, callback: TabOnClickCallbackType)  -> crate::widgets::TabHeader { unsafe { crate::dll::AzTabHeader_withOnClick(self, data, callback) } }
+        pub fn with_on_click<_1: Into<RefAny>>(&mut self, data: _1, callback: TabOnClickCallbackType)  -> crate::widgets::TabHeader { unsafe { crate::dll::AzTabHeader_withOnClick(self, data.into(), callback) } }
         /// Calls the `TabHeader::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTabHeader_dom(self) } }
     }
@@ -14989,7 +14989,7 @@ pub mod widgets {
     impl TabContent {
 
         /// Creates a new `TabContent` instance.
-        pub fn new(content: Dom) -> Self { unsafe { crate::dll::AzTabContent_new(content) } }
+        pub fn new<_1: Into<Dom>>(content: _1) -> Self { unsafe { crate::dll::AzTabContent_new(content.into()) } }
         /// Calls the `TabContent::set_padding` function.
         pub fn set_padding(&mut self, has_padding: bool)  { unsafe { crate::dll::AzTabContent_setPadding(self, has_padding) } }
         /// Calls the `TabContent::with_padding` function.
@@ -15013,7 +15013,7 @@ pub mod widgets {
     impl Frame {
 
         /// Creates a new `Frame` instance.
-        pub fn new(title: String, dom: Dom) -> Self { unsafe { crate::dll::AzFrame_new(title, dom) } }
+        pub fn new<_1: Into<String>, _2: Into<Dom>>(title: _1, dom: _2) -> Self { unsafe { crate::dll::AzFrame_new(title.into(), dom.into()) } }
         /// Calls the `Frame::set_flex_grow` function.
         pub fn set_flex_grow(&mut self, flex_grow: f32)  { unsafe { crate::dll::AzFrame_setFlexGrow(self, flex_grow) } }
         /// Calls the `Frame::with_flex_grow` function.
@@ -15169,9 +15169,9 @@ pub mod widgets {
     impl ListView {
 
         /// Creates a new `ListView` instance.
-        pub fn new(columns: StringVec) -> Self { unsafe { crate::dll::AzListView_new(columns) } }
+        pub fn new<_1: Into<StringVec>>(columns: _1) -> Self { unsafe { crate::dll::AzListView_new(columns.into()) } }
         /// Calls the `ListView::with_rows` function.
-        pub fn with_rows(&mut self, rows: ListViewRowVec)  -> crate::widgets::ListView { unsafe { crate::dll::AzListView_withRows(self, rows) } }
+        pub fn with_rows<_1: Into<ListViewRowVec>>(&mut self, rows: _1)  -> crate::widgets::ListView { unsafe { crate::dll::AzListView_withRows(self, rows.into()) } }
         /// Calls the `ListView::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzListView_dom(self) } }
     }
@@ -15215,7 +15215,7 @@ pub mod widgets {
     impl TreeView {
 
         /// Creates a new `TreeView` instance.
-        pub fn new(root: String) -> Self { unsafe { crate::dll::AzTreeView_new(root) } }
+        pub fn new<_1: Into<String>>(root: _1) -> Self { unsafe { crate::dll::AzTreeView_new(root.into()) } }
         /// Calls the `TreeView::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzTreeView_dom(self) } }
     }
@@ -15226,7 +15226,7 @@ pub mod widgets {
     impl DropDown {
 
         /// Creates a new `DropDown` instance.
-        pub fn new(choices: StringVec) -> Self { unsafe { crate::dll::AzDropDown_new(choices) } }
+        pub fn new<_1: Into<StringVec>>(choices: _1) -> Self { unsafe { crate::dll::AzDropDown_new(choices.into()) } }
         /// Calls the `DropDown::dom` function.
         pub fn dom(&mut self)  -> crate::dom::Dom { unsafe { crate::dll::AzDropDown_dom(self) } }
     }
@@ -15286,19 +15286,19 @@ pub mod style {
     impl StyledDom {
 
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
-        pub fn new(dom: Dom, css: Css) -> Self { unsafe { crate::dll::AzStyledDom_new(dom, css) } }
+        pub fn new<_1: Into<Dom>, _2: Into<Css>>(dom: _1, css: _2) -> Self { unsafe { crate::dll::AzStyledDom_new(dom.into(), css.into()) } }
         /// Returns a default, empty `Dom`, usually returned if you don't want to crash in an error case.
         pub fn default() -> Self { unsafe { crate::dll::AzStyledDom_default() } }
         /// Returns a DOM loaded from an XML file
-        pub fn from_xml(xml_string: String) -> Self { unsafe { crate::dll::AzStyledDom_fromXml(xml_string) } }
+        pub fn from_xml<_1: Into<String>>(xml_string: _1) -> Self { unsafe { crate::dll::AzStyledDom_fromXml(xml_string.into()) } }
         /// Same as `from_xml`, but loads the file relative to the current directory
-        pub fn from_file(xml_file_path: String) -> Self { unsafe { crate::dll::AzStyledDom_fromFile(xml_file_path) } }
+        pub fn from_file<_1: Into<String>>(xml_file_path: _1) -> Self { unsafe { crate::dll::AzStyledDom_fromFile(xml_file_path.into()) } }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
-        pub fn append_child(&mut self, dom: StyledDom)  { unsafe { crate::dll::AzStyledDom_appendChild(self, dom) } }
+        pub fn append_child<_1: Into<StyledDom>>(&mut self, dom: _1)  { unsafe { crate::dll::AzStyledDom_appendChild(self, dom.into()) } }
         /// Same as `append_child()`, but as a builder method
-        pub fn with_child(&mut self, dom: StyledDom)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withChild(self, dom) } }
+        pub fn with_child<_1: Into<StyledDom>>(&mut self, dom: _1)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withChild(self, dom.into()) } }
         /// Restyles an already styled DOM with a new CSS - overwrites old styles, but does not replace them, useful for implementing user styles that are applied on top of the existing application style
-        pub fn restyle(&mut self, css: Css)  { unsafe { crate::dll::AzStyledDom_restyle(self, css) } }
+        pub fn restyle<_1: Into<Css>>(&mut self, css: _1)  { unsafe { crate::dll::AzStyledDom_restyle(self, css.into()) } }
         /// Returns the number of nodes in the styled DOM
         pub fn node_count(&self)  -> usize { unsafe { crate::dll::AzStyledDom_nodeCount(self) } }
         /// Returns a HTML string that you can write to a file in order to debug the UI structure and debug potential cascading issues
@@ -15306,13 +15306,13 @@ pub mod style {
         /// Returns a HTML for unit testing
         pub fn get_html_string_test(&self)  -> crate::str::String { unsafe { crate::dll::AzStyledDom_getHtmlStringTest(self) } }
         /// Adds a menu to the root node
-        pub fn set_menu_bar(&mut self, menu: Menu)  { unsafe { crate::dll::AzStyledDom_setMenuBar(self, menu) } }
+        pub fn set_menu_bar<_1: Into<Menu>>(&mut self, menu: _1)  { unsafe { crate::dll::AzStyledDom_setMenuBar(self, menu.into()) } }
         /// Adds a menu to the root node (builder method)
-        pub fn with_menu_bar(&mut self, menu: Menu)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withMenuBar(self, menu) } }
+        pub fn with_menu_bar<_1: Into<Menu>>(&mut self, menu: _1)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withMenuBar(self, menu.into()) } }
         /// Adds a context menu to the root node
-        pub fn set_context_menu(&mut self, menu: Menu)  { unsafe { crate::dll::AzStyledDom_setContextMenu(self, menu) } }
+        pub fn set_context_menu<_1: Into<Menu>>(&mut self, menu: _1)  { unsafe { crate::dll::AzStyledDom_setContextMenu(self, menu.into()) } }
         /// Adds a context menu to the root node (builder method)
-        pub fn with_context_menu(&mut self, menu: Menu)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withContextMenu(self, menu) } }
+        pub fn with_context_menu<_1: Into<Menu>>(&mut self, menu: _1)  -> crate::style::StyledDom { unsafe { crate::dll::AzStyledDom_withContextMenu(self, menu.into()) } }
     }
 
 }
@@ -15604,17 +15604,17 @@ pub mod gl {
     impl Texture {
 
         /// Creates a new `Texture` instance.
-        pub fn new(texture_id: u32, flags: TextureFlags, size: PhysicalSizeU32, background_color: ColorU, gl_context: Gl, format: RawImageFormat) -> Self { unsafe { crate::dll::AzTexture_new(texture_id, flags, size, background_color, gl_context, format) } }
+        pub fn new<_2: Into<TextureFlags>, _3: Into<PhysicalSizeU32>, _4: Into<ColorU>, _5: Into<Gl>, _6: Into<RawImageFormat>>(texture_id: u32, flags: _2, size: _3, background_color: _4, gl_context: _5, format: _6) -> Self { unsafe { crate::dll::AzTexture_new(texture_id, flags.into(), size.into(), background_color.into(), gl_context.into(), format.into()) } }
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
-        pub fn allocate_rgba8(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateRgba8(gl, size, background) } }
+        pub fn allocate_rgba8<_1: Into<Gl>, _2: Into<PhysicalSizeU32>, _3: Into<ColorU>>(gl: _1, size: _2, background: _3) -> Self { unsafe { crate::dll::AzTexture_allocateRgba8(gl.into(), size.into(), background.into()) } }
         /// Allocates an OpenGL texture of a given size with a single red channel (used for image masks)
-        pub fn allocate_clip_mask(gl: Gl, size: PhysicalSizeU32, background: ColorU) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl, size, background) } }
+        pub fn allocate_clip_mask<_1: Into<Gl>, _2: Into<PhysicalSizeU32>, _3: Into<ColorU>>(gl: _1, size: _2, background: _3) -> Self { unsafe { crate::dll::AzTexture_allocateClipMask(gl.into(), size.into(), background.into()) } }
         /// Clears the texture with the currently set background color
         pub fn clear(&mut self)  { unsafe { crate::dll::AzTexture_clear(self) } }
         /// Draws a vertex / index buffer (aka. `&TessellatedSvgNode`) to the texture
-        pub fn draw_clip_mask(&mut self, node: TessellatedSvgNode)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node) } }
+        pub fn draw_clip_mask<_1: Into<TessellatedSvgNode>>(&mut self, node: _1)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node.into()) } }
         /// Draws a `&TessellatedGPUSvgNode` with the given color to the texture
-        pub fn draw_tesselated_svg_gpu_node(&mut self, node: *const AzTessellatedGPUSvgNode, size: PhysicalSizeU32, color: ColorU, transforms: StyleTransformVec)  -> bool { unsafe { crate::dll::AzTexture_drawTesselatedSvgGpuNode(self, node, size, color, transforms) } }
+        pub fn draw_tesselated_svg_gpu_node<_1: Into<*const AzTessellatedGPUSvgNode>, _2: Into<PhysicalSizeU32>, _3: Into<ColorU>, _4: Into<StyleTransformVec>>(&mut self, node: _1, size: _2, color: _3, transforms: _4)  -> bool { unsafe { crate::dll::AzTexture_drawTesselatedSvgGpuNode(self, node.into(), size.into(), color.into(), transforms.into()) } }
         /// Applies an FXAA filter to the texture
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
@@ -17074,9 +17074,9 @@ pub mod gl {
         /// Calls the `Gl::get_type` function.
         pub fn get_type(&self)  -> crate::gl::GlType { unsafe { crate::dll::AzGl_getType(self) } }
         /// Calls the `Gl::buffer_data_untyped` function.
-        pub fn buffer_data_untyped(&self, target: u32, size: isize, data: GlVoidPtrConst, usage: u32)  { unsafe { crate::dll::AzGl_bufferDataUntyped(self, target, size, data, usage) } }
+        pub fn buffer_data_untyped<_3: Into<GlVoidPtrConst>>(&self, target: u32, size: isize, data: _3, usage: u32)  { unsafe { crate::dll::AzGl_bufferDataUntyped(self, target, size, data.into(), usage) } }
         /// Calls the `Gl::buffer_sub_data_untyped` function.
-        pub fn buffer_sub_data_untyped(&self, target: u32, offset: isize, size: isize, data: GlVoidPtrConst)  { unsafe { crate::dll::AzGl_bufferSubDataUntyped(self, target, offset, size, data) } }
+        pub fn buffer_sub_data_untyped<_4: Into<GlVoidPtrConst>>(&self, target: u32, offset: isize, size: isize, data: _4)  { unsafe { crate::dll::AzGl_bufferSubDataUntyped(self, target, offset, size, data.into()) } }
         /// Calls the `Gl::map_buffer` function.
         pub fn map_buffer(&self, target: u32, access: u32)  -> crate::gl::GlVoidPtrMut { unsafe { crate::dll::AzGl_mapBuffer(self, target, access) } }
         /// Calls the `Gl::map_buffer_range` function.
@@ -17086,11 +17086,11 @@ pub mod gl {
         /// Calls the `Gl::tex_buffer` function.
         pub fn tex_buffer(&self, target: u32, internal_format: u32, buffer: u32)  { unsafe { crate::dll::AzGl_texBuffer(self, target, internal_format, buffer) } }
         /// Calls the `Gl::shader_source` function.
-        pub fn shader_source(&self, shader: u32, strings: StringVec)  { unsafe { crate::dll::AzGl_shaderSource(self, shader, strings) } }
+        pub fn shader_source<_2: Into<StringVec>>(&self, shader: u32, strings: _2)  { unsafe { crate::dll::AzGl_shaderSource(self, shader, strings.into()) } }
         /// Calls the `Gl::read_buffer` function.
         pub fn read_buffer(&self, mode: u32)  { unsafe { crate::dll::AzGl_readBuffer(self, mode) } }
         /// Calls the `Gl::read_pixels_into_buffer` function.
-        pub fn read_pixels_into_buffer(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: U8VecRefMut)  { unsafe { crate::dll::AzGl_readPixelsIntoBuffer(self, x, y, width, height, format, pixel_type, dst_buffer) } }
+        pub fn read_pixels_into_buffer<_7: Into<U8VecRefMut>>(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32, dst_buffer: _7)  { unsafe { crate::dll::AzGl_readPixelsIntoBuffer(self, x, y, width, height, format, pixel_type, dst_buffer.into()) } }
         /// Calls the `Gl::read_pixels` function.
         pub fn read_pixels(&self, x: i32, y: i32, width: i32, height: i32, format: u32, pixel_type: u32)  -> crate::vec::U8Vec { unsafe { crate::dll::AzGl_readPixels(self, x, y, width, height, format, pixel_type) } }
         /// Calls the `Gl::read_pixels_into_pbo` function.
@@ -17128,17 +17128,17 @@ pub mod gl {
         /// Calls the `Gl::get_query_object_ui64v` function.
         pub fn get_query_object_ui64v(&self, id: u32, pname: u32)  -> u64 { unsafe { crate::dll::AzGl_getQueryObjectUi64V(self, id, pname) } }
         /// Calls the `Gl::delete_queries` function.
-        pub fn delete_queries(&self, queries: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteQueries(self, queries) } }
+        pub fn delete_queries<_1: Into<GLuintVecRef>>(&self, queries: _1)  { unsafe { crate::dll::AzGl_deleteQueries(self, queries.into()) } }
         /// Calls the `Gl::delete_vertex_arrays` function.
-        pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteVertexArrays(self, vertex_arrays) } }
+        pub fn delete_vertex_arrays<_1: Into<GLuintVecRef>>(&self, vertex_arrays: _1)  { unsafe { crate::dll::AzGl_deleteVertexArrays(self, vertex_arrays.into()) } }
         /// Calls the `Gl::delete_buffers` function.
-        pub fn delete_buffers(&self, buffers: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteBuffers(self, buffers) } }
+        pub fn delete_buffers<_1: Into<GLuintVecRef>>(&self, buffers: _1)  { unsafe { crate::dll::AzGl_deleteBuffers(self, buffers.into()) } }
         /// Calls the `Gl::delete_renderbuffers` function.
-        pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteRenderbuffers(self, renderbuffers) } }
+        pub fn delete_renderbuffers<_1: Into<GLuintVecRef>>(&self, renderbuffers: _1)  { unsafe { crate::dll::AzGl_deleteRenderbuffers(self, renderbuffers.into()) } }
         /// Calls the `Gl::delete_framebuffers` function.
-        pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteFramebuffers(self, framebuffers) } }
+        pub fn delete_framebuffers<_1: Into<GLuintVecRef>>(&self, framebuffers: _1)  { unsafe { crate::dll::AzGl_deleteFramebuffers(self, framebuffers.into()) } }
         /// Calls the `Gl::delete_textures` function.
-        pub fn delete_textures(&self, textures: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteTextures(self, textures) } }
+        pub fn delete_textures<_1: Into<GLuintVecRef>>(&self, textures: _1)  { unsafe { crate::dll::AzGl_deleteTextures(self, textures.into()) } }
         /// Calls the `Gl::framebuffer_renderbuffer` function.
         pub fn framebuffer_renderbuffer(&self, target: u32, attachment: u32, renderbuffertarget: u32, renderbuffer: u32)  { unsafe { crate::dll::AzGl_framebufferRenderbuffer(self, target, attachment, renderbuffertarget, renderbuffer) } }
         /// Calls the `Gl::renderbuffer_storage` function.
@@ -17150,15 +17150,15 @@ pub mod gl {
         /// Calls the `Gl::attach_shader` function.
         pub fn attach_shader(&self, program: u32, shader: u32)  { unsafe { crate::dll::AzGl_attachShader(self, program, shader) } }
         /// Calls the `Gl::bind_attrib_location` function.
-        pub fn bind_attrib_location(&self, program: u32, index: u32, name: Refstr)  { unsafe { crate::dll::AzGl_bindAttribLocation(self, program, index, name) } }
+        pub fn bind_attrib_location<_3: Into<Refstr>>(&self, program: u32, index: u32, name: _3)  { unsafe { crate::dll::AzGl_bindAttribLocation(self, program, index, name.into()) } }
         /// Calls the `Gl::get_uniform_iv` function.
-        pub fn get_uniform_iv(&self, program: u32, location: i32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_getUniformIv(self, program, location, result) } }
+        pub fn get_uniform_iv<_3: Into<GLintVecRefMut>>(&self, program: u32, location: i32, result: _3)  { unsafe { crate::dll::AzGl_getUniformIv(self, program, location, result.into()) } }
         /// Calls the `Gl::get_uniform_fv` function.
-        pub fn get_uniform_fv(&self, program: u32, location: i32, result: GLfloatVecRefMut)  { unsafe { crate::dll::AzGl_getUniformFv(self, program, location, result) } }
+        pub fn get_uniform_fv<_3: Into<GLfloatVecRefMut>>(&self, program: u32, location: i32, result: _3)  { unsafe { crate::dll::AzGl_getUniformFv(self, program, location, result.into()) } }
         /// Calls the `Gl::get_uniform_block_index` function.
-        pub fn get_uniform_block_index(&self, program: u32, name: Refstr)  -> u32 { unsafe { crate::dll::AzGl_getUniformBlockIndex(self, program, name) } }
+        pub fn get_uniform_block_index<_2: Into<Refstr>>(&self, program: u32, name: _2)  -> u32 { unsafe { crate::dll::AzGl_getUniformBlockIndex(self, program, name.into()) } }
         /// Calls the `Gl::get_uniform_indices` function.
-        pub fn get_uniform_indices(&self, program: u32, names: RefstrVecRef)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_getUniformIndices(self, program, names) } }
+        pub fn get_uniform_indices<_2: Into<RefstrVecRef>>(&self, program: u32, names: _2)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_getUniformIndices(self, program, names.into()) } }
         /// Calls the `Gl::bind_buffer_base` function.
         pub fn bind_buffer_base(&self, target: u32, index: u32, buffer: u32)  { unsafe { crate::dll::AzGl_bindBufferBase(self, target, index, buffer) } }
         /// Calls the `Gl::bind_buffer_range` function.
@@ -17176,15 +17176,15 @@ pub mod gl {
         /// Calls the `Gl::bind_texture` function.
         pub fn bind_texture(&self, target: u32, texture: u32)  { unsafe { crate::dll::AzGl_bindTexture(self, target, texture) } }
         /// Calls the `Gl::draw_buffers` function.
-        pub fn draw_buffers(&self, bufs: GLenumVecRef)  { unsafe { crate::dll::AzGl_drawBuffers(self, bufs) } }
+        pub fn draw_buffers<_1: Into<GLenumVecRef>>(&self, bufs: _1)  { unsafe { crate::dll::AzGl_drawBuffers(self, bufs.into()) } }
         /// Calls the `Gl::tex_image_2d` function.
-        pub fn tex_image_2d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::AzGl_texImage2D(self, target, level, internal_format, width, height, border, format, ty, opt_data) } }
+        pub fn tex_image_2d<_9: Into<OptionU8VecRef>>(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: _9)  { unsafe { crate::dll::AzGl_texImage2D(self, target, level, internal_format, width, height, border, format, ty, opt_data.into()) } }
         /// Calls the `Gl::compressed_tex_image_2d` function.
-        pub fn compressed_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: U8VecRef)  { unsafe { crate::dll::AzGl_compressedTexImage2D(self, target, level, internal_format, width, height, border, data) } }
+        pub fn compressed_tex_image_2d<_7: Into<U8VecRef>>(&self, target: u32, level: i32, internal_format: u32, width: i32, height: i32, border: i32, data: _7)  { unsafe { crate::dll::AzGl_compressedTexImage2D(self, target, level, internal_format, width, height, border, data.into()) } }
         /// Calls the `Gl::compressed_tex_sub_image_2d` function.
-        pub fn compressed_tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_compressedTexSubImage2D(self, target, level, xoffset, yoffset, width, height, format, data) } }
+        pub fn compressed_tex_sub_image_2d<_8: Into<U8VecRef>>(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, data: _8)  { unsafe { crate::dll::AzGl_compressedTexSubImage2D(self, target, level, xoffset, yoffset, width, height, format, data.into()) } }
         /// Calls the `Gl::tex_image_3d` function.
-        pub fn tex_image_3d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { unsafe { crate::dll::AzGl_texImage3D(self, target, level, internal_format, width, height, depth, border, format, ty, opt_data) } }
+        pub fn tex_image_3d<_10: Into<OptionU8VecRef>>(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, depth: i32, border: i32, format: u32, ty: u32, opt_data: _10)  { unsafe { crate::dll::AzGl_texImage3D(self, target, level, internal_format, width, height, depth, border, format, ty, opt_data.into()) } }
         /// Calls the `Gl::copy_tex_image_2d` function.
         pub fn copy_tex_image_2d(&self, target: u32, level: i32, internal_format: u32, x: i32, y: i32, width: i32, height: i32, border: i32)  { unsafe { crate::dll::AzGl_copyTexImage2D(self, target, level, internal_format, x, y, width, height, border) } }
         /// Calls the `Gl::copy_tex_sub_image_2d` function.
@@ -17192,11 +17192,11 @@ pub mod gl {
         /// Calls the `Gl::copy_tex_sub_image_3d` function.
         pub fn copy_tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, x: i32, y: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_copyTexSubImage3D(self, target, level, xoffset, yoffset, zoffset, x, y, width, height) } }
         /// Calls the `Gl::tex_sub_image_2d` function.
-        pub fn tex_sub_image_2d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_texSubImage2D(self, target, level, xoffset, yoffset, width, height, format, ty, data) } }
+        pub fn tex_sub_image_2d<_9: Into<U8VecRef>>(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, data: _9)  { unsafe { crate::dll::AzGl_texSubImage2D(self, target, level, xoffset, yoffset, width, height, format, ty, data.into()) } }
         /// Calls the `Gl::tex_sub_image_2d_pbo` function.
         pub fn tex_sub_image_2d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, width: i32, height: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::AzGl_texSubImage2DPbo(self, target, level, xoffset, yoffset, width, height, format, ty, offset) } }
         /// Calls the `Gl::tex_sub_image_3d` function.
-        pub fn tex_sub_image_3d(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_texSubImage3D(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) } }
+        pub fn tex_sub_image_3d<_11: Into<U8VecRef>>(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: _11)  { unsafe { crate::dll::AzGl_texSubImage3D(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data.into()) } }
         /// Calls the `Gl::tex_sub_image_3d_pbo` function.
         pub fn tex_sub_image_3d_pbo(&self, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize)  { unsafe { crate::dll::AzGl_texSubImage3DPbo(self, target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) } }
         /// Calls the `Gl::tex_storage_2d` function.
@@ -17204,25 +17204,25 @@ pub mod gl {
         /// Calls the `Gl::tex_storage_3d` function.
         pub fn tex_storage_3d(&self, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32)  { unsafe { crate::dll::AzGl_texStorage3D(self, target, levels, internal_format, width, height, depth) } }
         /// Calls the `Gl::get_tex_image_into_buffer` function.
-        pub fn get_tex_image_into_buffer(&self, target: u32, level: i32, format: u32, ty: u32, output: U8VecRefMut)  { unsafe { crate::dll::AzGl_getTexImageIntoBuffer(self, target, level, format, ty, output) } }
+        pub fn get_tex_image_into_buffer<_5: Into<U8VecRefMut>>(&self, target: u32, level: i32, format: u32, ty: u32, output: _5)  { unsafe { crate::dll::AzGl_getTexImageIntoBuffer(self, target, level, format, ty, output.into()) } }
         /// Calls the `Gl::copy_image_sub_data` function.
         pub fn copy_image_sub_data(&self, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32)  { unsafe { crate::dll::AzGl_copyImageSubData(self, src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) } }
         /// Calls the `Gl::invalidate_framebuffer` function.
-        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLenumVecRef)  { unsafe { crate::dll::AzGl_invalidateFramebuffer(self, target, attachments) } }
+        pub fn invalidate_framebuffer<_2: Into<GLenumVecRef>>(&self, target: u32, attachments: _2)  { unsafe { crate::dll::AzGl_invalidateFramebuffer(self, target, attachments.into()) } }
         /// Calls the `Gl::invalidate_sub_framebuffer` function.
-        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_invalidateSubFramebuffer(self, target, attachments, xoffset, yoffset, width, height) } }
+        pub fn invalidate_sub_framebuffer<_2: Into<GLenumVecRef>>(&self, target: u32, attachments: _2, xoffset: i32, yoffset: i32, width: i32, height: i32)  { unsafe { crate::dll::AzGl_invalidateSubFramebuffer(self, target, attachments.into(), xoffset, yoffset, width, height) } }
         /// Calls the `Gl::get_integer_v` function.
-        pub fn get_integer_v(&self, name: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_getIntegerV(self, name, result) } }
+        pub fn get_integer_v<_2: Into<GLintVecRefMut>>(&self, name: u32, result: _2)  { unsafe { crate::dll::AzGl_getIntegerV(self, name, result.into()) } }
         /// Calls the `Gl::get_integer_64v` function.
-        pub fn get_integer_64v(&self, name: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::AzGl_getInteger64V(self, name, result) } }
+        pub fn get_integer_64v<_2: Into<GLint64VecRefMut>>(&self, name: u32, result: _2)  { unsafe { crate::dll::AzGl_getInteger64V(self, name, result.into()) } }
         /// Calls the `Gl::get_integer_iv` function.
-        pub fn get_integer_iv(&self, name: u32, index: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_getIntegerIv(self, name, index, result) } }
+        pub fn get_integer_iv<_3: Into<GLintVecRefMut>>(&self, name: u32, index: u32, result: _3)  { unsafe { crate::dll::AzGl_getIntegerIv(self, name, index, result.into()) } }
         /// Calls the `Gl::get_integer_64iv` function.
-        pub fn get_integer_64iv(&self, name: u32, index: u32, result: GLint64VecRefMut)  { unsafe { crate::dll::AzGl_getInteger64Iv(self, name, index, result) } }
+        pub fn get_integer_64iv<_3: Into<GLint64VecRefMut>>(&self, name: u32, index: u32, result: _3)  { unsafe { crate::dll::AzGl_getInteger64Iv(self, name, index, result.into()) } }
         /// Calls the `Gl::get_boolean_v` function.
-        pub fn get_boolean_v(&self, name: u32, result: GLbooleanVecRefMut)  { unsafe { crate::dll::AzGl_getBooleanV(self, name, result) } }
+        pub fn get_boolean_v<_2: Into<GLbooleanVecRefMut>>(&self, name: u32, result: _2)  { unsafe { crate::dll::AzGl_getBooleanV(self, name, result.into()) } }
         /// Calls the `Gl::get_float_v` function.
-        pub fn get_float_v(&self, name: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::AzGl_getFloatV(self, name, result) } }
+        pub fn get_float_v<_2: Into<GLfloatVecRefMut>>(&self, name: u32, result: _2)  { unsafe { crate::dll::AzGl_getFloatV(self, name, result.into()) } }
         /// Calls the `Gl::get_framebuffer_attachment_parameter_iv` function.
         pub fn get_framebuffer_attachment_parameter_iv(&self, target: u32, attachment: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_getFramebufferAttachmentParameterIv(self, target, attachment, pname) } }
         /// Calls the `Gl::get_renderbuffer_parameter_iv` function.
@@ -17310,31 +17310,31 @@ pub mod gl {
         /// Calls the `Gl::uniform_1f` function.
         pub fn uniform_1f(&self, location: i32, v0: f32)  { unsafe { crate::dll::AzGl_uniform1F(self, location, v0) } }
         /// Calls the `Gl::uniform_1fv` function.
-        pub fn uniform_1fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform1Fv(self, location, values) } }
+        pub fn uniform_1fv<_2: Into<F32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform1Fv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_1i` function.
         pub fn uniform_1i(&self, location: i32, v0: i32)  { unsafe { crate::dll::AzGl_uniform1I(self, location, v0) } }
         /// Calls the `Gl::uniform_1iv` function.
-        pub fn uniform_1iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform1Iv(self, location, values) } }
+        pub fn uniform_1iv<_2: Into<I32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform1Iv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_1ui` function.
         pub fn uniform_1ui(&self, location: i32, v0: u32)  { unsafe { crate::dll::AzGl_uniform1Ui(self, location, v0) } }
         /// Calls the `Gl::uniform_2f` function.
         pub fn uniform_2f(&self, location: i32, v0: f32, v1: f32)  { unsafe { crate::dll::AzGl_uniform2F(self, location, v0, v1) } }
         /// Calls the `Gl::uniform_2fv` function.
-        pub fn uniform_2fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform2Fv(self, location, values) } }
+        pub fn uniform_2fv<_2: Into<F32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform2Fv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_2i` function.
         pub fn uniform_2i(&self, location: i32, v0: i32, v1: i32)  { unsafe { crate::dll::AzGl_uniform2I(self, location, v0, v1) } }
         /// Calls the `Gl::uniform_2iv` function.
-        pub fn uniform_2iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform2Iv(self, location, values) } }
+        pub fn uniform_2iv<_2: Into<I32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform2Iv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_2ui` function.
         pub fn uniform_2ui(&self, location: i32, v0: u32, v1: u32)  { unsafe { crate::dll::AzGl_uniform2Ui(self, location, v0, v1) } }
         /// Calls the `Gl::uniform_3f` function.
         pub fn uniform_3f(&self, location: i32, v0: f32, v1: f32, v2: f32)  { unsafe { crate::dll::AzGl_uniform3F(self, location, v0, v1, v2) } }
         /// Calls the `Gl::uniform_3fv` function.
-        pub fn uniform_3fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform3Fv(self, location, values) } }
+        pub fn uniform_3fv<_2: Into<F32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform3Fv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_3i` function.
         pub fn uniform_3i(&self, location: i32, v0: i32, v1: i32, v2: i32)  { unsafe { crate::dll::AzGl_uniform3I(self, location, v0, v1, v2) } }
         /// Calls the `Gl::uniform_3iv` function.
-        pub fn uniform_3iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform3Iv(self, location, values) } }
+        pub fn uniform_3iv<_2: Into<I32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform3Iv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_3ui` function.
         pub fn uniform_3ui(&self, location: i32, v0: u32, v1: u32, v2: u32)  { unsafe { crate::dll::AzGl_uniform3Ui(self, location, v0, v1, v2) } }
         /// Calls the `Gl::uniform_4f` function.
@@ -17342,17 +17342,17 @@ pub mod gl {
         /// Calls the `Gl::uniform_4i` function.
         pub fn uniform_4i(&self, location: i32, x: i32, y: i32, z: i32, w: i32)  { unsafe { crate::dll::AzGl_uniform4I(self, location, x, y, z, w) } }
         /// Calls the `Gl::uniform_4iv` function.
-        pub fn uniform_4iv(&self, location: i32, values: I32VecRef)  { unsafe { crate::dll::AzGl_uniform4Iv(self, location, values) } }
+        pub fn uniform_4iv<_2: Into<I32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform4Iv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_4ui` function.
         pub fn uniform_4ui(&self, location: i32, x: u32, y: u32, z: u32, w: u32)  { unsafe { crate::dll::AzGl_uniform4Ui(self, location, x, y, z, w) } }
         /// Calls the `Gl::uniform_4fv` function.
-        pub fn uniform_4fv(&self, location: i32, values: F32VecRef)  { unsafe { crate::dll::AzGl_uniform4Fv(self, location, values) } }
+        pub fn uniform_4fv<_2: Into<F32VecRef>>(&self, location: i32, values: _2)  { unsafe { crate::dll::AzGl_uniform4Fv(self, location, values.into()) } }
         /// Calls the `Gl::uniform_matrix_2fv` function.
-        pub fn uniform_matrix_2fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::AzGl_uniformMatrix2Fv(self, location, transpose, value) } }
+        pub fn uniform_matrix_2fv<_3: Into<F32VecRef>>(&self, location: i32, transpose: bool, value: _3)  { unsafe { crate::dll::AzGl_uniformMatrix2Fv(self, location, transpose, value.into()) } }
         /// Calls the `Gl::uniform_matrix_3fv` function.
-        pub fn uniform_matrix_3fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::AzGl_uniformMatrix3Fv(self, location, transpose, value) } }
+        pub fn uniform_matrix_3fv<_3: Into<F32VecRef>>(&self, location: i32, transpose: bool, value: _3)  { unsafe { crate::dll::AzGl_uniformMatrix3Fv(self, location, transpose, value.into()) } }
         /// Calls the `Gl::uniform_matrix_4fv` function.
-        pub fn uniform_matrix_4fv(&self, location: i32, transpose: bool, value: F32VecRef)  { unsafe { crate::dll::AzGl_uniformMatrix4Fv(self, location, transpose, value) } }
+        pub fn uniform_matrix_4fv<_3: Into<F32VecRef>>(&self, location: i32, transpose: bool, value: _3)  { unsafe { crate::dll::AzGl_uniformMatrix4Fv(self, location, transpose, value.into()) } }
         /// Calls the `Gl::depth_mask` function.
         pub fn depth_mask(&self, flag: bool)  { unsafe { crate::dll::AzGl_depthMask(self, flag) } }
         /// Calls the `Gl::depth_range` function.
@@ -17362,7 +17362,7 @@ pub mod gl {
         /// Calls the `Gl::get_active_uniform` function.
         pub fn get_active_uniform(&self, program: u32, index: u32)  -> crate::gl::GetActiveUniformReturn { unsafe { crate::dll::AzGl_getActiveUniform(self, program, index) } }
         /// Calls the `Gl::get_active_uniforms_iv` function.
-        pub fn get_active_uniforms_iv(&self, program: u32, indices: GLuintVec, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::AzGl_getActiveUniformsIv(self, program, indices, pname) } }
+        pub fn get_active_uniforms_iv<_2: Into<GLuintVec>>(&self, program: u32, indices: _2, pname: u32)  -> crate::vec::GLintVec { unsafe { crate::dll::AzGl_getActiveUniformsIv(self, program, indices.into(), pname) } }
         /// Calls the `Gl::get_active_uniform_block_i` function.
         pub fn get_active_uniform_block_i(&self, program: u32, index: u32, pname: u32)  -> i32 { unsafe { crate::dll::AzGl_getActiveUniformBlockI(self, program, index, pname) } }
         /// Calls the `Gl::get_active_uniform_block_iv` function.
@@ -17370,25 +17370,25 @@ pub mod gl {
         /// Calls the `Gl::get_active_uniform_block_name` function.
         pub fn get_active_uniform_block_name(&self, program: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_getActiveUniformBlockName(self, program, index) } }
         /// Calls the `Gl::get_attrib_location` function.
-        pub fn get_attrib_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_getAttribLocation(self, program, name) } }
+        pub fn get_attrib_location<_2: Into<Refstr>>(&self, program: u32, name: _2)  -> i32 { unsafe { crate::dll::AzGl_getAttribLocation(self, program, name.into()) } }
         /// Calls the `Gl::get_frag_data_location` function.
-        pub fn get_frag_data_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_getFragDataLocation(self, program, name) } }
+        pub fn get_frag_data_location<_2: Into<Refstr>>(&self, program: u32, name: _2)  -> i32 { unsafe { crate::dll::AzGl_getFragDataLocation(self, program, name.into()) } }
         /// Calls the `Gl::get_uniform_location` function.
-        pub fn get_uniform_location(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_getUniformLocation(self, program, name) } }
+        pub fn get_uniform_location<_2: Into<Refstr>>(&self, program: u32, name: _2)  -> i32 { unsafe { crate::dll::AzGl_getUniformLocation(self, program, name.into()) } }
         /// Calls the `Gl::get_program_info_log` function.
         pub fn get_program_info_log(&self, program: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_getProgramInfoLog(self, program) } }
         /// Calls the `Gl::get_program_iv` function.
-        pub fn get_program_iv(&self, program: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_getProgramIv(self, program, pname, result) } }
+        pub fn get_program_iv<_3: Into<GLintVecRefMut>>(&self, program: u32, pname: u32, result: _3)  { unsafe { crate::dll::AzGl_getProgramIv(self, program, pname, result.into()) } }
         /// Calls the `Gl::get_program_binary` function.
         pub fn get_program_binary(&self, program: u32)  -> crate::gl::GetProgramBinaryReturn { unsafe { crate::dll::AzGl_getProgramBinary(self, program) } }
         /// Calls the `Gl::program_binary` function.
-        pub fn program_binary(&self, program: u32, format: u32, binary: U8VecRef)  { unsafe { crate::dll::AzGl_programBinary(self, program, format, binary) } }
+        pub fn program_binary<_3: Into<U8VecRef>>(&self, program: u32, format: u32, binary: _3)  { unsafe { crate::dll::AzGl_programBinary(self, program, format, binary.into()) } }
         /// Calls the `Gl::program_parameter_i` function.
         pub fn program_parameter_i(&self, program: u32, pname: u32, value: i32)  { unsafe { crate::dll::AzGl_programParameterI(self, program, pname, value) } }
         /// Calls the `Gl::get_vertex_attrib_iv` function.
-        pub fn get_vertex_attrib_iv(&self, index: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_getVertexAttribIv(self, index, pname, result) } }
+        pub fn get_vertex_attrib_iv<_3: Into<GLintVecRefMut>>(&self, index: u32, pname: u32, result: _3)  { unsafe { crate::dll::AzGl_getVertexAttribIv(self, index, pname, result.into()) } }
         /// Calls the `Gl::get_vertex_attrib_fv` function.
-        pub fn get_vertex_attrib_fv(&self, index: u32, pname: u32, result: GLfloatVecRefMut)  { unsafe { crate::dll::AzGl_getVertexAttribFv(self, index, pname, result) } }
+        pub fn get_vertex_attrib_fv<_3: Into<GLfloatVecRefMut>>(&self, index: u32, pname: u32, result: _3)  { unsafe { crate::dll::AzGl_getVertexAttribFv(self, index, pname, result.into()) } }
         /// Calls the `Gl::get_vertex_attrib_pointer_v` function.
         pub fn get_vertex_attrib_pointer_v(&self, index: u32, pname: u32)  -> isize { unsafe { crate::dll::AzGl_getVertexAttribPointerV(self, index, pname) } }
         /// Calls the `Gl::get_buffer_parameter_iv` function.
@@ -17400,7 +17400,7 @@ pub mod gl {
         /// Calls the `Gl::get_string_i` function.
         pub fn get_string_i(&self, which: u32, index: u32)  -> crate::str::String { unsafe { crate::dll::AzGl_getStringI(self, which, index) } }
         /// Calls the `Gl::get_shader_iv` function.
-        pub fn get_shader_iv(&self, shader: u32, pname: u32, result: GLintVecRefMut)  { unsafe { crate::dll::AzGl_getShaderIv(self, shader, pname, result) } }
+        pub fn get_shader_iv<_3: Into<GLintVecRefMut>>(&self, shader: u32, pname: u32, result: _3)  { unsafe { crate::dll::AzGl_getShaderIv(self, shader, pname, result.into()) } }
         /// Calls the `Gl::get_shader_precision_format` function.
         pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> crate::gl::GlShaderPrecisionFormatReturn { unsafe { crate::dll::AzGl_getShaderPrecisionFormat(self, shader_type, precision_type) } }
         /// Calls the `Gl::compile_shader` function.
@@ -17444,35 +17444,35 @@ pub mod gl {
         /// Calls the `Gl::stencil_op_separate` function.
         pub fn stencil_op_separate(&self, face: u32, sfail: u32, dpfail: u32, dppass: u32)  { unsafe { crate::dll::AzGl_stencilOpSeparate(self, face, sfail, dpfail, dppass) } }
         /// Calls the `Gl::egl_image_target_texture2d_oes` function.
-        pub fn egl_image_target_texture2d_oes(&self, target: u32, image: GlVoidPtrConst)  { unsafe { crate::dll::AzGl_eglImageTargetTexture2DOes(self, target, image) } }
+        pub fn egl_image_target_texture2d_oes<_2: Into<GlVoidPtrConst>>(&self, target: u32, image: _2)  { unsafe { crate::dll::AzGl_eglImageTargetTexture2DOes(self, target, image.into()) } }
         /// Calls the `Gl::generate_mipmap` function.
         pub fn generate_mipmap(&self, target: u32)  { unsafe { crate::dll::AzGl_generateMipmap(self, target) } }
         /// Calls the `Gl::insert_event_marker_ext` function.
-        pub fn insert_event_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::AzGl_insertEventMarkerExt(self, message) } }
+        pub fn insert_event_marker_ext<_1: Into<Refstr>>(&self, message: _1)  { unsafe { crate::dll::AzGl_insertEventMarkerExt(self, message.into()) } }
         /// Calls the `Gl::push_group_marker_ext` function.
-        pub fn push_group_marker_ext(&self, message: Refstr)  { unsafe { crate::dll::AzGl_pushGroupMarkerExt(self, message) } }
+        pub fn push_group_marker_ext<_1: Into<Refstr>>(&self, message: _1)  { unsafe { crate::dll::AzGl_pushGroupMarkerExt(self, message.into()) } }
         /// Calls the `Gl::pop_group_marker_ext` function.
         pub fn pop_group_marker_ext(&self)  { unsafe { crate::dll::AzGl_popGroupMarkerExt(self) } }
         /// Calls the `Gl::debug_message_insert_khr` function.
-        pub fn debug_message_insert_khr(&self, source: u32, type_: u32, id: u32, severity: u32, message: Refstr)  { unsafe { crate::dll::AzGl_debugMessageInsertKhr(self, source, type_, id, severity, message) } }
+        pub fn debug_message_insert_khr<_5: Into<Refstr>>(&self, source: u32, type_: u32, id: u32, severity: u32, message: _5)  { unsafe { crate::dll::AzGl_debugMessageInsertKhr(self, source, type_, id, severity, message.into()) } }
         /// Calls the `Gl::push_debug_group_khr` function.
-        pub fn push_debug_group_khr(&self, source: u32, id: u32, message: Refstr)  { unsafe { crate::dll::AzGl_pushDebugGroupKhr(self, source, id, message) } }
+        pub fn push_debug_group_khr<_3: Into<Refstr>>(&self, source: u32, id: u32, message: _3)  { unsafe { crate::dll::AzGl_pushDebugGroupKhr(self, source, id, message.into()) } }
         /// Calls the `Gl::pop_debug_group_khr` function.
         pub fn pop_debug_group_khr(&self)  { unsafe { crate::dll::AzGl_popDebugGroupKhr(self) } }
         /// Calls the `Gl::fence_sync` function.
         pub fn fence_sync(&self, condition: u32, flags: u32)  -> crate::gl::GLsyncPtr { unsafe { crate::dll::AzGl_fenceSync(self, condition, flags) } }
         /// Calls the `Gl::client_wait_sync` function.
-        pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  -> u32 { unsafe { crate::dll::AzGl_clientWaitSync(self, sync, flags, timeout) } }
+        pub fn client_wait_sync<_1: Into<GLsyncPtr>>(&self, sync: _1, flags: u32, timeout: u64)  -> u32 { unsafe { crate::dll::AzGl_clientWaitSync(self, sync.into(), flags, timeout) } }
         /// Calls the `Gl::wait_sync` function.
-        pub fn wait_sync(&self, sync: GLsyncPtr, flags: u32, timeout: u64)  { unsafe { crate::dll::AzGl_waitSync(self, sync, flags, timeout) } }
+        pub fn wait_sync<_1: Into<GLsyncPtr>>(&self, sync: _1, flags: u32, timeout: u64)  { unsafe { crate::dll::AzGl_waitSync(self, sync.into(), flags, timeout) } }
         /// Calls the `Gl::delete_sync` function.
-        pub fn delete_sync(&self, sync: GLsyncPtr)  { unsafe { crate::dll::AzGl_deleteSync(self, sync) } }
+        pub fn delete_sync<_1: Into<GLsyncPtr>>(&self, sync: _1)  { unsafe { crate::dll::AzGl_deleteSync(self, sync.into()) } }
         /// Calls the `Gl::texture_range_apple` function.
-        pub fn texture_range_apple(&self, target: u32, data: U8VecRef)  { unsafe { crate::dll::AzGl_textureRangeApple(self, target, data) } }
+        pub fn texture_range_apple<_2: Into<U8VecRef>>(&self, target: u32, data: _2)  { unsafe { crate::dll::AzGl_textureRangeApple(self, target, data.into()) } }
         /// Calls the `Gl::gen_fences_apple` function.
         pub fn gen_fences_apple(&self, n: i32)  -> crate::vec::GLuintVec { unsafe { crate::dll::AzGl_genFencesApple(self, n) } }
         /// Calls the `Gl::delete_fences_apple` function.
-        pub fn delete_fences_apple(&self, fences: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteFencesApple(self, fences) } }
+        pub fn delete_fences_apple<_1: Into<GLuintVecRef>>(&self, fences: _1)  { unsafe { crate::dll::AzGl_deleteFencesApple(self, fences.into()) } }
         /// Calls the `Gl::set_fence_apple` function.
         pub fn set_fence_apple(&self, fence: u32)  { unsafe { crate::dll::AzGl_setFenceApple(self, fence) } }
         /// Calls the `Gl::finish_fence_apple` function.
@@ -17484,11 +17484,11 @@ pub mod gl {
         /// Calls the `Gl::finish_object_apple` function.
         pub fn finish_object_apple(&self, object: u32, name: u32)  { unsafe { crate::dll::AzGl_finishObjectApple(self, object, name) } }
         /// Calls the `Gl::get_frag_data_index` function.
-        pub fn get_frag_data_index(&self, program: u32, name: Refstr)  -> i32 { unsafe { crate::dll::AzGl_getFragDataIndex(self, program, name) } }
+        pub fn get_frag_data_index<_2: Into<Refstr>>(&self, program: u32, name: _2)  -> i32 { unsafe { crate::dll::AzGl_getFragDataIndex(self, program, name.into()) } }
         /// Calls the `Gl::blend_barrier_khr` function.
         pub fn blend_barrier_khr(&self)  { unsafe { crate::dll::AzGl_blendBarrierKhr(self) } }
         /// Calls the `Gl::bind_frag_data_location_indexed` function.
-        pub fn bind_frag_data_location_indexed(&self, program: u32, color_number: u32, index: u32, name: Refstr)  { unsafe { crate::dll::AzGl_bindFragDataLocationIndexed(self, program, color_number, index, name) } }
+        pub fn bind_frag_data_location_indexed<_4: Into<Refstr>>(&self, program: u32, color_number: u32, index: u32, name: _4)  { unsafe { crate::dll::AzGl_bindFragDataLocationIndexed(self, program, color_number, index, name.into()) } }
         /// Calls the `Gl::get_debug_messages` function.
         pub fn get_debug_messages(&self)  -> crate::vec::DebugMessageVec { unsafe { crate::dll::AzGl_getDebugMessages(self) } }
         /// Calls the `Gl::provoking_vertex_angle` function.
@@ -17498,19 +17498,19 @@ pub mod gl {
         /// Calls the `Gl::bind_vertex_array_apple` function.
         pub fn bind_vertex_array_apple(&self, vao: u32)  { unsafe { crate::dll::AzGl_bindVertexArrayApple(self, vao) } }
         /// Calls the `Gl::delete_vertex_arrays_apple` function.
-        pub fn delete_vertex_arrays_apple(&self, vertex_arrays: GLuintVecRef)  { unsafe { crate::dll::AzGl_deleteVertexArraysApple(self, vertex_arrays) } }
+        pub fn delete_vertex_arrays_apple<_1: Into<GLuintVecRef>>(&self, vertex_arrays: _1)  { unsafe { crate::dll::AzGl_deleteVertexArraysApple(self, vertex_arrays.into()) } }
         /// Calls the `Gl::copy_texture_chromium` function.
         pub fn copy_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copyTextureChromium(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::copy_sub_texture_chromium` function.
         pub fn copy_sub_texture_chromium(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copySubTextureChromium(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::egl_image_target_renderbuffer_storage_oes` function.
-        pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: GlVoidPtrConst)  { unsafe { crate::dll::AzGl_eglImageTargetRenderbufferStorageOes(self, target, image) } }
+        pub fn egl_image_target_renderbuffer_storage_oes<_2: Into<GlVoidPtrConst>>(&self, target: u32, image: _2)  { unsafe { crate::dll::AzGl_eglImageTargetRenderbufferStorageOes(self, target, image.into()) } }
         /// Calls the `Gl::copy_texture_3d_angle` function.
         pub fn copy_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copyTexture3DAngle(self, source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::copy_sub_texture_3d_angle` function.
         pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { unsafe { crate::dll::AzGl_copySubTexture3DAngle(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) } }
         /// Calls the `Gl::buffer_storage` function.
-        pub fn buffer_storage(&self, target: u32, size: isize, data: GlVoidPtrConst, flags: u32)  { unsafe { crate::dll::AzGl_bufferStorage(self, target, size, data, flags) } }
+        pub fn buffer_storage<_3: Into<GlVoidPtrConst>>(&self, target: u32, size: isize, data: _3, flags: u32)  { unsafe { crate::dll::AzGl_bufferStorage(self, target, size, data.into(), flags) } }
         /// Calls the `Gl::flush_mapped_buffer_range` function.
         pub fn flush_mapped_buffer_range(&self, target: u32, offset: isize, length: isize)  { unsafe { crate::dll::AzGl_flushMappedBufferRange(self, target, offset, length) } }
     }
@@ -17535,7 +17535,7 @@ pub mod gl {
     impl VertexArrayObject {
 
         /// Creates a new `VertexArrayObject` instance.
-        pub fn new(vertex_layout: VertexLayout, vao_id: u32, gl_context: Gl) -> Self { unsafe { crate::dll::AzVertexArrayObject_new(vertex_layout, vao_id, gl_context) } }
+        pub fn new<_1: Into<VertexLayout>, _3: Into<Gl>>(vertex_layout: _1, vao_id: u32, gl_context: _3) -> Self { unsafe { crate::dll::AzVertexArrayObject_new(vertex_layout.into(), vao_id, gl_context.into()) } }
     }
 
     impl Clone for VertexArrayObject { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexArrayObject_deepCopy(self) } } }
@@ -17549,7 +17549,7 @@ pub mod gl {
     impl VertexBuffer {
 
         /// Creates a new `VertexBuffer` instance.
-        pub fn new(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: VertexArrayObject, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: IndexBufferFormat) -> Self { unsafe { crate::dll::AzVertexBuffer_new(vertex_buffer_id, vertex_buffer_len, vao, index_buffer_id, index_buffer_len, index_buffer_format) } }
+        pub fn new<_3: Into<VertexArrayObject>, _6: Into<IndexBufferFormat>>(vertex_buffer_id: u32, vertex_buffer_len: usize, vao: _3, index_buffer_id: u32, index_buffer_len: usize, index_buffer_format: _6) -> Self { unsafe { crate::dll::AzVertexBuffer_new(vertex_buffer_id, vertex_buffer_len, vao.into(), index_buffer_id, index_buffer_len, index_buffer_format.into()) } }
     }
 
     impl Clone for VertexBuffer { fn clone(&self) -> Self { unsafe { crate::dll::AzVertexBuffer_deepCopy(self) } } }
@@ -17636,13 +17636,13 @@ pub mod image {
     impl ImageRef {
 
         /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
-        pub fn invalid(width: usize, height: usize, format: RawImageFormat) -> Self { unsafe { crate::dll::AzImageRef_invalid(width, height, format) } }
+        pub fn invalid<_3: Into<RawImageFormat>>(width: usize, height: usize, format: _3) -> Self { unsafe { crate::dll::AzImageRef_invalid(width, height, format.into()) } }
         /// Creates an image reference from a CPU-backed buffer
-        pub fn raw_image(data: RawImage) ->  crate::option::OptionImageRef { unsafe { crate::dll::AzImageRef_rawImage(data) } }
+        pub fn raw_image<_1: Into<RawImage>>(data: _1) ->  crate::option::OptionImageRef { unsafe { crate::dll::AzImageRef_rawImage(data.into()) } }
         /// Creates an image reference from an OpenGL texture
-        pub fn gl_texture(texture: Texture) -> Self { unsafe { crate::dll::AzImageRef_glTexture(texture) } }
+        pub fn gl_texture<_1: Into<Texture>>(texture: _1) -> Self { unsafe { crate::dll::AzImageRef_glTexture(texture.into()) } }
         /// Creates an image reference from a callback that is going to be rendered with the given nodes computed size
-        pub fn callback(data: RefAny, callback: RenderImageCallbackType) -> Self { unsafe { crate::dll::AzImageRef_callback(data, callback) } }
+        pub fn callback<_1: Into<RefAny>>(data: _1, callback: RenderImageCallbackType) -> Self { unsafe { crate::dll::AzImageRef_callback(data.into(), callback) } }
         /// Creates a new copy of the image bytes instead of shallow-copying the reference
         pub fn clone_bytes(&self)  -> crate::image::ImageRef { unsafe { crate::dll::AzImageRef_cloneBytes(self) } }
         /// Returns whether the image is a null (invalid) image
@@ -17669,11 +17669,11 @@ pub mod image {
         /// Returns a zero-sized image
         pub fn empty() -> Self { unsafe { crate::dll::AzRawImage_empty() } }
         /// Allocates a width * height, single-channel image with zeroed bytes
-        pub fn allocate_clip_mask(size: LayoutSize) -> Self { unsafe { crate::dll::AzRawImage_allocateClipMask(size) } }
+        pub fn allocate_clip_mask<_1: Into<LayoutSize>>(size: _1) -> Self { unsafe { crate::dll::AzRawImage_allocateClipMask(size.into()) } }
         /// Decodes a RawImage from any supported image format - automatically guesses the format based on magic header
-        pub fn decode_image_bytes_any(bytes: U8VecRef) ->  crate::error::ResultRawImageDecodeImageError { unsafe { crate::dll::AzRawImage_decodeImageBytesAny(bytes) } }
+        pub fn decode_image_bytes_any<_1: Into<U8VecRef>>(bytes: _1) ->  crate::error::ResultRawImageDecodeImageError { unsafe { crate::dll::AzRawImage_decodeImageBytesAny(bytes.into()) } }
         /// Calls the `RawImage::draw_clip_mask` function.
-        pub fn draw_clip_mask(&mut self, node: SvgNode, style: SvgStyle)  -> bool { unsafe { crate::dll::AzRawImage_drawClipMask(self, node, style) } }
+        pub fn draw_clip_mask<_1: Into<SvgNode>, _2: Into<SvgStyle>>(&mut self, node: _1, style: _2)  -> bool { unsafe { crate::dll::AzRawImage_drawClipMask(self, node.into(), style.into()) } }
         /// Encodes the RawImage in the BMP image format
         pub fn encode_bmp(&self)  -> crate::error::ResultU8VecEncodeImageError { unsafe { crate::dll::AzRawImage_encodeBmp(self) } }
         /// Encodes the RawImage in the PNG image format
@@ -17781,13 +17781,13 @@ pub mod font {
     impl FontRef {
 
         /// Parses a new font from bytes. Returns `None` if the font could not be parsed correctly.
-        pub fn parse(source: FontSource) ->  crate::option::OptionFontRef { unsafe { crate::dll::AzFontRef_parse(source) } }
+        pub fn parse<_1: Into<FontSource>>(source: _1) ->  crate::option::OptionFontRef { unsafe { crate::dll::AzFontRef_parse(source.into()) } }
         /// Returns the font bytes of the underlying font source
         pub fn get_bytes(&self)  -> crate::vec::U8Vec { unsafe { crate::dll::AzFontRef_getBytes(self) } }
         /// Returns the font metrics of the parsed font
         pub fn get_font_metrics(&self)  -> crate::font::FontMetrics { unsafe { crate::dll::AzFontRef_getFontMetrics(self) } }
         /// Returns the text layout of the shaped text
-        pub fn shape_text(&self, text: Refstr, options: ResolvedTextLayoutOptions)  -> crate::callbacks::InlineText { unsafe { crate::dll::AzFontRef_shapeText(self, text, options) } }
+        pub fn shape_text<_1: Into<Refstr>, _2: Into<ResolvedTextLayoutOptions>>(&self, text: _1, options: _2)  -> crate::callbacks::InlineText { unsafe { crate::dll::AzFontRef_shapeText(self, text.into(), options.into()) } }
         /// Returns the hash of the FontRef (fast)
         pub fn get_hash(&self)  -> u64 { unsafe { crate::dll::AzFontRef_getHash(self) } }
     }
@@ -17809,15 +17809,15 @@ pub mod svg {
     impl Svg {
 
         /// Creates a new `Svg` instance.
-        pub fn from_string(svg_string: String, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromString(svg_string, parse_options) } }
+        pub fn from_string<_1: Into<String>, _2: Into<SvgParseOptions>>(svg_string: _1, parse_options: _2) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromString(svg_string.into(), parse_options.into()) } }
         /// Creates a new `Svg` instance.
-        pub fn from_bytes(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromBytes(svg_bytes, parse_options) } }
+        pub fn from_bytes<_1: Into<U8VecRef>, _2: Into<SvgParseOptions>>(svg_bytes: _1, parse_options: _2) ->  crate::error::ResultSvgSvgParseError { unsafe { crate::dll::AzSvg_fromBytes(svg_bytes.into(), parse_options.into()) } }
         /// Calls the `Svg::get_root` function.
         pub fn get_root(&self)  -> crate::svg::SvgXmlNode { unsafe { crate::dll::AzSvg_getRoot(self) } }
         /// Calls the `Svg::render` function.
-        pub fn render(&self, options: SvgRenderOptions)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzSvg_render(self, options) } }
+        pub fn render<_1: Into<SvgRenderOptions>>(&self, options: _1)  -> crate::option::OptionRawImage { unsafe { crate::dll::AzSvg_render(self, options.into()) } }
         /// Calls the `Svg::to_string` function.
-        pub fn to_string(&self, options: SvgStringFormatOptions)  -> crate::str::String { unsafe { crate::dll::AzSvg_toString(self, options) } }
+        pub fn to_string<_1: Into<SvgStringFormatOptions>>(&self, options: _1)  -> crate::str::String { unsafe { crate::dll::AzSvg_toString(self, options.into()) } }
     }
 
     impl Clone for Svg { fn clone(&self) -> Self { unsafe { crate::dll::AzSvg_deepCopy(self) } } }
@@ -17828,7 +17828,7 @@ pub mod svg {
     impl SvgXmlNode {
 
         /// Creates a new `SvgXmlNode` instance.
-        pub fn parse_from(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::error::ResultSvgXmlNodeSvgParseError { unsafe { crate::dll::AzSvgXmlNode_parseFrom(svg_bytes, parse_options) } }
+        pub fn parse_from<_1: Into<U8VecRef>, _2: Into<SvgParseOptions>>(svg_bytes: _1, parse_options: _2) ->  crate::error::ResultSvgXmlNodeSvgParseError { unsafe { crate::dll::AzSvgXmlNode_parseFrom(svg_bytes.into(), parse_options.into()) } }
     }
 
     impl Clone for SvgXmlNode { fn clone(&self) -> Self { unsafe { crate::dll::AzSvgXmlNode_deepCopy(self) } } }
@@ -17841,11 +17841,11 @@ pub mod svg {
         /// Returns the bounds of the polygon
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgMultiPolygon_getBounds(self) } }
         /// Returns whether the polygon contains a point
-        pub fn contains_point(&self, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgMultiPolygon_containsPoint(self, point, fill_rule, tolerance) } }
+        pub fn contains_point<_1: Into<SvgPoint>, _2: Into<SvgFillRule>>(&self, point: _1, fill_rule: _2, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgMultiPolygon_containsPoint(self, point.into(), fill_rule.into(), tolerance) } }
         /// Calls the `SvgMultiPolygon::tessellate_fill` function.
-        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateFill(self, fill_style) } }
+        pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgMultiPolygon::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgNode` struct
@@ -17854,13 +17854,13 @@ pub mod svg {
     impl SvgNode {
 
         /// Calls the `SvgNode::tessellate_fill` function.
-        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateFill(self, fill_style) } }
+        pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgNode::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgNode_tessellateStroke(self, stroke_style.into()) } }
         /// Returns whether the shape is closed
         pub fn is_closed(&self)  -> bool { unsafe { crate::dll::AzSvgNode_isClosed(self) } }
         /// Returns the bounds of the polygon
-        pub fn contains_point(&self, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgNode_containsPoint(self, point, fill_rule, tolerance) } }
+        pub fn contains_point<_1: Into<SvgPoint>, _2: Into<SvgFillRule>>(&self, point: _1, fill_rule: _2, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgNode_containsPoint(self, point.into(), fill_rule.into(), tolerance) } }
         /// Calls the `SvgNode::get_bounds` function.
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgNode_getBounds(self) } }
     }
@@ -17880,9 +17880,9 @@ pub mod svg {
     impl SvgCircle {
 
         /// Calls the `SvgCircle::tessellate_fill` function.
-        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCircle_tessellateFill(self, fill_style) } }
+        pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCircle_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgCircle::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCircle_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCircle_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgPath` struct
@@ -17895,11 +17895,11 @@ pub mod svg {
         /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
         pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPath_reverse(self) } }
         /// Adds a path to the end of the current path
-        pub fn join_with(&mut self, path: SvgPath)  { unsafe { crate::dll::AzSvgPath_joinWith(self, path) } }
+        pub fn join_with<_1: Into<SvgPath>>(&mut self, path: _1)  { unsafe { crate::dll::AzSvgPath_joinWith(self, path.into()) } }
         /// Calls the `SvgPath::tessellate_fill` function.
-        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateFill(self, fill_style) } }
+        pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgPath::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgPathElement` struct
@@ -17926,7 +17926,7 @@ pub mod svg {
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
         pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgPathElement_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgPathElement::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPathElement_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPathElement_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgPoint` struct
@@ -17935,7 +17935,7 @@ pub mod svg {
     impl SvgPoint {
 
         /// Returns the euclidean distance to some other point
-        pub fn distance(&self, other: SvgPoint)  -> f64 { unsafe { crate::dll::AzSvgPoint_distance(self, other) } }
+        pub fn distance<_1: Into<SvgPoint>>(&self, other: _1)  -> f64 { unsafe { crate::dll::AzSvgPoint_distance(self, other.into()) } }
     }
 
     /// `SvgVector` struct
@@ -17975,7 +17975,7 @@ pub mod svg {
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
         pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgLine_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgLine::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgLine_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgLine_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgQuadraticCurve` struct
@@ -18002,7 +18002,7 @@ pub mod svg {
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
         pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgQuadraticCurve_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgQuadraticCurve::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgQuadraticCurve_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgQuadraticCurve_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgCubicCurve` struct
@@ -18029,7 +18029,7 @@ pub mod svg {
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
         pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgCubicCurve_getTangentVectorAtT(self, t) } }
         /// Calls the `SvgCubicCurve::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCubicCurve_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgCubicCurve_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgRect` struct
@@ -18040,11 +18040,11 @@ pub mod svg {
         /// Calls the `SvgRect::get_center` function.
         pub fn get_center(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgRect_getCenter(self) } }
         /// Calls the `SvgRect::contains_point` function.
-        pub fn contains_point(&self, point: SvgPoint)  -> bool { unsafe { crate::dll::AzSvgRect_containsPoint(self, point) } }
+        pub fn contains_point<_1: Into<SvgPoint>>(&self, point: _1)  -> bool { unsafe { crate::dll::AzSvgRect_containsPoint(self, point.into()) } }
         /// Calls the `SvgRect::tessellate_fill` function.
-        pub fn tessellate_fill(&self, fill_style: SvgFillStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateFill(self, fill_style) } }
+        pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgRect::tessellate_stroke` function.
-        pub fn tessellate_stroke(&self, stroke_style: SvgStrokeStyle)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateStroke(self, stroke_style) } }
+        pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateStroke(self, stroke_style.into()) } }
     }
 
     /// `SvgVertex` struct
@@ -18058,7 +18058,7 @@ pub mod svg {
         /// Returns an empty buffer vertices / indices
         pub fn empty() -> Self { unsafe { crate::dll::AzTessellatedSvgNode_empty() } }
         /// Creates a new TessellatedSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
-        pub fn from_nodes(nodes: TessellatedSvgNodeVecRef) -> Self { unsafe { crate::dll::AzTessellatedSvgNode_fromNodes(nodes) } }
+        pub fn from_nodes<_1: Into<TessellatedSvgNodeVecRef>>(nodes: _1) -> Self { unsafe { crate::dll::AzTessellatedSvgNode_fromNodes(nodes.into()) } }
     }
 
     /// Rust wrapper over a `&[TessellatedSvgNode]` or `&Vec<TessellatedSvgNode>`
@@ -18070,7 +18070,7 @@ pub mod svg {
     impl TessellatedGPUSvgNode {
 
         /// Creates a new `TessellatedGPUSvgNode` instance.
-        pub fn new(tessellated_node: *const AzTessellatedSvgNode, gl: Gl) -> Self { unsafe { crate::dll::AzTessellatedGPUSvgNode_new(tessellated_node, gl) } }
+        pub fn new<_1: Into<*const AzTessellatedSvgNode>, _2: Into<Gl>>(tessellated_node: _1, gl: _2) -> Self { unsafe { crate::dll::AzTessellatedGPUSvgNode_new(tessellated_node.into(), gl.into()) } }
     }
 
     /// `SvgParseOptions` struct
@@ -18165,7 +18165,7 @@ pub mod xml {
     impl Xml {
 
         /// Parses an XML document with one or more root nodes
-        pub fn from_str(xml_string: Refstr) ->  crate::error::ResultXmlXmlError { unsafe { crate::dll::AzXml_fromStr(xml_string) } }
+        pub fn from_str<_1: Into<Refstr>>(xml_string: _1) ->  crate::error::ResultXmlXmlError { unsafe { crate::dll::AzXml_fromStr(xml_string.into()) } }
     }
 
     /// `XmlNode` struct
@@ -18186,17 +18186,17 @@ pub mod fs {
     impl File {
 
         /// Opens a file at the given path. If the file exists, replaces it with a new file
-        pub fn open(path: String) ->  crate::option::OptionFile { unsafe { crate::dll::AzFile_open(path) } }
+        pub fn open<_1: Into<String>>(path: _1) ->  crate::option::OptionFile { unsafe { crate::dll::AzFile_open(path.into()) } }
         /// Creates a file at the given path. If the file exists, replaces it with a new file
-        pub fn create(path: String) ->  crate::option::OptionFile { unsafe { crate::dll::AzFile_create(path) } }
+        pub fn create<_1: Into<String>>(path: _1) ->  crate::option::OptionFile { unsafe { crate::dll::AzFile_create(path.into()) } }
         /// Reads the file to a UTF8-encoded String, returns None if the file can't be decoded correctly
         pub fn read_to_string(&mut self)  -> crate::option::OptionString { unsafe { crate::dll::AzFile_readToString(self) } }
         /// Reads the file as bytes, returns None if the file can't be decoded correctly
         pub fn read_to_bytes(&mut self)  -> crate::option::OptionU8Vec { unsafe { crate::dll::AzFile_readToBytes(self) } }
         /// Writes a string to the file, synchronizes the results before returning
-        pub fn write_string(&mut self, bytes: Refstr)  -> bool { unsafe { crate::dll::AzFile_writeString(self, bytes) } }
+        pub fn write_string<_1: Into<Refstr>>(&mut self, bytes: _1)  -> bool { unsafe { crate::dll::AzFile_writeString(self, bytes.into()) } }
         /// Writes some bytes to the file, synchronizes the results before returning
-        pub fn write_bytes(&mut self, bytes: U8VecRef)  -> bool { unsafe { crate::dll::AzFile_writeBytes(self, bytes) } }
+        pub fn write_bytes<_1: Into<U8VecRef>>(&mut self, bytes: _1)  -> bool { unsafe { crate::dll::AzFile_writeBytes(self, bytes.into()) } }
         /// Destructor, closes the file handle
         pub fn close(&mut self)  { unsafe { crate::dll::AzFile_close(self) } }
     }
@@ -18218,19 +18218,19 @@ pub mod dialog {
     impl MsgBox {
 
         /// Opens an informational message box with only an "OK" button
-        pub fn ok(icon: MsgBoxIcon, title: String, message: String) -> bool { unsafe { crate::dll::AzMsgBox_ok(icon, title, message) } }
+        pub fn ok<_1: Into<MsgBoxIcon>, _2: Into<String>, _3: Into<String>>(icon: _1, title: _2, message: _3) -> bool { unsafe { crate::dll::AzMsgBox_ok(icon.into(), title.into(), message.into()) } }
         /// Shorthand for `MsgBox::ok("Info", $message, Icon::Info)`
-        pub fn info(message: String) -> bool { unsafe { crate::dll::AzMsgBox_info(message) } }
+        pub fn info<_1: Into<String>>(message: _1) -> bool { unsafe { crate::dll::AzMsgBox_info(message.into()) } }
         /// Shorthand for `MsgBox::ok("Warning", $message, Icon::Warning)`
-        pub fn warning(message: String) -> bool { unsafe { crate::dll::AzMsgBox_warning(message) } }
+        pub fn warning<_1: Into<String>>(message: _1) -> bool { unsafe { crate::dll::AzMsgBox_warning(message.into()) } }
         /// Shorthand for `MsgBox::ok("Error", $message, Icon::Error)`
-        pub fn error(message: String) -> bool { unsafe { crate::dll::AzMsgBox_error(message) } }
+        pub fn error<_1: Into<String>>(message: _1) -> bool { unsafe { crate::dll::AzMsgBox_error(message.into()) } }
         /// Shorthand for `MsgBox::ok("Question", $message, Icon::Question)`
-        pub fn question(message: String) -> bool { unsafe { crate::dll::AzMsgBox_question(message) } }
+        pub fn question<_1: Into<String>>(message: _1) -> bool { unsafe { crate::dll::AzMsgBox_question(message.into()) } }
         /// Opens a ok / cancel message box. Blocks the current thread.
-        pub fn ok_cancel(icon: MsgBoxIcon, title: String, message: String, default_value: MsgBoxOkCancel) ->  crate::dialog::MsgBoxOkCancel { unsafe { crate::dll::AzMsgBox_okCancel(icon, title, message, default_value) } }
+        pub fn ok_cancel<_1: Into<MsgBoxIcon>, _2: Into<String>, _3: Into<String>, _4: Into<MsgBoxOkCancel>>(icon: _1, title: _2, message: _3, default_value: _4) ->  crate::dialog::MsgBoxOkCancel { unsafe { crate::dll::AzMsgBox_okCancel(icon.into(), title.into(), message.into(), default_value.into()) } }
         /// Opens a yes / no message box. Blocks the current thread.
-        pub fn yes_no(icon: MsgBoxIcon, title: String, message: String, default_value: MsgBoxYesNo) ->  crate::dialog::MsgBoxYesNo { unsafe { crate::dll::AzMsgBox_yesNo(icon, title, message, default_value) } }
+        pub fn yes_no<_1: Into<MsgBoxIcon>, _2: Into<String>, _3: Into<String>, _4: Into<MsgBoxYesNo>>(icon: _1, title: _2, message: _3, default_value: _4) ->  crate::dialog::MsgBoxYesNo { unsafe { crate::dll::AzMsgBox_yesNo(icon.into(), title.into(), message.into(), default_value.into()) } }
     }
 
     /// Type of message box icon
@@ -18248,13 +18248,13 @@ pub mod dialog {
     impl FileDialog {
 
         /// Select a single file using the system-native file picker. Blocks the current thread.
-        pub fn select_file(title: String, default_path: OptionString, filter_list: OptionFileTypeList) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_selectFile(title, default_path, filter_list) } }
+        pub fn select_file<_1: Into<String>, _2: Into<OptionString>, _3: Into<OptionFileTypeList>>(title: _1, default_path: _2, filter_list: _3) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_selectFile(title.into(), default_path.into(), filter_list.into()) } }
         /// Select multiple files using the system-native file picker. Blocks the current thread.
-        pub fn select_multiple_files(title: String, default_path: OptionString, filter_list: OptionFileTypeList) ->  crate::option::OptionStringVec { unsafe { crate::dll::AzFileDialog_selectMultipleFiles(title, default_path, filter_list) } }
+        pub fn select_multiple_files<_1: Into<String>, _2: Into<OptionString>, _3: Into<OptionFileTypeList>>(title: _1, default_path: _2, filter_list: _3) ->  crate::option::OptionStringVec { unsafe { crate::dll::AzFileDialog_selectMultipleFiles(title.into(), default_path.into(), filter_list.into()) } }
         /// Open a dialog prompting the user to select a directory to open. Blocks the current thread.
-        pub fn select_folder(title: String, default_path: OptionString) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_selectFolder(title, default_path) } }
+        pub fn select_folder<_1: Into<String>, _2: Into<OptionString>>(title: _1, default_path: _2) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_selectFolder(title.into(), default_path.into()) } }
         /// Open a dialog prompting the user to save a file. Blocks the current thread.
-        pub fn save_file(title: String, default_path: OptionString) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_saveFile(title, default_path) } }
+        pub fn save_file<_1: Into<String>, _2: Into<OptionString>>(title: _1, default_path: _2) ->  crate::option::OptionString { unsafe { crate::dll::AzFileDialog_saveFile(title.into(), default_path.into()) } }
     }
 
     /// `FileTypeList` struct
@@ -18266,7 +18266,7 @@ pub mod dialog {
     impl ColorPickerDialog {
 
         /// Opens a system-native color picker dialog
-        pub fn open(title: String, default_color: OptionColorU) ->  crate::option::OptionColorU { unsafe { crate::dll::AzColorPickerDialog_open(title, default_color) } }
+        pub fn open<_1: Into<String>, _2: Into<OptionColorU>>(title: _1, default_color: _2) ->  crate::option::OptionColorU { unsafe { crate::dll::AzColorPickerDialog_open(title.into(), default_color.into()) } }
     }
 
 }
@@ -18287,7 +18287,7 @@ pub mod clipboard {
         /// Returns the system clipboard contents or `None` if the clipboard is empty or there was an error
         pub fn get_string_contents(&self)  -> crate::option::OptionString { unsafe { crate::dll::AzSystemClipboard_getStringContents(self) } }
         /// Sets the system clipboard contents to the new string, returns true if the system clipboard was updated
-        pub fn set_string_contents(&mut self, contents: String)  -> bool { unsafe { crate::dll::AzSystemClipboard_setStringContents(self, contents) } }
+        pub fn set_string_contents<_1: Into<String>>(&mut self, contents: _1)  -> bool { unsafe { crate::dll::AzSystemClipboard_setStringContents(self, contents.into()) } }
     }
 
     impl Clone for SystemClipboard { fn clone(&self) -> Self { unsafe { crate::dll::AzSystemClipboard_deepCopy(self) } } }
@@ -18305,11 +18305,11 @@ pub mod time {
     impl Instant {
 
         /// Returns the duration since and earlier instant or None if the earlier instant is later than self
-        pub fn duration_since(&self, earlier: Instant)  -> crate::option::OptionDuration { unsafe { crate::dll::AzInstant_durationSince(self, earlier) } }
+        pub fn duration_since<_1: Into<Instant>>(&self, earlier: _1)  -> crate::option::OptionDuration { unsafe { crate::dll::AzInstant_durationSince(self, earlier.into()) } }
         /// Adds a duration to the current time instant, returning the new `Instant`
-        pub fn add_duration(&mut self, duration: Duration)  -> crate::time::Instant { unsafe { crate::dll::AzInstant_addDuration(self, duration) } }
+        pub fn add_duration<_1: Into<Duration>>(&mut self, duration: _1)  -> crate::time::Instant { unsafe { crate::dll::AzInstant_addDuration(self, duration.into()) } }
         /// Linearly interpolates between [start, end] if the `self` Instant lies between start and end. Returns values between 0.0 and 1.0
-        pub fn linear_interpolate(&self, start: Instant, end: Instant)  -> f32 { unsafe { crate::dll::AzInstant_linearInterpolate(self, start, end) } }
+        pub fn linear_interpolate<_1: Into<Instant>, _2: Into<Instant>>(&self, start: _1, end: _2)  -> f32 { unsafe { crate::dll::AzInstant_linearInterpolate(self, start.into(), end.into()) } }
     }
 
     /// `InstantPtr` struct
@@ -18359,13 +18359,13 @@ pub mod task {
     impl Timer {
 
         /// Creates a new `Timer` instance.
-        pub fn new(timer_data: RefAny, callback: TimerCallbackType, get_system_time_fn: GetSystemTimeFn) -> Self { unsafe { crate::dll::AzTimer_new(timer_data, callback, get_system_time_fn) } }
+        pub fn new<_1: Into<RefAny>, _3: Into<GetSystemTimeFn>>(timer_data: _1, callback: TimerCallbackType, get_system_time_fn: _3) -> Self { unsafe { crate::dll::AzTimer_new(timer_data.into(), callback, get_system_time_fn.into()) } }
         /// Calls the `Timer::with_delay` function.
-        pub fn with_delay(&self, delay: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withDelay(self, delay) } }
+        pub fn with_delay<_1: Into<Duration>>(&self, delay: _1)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withDelay(self, delay.into()) } }
         /// Calls the `Timer::with_interval` function.
-        pub fn with_interval(&self, interval: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withInterval(self, interval) } }
+        pub fn with_interval<_1: Into<Duration>>(&self, interval: _1)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withInterval(self, interval.into()) } }
         /// Calls the `Timer::with_timeout` function.
-        pub fn with_timeout(&self, timeout: Duration)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withTimeout(self, timeout) } }
+        pub fn with_timeout<_1: Into<Duration>>(&self, timeout: _1)  -> crate::task::Timer { unsafe { crate::dll::AzTimer_withTimeout(self, timeout.into()) } }
     }
 
     /// Should a timer terminate or not - used to remove active timers
@@ -18385,7 +18385,7 @@ pub mod task {
     impl ThreadSender {
 
         /// Calls the `ThreadSender::send` function.
-        pub fn send(&mut self, msg: ThreadReceiveMsg)  -> bool { unsafe { crate::dll::AzThreadSender_send(self, msg) } }
+        pub fn send<_1: Into<ThreadReceiveMsg>>(&mut self, msg: _1)  -> bool { unsafe { crate::dll::AzThreadSender_send(self, msg.into()) } }
     }
 
     impl Clone for ThreadSender { fn clone(&self) -> Self { unsafe { crate::dll::AzThreadSender_deepCopy(self) } } }
@@ -18570,7 +18570,7 @@ pub mod str {
     impl String {
 
         /// Creates a dynamically formatted String from a fomat string + named arguments
-        pub fn format(format: String, args: FmtArgVec) -> Self { unsafe { crate::dll::AzString_format(format, args) } }
+        pub fn format<_1: Into<String>, _2: Into<FmtArgVec>>(format: _1, args: _2) -> Self { unsafe { crate::dll::AzString_format(format.into(), args.into()) } }
         /// Creates a new String from an arbitary pointer, a start offset (bytes from the start pointer, usually 0) and a length (in bytes). The bytes are expected to point to a UTF-8 encoded string, no error checking is performed.
         pub fn copy_from_bytes(ptr: *const u8, start: usize, len: usize) -> Self { unsafe { crate::dll::AzString_copyFromBytes(ptr, start, len) } }
         /// Trims whitespace from the start / end of the string

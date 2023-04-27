@@ -102,6 +102,6 @@ pub fn get_monitors(app: &App) -> MonitorVec {
 
 /// Main function that starts when app.run() is invoked
 pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, CocoaStartupError> {
-    println!("azul.App.run(x11)");
+    println!("azul.App.run(cocoa)");
     Ok(0)
 }
