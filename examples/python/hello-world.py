@@ -23,7 +23,7 @@ def my_layout_func(data, info):
 
 # model <- view
 def my_on_click(data, info):
-    data.counter += 1;
+    data.counter += 1
     return Update.RefreshDom
 
 model = DataModel(5)

@@ -88,7 +88,13 @@ jobs:
       - name: Compile C++ examples
         run: exit 0; # TODO
       - name: Compile Python examples
-        run: exit 0; # TODO
+        if: matrix.build == 'windows-x64'
+        shell: bash
+        run: |
+          cp `pwd`/target/release/azul.dll `pwd`/target/release/azul.pyd
+          export PATH=`pwd`/target/release:$PATH
+          python3 examples/python/hello-world.py
+          exit 0; # TODO
       - name: Run layout tests
         run: exit 0; # TODO
       - name: Build azulc

@@ -47,8 +47,8 @@ extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Style
     let editor = xml_string.lines().enumerate().map(|(line_idx, l)| {
         Dom::div()
         .with_children(vec![
-            Dom::text(l.to_string().into())
-        ].into())
+            Dom::text(l.to_string())
+        ])
     }).collect::<Dom>()
     .with_inline_style("
         display:flex;
@@ -59,11 +59,11 @@ extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Style
         font-size: 12px;
         background:repeating-linear-gradient(red 0%, blue 50%, red 51%, blue 100%);
         background-size: 10px 10px;
-    ".into())
+    ")
     .style(Css::empty());
 
     let rendered_preview = Dom::body()
-    .with_inline_style("padding:10px;".into())
+    .with_inline_style("padding:10px;")
     .style(Css::empty())
     .with_child(
         Dom::div()
@@ -73,44 +73,44 @@ extern "C" fn layout(data: &mut RefAny, _info: &mut LayoutCallbackInfo) -> Style
             display:flex;
             flex-direction:column;
             flex-grow:1;
-        ".into())
+        ")
         .style(Css::empty())
-        .with_child(StyledDom::from_xml(xml_string.clone().into()))
+        .with_child(StyledDom::from_xml(xml_string.clone()))
     );
 
     Dom::body()
     .with_menu_bar(Menu::new(vec![
-        MenuItem::String(StringMenuItem::new("File".into()).with_children(vec![
-            MenuItem::String(StringMenuItem::new("Load...".into()).with_callback(data.clone(), load_xml_file)),
-            MenuItem::String(StringMenuItem::new("Save...".into()).with_callback(data.clone(), save_xml_file)),
-        ].into())),
-        MenuItem::String(StringMenuItem::new("Export".into()).with_children(vec![
-            MenuItem::String(StringMenuItem::new("Rust (.rs)".into()).with_callback(data.clone(), export_rust)),
-            MenuItem::String(StringMenuItem::new("C (.c)".into()).with_callback(data.clone(), export_c)),
-            MenuItem::String(StringMenuItem::new("C++ (.cpp)".into()).with_callback(data.clone(), export_cpp)),
-            MenuItem::String(StringMenuItem::new("Python (.py)".into()).with_callback(data.clone(), export_py)),
-            MenuItem::String(StringMenuItem::new("HTML (.html)".into()).with_callback(data.clone(), export_html)),
-        ].into())),
-        MenuItem::String(StringMenuItem::new("Debug".into()).with_children(vec![
+        MenuItem::String(StringMenuItem::new("File").with_children(vec![
+            MenuItem::String(StringMenuItem::new("Load...").with_callback(data.clone(), load_xml_file)),
+            MenuItem::String(StringMenuItem::new("Save...").with_callback(data.clone(), save_xml_file)),
+        ])),
+        MenuItem::String(StringMenuItem::new("Export").with_children(vec![
+            MenuItem::String(StringMenuItem::new("Rust (.rs)").with_callback(data.clone(), export_rust)),
+            MenuItem::String(StringMenuItem::new("C (.c)").with_callback(data.clone(), export_c)),
+            MenuItem::String(StringMenuItem::new("C++ (.cpp)").with_callback(data.clone(), export_cpp)),
+            MenuItem::String(StringMenuItem::new("Python (.py)").with_callback(data.clone(), export_py)),
+            MenuItem::String(StringMenuItem::new("HTML (.html)").with_callback(data.clone(), export_html)),
+        ])),
+        MenuItem::String(StringMenuItem::new("Debug").with_children(vec![
             MenuItem::String(
-                StringMenuItem::new("Layout".into())
+                StringMenuItem::new("Layout")
                 .with_callback(data.clone(), enable_debug_layout)
             ),
             MenuItem::String(
-                StringMenuItem::new("Display list".into())
+                StringMenuItem::new("Display list")
                 .with_callback(data.clone(), enable_debug_layout)
             ),
             MenuItem::String(
-                StringMenuItem::new("Scroll clips".into())
+                StringMenuItem::new("Scroll clips")
                 .with_callback(data.clone(), enable_debug_layout)
             ),
             MenuItem::String(
-                StringMenuItem::new("Cascade".into())
+                StringMenuItem::new("Cascade")
                 .with_callback(data.clone(), enable_debug_layout)
             ),
-        ].into()))
-    ].into()))
-    .with_inline_style("display:flex;flex-direction:row;flex-grow:1;".into())
+        ]))
+    ]))
+    .with_inline_style("display:flex;flex-direction:row;flex-grow:1;")
     .style(Css::empty())
     .with_child(editor)
     .with_child(rendered_preview)

@@ -256,7 +256,7 @@ pub mod ui {
                 IdOrClassVec::from_const_slice(IDS_AND_CLASSES_13535062482561510656)
             })
             .with_children(DomVec::from_vec(vec![
-                Dom::text(result.into())
+                Dom::text(result)
             ])),
             Dom::div()
             .with_inline_css_props(CSS_MATCH_3485639429117624417)

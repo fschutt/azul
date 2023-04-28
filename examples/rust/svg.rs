@@ -36,18 +36,18 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
 
     Dom::body()
     .with_menu_bar(Menu::new(vec![
-        MenuItem::String(StringMenuItem::new("Application".into()).with_children(vec![
-            MenuItem::String(StringMenuItem::new("Select File...".into()).with_callback(data.clone(), open_svg_file))
-        ].into()))
-    ].into()))
+        MenuItem::String(StringMenuItem::new("Application").with_children(vec![
+            MenuItem::String(StringMenuItem::new("Select File...").with_callback(data.clone(), open_svg_file))
+        ]))
+    ]))
     .with_children(vec![
         Dom::image(rendered_svg)
-        .with_inline_style("display: block;".into()),
-        Dom::text(format!("Parsing took {:?}", timing.time_to_parse).into()),
-        Dom::text(format!("Rendering took {:?}", timing.time_to_render).into()),
-        Dom::text(format!("Converting to ImageRef took {:?}", timing.time_to_convert).into()),
-    ].into())
-    .style(Css::from_string("p { font-family: sans-serif; }".into()))
+        .with_inline_style("display: block;"),
+        Dom::text(format!("Parsing took {:?}", timing.time_to_parse)),
+        Dom::text(format!("Rendering took {:?}", timing.time_to_render)),
+        Dom::text(format!("Converting to ImageRef took {:?}", timing.time_to_convert)),
+    ])
+    .style(Css::from_string("p { font-family: sans-serif; }"))
 
 }
 
@@ -60,10 +60,10 @@ extern "C" fn open_svg_file(data: &mut RefAny, info: &mut CallbackInfo) -> Updat
     };
 
     // note: runs on main thread, blocks UI - TODO: offload to background!
-    let new_file = FileDialog::select_file("Select SVG".into(), None.into(), None.into())
+    let new_file = FileDialog::select_file("Select SVG", None, None)
     .and_then(|file_path| match File::open(file_path) { OptionFile::Some(s) => Some(s), _ => None })
     .and_then(|mut file| file.read_to_string().into_option())
-    .and_then(|svg_string| load_svg(svg_string.into()));
+    .and_then(|svg_string| load_svg(svg_string));
 
     match new_file {
         Some((new_image, new_timing_data)) => {
