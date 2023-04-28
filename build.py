@@ -2459,8 +2459,6 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
                         analyzed_arg_type[2] = analyzed_arg_type[2][1:]
                         is_array = True
 
-                    print(str(field_name) + "   " + str(field_type) + " " + str(analyzed_arg_type) + ": is array = " + str(is_array))
-
                     if is_primitive_arg(analyzed_arg_type[1]):
                         if is_array:
                             code += "    " + replace_primitive_ctype(analyzed_arg_type[1]) + " " + field_name + replace_primitive_ctype(analyzed_arg_type[0]).strip() + analyzed_arg_type[2] + ";\r\n"

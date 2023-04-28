@@ -91,12 +91,15 @@ jobs:
         run: exit 0; # TODO
       - name: Run layout tests
         run: exit 0; # TODO
+      - name: Build azulc
+        run: cargo build --release --bin azulc --manifest-path azulc/Cargo.toml --features="xml, std, font_loading, image_loading, gif, jpeg, png, tiff, bmp, text_layout"
       - name: Upload Artifacts (Linux)
         uses: actions/upload-artifact@v3
         if: matrix.build == 'linux-x64'
         with:
           name: 'azul-linux-amd64'
           path: |
+            target/release/azulc
             target/release/libazul.so
             target/release/libazul.a
           retention-days: 2
@@ -107,6 +110,7 @@ jobs:
         with:
           name: 'azul-windows-amd64'
           path: |
+            target/release/azulc
             target/release/azul.dll
             target/release/libazul.a
             target/release/azul.dll.lib
@@ -118,6 +122,7 @@ jobs:
         with:
           name: 'azul-windows-amd64'
           path: |
+            target/release/azulc
             target/release/azul.dylib
             target/release/libazul.a
           retention-days: 2
