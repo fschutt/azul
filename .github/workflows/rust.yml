@@ -78,7 +78,7 @@ jobs:
         run: sudo apt install clang
       - name: Check azul.h (Linux)
         if: matrix.build == 'linux-x64'
-        run: clang api/c/azul.h
+        run: clang api/c/azul.h -ferror-limit=0
       - name: Build DLL
         run: cargo build --release --manifest-path azul-dll/Cargo.toml --features build-dynamic
       - name: Compile Rust examples

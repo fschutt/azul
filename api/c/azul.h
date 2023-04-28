@@ -4061,7 +4061,7 @@ struct AzStyleBlur {
 typedef struct AzStyleBlur AzStyleBlur;
 
 struct AzStyleColorMatrix {
-    AzFloatValue[;20] matrix;
+    AzFloatValue matrix[20];
 };
 typedef struct AzStyleColorMatrix AzStyleColorMatrix;
 
@@ -6433,7 +6433,7 @@ struct AzFontMetrics {
     int16_t y_strikeout_size;
     int16_t y_strikeout_position;
     int16_t s_family_class;
-    uint8_t[; 10] panose;
+    uint8_t panose[ 10];
     uint32_t ul_unicode_range1;
     uint32_t ul_unicode_range2;
     uint32_t ul_unicode_range3;

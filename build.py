@@ -2455,9 +2455,11 @@ def generate_c_structs(api_data, structs_map, forward_declarations, extra_forwar
 
                     # arrays: convert blah: [BlahType;4] to BlahType blah[4]
                     is_array = False
-                    if (len(analyzed_arg_type[2]) == 3 and analyzed_arg_type[2].startswith(";")):
+                    if (len(analyzed_arg_type) == 3 and analyzed_arg_type[2].startswith(";")):
                         analyzed_arg_type[2] = analyzed_arg_type[2][1:]
                         is_array = True
+
+                    print(str(field_name) + "   " + str(field_type) + " " + str(analyzed_arg_type) + ": is array = " + str(is_array))
 
                     if is_primitive_arg(analyzed_arg_type[1]):
                         if is_array:
