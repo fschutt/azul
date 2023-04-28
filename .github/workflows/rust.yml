@@ -73,11 +73,23 @@ jobs:
         run: cargo check --verbose --manifest-path azul-desktop/Cargo.toml
       - name: Check azul-dll
         run: cargo check --verbose --manifest-path azul-dll/Cargo.toml
-      - name: Check examples
-        run: cargo check --verbose --examples --all-features
       - name: Install dependencies (Linux)
         if: matrix.build == 'linux-x64'
         run: sudo apt install clang
       - name: Check azul.h (Linux)
         if: matrix.build == 'linux-x64'
         run: clang api/c/azul.h
+      - name: Build DLL
+        run: cargo build --release --manifest-path azul-dll/Cargo.toml --features build-dynamic
+      - name: Compile Rust examples
+        run: cargo check --verbose --examples --all-features
+      - name: Compile C examples
+        run: exit 0; # TODO
+      - name: Compile C++ examples
+        run: exit 0; # TODO
+      - name: Compile Python examples
+        run: exit 0; # TODO
+      - name: Run layout tests
+        run: exit 0; # TODO
+      - name: Upload DLL artifacts
+        run: 
