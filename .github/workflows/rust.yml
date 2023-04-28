@@ -80,7 +80,7 @@ jobs:
         if: matrix.build == 'linux-x64'
         run: clang api/c/azul.h -ferror-limit=0
       - name: Build DLL
-        run: cargo build --release --manifest-path azul-dll/Cargo.toml --features="build-dynamic, python-extension"
+        run: cargo build --release --manifest-path azul-dll/Cargo.toml --features="link-dynamic, python-extension"
       - name: Compile Rust examples
         run: cargo check --verbose --examples --all-features
       - name: Compile C examples
