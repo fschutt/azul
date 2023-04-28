@@ -80,7 +80,7 @@ jobs:
         if: matrix.build == 'linux-x64'
         run: clang api/c/azul.h -ferror-limit=0
       - name: Build DLL
-        run: cargo build --release --manifest-path azul-dll/Cargo.toml --features build-dynamic
+        run: cargo build --release --manifest-path azul-dll/Cargo.toml --features="build-dynamic, python-extension"
       - name: Compile Rust examples
         run: cargo check --verbose --examples --all-features
       - name: Compile C examples
@@ -91,5 +91,34 @@ jobs:
         run: exit 0; # TODO
       - name: Run layout tests
         run: exit 0; # TODO
-      - name: Upload DLL artifacts
-        run: 
+      - name: Upload Artifacts (Linux)
+        uses: actions/upload-artifact@v3
+        if: matrix.build == 'linux-x64'
+        with:
+          name: 'azul-linux-amd64'
+          path: |
+            target/release/libazul.so
+            target/release/libazul.a
+          retention-days: 2
+          if-no-files-found: error
+      - name: Upload Artifacts (Windows)
+        uses: actions/upload-artifact@v3
+        if: matrix.build == 'windows-x64'
+        with:
+          name: 'azul-windows-amd64'
+          path: |
+            target/release/azul.dll
+            target/release/libazul.a
+            target/release/azul.dll.lib
+          retention-days: 2
+          if-no-files-found: error
+      - name: Upload Artifacts (Mac)
+        uses: actions/upload-artifact@v3
+        if: matrix.build == 'macos-x64'
+        with:
+          name: 'azul-windows-amd64'
+          path: |
+            target/release/azul.dylib
+            target/release/libazul.a
+          retention-days: 2
+          if-no-files-found: error
