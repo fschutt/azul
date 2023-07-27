@@ -383,6 +383,7 @@ pub(crate) fn rebuild_display_list(
         image_cache,
     );
 
+    println!("hidpi factor {}", internal.current_window_state.size.hidpi_factor);
     let root_pipeline_id = PipelineId(0, internal.document_id.id);
     let display_list = wr_translate_display_list(
         internal.document_id,

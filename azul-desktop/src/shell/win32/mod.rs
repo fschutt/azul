@@ -5,6 +5,7 @@
 //! related to running the application
 
 mod event;
+mod dpi;
 
 use crate::{
     app::{App, LazyFcCache},
@@ -84,6 +85,7 @@ use winapi::{
     um::uxtheme::MARGINS,
     um::winuser::WM_APP,
 };
+use self::dpi::DpiFunctions;
 
 type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
 
@@ -146,9 +148,8 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
     }
 
     // Tell windows that this process is DPI-aware
-    unsafe { SetProcessDPIAware(); } // Vista
-    // SetProcessDpiAwareness(); Win8.1
-    // SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE); // Win10
+    let dpi = self::dpi::DpiFunctions::init();
+    dpi.become_dpi_aware();
 
     // Register the application class (shared between windows)
     let mut class_name = encode_wide(CLASS_NAME);
@@ -187,6 +188,7 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<isize, WindowsS
             windows: BTreeMap::new(),
             active_hwnds: active_hwnds.clone(),
             dwm,
+            dpi,
         }));
 
         let w = Window::create(
@@ -318,7 +320,7 @@ fn get_last_error() -> u32 {
     (unsafe { GetLastError() }) as u32
 }
 
-fn load_dll(name: &'static str) -> Option<HINSTANCE> {
+pub fn load_dll(name: &'static str) -> Option<HINSTANCE> {
     use winapi::um::libloaderapi::LoadLibraryW;
     let mut dll_name = encode_wide(name);
     let dll = unsafe { LoadLibraryW(dll_name.as_mut_ptr()) };
@@ -421,6 +423,7 @@ struct ApplicationData {
     // active HWNDS, tracked separately from the ApplicationData
     active_hwnds: Rc<RefCell<BTreeSet<HWND>>>,
     dwm: Option<DwmFunctions>,
+    dpi: DpiFunctions,
 }
 
 // Extra functions from dwmapi.dll
@@ -1750,13 +1753,18 @@ impl Window {
 
         // Get / store DPI
         // NOTE: GetDpiForWindow would be easier, but it's Win10 only
-        let dpi = unsafe {
-            let dc = GetDC(hwnd);
-            let dpi_x = GetDeviceCaps(dc, LOGPIXELSX);
-            let dpi_y = GetDeviceCaps(dc, LOGPIXELSY);
-            dpi_x.max(dpi_y).max(0) as u32
+        let dpi = if let Ok(s) = shared_application_data.inner.try_borrow() {
+            println!("ok getting hwnd dpi");
+            println!("{:#?}", s.dpi);
+            let s = unsafe { s.dpi.hwnd_dpi(hwnd) };
+            println!("dpi: {:?}", s);
+            s
+        } else {
+            96
         };
-        let dpi_factor = dpi as f32 / 96.0;
+
+        let dpi_factor = self::dpi::dpi_to_scale_factor(dpi);
+
         options.state.size.dpi = dpi;
         options.state.size.hidpi_factor = dpi_factor;
         options.state.size.system_hidpi_factor = dpi_factor;
@@ -1885,7 +1893,9 @@ impl Window {
             }
         };
 
+        println!("window physical size {:?}", physical_size);
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
+        println!("window logical size {:?}", options.state.size.dimensions);
 
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
@@ -1999,6 +2009,9 @@ impl Window {
             height: rect.height(),
         };
         // internal.previous_window_state = Some(internal.current_window_state.clone());
+        
+        println!("window physical size 2 {:?}", physical_size);
+        println!("window logical size 2 {:?}", physical_size.to_logical(dpi_factor));
         internal.current_window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         let mut txn = WrTransaction::new();
@@ -2159,7 +2172,7 @@ impl Window {
 
             mem::drop(ab);
             mem::drop(appdata_lock);
-            create_windows(hinstance, &mut shared_application_data, new_windows);
+            create_windows(hinstance, &mut shared_application_data, new_windows, );
             let mut appdata_lock = shared_application_data.inner.try_borrow_mut().unwrap();
             let mut ab = &mut *appdata_lock;
             destroy_windows(ab, destroyed_windows);
