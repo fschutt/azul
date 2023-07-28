@@ -886,7 +886,7 @@ impl WindowInternal {
             init.id_namespace,
             &init.document_id,
             epoch,
-            current_window_state.size.hidpi_factor,
+            current_window_state.size.get_hidpi_factor(),
             image_cache,
             &fc_cache_real,
             callbacks,
@@ -1005,7 +1005,7 @@ impl WindowInternal {
             self.id_namespace,
             &self.document_id,
             self.epoch,
-            self.current_window_state.size.hidpi_factor,
+            self.current_window_state.size.get_hidpi_factor(),
             image_cache,
             &fc_cache_real,
             callbacks,
@@ -2458,7 +2458,7 @@ impl WindowState {
 
     /// Returns the current HiDPI factor for this window.
     pub fn get_hidpi_factor(&self) -> f32 {
-        self.size.hidpi_factor
+        self.size.get_hidpi_factor()
     }
 }
 
@@ -2534,10 +2534,6 @@ pub struct WindowSize {
     /// Width and height of the window, in logical
     /// units (may not correspond to the physical on-screen size)
     pub dimensions: LogicalSize,
-    /// DPI factor of the window
-    pub hidpi_factor: f32,
-    /// (Internal only, unused): winit HiDPI factor
-    pub system_hidpi_factor: f32,
     /// Actual DPI value (default: 96)
     pub dpi: u32,
     /// Minimum dimensions of the window
@@ -2560,16 +2556,11 @@ impl WindowSize {
     }
 
     pub fn get_physical_size(&self) -> PhysicalSize<u32> {
-        self.dimensions.to_physical(self.hidpi_factor)
+        self.dimensions.to_physical(self.get_hidpi_factor())
     }
 
-    /// Get a size that is usually smaller than the logical one,
-    /// so that the winit DPI factor is compensated for.
-    pub fn get_reverse_logical_size(&self) -> LogicalSize {
-        LogicalSize::new(
-            self.dimensions.width * self.hidpi_factor / self.system_hidpi_factor,
-            self.dimensions.height * self.hidpi_factor / self.system_hidpi_factor,
-        )
+    pub fn get_hidpi_factor(&self) -> f32 {
+        self.dpi as f32 / 96.0
     }
 }
 
@@ -2578,8 +2569,6 @@ impl Default for WindowSize {
         Self {
             #[cfg(not(feature = "glow"))]
             dimensions: LogicalSize::new(640.0, 480.0),
-            hidpi_factor: 1.0,
-            system_hidpi_factor: 1.0,
             dpi: 96,
             min_dimensions: None.into(),
             max_dimensions: None.into(),

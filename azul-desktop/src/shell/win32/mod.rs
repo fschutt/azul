@@ -1766,8 +1766,6 @@ impl Window {
         let dpi_factor = self::dpi::dpi_to_scale_factor(dpi);
 
         options.state.size.dpi = dpi;
-        options.state.size.hidpi_factor = dpi_factor;
-        options.state.size.system_hidpi_factor = dpi_factor;
 
         // Window created, now try initializing OpenGL context
         let renderer_types = match options.renderer.into_option() {
@@ -1952,7 +1950,7 @@ impl Window {
                             window_state.focused_node,
                             layout_results,
                             &window_state.mouse_state.cursor_position,
-                            window_state.size.hidpi_factor,
+                            window_state.size.get_hidpi_factor(),
                         )
                     },
                 )
@@ -2652,7 +2650,7 @@ unsafe extern "system" fn WindowProc(
                                      window_state.focused_node,
                                      layout_results,
                                      &window_state.mouse_state.cursor_position,
-                                     window_state.size.hidpi_factor,
+                                     window_state.size.get_hidpi_factor(),
                                 )
                             }
                         );
@@ -2699,7 +2697,7 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.current_window_state.focused_node,
                         &current_window.internal.layout_results,
                         &current_window.internal.current_window_state.mouse_state.cursor_position,
-                        current_window.internal.current_window_state.size.hidpi_factor,
+                        current_window.internal.current_window_state.size.get_hidpi_factor(),
                     );
 
                     current_window.internal.previous_window_state = None;
@@ -2952,8 +2950,8 @@ unsafe extern "system" fn WindowProc(
                 if let Some(current_window) = app_borrow.windows.get_mut(&hwnd_key) {
 
                     let pos = CursorPosition::InWindow(LogicalPosition::new(
-                        x as f32 / current_window.internal.current_window_state.size.hidpi_factor,
-                        y as f32 / current_window.internal.current_window_state.size.hidpi_factor,
+                        x as f32 / current_window.internal.current_window_state.size.get_hidpi_factor(),
+                        y as f32 / current_window.internal.current_window_state.size.get_hidpi_factor(),
                     ));
 
                     // call SetCapture(hwnd) so that we can capture the WM_MOUSELEAVE event
@@ -2982,7 +2980,7 @@ unsafe extern "system" fn WindowProc(
                         current_window.internal.current_window_state.focused_node,
                         &current_window.internal.layout_results,
                         &current_window.internal.current_window_state.mouse_state.cursor_position,
-                        current_window.internal.current_window_state.size.hidpi_factor,
+                        current_window.internal.current_window_state.size.get_hidpi_factor(),
                     );
                     let cht = CursorTypeHitTest::new(&hit_test, &current_window.internal.layout_results);
                     current_window.internal.current_window_state.last_hit_test = hit_test;
@@ -3354,7 +3352,7 @@ unsafe extern "system" fn WindowProc(
                         use winapi::um::winuser::{GetDC, ReleaseDC};
 
                         let mut new_window_state = current_window.internal.current_window_state.clone();
-                        new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.hidpi_factor);
+                        new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.get_hidpi_factor());
 
                         match wparam {
                             SIZE_MAXIMIZED => {

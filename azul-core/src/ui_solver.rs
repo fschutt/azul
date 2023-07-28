@@ -849,7 +849,7 @@ impl LayoutResult {
                         // invoke the iframe with the new size and replace the dom with the DOM ID
                         let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
                             layout_size.size,
-                            window_size.hidpi_factor,
+                            window_size.get_hidpi_factor(),
                         );
                         let scroll_node = layout_result
                             .scrollable_nodes
@@ -969,7 +969,7 @@ impl LayoutResult {
                     gl_context,
                     image_cache,
                     fc_cache,
-                    window_size.hidpi_factor,
+                    window_size.get_hidpi_factor(),
                     callbacks,
                     layout_results,
                     gl_texture_cache,

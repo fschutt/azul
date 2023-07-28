@@ -383,20 +383,19 @@ pub(crate) fn rebuild_display_list(
         image_cache,
     );
 
-    println!("hidpi factor {}", internal.current_window_state.size.hidpi_factor);
+    println!("wr_translate hidpi factor {}", internal.current_window_state.size.get_hidpi_factor());
     let root_pipeline_id = PipelineId(0, internal.document_id.id);
     let display_list = wr_translate_display_list(
         internal.document_id,
         render_api,
         cached_display_list,
         root_pipeline_id,
-        internal.current_window_state.size.hidpi_factor,
+        internal.current_window_state.size.get_hidpi_factor(),
     );
 
-    let logical_size = WrLayoutSize::new(
-        internal.current_window_state.size.dimensions.width,
-        internal.current_window_state.size.dimensions.height,
-    );
+    let physical_size = internal.current_window_state.size.get_physical_size();
+    let physical_size = WrLayoutSize::new(physical_size.width as f32, physical_size.height as f32);
+    println!("set display list = {:?}", physical_size);
 
     txn.update_resources(
         resources
@@ -407,7 +406,7 @@ pub(crate) fn rebuild_display_list(
     txn.set_display_list(
         wr_translate_epoch(internal.epoch),
         None,
-        logical_size.clone(),
+        physical_size.clone(),
         (wr_translate_pipeline_id(root_pipeline_id), display_list),
         true,
     );

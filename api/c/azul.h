@@ -7816,8 +7816,6 @@ typedef struct AzTaskBarIcon AzTaskBarIcon;
 
 struct AzWindowSize {
     AzLogicalSize dimensions;
-    float hidpi_factor;
-    float system_hidpi_factor;
     uint32_t dpi;
     AzOptionLogicalSize min_dimensions;
     AzOptionLogicalSize max_dimensions;

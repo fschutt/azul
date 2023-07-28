@@ -1407,9 +1407,7 @@ fn get_window_events(
     }
 
     if current_window_state.size.dimensions != previous_window_state.size.dimensions
-        || current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor
-        || current_window_state.size.system_hidpi_factor
-            != previous_window_state.size.system_hidpi_factor
+        || current_window_state.size.dpi != previous_window_state.size.dpi
     {
         events.push(WindowEventFilter::Resized);
     }

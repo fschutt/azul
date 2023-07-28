@@ -1597,7 +1597,7 @@ pub fn do_the_layout(
                 );
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
                     bounds_size,
-                    full_window_state.size.hidpi_factor
+                    full_window_state.size.get_hidpi_factor()
                 );
 
                 // Invoke the IFrame callback

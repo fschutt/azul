@@ -7817,8 +7817,6 @@ mod dll {
         #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
         pub struct AzWindowSize {
             pub dimensions: AzLogicalSize,
-            pub hidpi_factor: f32,
-            pub system_hidpi_factor: f32,
             pub dpi: u32,
             pub min_dimensions: AzOptionLogicalSize,
             pub max_dimensions: AzOptionLogicalSize,

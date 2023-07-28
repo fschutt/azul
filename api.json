@@ -604,8 +604,6 @@
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"dimensions": {"type": "LogicalSize", "doc": "Current dimensions in logical units"}},
-                        {"hidpi_factor": {"type": "f32", "doc": "HiDPI factor that can be overridden by the application"}},
-                        {"system_hidpi_factor": {"type": "f32", "doc": "HiDPI factor of the system - note that some systems report the scaling factor wrong (esp. Linux HiDPI). Usually the same as `hidpi_factor`."}},
                         {"dpi": {"type": "u32", "doc": "Actual DPI factor (default: 96)"}},
                         {"min_dimensions": {"type": "OptionLogicalSize", "doc": "Maximum size of the window in logical units"}},
                         {"max_dimensions": {"type": "OptionLogicalSize", "doc": "Minimum size of the window in logical units"}}

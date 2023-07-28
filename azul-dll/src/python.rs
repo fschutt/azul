@@ -6010,8 +6010,6 @@ pub struct AzTaskBarIcon {
 #[repr(C)]
 pub struct AzWindowSize {
     pub dimensions: AzLogicalSize,
-    pub hidpi_factor: f32,
-    pub system_hidpi_factor: f32,
     pub dpi: u32,
     pub min_dimensions: AzOptionLogicalSizeEnumWrapper,
     pub max_dimensions: AzOptionLogicalSizeEnumWrapper,
@@ -12325,11 +12323,9 @@ impl PyObjectProtocol for AzAcceleratorKeyEnumWrapper {
 #[pymethods]
 impl AzWindowSize {
     #[new]
-    fn __new__(dimensions: AzLogicalSize, hidpi_factor: f32, system_hidpi_factor: f32, dpi: u32, min_dimensions: AzOptionLogicalSizeEnumWrapper, max_dimensions: AzOptionLogicalSizeEnumWrapper) -> Self {
+    fn __new__(dimensions: AzLogicalSize, dpi: u32, min_dimensions: AzOptionLogicalSizeEnumWrapper, max_dimensions: AzOptionLogicalSizeEnumWrapper) -> Self {
         Self {
             dimensions,
-            hidpi_factor,
-            system_hidpi_factor,
             dpi,
             min_dimensions,
             max_dimensions,

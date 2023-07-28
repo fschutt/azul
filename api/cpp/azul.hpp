@@ -7127,8 +7127,6 @@ namespace dll {
     
     struct WindowSize {
         LogicalSize dimensions;
-        float hidpi_factor;
-        float system_hidpi_factor;
         uint32_t dpi;
         OptionLogicalSize min_dimensions;
         OptionLogicalSize max_dimensions;
