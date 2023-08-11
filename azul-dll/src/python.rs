@@ -12332,6 +12332,11 @@ impl AzWindowSize {
         }
     }
 
+    fn get_hidpi_factor(&self) -> f32 {
+        unsafe { mem::transmute(crate::AzWindowSize_getHidpiFactor(
+            mem::transmute(self),
+        )) }
+    }
 }
 
 #[pyproto]

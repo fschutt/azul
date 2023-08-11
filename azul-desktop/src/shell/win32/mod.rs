@@ -28,7 +28,7 @@ use azul_core::{
     app_resources::{
         ImageMask, ImageRef, Epoch,
         AppConfig, ImageCache, ResourceUpdate,
-        RendererResources, GlTextureCache,
+        RendererResources, GlTextureCache, DpiScaleFactor,
     },
     callbacks::{
         RefAny, UpdateImageType,
@@ -86,6 +86,7 @@ use winapi::{
     um::winuser::WM_APP,
 };
 use self::dpi::DpiFunctions;
+use azul_css::FloatValue;
 
 type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
 
@@ -2640,6 +2641,7 @@ unsafe extern "system" fn WindowProc(
                             image_cache,
                             gl_context,
                             &mut resource_updates,
+                            DpiScaleFactor { inner: FloatValue::new(internal.current_window_state.size.get_hidpi_factor()) },
                             &crate::app::CALLBACKS,
                             fc_cache,
                             azul_layout::do_the_relayout,

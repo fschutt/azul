@@ -607,7 +607,17 @@
                         {"dpi": {"type": "u32", "doc": "Actual DPI factor (default: 96)"}},
                         {"min_dimensions": {"type": "OptionLogicalSize", "doc": "Maximum size of the window in logical units"}},
                         {"max_dimensions": {"type": "OptionLogicalSize", "doc": "Minimum size of the window in logical units"}}
-                    ]
+                    ],
+                    "functions": {
+                        "get_hidpi_factor": {
+                            "doc": "Returns the hidpi factor of the bounds",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "f32"},
+                            "fn_body": "windowsize.get_hidpi_factor()"
+                        }
+                    }
                 },
                 "WindowFlags": {
                     "doc": "Boolean flags relating to the current window state",

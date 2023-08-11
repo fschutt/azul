@@ -10156,6 +10156,7 @@ namespace dll {
         void LargeWindowIconBytes_delete(LargeWindowIconBytes* restrict instance);
         void WindowIcon_delete(WindowIcon* restrict instance);
         void TaskBarIcon_delete(TaskBarIcon* restrict instance);
+        float WindowSize_getHidpiFactor(const WindowSize* windowsize);
         bool  KeyboardState_shiftDown(const KeyboardState* keyboardstate);
         bool  KeyboardState_ctrlDown(const KeyboardState* keyboardstate);
         bool  KeyboardState_altDown(const KeyboardState* keyboardstate);

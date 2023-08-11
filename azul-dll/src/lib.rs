@@ -199,6 +199,8 @@ pub use AzAcceleratorKeyTT as AzAcceleratorKey;
 /// Minimum / maximum / current size of the window in logical dimensions
 pub use azul_core::window::WindowSize as AzWindowSizeTT;
 pub use AzWindowSizeTT as AzWindowSize;
+/// Returns the hidpi factor of the bounds
+#[no_mangle] pub extern "C" fn AzWindowSize_getHidpiFactor(windowsize: &AzWindowSize) -> f32 { windowsize.get_hidpi_factor() }
 
 /// Boolean flags relating to the current window state
 pub use azul_core::window::WindowFlags as AzWindowFlagsTT;

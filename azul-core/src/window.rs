@@ -2,7 +2,7 @@ use crate::gl::OptionGlContextPtr;
 use crate::{
     app_resources::{
         Epoch, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, RendererResources,
-        ResourceUpdate,
+        ResourceUpdate, DpiScaleFactor,
     },
     callbacks::{Callback, HitTestItem, UpdateImageType},
     callbacks::{
@@ -26,7 +26,7 @@ use alloc::collections::btree_set::BTreeSet;
 use alloc::vec::Vec;
 use azul_css::{
     AzString, ColorU, CssPath, CssProperty, LayoutPoint, LayoutRect, LayoutSize, OptionAzString,
-    OptionF32, OptionI32, U8Vec,
+    OptionF32, OptionI32, U8Vec, FloatValue,
 };
 use core::{
     cmp::Ordering,
@@ -852,6 +852,7 @@ impl WindowInternal {
             &fc_cache_real,
             &callbacks,
             &mut inital_renderer_resources,
+            DpiScaleFactor { inner: FloatValue::new(init.window_create_options.state.size.get_hidpi_factor()) },
         );
 
         let scroll_states = ScrollStates::default();
@@ -918,6 +919,7 @@ impl WindowInternal {
         image_cache: &ImageCache,
         gl_context: &OptionGlContextPtr,
         all_resource_updates: &mut Vec<ResourceUpdate>,
+        current_window_dpi: DpiScaleFactor,
         callbacks: &RenderCallbacks,
         fc_cache_real: &mut FcFontCache,
         relayout_fn: RelayoutFn,
@@ -968,6 +970,7 @@ impl WindowInternal {
             &fc_cache_real,
             callbacks,
             &mut self.renderer_resources,
+            current_window_dpi,
         );
 
         // apply the changes for the first frame

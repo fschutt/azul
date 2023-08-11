@@ -23,7 +23,7 @@ use alloc::vec::Vec;
 pub use azul_css::FontMetrics;
 use azul_css::{
     AzString, ColorU, F32Vec, FontRef, LayoutRect, LayoutSize, OptionI32, StyleFontFamily,
-    StyleFontFamilyVec, StyleFontSize, U16Vec, U32Vec, U8Vec,
+    StyleFontFamilyVec, StyleFontSize, U16Vec, U32Vec, U8Vec, FloatValue,
 };
 use core::{
     fmt,
@@ -31,6 +31,12 @@ use core::{
     sync::atomic::{AtomicU32, AtomicUsize, Ordering as AtomicOrdering},
 };
 use rust_fontconfig::FcFontCache;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DpiScaleFactor {
+    pub inner: FloatValue,
+}
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -597,14 +603,14 @@ pub struct RendererResources {
     /// All image keys currently active in the RenderApi
     currently_registered_images: FastHashMap<ImageRefHash, ResolvedImage>,
     /// All font keys currently active in the RenderApi
-    currently_registered_fonts: FastHashMap<FontKey, (FontRef, FastHashMap<Au, FontInstanceKey>)>,
+    currently_registered_fonts: FastHashMap<FontKey, (FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
     /// Fonts registered on the last frame
     ///
     /// Fonts differ from images in that regard that we can't immediately
     /// delete them on a new frame, instead we have to delete them on "current frame + 1"
     /// This is because when the frame is being built, we do not know
     /// whether the font will actually be successfully loaded
-    last_frame_registered_fonts: FastHashMap<FontKey, FastHashMap<Au, FontInstanceKey>>,
+    last_frame_registered_fonts: FastHashMap<FontKey, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>>,
     /// Map from the calculated families vec (["Arial", "Helvectia"])
     /// to the final loaded font that could be loaded
     /// (in this case "Arial" on Windows and "Helvetica" on Mac,
@@ -663,7 +669,7 @@ impl RendererResources {
     pub fn get_registered_font(
         &self,
         font_key: &FontKey,
-    ) -> Option<&(FontRef, FastHashMap<Au, FontInstanceKey>)> {
+    ) -> Option<&(FontRef, FastHashMap<(Au, DpiScaleFactor), FontInstanceKey>)> {
         self.currently_registered_fonts.get(font_key)
     }
 
@@ -2505,6 +2511,7 @@ pub struct LayoutedGlyphs {
 pub fn add_fonts_and_images(
     image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
+    current_window_dpi: DpiScaleFactor,
     fc_cache: &FcFontCache,
     render_api_namespace: IdNamespace,
     epoch: Epoch,
@@ -2529,6 +2536,7 @@ pub fn add_fonts_and_images(
 
     let add_font_resource_updates = build_add_font_resource_updates(
         renderer_resources,
+        current_window_dpi,
         fc_cache,
         render_api_namespace,
         &new_font_keys,
@@ -2802,7 +2810,7 @@ impl fmt::Debug for AddFont {
 pub struct AddFontInstance {
     pub key: FontInstanceKey,
     pub font_key: FontKey,
-    pub glyph_size: Au,
+    pub glyph_size: (Au, DpiScaleFactor),
     pub options: Option<FontInstanceOptions>,
     pub platform_options: Option<FontInstancePlatformOptions>,
     pub variations: Vec<FontVariation>,
@@ -2855,6 +2863,7 @@ impl Epoch {
     }
 }
 
+// App units that this font instance was registered for
 #[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Au(pub i32);
 
@@ -2877,7 +2886,7 @@ impl Au {
 pub enum AddFontMsg {
     // add font: font key, font bytes + font index
     Font(FontKey, StyleFontFamilyHash, FontRef),
-    Instance(AddFontInstance, Au),
+    Instance(AddFontInstance, (Au, DpiScaleFactor)),
 }
 
 impl AddFontMsg {
@@ -2897,7 +2906,7 @@ impl AddFontMsg {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum DeleteFontMsg {
     Font(FontKey),
-    Instance(FontInstanceKey, Au),
+    Instance(FontInstanceKey, (Au, DpiScaleFactor)),
 }
 
 impl DeleteFontMsg {
@@ -2952,6 +2961,7 @@ pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<
 /// I/O waiting.
 pub fn build_add_font_resource_updates(
     renderer_resources: &mut RendererResources,
+    dpi: DpiScaleFactor,
     fc_cache: &FcFontCache,
     id_namespace: IdNamespace,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastBTreeSet<Au>>,
@@ -2967,9 +2977,9 @@ pub fn build_add_font_resource_updates(
                 let font_instance_key_exists = renderer_resources
                     .currently_registered_fonts
                     .get(&$font_key)
-                    .and_then(|(_, font_instances)| font_instances.get(&$font_size))
+                    .and_then(|(_, font_instances)| font_instances.get(&($font_size, dpi)))
                     .is_some()
-                    || font_instances_added_this_frame.contains(&($font_key, $font_size));
+                    || font_instances_added_this_frame.contains(&($font_key, ($font_size, dpi)));
 
                 if !font_instance_key_exists {
                     let font_instance_key = FontInstanceKey::unique(id_namespace);
@@ -3000,19 +3010,19 @@ pub fn build_add_font_resource_updates(
                         ..Default::default()
                     };
 
-                    font_instances_added_this_frame.insert(($font_key, $font_size));
+                    font_instances_added_this_frame.insert(($font_key, ($font_size, dpi)));
                     resource_updates.push((
                         $font_family_hash,
                         AddFontMsg::Instance(
                             AddFontInstance {
                                 key: font_instance_key,
                                 font_key: $font_key,
-                                glyph_size: $font_size,
+                                glyph_size: ($font_size, dpi),
                                 options: Some(options),
                                 platform_options: Some(platform_options),
                                 variations: alloc::vec::Vec::new(),
                             },
-                            $font_size,
+                            ($font_size, dpi),
                         ),
                     ));
                 }

@@ -27,7 +27,7 @@ use azul_core::{
     app_resources::{
         ResourceUpdate, IdNamespace, RendererResources,
         FontInstanceKey, Epoch, ShapedWords,
-        WordPositions, Words, ImageCache,
+        WordPositions, Words, ImageCache, DpiScaleFactor,
     },
     callbacks::DocumentId,
     display_list::RenderCallbacks,
@@ -1523,6 +1523,7 @@ pub fn do_the_layout(
     image_cache: &ImageCache,
     fc_cache: &FcFontCache,
     renderer_resources: &mut RendererResources,
+    current_window_dpi: DpiScaleFactor,
     all_resource_updates: &mut Vec<ResourceUpdate>,
     id_namespace: IdNamespace,
     document_id: &DocumentId,
@@ -1561,6 +1562,7 @@ pub fn do_the_layout(
             add_fonts_and_images(
                 image_cache,
                 renderer_resources,
+                current_window_dpi,
                 fc_cache,
                 id_namespace,
                 epoch,
@@ -2409,7 +2411,7 @@ fn create_word_positions<'a>(
         let font_key = renderer_resources.get_font_key(&css_font_family)?;
         let (_, font_instances) = renderer_resources.get_registered_font(&font_key)?;
 
-        let font_instance_key = font_instances.get(&font_size_au)?;
+        let font_instance_key = font_instances.iter().find(|(k, v)| k.0 == font_size_au).map(|(_, v)| v)?;
 
         let shaped_words = shaped_words.get(&node_id)?;
 

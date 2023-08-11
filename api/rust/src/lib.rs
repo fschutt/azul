@@ -10422,6 +10422,7 @@ mod dll {
         pub(crate) fn AzLogicalPosition_new(x: f32, y: f32) -> AzLogicalPosition { unsafe { transmute(azul::AzLogicalPosition_new(transmute(x), transmute(y))) } }
         pub(crate) fn AzLogicalPosition_zero() -> AzLogicalPosition { unsafe { transmute(azul::AzLogicalPosition_zero()) } }
         pub(crate) fn AzLogicalSize_toPhysical(logicalsize: &AzLogicalSize, hidpi_factor: f32) -> AzPhysicalSizeU32 { unsafe { transmute(azul::AzLogicalSize_toPhysical(transmute(logicalsize), transmute(hidpi_factor))) } }
+        pub(crate) fn AzWindowSize_getHidpiFactor(windowsize: &AzWindowSize) -> f32 { unsafe { transmute(azul::AzWindowSize_getHidpiFactor(transmute(windowsize))) } }
         pub(crate) fn AzKeyboardState_shiftDown(keyboardstate: &AzKeyboardState) -> bool { unsafe { transmute(azul::AzKeyboardState_shiftDown(transmute(keyboardstate))) } }
         pub(crate) fn AzKeyboardState_ctrlDown(keyboardstate: &AzKeyboardState) -> bool { unsafe { transmute(azul::AzKeyboardState_ctrlDown(transmute(keyboardstate))) } }
         pub(crate) fn AzKeyboardState_altDown(keyboardstate: &AzKeyboardState) -> bool { unsafe { transmute(azul::AzKeyboardState_altDown(transmute(keyboardstate))) } }
@@ -11248,6 +11249,7 @@ mod dll {
             pub(crate) fn AzLogicalPosition_new(_:  f32, _:  f32) -> AzLogicalPosition;
             pub(crate) fn AzLogicalPosition_zero() -> AzLogicalPosition;
             pub(crate) fn AzLogicalSize_toPhysical(_:  &AzLogicalSize, _:  f32) -> AzPhysicalSizeU32;
+            pub(crate) fn AzWindowSize_getHidpiFactor(_:  &AzWindowSize) -> f32;
             pub(crate) fn AzKeyboardState_shiftDown(_:  &AzKeyboardState) -> bool;
             pub(crate) fn AzKeyboardState_ctrlDown(_:  &AzKeyboardState) -> bool;
             pub(crate) fn AzKeyboardState_altDown(_:  &AzKeyboardState) -> bool;
@@ -12314,6 +12316,12 @@ pub mod window {
     /// Minimum / maximum / current size of the window in logical dimensions
     
     #[doc(inline)] pub use crate::dll::AzWindowSize as WindowSize;
+    impl WindowSize {
+
+        /// Returns the hidpi factor of the bounds
+        pub fn get_hidpi_factor(&self)  -> f32 { unsafe { crate::dll::AzWindowSize_getHidpiFactor(self) } }
+    }
+
     /// Boolean flags relating to the current window state
     
     #[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;

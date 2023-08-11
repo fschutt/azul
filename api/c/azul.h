@@ -12267,6 +12267,7 @@ extern DLLIMPORT void AzSmallWindowIconBytes_delete(AzSmallWindowIconBytes* rest
 extern DLLIMPORT void AzLargeWindowIconBytes_delete(AzLargeWindowIconBytes* restrict instance);
 extern DLLIMPORT void AzWindowIcon_delete(AzWindowIcon* restrict instance);
 extern DLLIMPORT void AzTaskBarIcon_delete(AzTaskBarIcon* restrict instance);
+extern DLLIMPORT float AzWindowSize_getHidpiFactor(const AzWindowSize* windowsize);
 extern DLLIMPORT bool  AzKeyboardState_shiftDown(const AzKeyboardState* keyboardstate);
 extern DLLIMPORT bool  AzKeyboardState_ctrlDown(const AzKeyboardState* keyboardstate);
 extern DLLIMPORT bool  AzKeyboardState_altDown(const AzKeyboardState* keyboardstate);

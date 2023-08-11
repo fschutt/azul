@@ -3,7 +3,7 @@ use crate::{
     app_resources::{
         AddImageMsg, Epoch, ExternalImageId, FontInstanceKey, GlTextureCache, GlyphOptions,
         IdNamespace, ImageCache, ImageDescriptor, ImageKey, LoadFontFn, OpacityKey, ParseFontFn,
-        PrimitiveFlags, RendererResources, ResourceUpdate, TransformKey,
+        PrimitiveFlags, RendererResources, ResourceUpdate, TransformKey, DpiScaleFactor,
     },
     callbacks::{DocumentId, DomNodeId, PipelineId},
     dom::{ScrollTagId, TagId},
@@ -794,6 +794,7 @@ pub type LayoutFn = fn(
     &ImageCache,
     &FcFontCache,
     &mut RendererResources,
+    DpiScaleFactor,
     &mut Vec<ResourceUpdate>,
     IdNamespace,
     &DocumentId,
@@ -830,6 +831,7 @@ impl SolvedLayout {
         system_fonts: &FcFontCache,
         callbacks: &RenderCallbacks,
         renderer_resources: &mut RendererResources,
+        current_window_dpi: DpiScaleFactor,
     ) -> Self {
         Self {
             layout_results: (callbacks.layout_fn)(
@@ -837,6 +839,7 @@ impl SolvedLayout {
                 image_cache,
                 system_fonts,
                 renderer_resources,
+                current_window_dpi,
                 all_resource_updates,
                 id_namespace,
                 document_id,
