@@ -372,7 +372,7 @@ pub(crate) fn rebuild_display_list(
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let root_id = DomId { inner: 0 };
-    let cached_display_list = LayoutResult::get_cached_display_list(
+    let mut cached_display_list = LayoutResult::get_cached_display_list(
         &internal.document_id,
         root_id,
         internal.epoch,
@@ -382,6 +382,9 @@ pub(crate) fn rebuild_display_list(
         &internal.renderer_resources,
         image_cache,
     );
+
+    // Scale everything in the display list to the DPI of the window
+    cached_display_list.scale_for_dpi(internal.current_window_state.size.get_hidpi_factor());
 
     println!("wr_translate hidpi factor {}", internal.current_window_state.size.get_hidpi_factor());
     let root_pipeline_id = PipelineId(0, internal.document_id.id);

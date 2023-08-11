@@ -2688,6 +2688,14 @@ impl LogicalRect {
         Self { origin, size }
     }
 
+    #[inline]
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.origin.x *= scale_factor;
+        self.origin.y *= scale_factor;
+        self.size.width *= scale_factor;
+        self.size.height *= scale_factor;
+    }
+
     #[inline(always)]
     pub fn max_x(&self) -> f32 {
         self.origin.x + self.size.width
@@ -2786,6 +2794,13 @@ pub struct LogicalPosition {
     pub y: f32,
 }
 
+impl LogicalPosition {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.x *= scale_factor;
+        self.y *= scale_factor;
+    }
+}
+
 impl SubAssign<LogicalPosition> for LogicalPosition {
     fn sub_assign(&mut self, other: LogicalPosition) {
         self.x -= other.x;
@@ -2873,6 +2888,14 @@ impl Hash for LogicalPosition {
 pub struct LogicalSize {
     pub width: f32,
     pub height: f32,
+}
+
+impl LogicalSize {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) -> Self {
+        self.width *= scale_factor;
+        self.height *= scale_factor;
+        *self
+    }
 }
 
 impl core::fmt::Debug for LogicalSize {

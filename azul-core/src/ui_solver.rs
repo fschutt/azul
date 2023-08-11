@@ -1596,18 +1596,18 @@ pub enum PositionInfo {
     Relative(PositionInfoInner),
 }
 
-/*
-impl ::core::fmt::Debug for PositionInfo {
-    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+
+impl PositionInfo {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
-            PositionInfo::Static(p) => write!(f, "static({}, {})", p.x_offset, p.y_offset),
-            PositionInfo::Fixed(p) => write!(f, "fixed({}, {})", p.x_offset, p.y_offset),
-            PositionInfo::Absolute(p) => write!(f, "absolute({}, {})", p.x_offset, p.y_offset),
-            PositionInfo::Relative(p) => write!(f, "relative({}, {})", p.x_offset, p.y_offset),
+            PositionInfo::Static(p) => p.scale_for_dpi(scale_factor),
+            PositionInfo::Fixed(p) => p.scale_for_dpi(scale_factor),
+            PositionInfo::Absolute(p) => p.scale_for_dpi(scale_factor),
+            PositionInfo::Relative(p) => p.scale_for_dpi(scale_factor),
         }
     }
 }
-*/
+
 impl_option!(
     PositionInfo,
     OptionPositionInfo,
@@ -1632,6 +1632,13 @@ impl PositionInfoInner {
             static_x_offset: 0.0,
             static_y_offset: 0.0,
         }
+    }
+
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.x_offset *= scale_factor;
+        self.y_offset *= scale_factor;
+        self.static_x_offset *= scale_factor;
+        self.static_y_offset *= scale_factor;
     }
 }
 
@@ -2199,6 +2206,11 @@ impl ComputedTransform3D {
             p.x.mul_add(self.m[0][1], p.y.mul_add(self.m[1][1], self.m[3][1]));
 
         Some(LogicalPosition { x: x / w, y: y / w })
+    }
+
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        let scale_matrix = Self::new_scale(scale_factor, scale_factor, 1.0);
+        *self = self.then(&scale_matrix);
     }
 
     /// Computes the sum of two matrices while applying `other` AFTER the current matrix.

@@ -3642,6 +3642,12 @@ pub struct PixelValueNoPercent {
     pub inner: PixelValue,
 }
 
+impl PixelValueNoPercent {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
 impl_option!(
     PixelValueNoPercent,
     OptionPixelValueNoPercent,
@@ -3828,6 +3834,12 @@ impl AngleValue {
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
+}
+
+impl PixelValue {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.number = FloatValue::new(self.number.get() * scale_factor);
+    }
 }
 
 impl fmt::Debug for PixelValue {
@@ -4102,6 +4114,19 @@ pub enum StyleBackgroundSize {
     Cover,
 }
 
+impl StyleBackgroundSize {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            StyleBackgroundSize::ExactSize(a) => {
+                for q in a.iter_mut() {
+                    q.scale_for_dpi(scale_factor);
+                }
+            },
+            _ => { },
+        }
+    }
+}
+
 impl Default for StyleBackgroundSize {
     fn default() -> Self {
         StyleBackgroundSize::Contain
@@ -4131,6 +4156,13 @@ impl_vec_hash!(StyleBackgroundSize, StyleBackgroundSizeVec);
 pub struct StyleBackgroundPosition {
     pub horizontal: BackgroundPositionHorizontal,
     pub vertical: BackgroundPositionVertical,
+}
+
+impl StyleBackgroundPosition {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.horizontal.scale_for_dpi(scale_factor);
+        self.vertical.scale_for_dpi(scale_factor);
+    }
 }
 
 impl_vec!(
@@ -4168,6 +4200,15 @@ pub enum BackgroundPositionHorizontal {
     Exact(PixelValue),
 }
 
+impl BackgroundPositionHorizontal {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            BackgroundPositionHorizontal::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum BackgroundPositionVertical {
@@ -4175,6 +4216,15 @@ pub enum BackgroundPositionVertical {
     Center,
     Bottom,
     Exact(PixelValue),
+}
+
+impl BackgroundPositionVertical {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            BackgroundPositionVertical::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
 }
 
 /// Represents a `background-repeat` attribute
@@ -4290,6 +4340,126 @@ impl_pixel_value!(LayoutBorderLeftWidth);
 impl_pixel_value!(LayoutBorderRightWidth);
 impl_pixel_value!(LayoutBorderBottomWidth);
 
+impl CssPropertyValue<StyleBorderTopLeftRadius> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<StyleBorderTopRightRadius> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<StyleBorderBottomLeftRadius> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<StyleBorderBottomRightRadius> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<LayoutBorderTopWidth> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<LayoutBorderRightWidth> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<LayoutBorderBottomWidth> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl CssPropertyValue<LayoutBorderLeftWidth> {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            CssPropertyValue::Exact(s) => { s.scale_for_dpi(scale_factor); },
+            _ => { },
+        }
+    }
+}
+
+impl StyleBorderTopLeftRadius {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl StyleBorderTopRightRadius {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl StyleBorderBottomLeftRadius {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl StyleBorderBottomRightRadius {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl LayoutBorderTopWidth {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl LayoutBorderRightWidth {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl LayoutBorderBottomWidth {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
+impl LayoutBorderLeftWidth {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.inner.scale_for_dpi(scale_factor);
+    }
+}
+
 /// Represents a `border-top-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -4404,6 +4574,16 @@ pub struct StyleBoxShadow {
     pub blur_radius: PixelValueNoPercent,
     pub spread_radius: PixelValueNoPercent,
     pub clip_mode: BoxShadowClipMode,
+}
+
+impl StyleBoxShadow {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        for s in self.offset.iter_mut() {
+            s.scale_for_dpi(scale_factor);
+        }
+        self.blur_radius.scale_for_dpi(scale_factor);
+        self.spread_radius.scale_for_dpi(scale_factor);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

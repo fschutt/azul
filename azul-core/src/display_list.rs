@@ -36,11 +36,24 @@ pub struct GlyphInstance {
     pub size: LogicalSize,
 }
 
+impl GlyphInstance {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.point.scale_for_dpi(scale_factor);
+        self.size.scale_for_dpi(scale_factor);
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct DisplayListImageMask {
     pub image: ImageKey,
     pub rect: LogicalRect,
     pub repeat: bool,
+}
+
+impl DisplayListImageMask {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.rect.scale_for_dpi(scale_factor);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -59,6 +72,12 @@ impl CachedDisplayList {
             root_size: LogicalSize::zero(),
         }
     }
+
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.root_size.width *= scale_factor;
+        self.root_size.height *= scale_factor;
+        self.root.scale_for_dpi(scale_factor);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -70,6 +89,23 @@ pub enum DisplayListMsg {
 }
 
 impl DisplayListMsg {
+
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            DisplayListMsg::IFrame(_, s, _, dl) => {
+                s.width *= scale_factor;
+                s.height *= scale_factor;
+                dl.scale_for_dpi(scale_factor);
+            },
+            DisplayListMsg::Frame(f) => {
+                f.scale_for_dpi(scale_factor);
+            },
+            DisplayListMsg::ScrollFrame(sf) => {
+                sf.scale_for_dpi(scale_factor);
+            }
+        }
+    }
+
     pub fn get_transform_key(&self) -> Option<&(TransformKey, ComputedTransform3D)> {
         use self::DisplayListMsg::*;
         match self {
@@ -212,6 +248,14 @@ pub struct DisplayListScrollFrame {
     pub frame: DisplayListFrame,
 }
 
+impl DisplayListScrollFrame {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.parent_rect.scale_for_dpi(scale_factor);
+        self.content_rect.scale_for_dpi(scale_factor);
+        self.frame.scale_for_dpi(scale_factor);
+    }
+}
+
 impl fmt::Debug for DisplayListScrollFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "DisplayListScrollFrame {{\r\n")?;
@@ -284,6 +328,22 @@ impl fmt::Debug for DisplayListFrame {
 }
 
 impl DisplayListFrame {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.size.width *= scale_factor;
+        self.size.height *= scale_factor;
+        self.position.scale_for_dpi(scale_factor);
+        self.clip_children.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.clip_mask.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.border_radius.scale_for_dpi(scale_factor);
+        self.transform.as_mut().map(|(k, v)| v.scale_for_dpi(scale_factor));
+        for c in self.content.iter_mut() {
+            c.scale_for_dpi(scale_factor);
+        }
+        for c in self.children.iter_mut() {
+            c.scale_for_dpi(scale_factor);
+        }
+    }
+
     pub fn root(dimensions: LayoutSize, root_origin: LayoutPoint) -> Self {
         use crate::ui_solver::PositionInfoInner;
         DisplayListFrame {
@@ -343,7 +403,15 @@ impl StyleBorderRadius {
             && self.bottom_left.is_none()
             && self.bottom_right.is_none()
     }
+
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.top_left.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.top_right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.bottom_left.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.bottom_right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+    }
 }
+
 impl fmt::Debug for StyleBorderRadius {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "StyleBorderRadius {{")?;
@@ -395,6 +463,14 @@ pub struct StyleBorderWidths {
 }
 
 impl StyleBorderWidths {
+
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        self.top.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.right.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.bottom.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+        self.left.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+    }
+
     #[inline]
     pub fn left_width(&self) -> f32 {
         self.left
@@ -510,6 +586,55 @@ pub enum LayoutRectContent {
     },
 }
 
+impl LayoutRectContent {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        use self::LayoutRectContent::*;
+        match self {
+            Text {
+                glyphs,
+                font_instance_key,
+                color,
+                glyph_options,
+                overflow,
+                text_shadow,
+            } => {
+                for g in glyphs.iter_mut() {
+                    g.scale_for_dpi(scale_factor);
+                }
+                text_shadow.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+            },
+            Background {
+                content,
+                size,
+                offset,
+                repeat,
+            } => {
+                content.scale_for_dpi(scale_factor);
+                size.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+                offset.as_mut().map(|s| s.scale_for_dpi(scale_factor));
+            },
+            Image {
+                size,
+                offset,
+                image_rendering,
+                alpha_type,
+                image_key,
+                background_color,
+            } => {
+                size.scale_for_dpi(scale_factor);
+                offset.scale_for_dpi(scale_factor);
+            },
+            Border {
+                widths,
+                colors,
+                styles,
+            } => {
+                widths.scale_for_dpi(scale_factor);
+            },
+        }
+    }
+}
+
 impl fmt::Debug for LayoutRectContent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::LayoutRectContent::*;
@@ -616,6 +741,15 @@ impl fmt::Debug for RectBackground {
 }
 
 impl RectBackground {
+    pub fn scale_for_dpi(&mut self, scale_factor: f32) {
+        match self {
+            RectBackground::Image((_key, descriptor)) => {
+                descriptor.width = libm::round(descriptor.width as f64 * scale_factor as f64) as usize;
+                descriptor.height = libm::round(descriptor.height as f64 * scale_factor as f64) as usize;
+            }
+            _ => { },
+        }
+    }
     pub fn get_content_size(&self) -> Option<(f32, f32)> {
         match self {
             RectBackground::Image((_key, descriptor)) => {
