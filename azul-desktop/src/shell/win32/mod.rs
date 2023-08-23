@@ -1755,11 +1755,7 @@ impl Window {
         // Get / store DPI
         // NOTE: GetDpiForWindow would be easier, but it's Win10 only
         let dpi = if let Ok(s) = shared_application_data.inner.try_borrow() {
-            println!("ok getting hwnd dpi");
-            println!("{:#?}", s.dpi);
-            let s = unsafe { s.dpi.hwnd_dpi(hwnd) };
-            println!("dpi: {:?}", s);
-            s
+            unsafe { s.dpi.hwnd_dpi(hwnd) }
         } else {
             96
         };
@@ -1892,9 +1888,7 @@ impl Window {
             }
         };
 
-        println!("window physical size {:?}", physical_size);
         options.state.size.dimensions = physical_size.to_logical(dpi_factor);
-        println!("window logical size {:?}", options.state.size.dimensions);
 
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
         let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));

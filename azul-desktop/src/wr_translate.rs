@@ -386,7 +386,6 @@ pub(crate) fn rebuild_display_list(
     // Scale everything in the display list to the DPI of the window
     cached_display_list.scale_for_dpi(internal.current_window_state.size.get_hidpi_factor());
 
-    println!("wr_translate hidpi factor {}", internal.current_window_state.size.get_hidpi_factor());
     let root_pipeline_id = PipelineId(0, internal.document_id.id);
     let display_list = wr_translate_display_list(
         internal.document_id,
@@ -398,7 +397,6 @@ pub(crate) fn rebuild_display_list(
 
     let physical_size = internal.current_window_state.size.get_physical_size();
     let physical_size = WrLayoutSize::new(physical_size.width as f32, physical_size.height as f32);
-    println!("set display list = {:?}", physical_size);
 
     txn.update_resources(
         resources
