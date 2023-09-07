@@ -179,10 +179,6 @@ pub(crate) fn fullhittest_new_webrender(
     // but rather check if the event was a MouseUp event first
     let mut ret = FullHitTest::empty(None);
 
-    // TODO: necessary?
-    cursor_location.x /= hidpi_factor;
-    cursor_location.y /= hidpi_factor;
-
     let wr_document_id = wr_translate_document_id(document_id);
 
     let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
@@ -202,7 +198,10 @@ pub(crate) fn fullhittest_new_webrender(
 
             let wr_result = wr_hittester.hit_test(
                 Some(wr_translate_pipeline_id(pipeline_id)),
-                WrWorldPoint::new(cursor_relative_to_dom.x, cursor_relative_to_dom.y),
+                WrWorldPoint::new(
+                    cursor_relative_to_dom.x * hidpi_factor, 
+                    cursor_relative_to_dom.y * hidpi_factor,
+                ),
             );
 
             let hit_items = wr_result.items.iter()
@@ -212,9 +211,15 @@ pub(crate) fn fullhittest_new_webrender(
                 .iter().find(|q| q.tag_id.inner == i.tag.0)?
                 .node_id.into_crate_internal()?;
 
-                let relative_to_item = LogicalPosition::new(i.point_relative_to_item.x, i.point_relative_to_item.y);
+                let relative_to_item = LogicalPosition::new(
+                    i.point_relative_to_item.x / hidpi_factor, 
+                    i.point_relative_to_item.y / hidpi_factor,
+                );
                 Some((node_id, HitTestItem {
-                    point_in_viewport: LogicalPosition::new(i.point_in_viewport.x, i.point_in_viewport.y),
+                    point_in_viewport: LogicalPosition::new(
+                        i.point_in_viewport.x / hidpi_factor, 
+                        i.point_in_viewport.y / hidpi_factor,
+                    ),
                     point_relative_to_item: relative_to_item,
                     is_iframe_hit: layout_result.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
                         (*iframe_dom_id, relative_to_item)

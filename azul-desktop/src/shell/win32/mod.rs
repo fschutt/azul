@@ -2003,8 +2003,6 @@ impl Window {
         };
         // internal.previous_window_state = Some(internal.current_window_state.clone());
         
-        println!("window physical size 2 {:?}", physical_size);
-        println!("window logical size 2 {:?}", physical_size.to_logical(dpi_factor));
         internal.current_window_state.size.dimensions = physical_size.to_logical(dpi_factor);
 
         let mut txn = WrTransaction::new();
@@ -2968,7 +2966,7 @@ unsafe extern "system" fn WindowProc(
                     let previous_state = current_window.internal.current_window_state.clone();
                     current_window.internal.previous_window_state = Some(previous_state);
                     current_window.internal.current_window_state.mouse_state.cursor_position = pos;
-
+                    
                     // mouse moved, so we need a new hit test
                     let hit_test = crate::wr_translate::fullhittest_new_webrender(
                         &*current_window.hit_tester.resolve(),
