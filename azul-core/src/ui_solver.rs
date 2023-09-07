@@ -2210,7 +2210,7 @@ impl ComputedTransform3D {
 
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         let scale_matrix = Self::new_scale(scale_factor, scale_factor, 1.0);
-        *self = self.then(&scale_matrix);
+        *self = scale_matrix.then(&self);
     }
 
     /// Computes the sum of two matrices while applying `other` AFTER the current matrix.

@@ -3164,6 +3164,7 @@ unsafe extern "system" fn WindowProc(
 
                         let mut hPopupMenu = CreatePopupMenu();
                         let mut callbacks = BTreeMap::new();
+                        let hidpi_factor = current_window.internal.current_window_state.size.get_hidpi_factor();
 
                         WindowsMenuBar::recursive_construct_menu(
                             &mut hPopupMenu,
@@ -3195,8 +3196,8 @@ unsafe extern "system" fn WindowProc(
                         TrackPopupMenu(
                             hPopupMenu,
                             align,
-                            top_left.x + (libm::roundf(pos.x) as i32),
-                            top_left.y + (libm::roundf(pos.y) as i32),
+                            top_left.x + (libm::roundf(pos.x * hidpi_factor) as i32),
+                            top_left.y + (libm::roundf(pos.y * hidpi_factor) as i32),
                             0,
                             hwnd,
                             ptr::null_mut()
@@ -3255,6 +3256,7 @@ unsafe extern "system" fn WindowProc(
 
                         let mut hPopupMenu = CreatePopupMenu();
                         let mut callbacks = BTreeMap::new();
+                        let hidpi_factor = current_window.internal.current_window_state.size.get_hidpi_factor();
 
                         WindowsMenuBar::recursive_construct_menu(
                             &mut hPopupMenu,
@@ -3286,8 +3288,8 @@ unsafe extern "system" fn WindowProc(
                         TrackPopupMenu(
                             hPopupMenu,
                             align,
-                            top_left.x + (libm::roundf(pos.x) as i32),
-                            top_left.y + (libm::roundf(pos.y) as i32),
+                            top_left.x + (libm::roundf(pos.x * hidpi_factor) as i32),
+                            top_left.y + (libm::roundf(pos.y * hidpi_factor) as i32),
                             0,
                             hwnd,
                             ptr::null_mut()
