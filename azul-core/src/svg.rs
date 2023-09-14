@@ -333,9 +333,50 @@ pub enum SvgNode {
     /// Multiple multipolygons, merged to one CPU buf for efficient drawing
     MultiPolygonCollection(SvgMultiPolygonVec),
     MultiPolygon(SvgMultiPolygon),
+    MultiShape(SvgSimpleNodeVec),
     Path(SvgPath),
     Circle(SvgCircle),
     Rect(SvgRect),
+}
+
+/// One `SvgSimpleNode` is either a path, a rect or a circle
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
+#[repr(C, u8)]
+pub enum SvgSimpleNode {
+    Path(SvgPath),
+    Circle(SvgCircle),
+    Rect(SvgRect),
+}
+
+impl_vec!(
+    SvgSimpleNode,
+    SvgSimpleNodeVec,
+    SvgSimpleNodeDestructor
+);
+impl_vec_debug!(SvgSimpleNode, SvgSimpleNodeVec);
+impl_vec_clone!(
+    SvgSimpleNode,
+    SvgSimpleNodeVec,
+    SvgSimpleNodeDestructor
+);
+impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
+impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
+
+impl SvgSimpleNode {
+    pub fn get_bounds(&self) -> SvgRect {
+        match self {
+            SvgSimpleNode::Path(a) => a.get_bounds(),
+            SvgSimpleNode::Circle(a) => a.get_bounds(),
+            SvgSimpleNode::Rect(a) => a.clone(),
+        }
+    }
+    pub fn is_closed(&self) -> bool {
+        match self {
+            SvgSimpleNode::Path(a) => a.is_closed(),
+            SvgSimpleNode::Circle(a) => true,
+            SvgSimpleNode::Rect(a) => true,
+        }
+    }
 }
 
 impl SvgNode {
@@ -354,6 +395,18 @@ impl SvgNode {
                 first_mp_bounds
             }
             SvgNode::MultiPolygon(a) => a.get_bounds(),
+            SvgNode::MultiShape(a) => {
+                let mut first_mp_bounds = match a.get(0) {
+                    Some(s) => s.get_bounds(),
+                    None => return SvgRect::default(),
+                };
+                for mp in a.iter().skip(1) {
+                    let mp_bounds = mp.get_bounds();
+                    first_mp_bounds.union_with(&mp_bounds);
+                }
+
+                first_mp_bounds
+            },
             SvgNode::Path(a) => a.get_bounds(),
             SvgNode::Circle(a) => a.get_bounds(),
             SvgNode::Rect(a) => a.clone(),
@@ -374,6 +427,15 @@ impl SvgNode {
             }
             SvgNode::MultiPolygon(a) => {
                 for p in a.rings.as_ref().iter() {
+                    if !p.is_closed() {
+                        return false;
+                    }
+                }
+
+                true
+            },
+            SvgNode::MultiShape(a) => {
+                for p in a.as_ref().iter() {
                     if !p.is_closed() {
                         return false;
                     }
