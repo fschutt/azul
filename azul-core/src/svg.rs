@@ -346,6 +346,8 @@ pub enum SvgSimpleNode {
     Path(SvgPath),
     Circle(SvgCircle),
     Rect(SvgRect),
+    CircleHole(SvgCircle),
+    RectHole(SvgRect),
 }
 
 impl_vec!(
@@ -368,6 +370,8 @@ impl SvgSimpleNode {
             SvgSimpleNode::Path(a) => a.get_bounds(),
             SvgSimpleNode::Circle(a) => a.get_bounds(),
             SvgSimpleNode::Rect(a) => a.clone(),
+            SvgSimpleNode::CircleHole(a) => a.get_bounds(),
+            SvgSimpleNode::RectHole(a) => a.clone(),
         }
     }
     pub fn is_closed(&self) -> bool {
@@ -375,6 +379,8 @@ impl SvgSimpleNode {
             SvgSimpleNode::Path(a) => a.is_closed(),
             SvgSimpleNode::Circle(a) => true,
             SvgSimpleNode::Rect(a) => true,
+            SvgSimpleNode::CircleHole(a) => true,
+            SvgSimpleNode::RectHole(a) => true,
         }
     }
 }

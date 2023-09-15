@@ -2,7 +2,7 @@ use core::fmt;
 use azul_core::{
     app_resources::{RawImage, RawImageFormat},
     gl::{Texture, GlContextPtr},
-    window::PhysicalSizeU32,
+    window::PhysicalSizeU32, svg::SvgSimpleNode,
 };
 use azul_css::{
     OptionI16, OptionU16, U8Vec, OptionAzString,
@@ -129,6 +129,68 @@ fn svg_multipolygon_to_lyon_path(polygon: &SvgMultiPolygon) -> Path {
     builder.build()
 }
 
+
+#[cfg(feature = "svg")]
+fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
+    use lyon::path::{traits::PathBuilder, Winding};
+
+    let mut builder = Path::builder();
+
+    for p in polygon.iter() {
+        match p {
+            SvgSimpleNode::Path(p) => {
+
+                let items = p.items.as_ref();
+                if p.items.as_ref().is_empty() {
+                    continue;
+                }
+        
+                let start_item = p.items.as_ref()[0];
+                let first_point = Point2D::new(start_item.get_start().x, start_item.get_start().y);
+        
+                builder.begin(first_point);
+        
+                for q in p.items.as_ref().iter().rev() /* NOTE: REVERSE ITERATOR */ {
+                    match q {
+                        SvgPathElement::Line(l) => {
+                            builder.line_to(Point2D::new(l.end.x, l.end.y));
+                        },
+                        SvgPathElement::QuadraticCurve(qc) => {
+                            builder.quadratic_bezier_to(
+                                Point2D::new(qc.ctrl.x, qc.ctrl.y),
+                                Point2D::new(qc.end.x, qc.end.y)
+                            );
+                        },
+                        SvgPathElement::CubicCurve(cc) => {
+                            builder.cubic_bezier_to(
+                                Point2D::new(cc.ctrl_1.x, cc.ctrl_1.y),
+                                Point2D::new(cc.ctrl_2.x, cc.ctrl_2.y),
+                                Point2D::new(cc.end.x, cc.end.y)
+                            );
+                        },
+                    }
+                }
+
+                builder.end(p.is_closed());
+            },
+            SvgSimpleNode::Circle(c) => {
+                builder.add_circle(Point::new (c.center_x, c.center_y), c.radius, Winding::Positive);
+            },
+            SvgSimpleNode::CircleHole(c) => {
+                builder.add_circle(Point::new (c.center_x, c.center_y), c.radius, Winding::Negative);
+            },
+            SvgSimpleNode::Rect(c) => {
+                builder.add_rectangle(&Rect::new(Point::new(c.x, c.y), Size2D::new(c.width, c.height)), Winding::Positive);
+            },
+            SvgSimpleNode::RectHole(c) => {
+                builder.add_rectangle(&Rect::new(Point::new(c.x, c.y), Size2D::new(c.width, c.height)), Winding::Negative);
+            },
+        }
+    }
+
+    builder.build()
+}
+
 #[cfg(feature = "svg")]
 fn svg_path_to_lyon_path_events(path: &SvgPath) -> Path {
 
@@ -207,6 +269,34 @@ pub fn tessellate_multi_polygon_fill(polygon: &SvgMultiPolygon, fill_style: SvgF
     TessellatedSvgNode::default()
 }
 
+#[cfg(feature = "svg")]
+pub fn tessellate_multi_shape_fill(ms: &[SvgSimpleNode], fill_style: SvgFillStyle) -> TessellatedSvgNode {
+    let polygon = svg_multi_shape_to_lyon_path(ms);
+
+    let mut geometry = VertexBuffers::new();
+    let mut tessellator = FillTessellator::new();
+
+    let tess_result = tessellator.tessellate_path(
+        &polygon,
+        &FillOptions::tolerance(fill_style.tolerance),
+        &mut BuffersBuilder::new(&mut geometry, |vertex: FillVertex| {
+            let xy_arr = vertex.position();
+            SvgVertex { x: xy_arr.x, y: xy_arr.y }
+        })
+    );
+
+    if let Err(_) = tess_result {
+        TessellatedSvgNode::empty()
+    } else {
+        vertex_buffers_to_tessellated_cpu_node(geometry)
+    }
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn tessellate_multi_shape_fill(ms: &[SvgMultiPolygon], fill_style: SvgFillStyle) -> TessellatedSvgNode {
+    TessellatedSvgNode::default()
+}
+
 pub fn svg_node_contains_point(node: &SvgNode, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
     match node {
         SvgNode::MultiPolygonCollection(a) => a.as_ref().iter().any(|e| polygon_contains_point(e, point, fill_rule, tolerance)),
@@ -217,6 +307,18 @@ pub fn svg_node_contains_point(node: &SvgNode, point: SvgPoint, fill_rule: SvgFi
         },
         SvgNode::Circle(a) => a.contains_point(point.x, point.y),
         SvgNode::Rect(a) => a.contains_point(point.x, point.y),
+        SvgNode::MultiShape(a) => {
+            a.as_ref().iter().any(|e| match e {
+                SvgSimpleNode::Path(a) => {
+                    if !a.is_closed() { return false; }
+                    path_contains_point(a, point, fill_rule, tolerance)
+                },
+                SvgSimpleNode::Circle(a) => a.contains_point(point.x, point.y),
+                SvgSimpleNode::Rect(a) => a.contains_point(point.x, point.y),
+                SvgSimpleNode::CircleHole(a) => !a.contains_point(point.x, point.y),
+                SvgSimpleNode::RectHole(a) => !a.contains_point(point.x, point.y),
+            })
+        }
     }
 }
 
@@ -256,6 +358,36 @@ pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, fill_r
 #[cfg(not(feature = "svg"))]
 pub fn polygon_contains_point(polygon: &SvgMultiPolygon, point: SvgPoint, fill_rule: SvgFillRule, tolerance: f32) -> bool {
     false
+}
+
+#[cfg(feature = "svg")]
+pub fn tessellate_multi_shape_stroke(ms: &[SvgSimpleNode], stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+
+    let stroke_options: StrokeOptions = translate_svg_stroke_style(stroke_style);
+    let polygon = svg_multi_shape_to_lyon_path(ms);
+
+    let mut stroke_geometry = VertexBuffers::new();
+    let mut stroke_tess = StrokeTessellator::new();
+
+    let tess_result = stroke_tess.tessellate_path(
+        &polygon,
+        &stroke_options,
+        &mut BuffersBuilder::new(&mut stroke_geometry, |vertex: StrokeVertex| {
+            let xy_arr = vertex.position();
+            SvgVertex { x: xy_arr.x, y: xy_arr.y }
+        }),
+    );
+
+    if let Err(_) = tess_result {
+        TessellatedSvgNode::empty()
+    } else {
+        vertex_buffers_to_tessellated_cpu_node(stroke_geometry)
+    }
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn tessellate_multi_shape_stroke(polygon: &[SvgSimpleNode], stroke_style: SvgStrokeStyle) -> TessellatedSvgNode {
+    TessellatedSvgNode::default()
 }
 
 #[cfg(feature = "svg")]
@@ -702,6 +834,7 @@ pub fn tessellate_node_fill(node: &SvgNode, fs: SvgFillStyle) -> TessellatedSvgN
         SvgNode::Path(ref p) => tessellate_path_fill(p, fs),
         SvgNode::Circle(ref c) => tessellate_circle_fill(c, fs),
         SvgNode::Rect(ref r) => tessellate_rect_fill(r, fs),
+        SvgNode::MultiShape(ref r) => tessellate_multi_shape_fill(r.as_ref(), fs),
     }
 }
 
@@ -731,6 +864,7 @@ pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> Tessellated
         SvgNode::Path(ref p) => tessellate_path_stroke(p, ss),
         SvgNode::Circle(ref c) => tessellate_circle_stroke(c, ss),
         SvgNode::Rect(ref r) => tessellate_rect_stroke(r, ss),
+        SvgNode::MultiShape(ms) => tessellate_multi_shape_stroke(ms.as_ref(), ss),
     }
 }
 
@@ -989,6 +1123,30 @@ pub fn render_node_clipmask_cpu(
             SvgNode::Rect(r) => {
                 // TODO: rounded edges!
                 Some(SkPathBuilder::from_rect(SkRect::from_xywh(r.x, r.y, r.width, r.height)?))
+            },
+            // TODO: test?
+            SvgNode::MultiShape(ms) => {
+                let mut path_builder = SkPathBuilder::new();
+                for p in ms.as_ref() {
+                    match p {
+                        SvgSimpleNode::Path(p) => {
+                            build_path!(path_builder, p);
+                        },
+                        SvgSimpleNode::Rect(r) => {
+                            path_builder.push_rect(r.x, r.y, r.width, r.height);
+                        },
+                        SvgSimpleNode::Circle(c) => {
+                            path_builder.push_circle(c.center_x, c.center_y, c.radius);
+                        },
+                        SvgSimpleNode::CircleHole(c) => {
+                            path_builder.push_circle(c.center_x, c.center_y, c.radius);
+                        },
+                        SvgSimpleNode::RectHole(r) => {
+                            path_builder.push_rect(r.x, r.y, r.width, r.height);
+                        },
+                    }
+                }
+                path_builder.finish()
             }
         }
     }
