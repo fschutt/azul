@@ -376,14 +376,13 @@
     impl_vec_clone!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor);
     impl_vec!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor, az_list_view_vec_destructor, AzListViewRowVec_delete);
     impl_vec_clone!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor);
-
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
-
     impl_vec!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor, az_menu_item_vec_destructor, AzMenuItemVec_delete);
     impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
+    impl_vec!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor, az_svg_simple_node_vec_destructor, AzSvgSimpleNodeVec_delete);
+    impl_vec_clone!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor);
 
-    
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
             let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();

@@ -3197,6 +3197,17 @@ pub enum AzSvgMultiPolygonVecDestructor {
 /// `AzSvgMultiPolygonVecDestructorType` struct
 pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
 
+/// Re-export of rust-allocated (stack based) `SvgSimpleNodeVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzSvgSimpleNodeVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzSvgSimpleNodeVecDestructorType),
+}
+
+/// `AzSvgSimpleNodeVecDestructorType` struct
+pub type AzSvgSimpleNodeVecDestructorType = extern "C" fn(&mut AzSvgSimpleNodeVec);
+
 /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
 #[repr(C, u8)]
 pub enum AzSvgPathVecDestructor {
@@ -7489,6 +7500,16 @@ pub struct AzSvgMultiPolygon {
     pub rings: AzSvgPathVec,
 }
 
+/// Re-export of rust-allocated (stack based) `SvgSimpleNode` struct
+#[repr(C, u8)]
+pub enum AzSvgSimpleNode {
+    Path(AzSvgPath),
+    Circle(AzSvgCircle),
+    Rect(AzSvgRect),
+    CircleHole(AzSvgCircle),
+    RectHole(AzSvgRect),
+}
+
 /// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
 #[repr(C)]
 pub struct AzTessellatedGPUSvgNode {
@@ -7556,6 +7577,15 @@ pub struct AzSvgMultiPolygonVec {
     pub len: usize,
     pub cap: usize,
     pub destructor: AzSvgMultiPolygonVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`
+#[repr(C)]
+pub struct AzSvgSimpleNodeVec {
+    pub(crate) ptr: *const AzSvgSimpleNodeEnumWrapper,
+    pub len: usize,
+    pub cap: usize,
+    pub destructor: AzSvgSimpleNodeVecDestructorEnumWrapper,
 }
 
 /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
@@ -7708,6 +7738,7 @@ pub struct AzNode {
 pub enum AzSvgNode {
     MultiPolygonCollection(AzSvgMultiPolygonVec),
     MultiPolygon(AzSvgMultiPolygon),
+    MultiShape(AzSvgSimpleNodeVec),
     Path(AzSvgPath),
     Circle(AzSvgCircle),
     Rect(AzSvgRect),
@@ -8701,6 +8732,12 @@ pub struct AzCssPropertyVecDestructorEnumWrapper {
 #[repr(transparent)]
 pub struct AzSvgMultiPolygonVecDestructorEnumWrapper {
     pub inner: AzSvgMultiPolygonVecDestructor,
+}
+
+/// `AzSvgSimpleNodeVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzSvgSimpleNodeVecDestructorEnumWrapper {
+    pub inner: AzSvgSimpleNodeVecDestructor,
 }
 
 /// `AzSvgPathVecDestructorEnumWrapper` struct
@@ -10053,6 +10090,12 @@ pub struct AzCssPropertySourceEnumWrapper {
     pub inner: AzCssPropertySource,
 }
 
+/// `AzSvgSimpleNodeEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzSvgSimpleNodeEnumWrapper {
+    pub inner: AzSvgSimpleNode,
+}
+
 /// `AzOptionCssPropertyEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionCssPropertyEnumWrapper {
@@ -10249,6 +10292,7 @@ unsafe impl Send for AzNodeTypeFieldVec { }
 unsafe impl Send for AzInlineLineVec { }
 unsafe impl Send for AzCssPropertyVec { }
 unsafe impl Send for AzSvgMultiPolygonVec { }
+unsafe impl Send for AzSvgSimpleNodeVec { }
 unsafe impl Send for AzCallbackInfo { }
 unsafe impl Send for AzTimerCallbackInfo { }
 unsafe impl Send for AzNodeDataInlineCssPropertyVec { }
@@ -10495,6 +10539,7 @@ impl Clone for AzStyleBackgroundSizeVecDestructorEnumWrapper { fn clone(&self) -
 impl Clone for AzStyleTransformVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::CssPropertyVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygonVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygonVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgSimpleNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgSimpleNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexAttributeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexAttributeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10980,6 +11025,7 @@ impl Clone for AzVertexLayout { fn clone(&self) -> Self { let r: &azul_impl::gl:
 impl Clone for AzVertexArrayObject { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexArrayObject = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVertexBuffer { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexBuffer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygon { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgSimpleNodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgSimpleNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedGPUSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedGPUSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNode { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10988,6 +11034,7 @@ impl Clone for AzNodeTypeFieldVec { fn clone(&self) -> Self { let r: &crate::wid
 impl Clone for AzInlineLineVec { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLineVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzCssPropertyVec { fn clone(&self) -> Self { let r: &azul_impl::css::CssPropertyVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygonVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygonVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgSimpleNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgSimpleNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionCssPropertyEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionCssProperty = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlTextError { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlTextError = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzPlatformSpecificOptions { fn clone(&self) -> Self { let r: &azul_core::window::PlatformSpecificOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11118,6 +11165,7 @@ impl Drop for AzNodeTypeFieldVec { fn drop(&mut self) { crate::AzNodeTypeFieldVe
 impl Drop for AzInlineLineVec { fn drop(&mut self) { crate::AzInlineLineVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssPropertyVec { fn drop(&mut self) { crate::AzCssPropertyVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzSvgMultiPolygonVec { fn drop(&mut self) { crate::AzSvgMultiPolygonVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzSvgSimpleNodeVec { fn drop(&mut self) { crate::AzSvgSimpleNodeVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeDataInlineCssPropertyVec { fn drop(&mut self) { crate::AzNodeDataInlineCssPropertyVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzNodeIdNodeMapVec { fn drop(&mut self) { crate::AzNodeIdNodeMapVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzCssDeclarationVec { fn drop(&mut self) { crate::AzCssDeclarationVec_delete(unsafe { mem::transmute(self) }); } }
@@ -31211,6 +31259,8 @@ impl AzSvgNodeEnumWrapper {
     #[staticmethod]
     fn MultiPolygon(v: AzSvgMultiPolygon) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::MultiPolygon(v) } }
     #[staticmethod]
+    fn MultiShape(v: AzSvgSimpleNodeVec) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::MultiShape(v) } }
+    #[staticmethod]
     fn Path(v: AzSvgPath) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Path(v) } }
     #[staticmethod]
     fn Circle(v: AzSvgCircle) -> AzSvgNodeEnumWrapper { AzSvgNodeEnumWrapper { inner: AzSvgNode::Circle(v) } }
@@ -31225,6 +31275,7 @@ impl AzSvgNodeEnumWrapper {
         match &self.inner {
             AzSvgNode::MultiPolygonCollection(v) => Ok(vec!["MultiPolygonCollection".into_py(py), v.clone().into_py(py)]),
             AzSvgNode::MultiPolygon(v) => Ok(vec!["MultiPolygon".into_py(py), v.clone().into_py(py)]),
+            AzSvgNode::MultiShape(v) => Ok(vec!["MultiShape".into_py(py), v.clone().into_py(py)]),
             AzSvgNode::Path(v) => Ok(vec!["Path".into_py(py), v.clone().into_py(py)]),
             AzSvgNode::Circle(v) => Ok(vec!["Circle".into_py(py), v.clone().into_py(py)]),
             AzSvgNode::Rect(v) => Ok(vec!["Rect".into_py(py), v.clone().into_py(py)]),
@@ -31239,6 +31290,44 @@ impl PyObjectProtocol for AzSvgNodeEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::SvgNode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzSvgSimpleNodeEnumWrapper {
+    #[staticmethod]
+    fn Path(v: AzSvgPath) -> AzSvgSimpleNodeEnumWrapper { AzSvgSimpleNodeEnumWrapper { inner: AzSvgSimpleNode::Path(v) } }
+    #[staticmethod]
+    fn Circle(v: AzSvgCircle) -> AzSvgSimpleNodeEnumWrapper { AzSvgSimpleNodeEnumWrapper { inner: AzSvgSimpleNode::Circle(v) } }
+    #[staticmethod]
+    fn Rect(v: AzSvgRect) -> AzSvgSimpleNodeEnumWrapper { AzSvgSimpleNodeEnumWrapper { inner: AzSvgSimpleNode::Rect(v) } }
+    #[staticmethod]
+    fn CircleHole(v: AzSvgCircle) -> AzSvgSimpleNodeEnumWrapper { AzSvgSimpleNodeEnumWrapper { inner: AzSvgSimpleNode::CircleHole(v) } }
+    #[staticmethod]
+    fn RectHole(v: AzSvgRect) -> AzSvgSimpleNodeEnumWrapper { AzSvgSimpleNodeEnumWrapper { inner: AzSvgSimpleNode::RectHole(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgSimpleNode;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgSimpleNode::Path(v) => Ok(vec!["Path".into_py(py), v.clone().into_py(py)]),
+            AzSvgSimpleNode::Circle(v) => Ok(vec!["Circle".into_py(py), v.clone().into_py(py)]),
+            AzSvgSimpleNode::Rect(v) => Ok(vec!["Rect".into_py(py), v.clone().into_py(py)]),
+            AzSvgSimpleNode::CircleHole(v) => Ok(vec!["CircleHole".into_py(py), v.clone().into_py(py)]),
+            AzSvgSimpleNode::RectHole(v) => Ok(vec!["RectHole".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzSvgSimpleNodeEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgSimpleNode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgSimpleNode = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -34251,6 +34340,31 @@ impl PyObjectProtocol for AzSvgMultiPolygonVec {
 }
 
 #[pymethods]
+impl AzSvgSimpleNodeVec {
+    /// Creates a new `SvgSimpleNodeEnumWrapperVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzSvgSimpleNodeEnumWrapper>) -> Self {
+        let m: azul_impl::svg::SvgSimpleNodeVec = azul_impl::svg::SvgSimpleNodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the SvgSimpleNodeEnumWrapper as a Python array
+    fn array(&self) -> Vec<AzSvgSimpleNodeEnumWrapper> {
+        let m: &azul_impl::svg::SvgSimpleNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzSvgSimpleNodeVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgSimpleNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgSimpleNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzSvgPathVec {
     /// Creates a new `SvgPathVec` from a Python array
     #[new]
@@ -36006,6 +36120,36 @@ impl PyObjectProtocol for AzSvgMultiPolygonVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::SvgMultiPolygonVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzSvgSimpleNodeVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzSvgSimpleNodeVecDestructorEnumWrapper { AzSvgSimpleNodeVecDestructorEnumWrapper { inner: AzSvgSimpleNodeVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzSvgSimpleNodeVecDestructorEnumWrapper { AzSvgSimpleNodeVecDestructorEnumWrapper { inner: AzSvgSimpleNodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzSvgSimpleNodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzSvgSimpleNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzSvgSimpleNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzSvgSimpleNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzSvgSimpleNodeVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgSimpleNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::SvgSimpleNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -40613,6 +40757,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzSvgXmlNode>()?;
     m.add_class::<AzSvgMultiPolygon>()?;
     m.add_class::<AzSvgNodeEnumWrapper>()?;
+    m.add_class::<AzSvgSimpleNodeEnumWrapper>()?;
     m.add_class::<AzSvgStyledNode>()?;
     m.add_class::<AzSvgCircle>()?;
     m.add_class::<AzSvgPath>()?;
@@ -40729,6 +40874,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzStyleTransformVec>()?;
     m.add_class::<AzCssPropertyVec>()?;
     m.add_class::<AzSvgMultiPolygonVec>()?;
+    m.add_class::<AzSvgSimpleNodeVec>()?;
     m.add_class::<AzSvgPathVec>()?;
     m.add_class::<AzVertexAttributeVec>()?;
     m.add_class::<AzSvgPathElementVec>()?;
@@ -40793,6 +40939,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzStyleTransformVecDestructorEnumWrapper>()?;
     m.add_class::<AzCssPropertyVecDestructorEnumWrapper>()?;
     m.add_class::<AzSvgMultiPolygonVecDestructorEnumWrapper>()?;
+    m.add_class::<AzSvgSimpleNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzSvgPathVecDestructorEnumWrapper>()?;
     m.add_class::<AzVertexAttributeVecDestructorEnumWrapper>()?;
     m.add_class::<AzSvgPathElementVecDestructorEnumWrapper>()?;

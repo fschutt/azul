@@ -3910,6 +3910,19 @@ mod dll {
         /// `AzSvgMultiPolygonVecDestructorType` struct
         pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
 
+        /// Re-export of rust-allocated (stack based) `SvgSimpleNodeVecDestructor` struct
+        #[repr(C, u8)]
+        #[derive(Clone)]
+        #[derive(Copy)]
+        pub enum AzSvgSimpleNodeVecDestructor {
+            DefaultRust,
+            NoDestructor,
+            External(AzSvgSimpleNodeVecDestructorType),
+        }
+
+        /// `AzSvgSimpleNodeVecDestructorType` struct
+        pub type AzSvgSimpleNodeVecDestructorType = extern "C" fn(&mut AzSvgSimpleNodeVec);
+
         /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
         #[repr(C, u8)]
         #[derive(Clone)]
@@ -9697,6 +9710,19 @@ mod dll {
             pub rings: AzSvgPathVec,
         }
 
+        /// Re-export of rust-allocated (stack based) `SvgSimpleNode` struct
+        #[repr(C, u8)]
+        #[derive(Debug)]
+        #[derive(Clone)]
+        #[derive(PartialEq, PartialOrd)]
+        pub enum AzSvgSimpleNode {
+            Path(AzSvgPath),
+            Circle(AzSvgCircle),
+            Rect(AzSvgRect),
+            CircleHole(AzSvgCircle),
+            RectHole(AzSvgRect),
+        }
+
         /// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
         #[repr(C)]
         #[derive(Debug)]
@@ -9770,6 +9796,15 @@ mod dll {
             pub len: usize,
             pub cap: usize,
             pub destructor: AzSvgMultiPolygonVecDestructor,
+        }
+
+        /// Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`
+        #[repr(C)]
+        pub struct AzSvgSimpleNodeVec {
+            pub(crate) ptr: *const AzSvgSimpleNode,
+            pub len: usize,
+            pub cap: usize,
+            pub destructor: AzSvgSimpleNodeVecDestructor,
         }
 
         /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
@@ -9961,6 +9996,7 @@ mod dll {
         pub enum AzSvgNode {
             MultiPolygonCollection(AzSvgMultiPolygonVec),
             MultiPolygon(AzSvgMultiPolygon),
+            MultiShape(AzSvgSimpleNodeVec),
             Path(AzSvgPath),
             Circle(AzSvgCircle),
             Rect(AzSvgRect),
@@ -11194,6 +11230,7 @@ mod dll {
         pub(crate) fn AzStyleTransformVec_delete(object: &mut AzStyleTransformVec) { unsafe { transmute(azul::AzStyleTransformVec_delete(transmute(object))) } }
         pub(crate) fn AzCssPropertyVec_delete(object: &mut AzCssPropertyVec) { unsafe { transmute(azul::AzCssPropertyVec_delete(transmute(object))) } }
         pub(crate) fn AzSvgMultiPolygonVec_delete(object: &mut AzSvgMultiPolygonVec) { unsafe { transmute(azul::AzSvgMultiPolygonVec_delete(transmute(object))) } }
+        pub(crate) fn AzSvgSimpleNodeVec_delete(object: &mut AzSvgSimpleNodeVec) { unsafe { transmute(azul::AzSvgSimpleNodeVec_delete(transmute(object))) } }
         pub(crate) fn AzSvgPathVec_delete(object: &mut AzSvgPathVec) { unsafe { transmute(azul::AzSvgPathVec_delete(transmute(object))) } }
         pub(crate) fn AzVertexAttributeVec_delete(object: &mut AzVertexAttributeVec) { unsafe { transmute(azul::AzVertexAttributeVec_delete(transmute(object))) } }
         pub(crate) fn AzSvgPathElementVec_delete(object: &mut AzSvgPathElementVec) { unsafe { transmute(azul::AzSvgPathElementVec_delete(transmute(object))) } }
@@ -12021,6 +12058,7 @@ mod dll {
             pub(crate) fn AzStyleTransformVec_delete(_:  &mut AzStyleTransformVec);
             pub(crate) fn AzCssPropertyVec_delete(_:  &mut AzCssPropertyVec);
             pub(crate) fn AzSvgMultiPolygonVec_delete(_:  &mut AzSvgMultiPolygonVec);
+            pub(crate) fn AzSvgSimpleNodeVec_delete(_:  &mut AzSvgSimpleNodeVec);
             pub(crate) fn AzSvgPathVec_delete(_:  &mut AzSvgPathVec);
             pub(crate) fn AzVertexAttributeVec_delete(_:  &mut AzVertexAttributeVec);
             pub(crate) fn AzSvgPathElementVec_delete(_:  &mut AzSvgPathElementVec);
@@ -17872,6 +17910,9 @@ pub mod svg {
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgNode_getBounds(self) } }
     }
 
+    /// `SvgSimpleNode` struct
+    
+    #[doc(inline)] pub use crate::dll::AzSvgSimpleNode as SvgSimpleNode;
     /// `SvgStyledNode` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
@@ -18971,14 +19012,13 @@ pub mod vec {
     impl_vec_clone!(AzStyleFilter, AzStyleFilterVec, AzStyleFilterVecDestructor);
     impl_vec!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor, az_list_view_vec_destructor, AzListViewRowVec_delete);
     impl_vec_clone!(AzListViewRow, AzListViewRowVec, AzListViewRowVecDestructor);
-
     impl_vec!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor, az_accessibility_state_vec_destructor, AzAccessibilityStateVec_delete);
     impl_vec_clone!(AzAccessibilityState,  AzAccessibilityStateVec,  AzAccessibilityStateVecDestructor);
-
     impl_vec!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor, az_menu_item_vec_destructor, AzMenuItemVec_delete);
     impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
+    impl_vec!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor, az_svg_simple_node_vec_destructor, AzSvgSimpleNodeVec_delete);
+    impl_vec_clone!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor);
 
-    
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
             let vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
@@ -19112,6 +19152,9 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
     
     #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
+    /// Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`
+    
+    #[doc(inline)] pub use crate::dll::AzSvgSimpleNodeVec as SvgSimpleNodeVec;
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
     
     #[doc(inline)] pub use crate::dll::AzSvgPathVec as SvgPathVec;
@@ -19414,6 +19457,12 @@ pub mod vec {
     /// `SvgMultiPolygonVecDestructorType` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVecDestructorType as SvgMultiPolygonVecDestructorType;
+    /// `SvgSimpleNodeVecDestructor` struct
+    
+    #[doc(inline)] pub use crate::dll::AzSvgSimpleNodeVecDestructor as SvgSimpleNodeVecDestructor;
+    /// `SvgSimpleNodeVecDestructorType` struct
+    
+    #[doc(inline)] pub use crate::dll::AzSvgSimpleNodeVecDestructorType as SvgSimpleNodeVecDestructorType;
     /// `SvgPathVecDestructor` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgPathVecDestructor as SvgPathVecDestructor;

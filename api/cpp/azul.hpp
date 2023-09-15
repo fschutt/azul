@@ -231,6 +231,9 @@ namespace dll {
     struct SvgMultiPolygonVec;
     using SvgMultiPolygonVecDestructorType = void(*)(SvgMultiPolygonVec* restrict);
     
+    struct SvgSimpleNodeVec;
+    using SvgSimpleNodeVecDestructorType = void(*)(SvgSimpleNodeVec* restrict);
+    
     struct SvgPathVec;
     using SvgPathVecDestructorType = void(*)(SvgPathVec* restrict);
     
@@ -2798,6 +2801,22 @@ namespace dll {
         SvgMultiPolygonVecDestructorVariant_DefaultRust DefaultRust;
         SvgMultiPolygonVecDestructorVariant_NoDestructor NoDestructor;
         SvgMultiPolygonVecDestructorVariant_External External;
+    };
+    
+    
+    enum class SvgSimpleNodeVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct SvgSimpleNodeVecDestructorVariant_DefaultRust { SvgSimpleNodeVecDestructorTag tag; };
+    struct SvgSimpleNodeVecDestructorVariant_NoDestructor { SvgSimpleNodeVecDestructorTag tag; };
+    struct SvgSimpleNodeVecDestructorVariant_External { SvgSimpleNodeVecDestructorTag tag; SvgSimpleNodeVecDestructorType payload; };
+    union SvgSimpleNodeVecDestructor {
+        SvgSimpleNodeVecDestructorVariant_DefaultRust DefaultRust;
+        SvgSimpleNodeVecDestructorVariant_NoDestructor NoDestructor;
+        SvgSimpleNodeVecDestructorVariant_External External;
     };
     
     
@@ -9367,6 +9386,28 @@ namespace dll {
         SvgMultiPolygon() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    enum class SvgSimpleNodeTag {
+       Path,
+       Circle,
+       Rect,
+       CircleHole,
+       RectHole,
+    };
+    
+    struct SvgSimpleNodeVariant_Path { SvgSimpleNodeTag tag; SvgPath payload; };
+    struct SvgSimpleNodeVariant_Circle { SvgSimpleNodeTag tag; SvgCircle payload; };
+    struct SvgSimpleNodeVariant_Rect { SvgSimpleNodeTag tag; SvgRect payload; };
+    struct SvgSimpleNodeVariant_CircleHole { SvgSimpleNodeTag tag; SvgCircle payload; };
+    struct SvgSimpleNodeVariant_RectHole { SvgSimpleNodeTag tag; SvgRect payload; };
+    union SvgSimpleNode {
+        SvgSimpleNodeVariant_Path Path;
+        SvgSimpleNodeVariant_Circle Circle;
+        SvgSimpleNodeVariant_Rect Rect;
+        SvgSimpleNodeVariant_CircleHole CircleHole;
+        SvgSimpleNodeVariant_RectHole RectHole;
+    };
+    
+    
     struct TessellatedGPUSvgNode {
         VertexBuffer vertex_index_buffer;
         TessellatedGPUSvgNode& operator=(const TessellatedGPUSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
@@ -9442,6 +9483,16 @@ namespace dll {
         SvgMultiPolygonVec& operator=(const SvgMultiPolygonVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         SvgMultiPolygonVec(const SvgMultiPolygonVec&) = delete; /* disable copy constructor, use explicit .clone() */
         SvgMultiPolygonVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct SvgSimpleNodeVec {
+        SvgSimpleNode* ptr;
+        size_t len;
+        size_t cap;
+        SvgSimpleNodeVecDestructor destructor;
+        SvgSimpleNodeVec& operator=(const SvgSimpleNodeVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        SvgSimpleNodeVec(const SvgSimpleNodeVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        SvgSimpleNodeVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     enum class OptionCssPropertyTag {
@@ -9618,6 +9669,7 @@ namespace dll {
     enum class SvgNodeTag {
        MultiPolygonCollection,
        MultiPolygon,
+       MultiShape,
        Path,
        Circle,
        Rect,
@@ -9625,12 +9677,14 @@ namespace dll {
     
     struct SvgNodeVariant_MultiPolygonCollection { SvgNodeTag tag; SvgMultiPolygonVec payload; };
     struct SvgNodeVariant_MultiPolygon { SvgNodeTag tag; SvgMultiPolygon payload; };
+    struct SvgNodeVariant_MultiShape { SvgNodeTag tag; SvgSimpleNodeVec payload; };
     struct SvgNodeVariant_Path { SvgNodeTag tag; SvgPath payload; };
     struct SvgNodeVariant_Circle { SvgNodeTag tag; SvgCircle payload; };
     struct SvgNodeVariant_Rect { SvgNodeTag tag; SvgRect payload; };
     union SvgNode {
         SvgNodeVariant_MultiPolygonCollection MultiPolygonCollection;
         SvgNodeVariant_MultiPolygon MultiPolygon;
+        SvgNodeVariant_MultiShape MultiShape;
         SvgNodeVariant_Path Path;
         SvgNodeVariant_Circle Circle;
         SvgNodeVariant_Rect Rect;
@@ -10913,6 +10967,7 @@ namespace dll {
         bool  SvgNode_containsPoint(const SvgNode* svgnode, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
         SvgRect SvgNode_getBounds(const SvgNode* svgnode);
         void SvgNode_delete(SvgNode* restrict instance);
+        void SvgSimpleNode_delete(SvgSimpleNode* restrict instance);
         TessellatedSvgNode SvgStyledNode_tessellate(const SvgStyledNode* svgstylednode);
         void SvgStyledNode_delete(SvgStyledNode* restrict instance);
         TessellatedSvgNode SvgCircle_tessellateFill(const SvgCircle* svgcircle, AzSvgFillStyle  fill_style);
@@ -11076,6 +11131,7 @@ namespace dll {
         void StyleTransformVec_delete(StyleTransformVec* restrict instance);
         void CssPropertyVec_delete(CssPropertyVec* restrict instance);
         void SvgMultiPolygonVec_delete(SvgMultiPolygonVec* restrict instance);
+        void SvgSimpleNodeVec_delete(SvgSimpleNodeVec* restrict instance);
         void SvgPathVec_delete(SvgPathVec* restrict instance);
         void VertexAttributeVec_delete(VertexAttributeVec* restrict instance);
         void SvgPathElementVec_delete(SvgPathElementVec* restrict instance);

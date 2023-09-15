@@ -3503,6 +3503,12 @@ pub use AzSvgNodeTT as AzSvgNode;
 /// Destructor: Takes ownership of the `SvgNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgNode_delete(object: &mut AzSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Re-export of rust-allocated (stack based) `SvgSimpleNode` struct
+pub use azul_impl::svg::SvgSimpleNode as AzSvgSimpleNodeTT;
+pub use AzSvgSimpleNodeTT as AzSvgSimpleNode;
+/// Destructor: Takes ownership of the `SvgSimpleNode` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgSimpleNode_delete(object: &mut AzSvgSimpleNode) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
 pub use azul_impl::svg::SvgStyledNode as AzSvgStyledNodeTT;
 pub use AzSvgStyledNodeTT as AzSvgStyledNode;
@@ -4279,6 +4285,12 @@ pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
 /// Destructor: Takes ownership of the `SvgMultiPolygonVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygonVec_delete(object: &mut AzSvgMultiPolygonVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`
+pub use azul_impl::svg::SvgSimpleNodeVec as AzSvgSimpleNodeVecTT;
+pub use AzSvgSimpleNodeVecTT as AzSvgSimpleNodeVec;
+/// Destructor: Takes ownership of the `SvgSimpleNodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzSvgSimpleNodeVec_delete(object: &mut AzSvgSimpleNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<SvgPath>`
 pub use azul_impl::svg::SvgPathVec as AzSvgPathVecTT;
 pub use AzSvgPathVecTT as AzSvgPathVec;
@@ -4633,6 +4645,11 @@ pub use azul_impl::svg::SvgMultiPolygonVecDestructor as AzSvgMultiPolygonVecDest
 pub use AzSvgMultiPolygonVecDestructorTT as AzSvgMultiPolygonVecDestructor;
 
 pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+/// Re-export of rust-allocated (stack based) `SvgSimpleNodeVecDestructor` struct
+pub use azul_impl::svg::SvgSimpleNodeVecDestructor as AzSvgSimpleNodeVecDestructorTT;
+pub use AzSvgSimpleNodeVecDestructorTT as AzSvgSimpleNodeVecDestructor;
+
+pub type AzSvgSimpleNodeVecDestructorType = extern "C" fn(&mut AzSvgSimpleNodeVec);
 /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
 pub use azul_impl::svg::SvgPathVecDestructor as AzSvgPathVecDestructorTT;
 pub use AzSvgPathVecDestructorTT as AzSvgPathVecDestructor;
@@ -5443,6 +5460,7 @@ mod test_sizes {
         impl ::core::fmt::Debug for AzTagIdToNodeIdMappingVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzTagIdToNodeIdMappingVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
         impl ::core::fmt::Debug for AzParentWithNodeDepthVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzParentWithNodeDepthVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
         impl ::core::fmt::Debug for AzNodeDataVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzNodeDataVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
+        impl ::core::fmt::Debug for AzSvgSimpleNodeVecDestructor { fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result { use AzSvgSimpleNodeVecDestructor::*; match self { DefaultRust => write!(f, "DefaultRust"), NoDestructor => write!(f, "NoDestructor"), External(_) => write!(f, "External"), }}}
     }
     /// Main application class
     #[repr(C)]
@@ -7970,6 +7988,17 @@ mod test_sizes {
 
     /// `AzSvgMultiPolygonVecDestructorType` struct
     pub type AzSvgMultiPolygonVecDestructorType = extern "C" fn(&mut AzSvgMultiPolygonVec);
+
+    /// Re-export of rust-allocated (stack based) `SvgSimpleNodeVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzSvgSimpleNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzSvgSimpleNodeVecDestructorType),
+    }
+
+    /// `AzSvgSimpleNodeVecDestructorType` struct
+    pub type AzSvgSimpleNodeVecDestructorType = extern "C" fn(&mut AzSvgSimpleNodeVec);
 
     /// Re-export of rust-allocated (stack based) `SvgPathVecDestructor` struct
     #[repr(C, u8)]
@@ -12305,6 +12334,16 @@ mod test_sizes {
         pub rings: AzSvgPathVec,
     }
 
+    /// Re-export of rust-allocated (stack based) `SvgSimpleNode` struct
+    #[repr(C, u8)]
+    pub enum AzSvgSimpleNode {
+        Path(AzSvgPath),
+        Circle(AzSvgCircle),
+        Rect(AzSvgRect),
+        CircleHole(AzSvgCircle),
+        RectHole(AzSvgRect),
+    }
+
     /// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
     #[repr(C)]
     pub struct AzTessellatedGPUSvgNode {
@@ -12372,6 +12411,15 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgMultiPolygonVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`
+    #[repr(C)]
+    pub struct AzSvgSimpleNodeVec {
+        pub(crate) ptr: *const AzSvgSimpleNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzSvgSimpleNodeVecDestructor,
     }
 
     /// Re-export of rust-allocated (stack based) `OptionCssProperty` struct
@@ -12524,6 +12572,7 @@ mod test_sizes {
     pub enum AzSvgNode {
         MultiPolygonCollection(AzSvgMultiPolygonVec),
         MultiPolygon(AzSvgMultiPolygon),
+        MultiShape(AzSvgSimpleNodeVec),
         Path(AzSvgPath),
         Circle(AzSvgCircle),
         Rect(AzSvgRect),
@@ -13111,6 +13160,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"), (Layout::new::<AzStyleTransformVecDestructor>(), "AzStyleTransformVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"), (Layout::new::<AzCssPropertyVecDestructor>(), "AzCssPropertyVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"), (Layout::new::<AzSvgMultiPolygonVecDestructor>(), "AzSvgMultiPolygonVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgSimpleNodeVecDestructor>(), "AzSvgSimpleNodeVecDestructor"), (Layout::new::<AzSvgSimpleNodeVecDestructor>(), "AzSvgSimpleNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathVecDestructor>(), "AzSvgPathVecDestructor"), (Layout::new::<AzSvgPathVecDestructor>(), "AzSvgPathVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"), (Layout::new::<AzVertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
@@ -13596,6 +13646,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexArrayObject>(), "AzVertexArrayObject"), (Layout::new::<AzVertexArrayObject>(), "AzVertexArrayObject"));
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgSimpleNode>(), "AzSvgSimpleNode"), (Layout::new::<AzSvgSimpleNode>(), "AzSvgSimpleNode"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedGPUSvgNode>(), "AzTessellatedGPUSvgNode"), (Layout::new::<AzTessellatedGPUSvgNode>(), "AzTessellatedGPUSvgNode"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNode>(), "AzXmlNode"), (Layout::new::<AzXmlNode>(), "AzXmlNode"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"), (Layout::new::<AzNodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"));
@@ -13604,6 +13655,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVec>(), "AzInlineLineVec"), (Layout::new::<AzInlineLineVec>(), "AzInlineLineVec"));
         assert_eq!((Layout::new::<azul_impl::css::CssPropertyVec>(), "AzCssPropertyVec"), (Layout::new::<AzCssPropertyVec>(), "AzCssPropertyVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"), (Layout::new::<AzSvgMultiPolygonVec>(), "AzSvgMultiPolygonVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::SvgSimpleNodeVec>(), "AzSvgSimpleNodeVec"), (Layout::new::<AzSvgSimpleNodeVec>(), "AzSvgSimpleNodeVec"));
         assert_eq!((Layout::new::<azul_impl::css::OptionCssProperty>(), "AzOptionCssProperty"), (Layout::new::<AzOptionCssProperty>(), "AzOptionCssProperty"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlTextError>(), "AzXmlTextError"), (Layout::new::<AzXmlTextError>(), "AzXmlTextError"));
         assert_eq!((Layout::new::<azul_core::window::PlatformSpecificOptions>(), "AzPlatformSpecificOptions"), (Layout::new::<AzPlatformSpecificOptions>(), "AzPlatformSpecificOptions"));

@@ -330,6 +330,10 @@ struct AzSvgMultiPolygonVec;
 typedef struct AzSvgMultiPolygonVec AzSvgMultiPolygonVec;
 typedef void (*AzSvgMultiPolygonVecDestructorType)(AzSvgMultiPolygonVec* restrict A);
 
+struct AzSvgSimpleNodeVec;
+typedef struct AzSvgSimpleNodeVec AzSvgSimpleNodeVec;
+typedef void (*AzSvgSimpleNodeVecDestructorType)(AzSvgSimpleNodeVec* restrict A);
+
 struct AzSvgPathVec;
 typedef struct AzSvgPathVec AzSvgPathVec;
 typedef void (*AzSvgPathVecDestructorType)(AzSvgPathVec* restrict A);
@@ -2957,6 +2961,26 @@ union AzSvgMultiPolygonVecDestructor {
     AzSvgMultiPolygonVecDestructorVariant_External External;
 };
 typedef union AzSvgMultiPolygonVecDestructor AzSvgMultiPolygonVecDestructor;
+
+enum AzSvgSimpleNodeVecDestructorTag {
+   AzSvgSimpleNodeVecDestructorTag_DefaultRust,
+   AzSvgSimpleNodeVecDestructorTag_NoDestructor,
+   AzSvgSimpleNodeVecDestructorTag_External,
+};
+typedef enum AzSvgSimpleNodeVecDestructorTag AzSvgSimpleNodeVecDestructorTag;
+
+struct AzSvgSimpleNodeVecDestructorVariant_DefaultRust { AzSvgSimpleNodeVecDestructorTag tag; };
+typedef struct AzSvgSimpleNodeVecDestructorVariant_DefaultRust AzSvgSimpleNodeVecDestructorVariant_DefaultRust;
+struct AzSvgSimpleNodeVecDestructorVariant_NoDestructor { AzSvgSimpleNodeVecDestructorTag tag; };
+typedef struct AzSvgSimpleNodeVecDestructorVariant_NoDestructor AzSvgSimpleNodeVecDestructorVariant_NoDestructor;
+struct AzSvgSimpleNodeVecDestructorVariant_External { AzSvgSimpleNodeVecDestructorTag tag; AzSvgSimpleNodeVecDestructorType payload; };
+typedef struct AzSvgSimpleNodeVecDestructorVariant_External AzSvgSimpleNodeVecDestructorVariant_External;
+union AzSvgSimpleNodeVecDestructor {
+    AzSvgSimpleNodeVecDestructorVariant_DefaultRust DefaultRust;
+    AzSvgSimpleNodeVecDestructorVariant_NoDestructor NoDestructor;
+    AzSvgSimpleNodeVecDestructorVariant_External External;
+};
+typedef union AzSvgSimpleNodeVecDestructor AzSvgSimpleNodeVecDestructor;
 
 enum AzSvgPathVecDestructorTag {
    AzSvgPathVecDestructorTag_DefaultRust,
@@ -10185,6 +10209,34 @@ struct AzSvgMultiPolygon {
 };
 typedef struct AzSvgMultiPolygon AzSvgMultiPolygon;
 
+enum AzSvgSimpleNodeTag {
+   AzSvgSimpleNodeTag_Path,
+   AzSvgSimpleNodeTag_Circle,
+   AzSvgSimpleNodeTag_Rect,
+   AzSvgSimpleNodeTag_CircleHole,
+   AzSvgSimpleNodeTag_RectHole,
+};
+typedef enum AzSvgSimpleNodeTag AzSvgSimpleNodeTag;
+
+struct AzSvgSimpleNodeVariant_Path { AzSvgSimpleNodeTag tag; AzSvgPath payload; };
+typedef struct AzSvgSimpleNodeVariant_Path AzSvgSimpleNodeVariant_Path;
+struct AzSvgSimpleNodeVariant_Circle { AzSvgSimpleNodeTag tag; AzSvgCircle payload; };
+typedef struct AzSvgSimpleNodeVariant_Circle AzSvgSimpleNodeVariant_Circle;
+struct AzSvgSimpleNodeVariant_Rect { AzSvgSimpleNodeTag tag; AzSvgRect payload; };
+typedef struct AzSvgSimpleNodeVariant_Rect AzSvgSimpleNodeVariant_Rect;
+struct AzSvgSimpleNodeVariant_CircleHole { AzSvgSimpleNodeTag tag; AzSvgCircle payload; };
+typedef struct AzSvgSimpleNodeVariant_CircleHole AzSvgSimpleNodeVariant_CircleHole;
+struct AzSvgSimpleNodeVariant_RectHole { AzSvgSimpleNodeTag tag; AzSvgRect payload; };
+typedef struct AzSvgSimpleNodeVariant_RectHole AzSvgSimpleNodeVariant_RectHole;
+union AzSvgSimpleNode {
+    AzSvgSimpleNodeVariant_Path Path;
+    AzSvgSimpleNodeVariant_Circle Circle;
+    AzSvgSimpleNodeVariant_Rect Rect;
+    AzSvgSimpleNodeVariant_CircleHole CircleHole;
+    AzSvgSimpleNodeVariant_RectHole RectHole;
+};
+typedef union AzSvgSimpleNode AzSvgSimpleNode;
+
 struct AzTessellatedGPUSvgNode {
     AzVertexBuffer vertex_index_buffer;
 };
@@ -10245,6 +10297,14 @@ struct AzSvgMultiPolygonVec {
     AzSvgMultiPolygonVecDestructor destructor;
 };
 typedef struct AzSvgMultiPolygonVec AzSvgMultiPolygonVec;
+
+struct AzSvgSimpleNodeVec {
+    AzSvgSimpleNode* ptr;
+    size_t len;
+    size_t cap;
+    AzSvgSimpleNodeVecDestructor destructor;
+};
+typedef struct AzSvgSimpleNodeVec AzSvgSimpleNodeVec;
 
 enum AzOptionCssPropertyTag {
    AzOptionCssPropertyTag_None,
@@ -10408,6 +10468,7 @@ typedef struct AzNode AzNode;
 enum AzSvgNodeTag {
    AzSvgNodeTag_MultiPolygonCollection,
    AzSvgNodeTag_MultiPolygon,
+   AzSvgNodeTag_MultiShape,
    AzSvgNodeTag_Path,
    AzSvgNodeTag_Circle,
    AzSvgNodeTag_Rect,
@@ -10418,6 +10479,8 @@ struct AzSvgNodeVariant_MultiPolygonCollection { AzSvgNodeTag tag; AzSvgMultiPol
 typedef struct AzSvgNodeVariant_MultiPolygonCollection AzSvgNodeVariant_MultiPolygonCollection;
 struct AzSvgNodeVariant_MultiPolygon { AzSvgNodeTag tag; AzSvgMultiPolygon payload; };
 typedef struct AzSvgNodeVariant_MultiPolygon AzSvgNodeVariant_MultiPolygon;
+struct AzSvgNodeVariant_MultiShape { AzSvgNodeTag tag; AzSvgSimpleNodeVec payload; };
+typedef struct AzSvgNodeVariant_MultiShape AzSvgNodeVariant_MultiShape;
 struct AzSvgNodeVariant_Path { AzSvgNodeTag tag; AzSvgPath payload; };
 typedef struct AzSvgNodeVariant_Path AzSvgNodeVariant_Path;
 struct AzSvgNodeVariant_Circle { AzSvgNodeTag tag; AzSvgCircle payload; };
@@ -10427,6 +10490,7 @@ typedef struct AzSvgNodeVariant_Rect AzSvgNodeVariant_Rect;
 union AzSvgNode {
     AzSvgNodeVariant_MultiPolygonCollection MultiPolygonCollection;
     AzSvgNodeVariant_MultiPolygon MultiPolygon;
+    AzSvgNodeVariant_MultiShape MultiShape;
     AzSvgNodeVariant_Path Path;
     AzSvgNodeVariant_Circle Circle;
     AzSvgNodeVariant_Rect Rect;
@@ -11058,6 +11122,9 @@ typedef struct AzCss AzCss;
 #define AzSvgMultiPolygonVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgMultiPolygonVecDestructorTag_DefaultRust } }
 #define AzSvgMultiPolygonVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor } }
 #define AzSvgMultiPolygonVecDestructor_External(v) { .External = { .tag = AzSvgMultiPolygonVecDestructorTag_External, .payload = v } }
+#define AzSvgSimpleNodeVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgSimpleNodeVecDestructorTag_DefaultRust } }
+#define AzSvgSimpleNodeVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgSimpleNodeVecDestructorTag_NoDestructor } }
+#define AzSvgSimpleNodeVecDestructor_External(v) { .External = { .tag = AzSvgSimpleNodeVecDestructorTag_External, .payload = v } }
 #define AzSvgPathVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgPathVecDestructorTag_DefaultRust } }
 #define AzSvgPathVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgPathVecDestructorTag_NoDestructor } }
 #define AzSvgPathVecDestructor_External(v) { .External = { .tag = AzSvgPathVecDestructorTag_External, .payload = v } }
@@ -11926,6 +11993,11 @@ typedef struct AzCss AzCss;
 #define AzCssProperty_TextShadow(v) { .TextShadow = { .tag = AzCssPropertyTag_TextShadow, .payload = v } }
 #define AzCssPropertySource_Css(v) { .Css = { .tag = AzCssPropertySourceTag_Css, .payload = v } }
 #define AzCssPropertySource_Inline { .Inline = { .tag = AzCssPropertySourceTag_Inline } }
+#define AzSvgSimpleNode_Path(v) { .Path = { .tag = AzSvgSimpleNodeTag_Path, .payload = v } }
+#define AzSvgSimpleNode_Circle(v) { .Circle = { .tag = AzSvgSimpleNodeTag_Circle, .payload = v } }
+#define AzSvgSimpleNode_Rect(v) { .Rect = { .tag = AzSvgSimpleNodeTag_Rect, .payload = v } }
+#define AzSvgSimpleNode_CircleHole(v) { .CircleHole = { .tag = AzSvgSimpleNodeTag_CircleHole, .payload = v } }
+#define AzSvgSimpleNode_RectHole(v) { .RectHole = { .tag = AzSvgSimpleNodeTag_RectHole, .payload = v } }
 #define AzOptionCssProperty_None { .None = { .tag = AzOptionCssPropertyTag_None } }
 #define AzOptionCssProperty_Some(v) { .Some = { .tag = AzOptionCssPropertyTag_Some, .payload = v } }
 #define AzNodeDataInlineCssProperty_Normal(v) { .Normal = { .tag = AzNodeDataInlineCssPropertyTag_Normal, .payload = v } }
@@ -11934,6 +12006,7 @@ typedef struct AzCss AzCss;
 #define AzNodeDataInlineCssProperty_Hover(v) { .Hover = { .tag = AzNodeDataInlineCssPropertyTag_Hover, .payload = v } }
 #define AzSvgNode_MultiPolygonCollection(v) { .MultiPolygonCollection = { .tag = AzSvgNodeTag_MultiPolygonCollection, .payload = v } }
 #define AzSvgNode_MultiPolygon(v) { .MultiPolygon = { .tag = AzSvgNodeTag_MultiPolygon, .payload = v } }
+#define AzSvgNode_MultiShape(v) { .MultiShape = { .tag = AzSvgNodeTag_MultiShape, .payload = v } }
 #define AzSvgNode_Path(v) { .Path = { .tag = AzSvgNodeTag_Path, .payload = v } }
 #define AzSvgNode_Circle(v) { .Circle = { .tag = AzSvgNodeTag_Circle, .payload = v } }
 #define AzSvgNode_Rect(v) { .Rect = { .tag = AzSvgNodeTag_Rect, .payload = v } }
@@ -12126,6 +12199,10 @@ AzCssProperty AzCssPropertyVecArray[] = {};
 AzSvgMultiPolygon AzSvgMultiPolygonVecArray[] = {};
 #define AzSvgMultiPolygonVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgMultiPolygon), .cap = sizeof(v) / sizeof(AzSvgMultiPolygon), .destructor = { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor, }, }, }
 #define AzSvgMultiPolygonVec_empty { .ptr = &AzSvgMultiPolygonVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgMultiPolygonVecDestructorTag_NoDestructor, }, }, }
+
+AzSvgSimpleNode AzSvgSimpleNodeVecArray[] = {};
+#define AzSvgSimpleNodeVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgSimpleNode), .cap = sizeof(v) / sizeof(AzSvgSimpleNode), .destructor = { .NoDestructor = { .tag = AzSvgSimpleNodeVecDestructorTag_NoDestructor, }, }, }
+#define AzSvgSimpleNodeVec_empty { .ptr = &AzSvgSimpleNodeVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgSimpleNodeVecDestructorTag_NoDestructor, }, }, }
 
 AzSvgPath AzSvgPathVecArray[] = {};
 #define AzSvgPathVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgPath), .cap = sizeof(v) / sizeof(AzSvgPath), .destructor = { .NoDestructor = { .tag = AzSvgPathVecDestructorTag_NoDestructor, }, }, }
@@ -13024,6 +13101,7 @@ extern DLLIMPORT bool  AzSvgNode_isClosed(const AzSvgNode* svgnode);
 extern DLLIMPORT bool  AzSvgNode_containsPoint(const AzSvgNode* svgnode, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
 extern DLLIMPORT AzSvgRect AzSvgNode_getBounds(const AzSvgNode* svgnode);
 extern DLLIMPORT void AzSvgNode_delete(AzSvgNode* restrict instance);
+extern DLLIMPORT void AzSvgSimpleNode_delete(AzSvgSimpleNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgStyledNode_tessellate(const AzSvgStyledNode* svgstylednode);
 extern DLLIMPORT void AzSvgStyledNode_delete(AzSvgStyledNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateFill(const AzSvgCircle* svgcircle, AzSvgFillStyle  fill_style);
@@ -13187,6 +13265,7 @@ extern DLLIMPORT void AzStyleBackgroundSizeVec_delete(AzStyleBackgroundSizeVec* 
 extern DLLIMPORT void AzStyleTransformVec_delete(AzStyleTransformVec* restrict instance);
 extern DLLIMPORT void AzCssPropertyVec_delete(AzCssPropertyVec* restrict instance);
 extern DLLIMPORT void AzSvgMultiPolygonVec_delete(AzSvgMultiPolygonVec* restrict instance);
+extern DLLIMPORT void AzSvgSimpleNodeVec_delete(AzSvgSimpleNodeVec* restrict instance);
 extern DLLIMPORT void AzSvgPathVec_delete(AzSvgPathVec* restrict instance);
 extern DLLIMPORT void AzVertexAttributeVec_delete(AzVertexAttributeVec* restrict instance);
 extern DLLIMPORT void AzSvgPathElementVec_delete(AzSvgPathElementVec* restrict instance);
@@ -18283,6 +18362,20 @@ bool AzSvgNode_matchMutMultiPolygon(AzSvgNode* restrict value, AzSvgMultiPolygon
     return valid;
 }
 
+bool AzSvgNode_matchRefMultiShape(const AzSvgNode* value, const AzSvgSimpleNodeVec** restrict out) {
+    const AzSvgNodeVariant_MultiShape* casted = (const AzSvgNodeVariant_MultiShape*)value;
+    bool valid = casted->tag == AzSvgNodeTag_MultiShape;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgNode_matchMutMultiShape(AzSvgNode* restrict value, AzSvgSimpleNodeVec* restrict * restrict out) {
+    AzSvgNodeVariant_MultiShape* restrict casted = (AzSvgNodeVariant_MultiShape* restrict)value;
+    bool valid = casted->tag == AzSvgNodeTag_MultiShape;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
 bool AzSvgNode_matchRefPath(const AzSvgNode* value, const AzSvgPath** restrict out) {
     const AzSvgNodeVariant_Path* casted = (const AzSvgNodeVariant_Path*)value;
     bool valid = casted->tag == AzSvgNodeTag_Path;
@@ -18321,6 +18414,76 @@ bool AzSvgNode_matchRefRect(const AzSvgNode* value, const AzSvgRect** restrict o
 bool AzSvgNode_matchMutRect(AzSvgNode* restrict value, AzSvgRect* restrict * restrict out) {
     AzSvgNodeVariant_Rect* restrict casted = (AzSvgNodeVariant_Rect* restrict)value;
     bool valid = casted->tag == AzSvgNodeTag_Rect;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchRefPath(const AzSvgSimpleNode* value, const AzSvgPath** restrict out) {
+    const AzSvgSimpleNodeVariant_Path* casted = (const AzSvgSimpleNodeVariant_Path*)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_Path;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchMutPath(AzSvgSimpleNode* restrict value, AzSvgPath* restrict * restrict out) {
+    AzSvgSimpleNodeVariant_Path* restrict casted = (AzSvgSimpleNodeVariant_Path* restrict)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_Path;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchRefCircle(const AzSvgSimpleNode* value, const AzSvgCircle** restrict out) {
+    const AzSvgSimpleNodeVariant_Circle* casted = (const AzSvgSimpleNodeVariant_Circle*)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_Circle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchMutCircle(AzSvgSimpleNode* restrict value, AzSvgCircle* restrict * restrict out) {
+    AzSvgSimpleNodeVariant_Circle* restrict casted = (AzSvgSimpleNodeVariant_Circle* restrict)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_Circle;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchRefRect(const AzSvgSimpleNode* value, const AzSvgRect** restrict out) {
+    const AzSvgSimpleNodeVariant_Rect* casted = (const AzSvgSimpleNodeVariant_Rect*)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_Rect;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchMutRect(AzSvgSimpleNode* restrict value, AzSvgRect* restrict * restrict out) {
+    AzSvgSimpleNodeVariant_Rect* restrict casted = (AzSvgSimpleNodeVariant_Rect* restrict)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_Rect;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchRefCircleHole(const AzSvgSimpleNode* value, const AzSvgCircle** restrict out) {
+    const AzSvgSimpleNodeVariant_CircleHole* casted = (const AzSvgSimpleNodeVariant_CircleHole*)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_CircleHole;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchMutCircleHole(AzSvgSimpleNode* restrict value, AzSvgCircle* restrict * restrict out) {
+    AzSvgSimpleNodeVariant_CircleHole* restrict casted = (AzSvgSimpleNodeVariant_CircleHole* restrict)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_CircleHole;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchRefRectHole(const AzSvgSimpleNode* value, const AzSvgRect** restrict out) {
+    const AzSvgSimpleNodeVariant_RectHole* casted = (const AzSvgSimpleNodeVariant_RectHole*)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_RectHole;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNode_matchMutRectHole(AzSvgSimpleNode* restrict value, AzSvgRect* restrict * restrict out) {
+    AzSvgSimpleNodeVariant_RectHole* restrict casted = (AzSvgSimpleNodeVariant_RectHole* restrict)value;
+    bool valid = casted->tag == AzSvgSimpleNodeTag_RectHole;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }
@@ -19231,6 +19394,20 @@ bool AzSvgMultiPolygonVecDestructor_matchRefExternal(const AzSvgMultiPolygonVecD
 bool AzSvgMultiPolygonVecDestructor_matchMutExternal(AzSvgMultiPolygonVecDestructor* restrict value, AzSvgMultiPolygonVecDestructorType* restrict * restrict out) {
     AzSvgMultiPolygonVecDestructorVariant_External* restrict casted = (AzSvgMultiPolygonVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzSvgMultiPolygonVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNodeVecDestructor_matchRefExternal(const AzSvgSimpleNodeVecDestructor* value, const AzSvgSimpleNodeVecDestructorType** restrict out) {
+    const AzSvgSimpleNodeVecDestructorVariant_External* casted = (const AzSvgSimpleNodeVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzSvgSimpleNodeVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgSimpleNodeVecDestructor_matchMutExternal(AzSvgSimpleNodeVecDestructor* restrict value, AzSvgSimpleNodeVecDestructorType* restrict * restrict out) {
+    AzSvgSimpleNodeVecDestructorVariant_External* restrict casted = (AzSvgSimpleNodeVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzSvgSimpleNodeVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

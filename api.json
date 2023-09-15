@@ -11952,6 +11952,7 @@
                     "enum_fields": [
                         {"MultiPolygonCollection": {"type": "SvgMultiPolygonVec"}},
                         {"MultiPolygon": {"type": "SvgMultiPolygon"}},
+                        {"MultiShape": {"type": "SvgSimpleNodeVec"}},
                         {"Path": {"type": "SvgPath"}},
                         {"Circle": {"type": "SvgCircle"}},
                         {"Rect": {"type": "SvgRect"}}
@@ -12000,6 +12001,16 @@
                             "fn_body": "svgnode.get_bounds()"
                         }
                     }
+                },
+                "SvgSimpleNode": {
+                    "external": "azul_impl::svg::SvgSimpleNode",
+                    "enum_fields": [
+                        {"Path": {"type": "SvgPath"}},
+                        {"Circle": {"type": "SvgCircle"}},
+                        {"Rect": {"type": "SvgRect"}},
+                        {"CircleHole": {"type": "SvgCircle"}},
+                        {"RectHole": {"type": "SvgRect"}}
+                    ]
                 },
                 "SvgStyledNode": {
                     "external": "azul_impl::svg::SvgStyledNode",
@@ -14021,6 +14032,17 @@
                         { "destructor": { "type": "SvgMultiPolygonVecDestructor" } }
                     ]
                 },
+                "SvgSimpleNodeVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<SvgSimpleNode>`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::svg::SvgSimpleNodeVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const SvgSimpleNode" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "SvgSimpleNodeVecDestructor" } }
+                    ]
+                },
                 "SvgPathVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<SvgPath>`",
                     "custom_destructor": true,
@@ -14913,6 +14935,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "SvgMultiPolygonVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "SvgSimpleNodeVecDestructor": {
+                    "external": "azul_impl::svg::SvgSimpleNodeVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "SvgSimpleNodeVecDestructorType"}}
+                    ]
+                },
+                "SvgSimpleNodeVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "SvgSimpleNodeVec", "ref": "refmut"}
                         ]
                     }
                 },
