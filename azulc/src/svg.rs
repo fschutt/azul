@@ -2,7 +2,7 @@ use core::fmt;
 use azul_core::{
     app_resources::{RawImage, RawImageFormat},
     gl::{Texture, GlContextPtr},
-    window::PhysicalSizeU32, svg::SvgSimpleNode,
+    window::PhysicalSizeU32,
 };
 use azul_css::{
     OptionI16, OptionU16, U8Vec, OptionAzString,
@@ -38,7 +38,8 @@ pub use azul_core::svg::{
     ShapeRendering, ImageRendering, TextRendering, FontDatabase,
     SvgFitTo, SvgParseError, Indent, SvgVector, SvgRenderTransform,
 
-    SvgPoint, SvgCubicCurve, TessellatedSvgNodeVec,
+    SvgPoint, SvgCubicCurve, TessellatedSvgNodeVec, 
+    SvgSimpleNode, SvgSimpleNodeVec, SvgSimpleNodeVecDestructor,
     SvgMultiPolygonVec, SvgPathVec,
     SvgPathElementVec, SvgVertexVec,
     TessellatedSvgNodeVecDestructor,

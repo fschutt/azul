@@ -353,13 +353,13 @@ pub enum SvgSimpleNode {
 impl_vec!(
     SvgSimpleNode,
     SvgSimpleNodeVec,
-    SvgSimpleNodeDestructor
+    SvgSimpleNodeVecDestructor
 );
 impl_vec_debug!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_clone!(
     SvgSimpleNode,
     SvgSimpleNodeVec,
-    SvgSimpleNodeDestructor
+    SvgSimpleNodeVecDestructor
 );
 impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
