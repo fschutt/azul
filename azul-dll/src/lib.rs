@@ -3506,6 +3506,8 @@ pub use AzSvgNodeTT as AzSvgNode;
 /// Re-export of rust-allocated (stack based) `SvgSimpleNode` struct
 pub use azul_impl::svg::SvgSimpleNode as AzSvgSimpleNodeTT;
 pub use AzSvgSimpleNodeTT as AzSvgSimpleNode;
+/// Equivalent to the Rust `SvgSimpleNode::get_bounds()` function.
+#[no_mangle] pub extern "C" fn AzSvgSimpleNode_getBounds(svgsimplenode: &AzSvgSimpleNode) -> AzSvgRect { svgsimplenode.get_bounds() }
 /// Destructor: Takes ownership of the `SvgSimpleNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgSimpleNode_delete(object: &mut AzSvgSimpleNode) {  unsafe { core::ptr::drop_in_place(object); } }
 

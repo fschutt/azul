@@ -11084,6 +11084,7 @@ mod dll {
         pub(crate) fn AzSvgNode_isClosed(svgnode: &AzSvgNode) -> bool { unsafe { transmute(azul::AzSvgNode_isClosed(transmute(svgnode))) } }
         pub(crate) fn AzSvgNode_containsPoint(svgnode: &AzSvgNode, point: AzSvgPoint, fill_rule: AzSvgFillRule, tolerance: f32) -> bool { unsafe { transmute(azul::AzSvgNode_containsPoint(transmute(svgnode), transmute(point), transmute(fill_rule), transmute(tolerance))) } }
         pub(crate) fn AzSvgNode_getBounds(svgnode: &AzSvgNode) -> AzSvgRect { unsafe { transmute(azul::AzSvgNode_getBounds(transmute(svgnode))) } }
+        pub(crate) fn AzSvgSimpleNode_getBounds(svgsimplenode: &AzSvgSimpleNode) -> AzSvgRect { unsafe { transmute(azul::AzSvgSimpleNode_getBounds(transmute(svgsimplenode))) } }
         pub(crate) fn AzSvgStyledNode_tessellate(svgstylednode: &AzSvgStyledNode) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgStyledNode_tessellate(transmute(svgstylednode))) } }
         pub(crate) fn AzSvgCircle_tessellateFill(svgcircle: &AzSvgCircle, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgCircle_tessellateFill(transmute(svgcircle), transmute(fill_style))) } }
         pub(crate) fn AzSvgCircle_tessellateStroke(svgcircle: &AzSvgCircle, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgCircle_tessellateStroke(transmute(svgcircle), transmute(stroke_style))) } }
@@ -11912,6 +11913,7 @@ mod dll {
             pub(crate) fn AzSvgNode_isClosed(_:  &AzSvgNode) -> bool;
             pub(crate) fn AzSvgNode_containsPoint(_:  &AzSvgNode, _:  AzSvgPoint, _:  AzSvgFillRule, _:  f32) -> bool;
             pub(crate) fn AzSvgNode_getBounds(_:  &AzSvgNode) -> AzSvgRect;
+            pub(crate) fn AzSvgSimpleNode_getBounds(_:  &AzSvgSimpleNode) -> AzSvgRect;
             pub(crate) fn AzSvgStyledNode_tessellate(_:  &AzSvgStyledNode) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgCircle_tessellateFill(_:  &AzSvgCircle, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
@@ -17913,6 +17915,12 @@ pub mod svg {
     /// `SvgSimpleNode` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgSimpleNode as SvgSimpleNode;
+    impl SvgSimpleNode {
+
+        /// Calls the `SvgSimpleNode::get_bounds` function.
+        pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgSimpleNode_getBounds(self) } }
+    }
+
     /// `SvgStyledNode` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;

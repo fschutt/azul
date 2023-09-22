@@ -10967,6 +10967,7 @@ namespace dll {
         bool  SvgNode_containsPoint(const SvgNode* svgnode, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
         SvgRect SvgNode_getBounds(const SvgNode* svgnode);
         void SvgNode_delete(SvgNode* restrict instance);
+        SvgRect SvgSimpleNode_getBounds(const SvgSimpleNode* svgsimplenode);
         void SvgSimpleNode_delete(SvgSimpleNode* restrict instance);
         TessellatedSvgNode SvgStyledNode_tessellate(const SvgStyledNode* svgstylednode);
         void SvgStyledNode_delete(SvgStyledNode* restrict instance);

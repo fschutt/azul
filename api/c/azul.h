@@ -13101,6 +13101,7 @@ extern DLLIMPORT bool  AzSvgNode_isClosed(const AzSvgNode* svgnode);
 extern DLLIMPORT bool  AzSvgNode_containsPoint(const AzSvgNode* svgnode, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
 extern DLLIMPORT AzSvgRect AzSvgNode_getBounds(const AzSvgNode* svgnode);
 extern DLLIMPORT void AzSvgNode_delete(AzSvgNode* restrict instance);
+extern DLLIMPORT AzSvgRect AzSvgSimpleNode_getBounds(const AzSvgSimpleNode* svgsimplenode);
 extern DLLIMPORT void AzSvgSimpleNode_delete(AzSvgSimpleNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgStyledNode_tessellate(const AzSvgStyledNode* svgstylednode);
 extern DLLIMPORT void AzSvgStyledNode_delete(AzSvgStyledNode* restrict instance);

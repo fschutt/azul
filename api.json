@@ -12010,7 +12010,16 @@
                         {"Rect": {"type": "SvgRect"}},
                         {"CircleHole": {"type": "SvgCircle"}},
                         {"RectHole": {"type": "SvgRect"}}
-                    ]
+                    ],
+                    "functions": {
+                        "get_bounds": {
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgsimplenode.get_bounds()"
+                        }
+                    }
                 },
                 "SvgStyledNode": {
                     "external": "azul_impl::svg::SvgStyledNode",
