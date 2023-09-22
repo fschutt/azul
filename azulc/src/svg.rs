@@ -2,7 +2,7 @@ use core::fmt;
 use azul_core::{
     app_resources::{RawImage, RawImageFormat},
     gl::{Texture, GlContextPtr},
-    window::PhysicalSizeU32,
+    window::PhysicalSizeU32, svg::SvgWindingOrder,
 };
 use azul_css::{
     OptionI16, OptionU16, U8Vec, OptionAzString,
@@ -190,6 +190,474 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
     }
 
     builder.build()
+}
+
+fn raw_line_intersection(p: &SvgLine, q: &SvgLine) -> Option<SvgPoint> {
+    let p_min_x = p.start.x.min(p.end.x);
+    let p_min_y = p.start.y.min(p.end.y);
+    let p_max_x = p.start.x.max(p.end.x);
+    let p_max_y = p.start.y.max(p.end.y);
+
+    let q_min_x = q.start.x.min(q.end.x);
+    let q_min_y = q.start.y.min(q.end.y);
+    let q_max_x = q.start.x.max(q.end.x);
+    let q_max_y = q.start.y.max(q.end.y);
+
+    let int_min_x = p_min_x.max(q_min_x);
+    let int_max_x = p_max_x.min(q_max_x);
+    let int_min_y = p_min_y.max(q_min_y);
+    let int_max_y = p_max_y.min(q_max_y);
+
+    let two = 2.0;
+    let mid_x = (int_min_x + int_max_x) / two;
+    let mid_y = (int_min_y + int_max_y) / two;
+
+    // condition ordinate values by subtracting midpoint
+    let p1x = p.start.x - mid_x;
+    let p1y = p.start.y - mid_y;
+    let p2x = p.end.x - mid_x;
+    let p2y = p.end.y - mid_y;
+    let q1x = q.start.x - mid_x;
+    let q1y = q.start.y - mid_y;
+    let q2x = q.end.x - mid_x;
+    let q2y = q.end.y - mid_y;
+
+    // unrolled computation using homogeneous coordinates eqn
+    let px = p1y - p2y;
+    let py = p2x - p1x;
+    let pw = p1x * p2y - p2x * p1y;
+
+    let qx = q1y - q2y;
+    let qy = q2x - q1x;
+    let qw = q1x * q2y - q2x * q1y;
+
+    let xw = py * qw - qy * pw;
+    let yw = qx * pw - px * qw;
+    let w = px * qy - qx * py;
+
+    let x_int = xw / w;
+    let y_int = yw / w;
+
+    // check for parallel lines
+    if (x_int.is_nan() || x_int.is_infinite()) || (y_int.is_nan() || y_int.is_infinite()) {
+        None
+    } else {
+        // de-condition intersection point
+        Some(SvgPoint {
+            x: x_int + mid_x,
+            y: y_int + mid_y,
+        })
+    }
+}
+
+pub fn svg_path_offset(p: &SvgPath, distance: f32, join: SvgLineJoin, cap: SvgLineCap) -> SvgPath {
+
+    if distance == 0.0 {
+        return p.clone();
+    }
+
+    let mut items = p.items.as_slice().to_vec();
+    if let Some(mut first) = items.first() {
+        items.push(first.clone());
+    }
+
+    let mut items = items.iter().map(|l| match l {
+        SvgPathElement::Line(q) => {
+            
+            let normal = match q.outwards_normal() {
+                Some(s) => SvgPoint { x: s.x * distance, y: s.y * distance },
+                None => return l.clone(),
+            };
+
+            SvgPathElement::Line(SvgLine {
+                start: SvgPoint {
+                    x: q.start.x + normal.x,
+                    y: q.start.y + normal.y,
+                },
+                end: SvgPoint {
+                    x: q.end.x + normal.x,
+                    y: q.end.y + normal.y,
+                }
+            })
+        },
+        SvgPathElement::QuadraticCurve(q) => {
+
+            let n1 = match (SvgLine {
+                start: q.start.clone(),
+                end: q.ctrl.clone(),
+            }.outwards_normal()) {
+                Some(s) => SvgPoint { x: s.x * distance, y: s.y * distance },
+                None => return l.clone(),
+            };
+
+            let n2 = match (SvgLine {
+                start: q.ctrl.clone(),
+                end: q.end.clone(),
+            }.outwards_normal()) {
+                Some(s) => SvgPoint { x: s.x * distance, y: s.y * distance },
+                None => return l.clone(),
+            };
+
+            let nl1 = SvgLine {
+                start: SvgPoint {
+                    x: q.start.x + n1.x,
+                    y: q.start.y + n1.y,
+                },
+                end: SvgPoint {
+                    x: q.ctrl.x + n1.x,
+                    y: q.ctrl.y + n1.y,
+                }
+            };
+
+            let nl2 = SvgLine {
+                start: SvgPoint {
+                    x: q.ctrl.x + n2.x,
+                    y: q.ctrl.y + n2.y,
+                },
+                end: SvgPoint {
+                    x: q.end.x + n2.x,
+                    y: q.end.y + n2.y,
+                }
+            };
+
+            let nctrl = match raw_line_intersection(&nl1, &nl2) {
+                Some(s) => s,
+                None => return l.clone(),
+            };
+
+            SvgPathElement::QuadraticCurve(SvgQuadraticCurve { 
+                start: nl1.start,
+                ctrl: nctrl, 
+                end: nl2.end,
+            })
+        },
+        SvgPathElement::CubicCurve(q) => {
+            
+            let n1 = match (SvgLine {
+                start: q.start.clone(),
+                end: q.ctrl_1.clone(),
+            }.outwards_normal()) {
+                Some(s) => SvgPoint { x: s.x * distance, y: s.y * distance },
+                None => return l.clone(),
+            };
+
+            let n2 = match (SvgLine {
+                start: q.ctrl_1.clone(),
+                end: q.ctrl_2.clone(),
+            }.outwards_normal()) {
+                Some(s) => SvgPoint { x: s.x * distance, y: s.y * distance },
+                None => return l.clone(),
+            };
+
+            let n3 = match (SvgLine {
+                start: q.ctrl_2.clone(),
+                end: q.end.clone(),
+            }.outwards_normal()) {
+                Some(s) => SvgPoint { x: s.x * distance, y: s.y * distance },
+                None => return l.clone(),
+            };
+
+            
+            let nl1 = SvgLine {
+                start: SvgPoint {
+                    x: q.start.x + n1.x,
+                    y: q.start.y + n1.y,
+                },
+                end: SvgPoint {
+                    x: q.ctrl_1.x + n1.x,
+                    y: q.ctrl_1.y + n1.y,
+                }
+            };
+
+            let nl2 = SvgLine {
+                start: SvgPoint {
+                    x: q.ctrl_1.x + n2.x,
+                    y: q.ctrl_1.y + n2.y,
+                },
+                end: SvgPoint {
+                    x: q.ctrl_2.x + n2.x,
+                    y: q.ctrl_2.y + n2.y,
+                }
+            };
+
+            let nl3 = SvgLine {
+                start: SvgPoint {
+                    x: q.ctrl_2.x + n3.x,
+                    y: q.ctrl_2.y + n3.y,
+                },
+                end: SvgPoint {
+                    x: q.end.x + n3.x,
+                    y: q.end.y + n3.y,
+                }
+            };
+
+            let nctrl_1 = match raw_line_intersection(&nl1, &nl2) {
+                Some(s) => s,
+                None => return l.clone(),
+            };
+
+            let nctrl_2 = match raw_line_intersection(&nl2, &nl3) {
+                Some(s) => s,
+                None => return l.clone(),
+            };
+
+            SvgPathElement::CubicCurve(SvgCubicCurve { 
+                start: nl1.start, 
+                ctrl_1: nctrl_1, 
+                ctrl_2: nctrl_2, 
+                end: nl3.end,
+            })
+        },
+    }).collect::<Vec<_>>();
+
+    for i in 0..items.len().saturating_sub(2) {
+        let a_end_line = match items[i] {
+            SvgPathElement::Line(q) => q.clone(),
+            SvgPathElement::QuadraticCurve(q) => SvgLine {
+                start: q.ctrl.clone(),
+                end: q.end.clone(),
+            },
+            SvgPathElement::CubicCurve(q) => SvgLine {
+                start: q.ctrl_2.clone(),
+                end: q.end.clone(),
+            },
+        };
+
+        let b_start_line = match items[i + 1] {
+            SvgPathElement::Line(q) => q.clone(),
+            SvgPathElement::QuadraticCurve(q) => SvgLine {
+                start: q.ctrl.clone(),
+                end: q.start.clone(),
+            },
+            SvgPathElement::CubicCurve(q) => SvgLine {
+                start: q.ctrl_1.clone(),
+                end: q.start.clone(),
+            },
+        };
+
+        if let Some(intersect_pt) = raw_line_intersection(&a_end_line, &b_start_line) {
+            items[i].set_last(intersect_pt.clone());
+            items[i + 1].set_first(intersect_pt);
+        }
+    }
+
+    items.pop();
+
+    SvgPath { items: items.into() }
+}
+
+
+fn shorten_line_end_by(line: SvgLine, distance: f32) -> SvgLine {
+    let dx = line.end.x - line.start.x;
+    let dy = line.end.y - line.start.y;
+    let dt = (dx * dx + dy * dy).sqrt();
+    let dt_short = dt - distance;
+    
+    SvgLine {
+        start: line.start,
+        end: SvgPoint {
+            x: line.start.x + (dt_short / dt) * (dx / dt),
+            y: line.start.y + (dt_short / dt) * (dx / dt),
+        }
+    }
+}
+
+fn shorten_line_start_by(line: SvgLine, distance: f32) -> SvgLine {
+    let dx = line.end.x - line.start.x;
+    let dy = line.end.y - line.start.y;
+    let dt = (dx * dx + dy * dy).sqrt();
+    let dt_short = dt - distance;
+    
+    SvgLine {
+        start: SvgPoint {
+            x: line.start.x + (1.0 - (dt_short / dt)) * (dx / dt),
+            y: line.start.y + (1.0 - (dt_short / dt)) * (dx / dt),
+        },
+        end: line.end,
+    }
+}
+
+// Creates a "bevel"
+pub fn svg_path_bevel(p: &SvgPath, distance: f32) -> SvgPath {
+    let mut items = p.items.as_slice().to_vec();
+    
+    // duplicate first & last items
+    let first = items.first().cloned();
+    let last = items.last().cloned();
+    if let Some(first) = first { items.push(first); }
+    items.reverse();
+    if let Some(last) = last { items.push(last); }
+    items.reverse();
+
+    let mut final_items = Vec::new();
+    for i in 0..items.len() {
+        let a = items[i].clone();
+        let b = items[i + 1].clone();
+        match (a, b) {
+            (SvgPathElement::Line(a), SvgPathElement::Line(b)) => {
+                let a_short = shorten_line_end_by(a, distance);
+                let b_short = shorten_line_start_by(b, distance);
+                final_items.push(SvgPathElement::Line(a_short));
+                final_items.push(SvgPathElement::CubicCurve(SvgCubicCurve {
+                    start: a_short.end,
+                    ctrl_1: a.end,
+                    ctrl_2: b.start,
+                    end: b_short.start,
+                }));
+                final_items.push(SvgPathElement::Line(b_short));
+            },
+            (other_a, other_b) => {
+                final_items.push(other_a);
+                final_items.push(other_b);
+            },
+        }
+    }
+
+    // remove first & last items again
+    final_items.pop();
+    final_items.reverse();
+    final_items.pop();
+    final_items.reverse();
+
+    SvgPath {
+        items: final_items.into()
+    }
+}
+
+fn svg_multi_polygon_to_geo(poly: &SvgMultiPolygon) -> geo::MultiPolygon {
+    use geo::Coord;
+    use geo::Winding;
+    use geo::Intersects;
+
+    let linestrings = poly.rings.iter().map(|p| {
+        geo::LineString::new(p.items.iter().flat_map(|p| match p {
+            SvgPathElement::Line(l) => vec![
+                Coord { x: l.start.x as f64, y: l.start.y as f64 }, 
+                Coord { x: l.end.x as f64, y: l.end.y as f64 }
+            ],
+            SvgPathElement::QuadraticCurve(l) => vec![
+                Coord { x: l.start.x as f64, y: l.start.y as f64 }, 
+                Coord { x: l.ctrl.x as f64, y: l.ctrl.y as f64 }, 
+                Coord { x: l.end.x as f64, y: l.end.y as f64 }
+            ],
+            SvgPathElement::CubicCurve(l) => vec![
+                Coord { x: l.start.x as f64, y: l.start.y as f64}, 
+                Coord { x: l.ctrl_1.x as f64, y: l.ctrl_1.y as f64 }, 
+                Coord { x: l.ctrl_2.x as f64, y: l.ctrl_2.y as f64 }, 
+                Coord { x: l.end.x as f64, y: l.end.y as f64 }
+            ],
+        }.into_iter()).collect())
+    }).collect::<Vec<_>>();
+
+    let exterior_polys = linestrings.iter().filter(|ls| ls.is_cw()).cloned().collect::<Vec<geo::LineString<_>>>();
+    let mut interior_polys = linestrings.iter().filter(|ls| ls.is_ccw()).cloned().map(|p| Some(p)).collect::<Vec<_>>();
+
+    let ext_int_matched = exterior_polys.iter().map(|p| {
+        let mut interiors = Vec::new();
+        let p_poly = geo::Polygon::new(p.clone(), Vec::new());
+        for i in interior_polys.iter_mut() {
+            let cloned = match i.as_ref() {
+                Some(s) => s.clone(),
+                None => continue,
+            };
+
+            if geo::Polygon::new(cloned.clone(), Vec::new()).intersects(&p_poly) {
+                interiors.push(cloned);
+                *i = None;
+            }
+        }
+        geo::Polygon::new(p.clone(), interiors)
+    }).collect::<Vec<geo::Polygon<_>>>();
+
+    geo::MultiPolygon(ext_int_matched)
+}
+
+fn linestring_to_svg_path(ls: geo::LineString<f64>) -> SvgPath {
+    // TODO: bezier curves?
+    SvgPath {
+        items: ls.0.windows(2).map(|a| {
+            SvgPathElement::Line(SvgLine {
+                start: SvgPoint {
+                    x: a[0].x as f32,
+                    y: a[0].y as f32,
+                },
+                end: SvgPoint {
+                    x: a[1].x as f32,
+                    y: a[1].y as f32,
+                }
+            })
+        }).collect::<Vec<_>>().into()
+    }
+}
+
+fn geo_to_svg_multipolygon(poly: geo::MultiPolygon<f64>) -> SvgMultiPolygon {
+    use geo::Winding;
+    SvgMultiPolygon {
+        rings: poly.0.into_iter().flat_map(|s| {
+            let mut exterior = s.exterior().clone();
+            let mut interiors = s.interiors().to_vec();
+            exterior.make_cw_winding();
+            for i in interiors.iter_mut() {
+                i.make_ccw_winding();
+            }
+            interiors.push(exterior);
+            interiors.reverse();
+            interiors.into_iter()
+        })
+        .map(|s| linestring_to_svg_path(s))
+        .collect::<Vec<_>>()
+        .into()
+    }
+}
+
+// TODO: produces wrong results for curve curve intersection
+pub fn svg_multi_polygon_union(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    use geo::Coord;
+    use geo::BooleanOps;
+
+    let a = svg_multi_polygon_to_geo(a);
+    let b = svg_multi_polygon_to_geo(b);
+
+    let u = a.union(&b);
+
+    geo_to_svg_multipolygon(u)
+}
+
+
+pub fn svg_multi_polygon_intersection(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    use geo::Coord;
+    use geo::BooleanOps;
+
+    let a = svg_multi_polygon_to_geo(a);
+    let b = svg_multi_polygon_to_geo(b);
+
+    let u = a.intersection(&b);
+
+    geo_to_svg_multipolygon(u)
+}
+
+pub fn svg_multi_polygon_difference(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    use geo::Coord;
+    use geo::BooleanOps;
+
+    let a = svg_multi_polygon_to_geo(a);
+    let b = svg_multi_polygon_to_geo(b);
+
+    let u = a.difference(&b);
+
+    geo_to_svg_multipolygon(u)
+}
+
+pub fn svg_multi_polygon_xor(a: &SvgMultiPolygon, b: &SvgMultiPolygon) -> SvgMultiPolygon {
+    use geo::Coord;
+    use geo::BooleanOps;
+
+    let a = svg_multi_polygon_to_geo(a);
+    let b = svg_multi_polygon_to_geo(b);
+
+    let u = a.xor(&b);
+
+    geo_to_svg_multipolygon(u)
 }
 
 #[cfg(feature = "svg")]

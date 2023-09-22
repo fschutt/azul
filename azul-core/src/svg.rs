@@ -26,6 +26,13 @@ pub struct SvgSize {
     pub height: f32,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum SvgWindingOrder {
+    EvenOdd,
+    NonZero,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgLine {
@@ -34,6 +41,29 @@ pub struct SvgLine {
 }
 
 impl SvgLine {
+
+    pub fn inwards_normal(&self) -> Option<SvgPoint> {
+        let dx = self.end.x - self.start.x;
+        let dy = self.end.y - self.start.y;
+        let edge_length = (dx * dx + dy * dy).sqrt();
+        let x = -dy / edge_length;
+        let y = dx / edge_length;
+
+        if x.is_finite() && y.is_finite() {
+            Some(SvgPoint { x, y })
+        } else {
+            None
+        }
+    }
+
+    pub fn outwards_normal(&self) -> Option<SvgPoint> {
+        let inwards = self.inwards_normal()?;
+        Some(SvgPoint {
+            x: -inwards.x, 
+            y: -inwards.y
+        })
+    }
+
     pub fn reverse(&mut self) {
         let temp = self.start;
         self.start = self.end;
