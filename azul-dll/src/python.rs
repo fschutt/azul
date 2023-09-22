@@ -5528,6 +5528,13 @@ pub struct AzParentWithNodeDepthVec {
     pub destructor: AzParentWithNodeDepthVecDestructorEnumWrapper,
 }
 
+/// Re-export of rust-allocated (stack based) `OptionSvgPoint` struct
+#[repr(C, u8)]
+pub enum AzOptionSvgPoint {
+    None,
+    Some(AzSvgPoint),
+}
+
 /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
 #[repr(C, u8)]
 pub enum AzOptionListViewOnRowClick {
@@ -9436,6 +9443,12 @@ pub struct AzThreadSendMsgEnumWrapper {
     pub inner: AzThreadSendMsg,
 }
 
+/// `AzOptionSvgPointEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzOptionSvgPointEnumWrapper {
+    pub inner: AzOptionSvgPoint,
+}
+
 /// `AzOptionListViewOnRowClickEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzOptionListViewOnRowClickEnumWrapper {
@@ -10805,6 +10818,7 @@ impl Clone for AzNormalizedRadialColorStopVec { fn clone(&self) -> Self { let r:
 impl Clone for AzNodeIdVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeIdVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeHierarchyItemVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::NodeHierarchyItemVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzParentWithNodeDepthVec { fn clone(&self) -> Self { let r: &azul_impl::styled_dom::ParentWithNodeDepthVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzOptionSvgPointEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::OptionSvgPoint = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionListViewOnRowClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::OptionListViewOnRowClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionListViewOnColumnClickEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::OptionListViewOnColumnClick = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOptionListViewOnLazyLoadScrollEnumWrapper { fn clone(&self) -> Self { let r: &crate::widgets::list_view::OptionListViewOnLazyLoadScroll = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -31228,6 +31242,30 @@ impl AzSvgMultiPolygon {
             mem::transmute(tolerance),
         )) }
     }
+    fn union(&self, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_union(
+            mem::transmute(self),
+            mem::transmute(other),
+        )) }
+    }
+    fn intersection(&self, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_intersection(
+            mem::transmute(self),
+            mem::transmute(other),
+        )) }
+    }
+    fn difference(&self, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_difference(
+            mem::transmute(self),
+            mem::transmute(other),
+        )) }
+    }
+    fn xor(&self, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon {
+        unsafe { mem::transmute(crate::AzSvgMultiPolygon_xor(
+            mem::transmute(self),
+            mem::transmute(other),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgMultiPolygon_tessellateFill(
             mem::transmute(self),
@@ -31418,6 +31456,20 @@ impl AzSvgPath {
             mem::transmute(path),
         )) }
     }
+    fn offset(&mut self, distance: f32, join: AzSvgLineJoinEnumWrapper, cap: AzSvgLineCapEnumWrapper) -> AzSvgPath {
+        unsafe { mem::transmute(crate::AzSvgPath_offset(
+            mem::transmute(self),
+            mem::transmute(distance),
+            mem::transmute(join),
+            mem::transmute(cap),
+        )) }
+    }
+    fn bevel(&mut self, distance: f32) -> AzSvgPath {
+        unsafe { mem::transmute(crate::AzSvgPath_bevel(
+            mem::transmute(self),
+            mem::transmute(distance),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgPath_tessellateFill(
             mem::transmute(self),
@@ -31597,6 +31649,17 @@ impl AzSvgLine {
             mem::transmute(self),
             mem::transmute(t),
         )) }
+    }
+    fn intersect(&self, other: AzSvgLine) -> Option<AzSvgPoint> {
+        let m: AzOptionSvgPoint = unsafe { mem::transmute(crate::AzSvgLine_intersect(
+            mem::transmute(self),
+            mem::transmute(other),
+        )) };
+        match m {
+            AzOptionSvgPoint::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionSvgPoint::None => None,
+        }
+
     }
     fn tessellate_stroke(&self, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgLine_tessellateStroke(
@@ -37054,6 +37117,35 @@ impl PyObjectProtocol for AzNodeDataVecDestructorEnumWrapper {
 }
 
 #[pymethods]
+impl AzOptionSvgPointEnumWrapper {
+    #[classattr]
+    fn None() -> AzOptionSvgPointEnumWrapper { AzOptionSvgPointEnumWrapper { inner: AzOptionSvgPoint::None } }
+    #[staticmethod]
+    fn Some(v: AzSvgPoint) -> AzOptionSvgPointEnumWrapper { AzOptionSvgPointEnumWrapper { inner: AzOptionSvgPoint::Some(v) } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzOptionSvgPoint;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzOptionSvgPoint::None => Ok(vec!["None".into_py(py), ().into_py(py)]),
+            AzOptionSvgPoint::Some(v) => Ok(vec!["Some".into_py(py), v.clone().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzOptionSvgPointEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::OptionSvgPoint = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::css::OptionSvgPoint = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzOptionListViewOnRowClickEnumWrapper {
     #[classattr]
     fn None() -> AzOptionListViewOnRowClickEnumWrapper { AzOptionListViewOnRowClickEnumWrapper { inner: AzOptionListViewOnRowClick::None } }
@@ -40971,6 +41063,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzParentWithNodeDepthVecDestructorEnumWrapper>()?;
     m.add_class::<AzNodeDataVecDestructorEnumWrapper>()?;
 
+    m.add_class::<AzOptionSvgPointEnumWrapper>()?;
     m.add_class::<AzOptionListViewOnRowClickEnumWrapper>()?;
     m.add_class::<AzOptionListViewOnColumnClickEnumWrapper>()?;
     m.add_class::<AzOptionListViewOnLazyLoadScrollEnumWrapper>()?;

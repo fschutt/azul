@@ -185,3 +185,4 @@
     impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);
     impl_option!(AzGl, AzOptionGl, copy = false, [Debug, Clone]);
     impl_option!(AzPixelValueNoPercent, AzOptionPixelValueNoPercent, copy = false, [Debug, Copy, Clone]);
+    impl_option!(AzSvgPoint, AzOptionSvgPoint, [Debug, Copy, Clone]);

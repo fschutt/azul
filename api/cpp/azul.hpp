@@ -6290,6 +6290,19 @@ namespace dll {
         ParentWithNodeDepthVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    enum class OptionSvgPointTag {
+       None,
+       Some,
+    };
+    
+    struct OptionSvgPointVariant_None { OptionSvgPointTag tag; };
+    struct OptionSvgPointVariant_Some { OptionSvgPointTag tag; SvgPoint payload; };
+    union OptionSvgPoint {
+        OptionSvgPointVariant_None None;
+        OptionSvgPointVariant_Some Some;
+    };
+    
+    
     enum class OptionListViewOnRowClickTag {
        None,
        Some,
@@ -10958,6 +10971,10 @@ namespace dll {
         SvgXmlNode SvgXmlNode_deepCopy(SvgXmlNode* const instance);
         SvgRect SvgMultiPolygon_getBounds(const SvgMultiPolygon* svgmultipolygon);
         bool  SvgMultiPolygon_containsPoint(const SvgMultiPolygon* svgmultipolygon, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
+        SvgMultiPolygon SvgMultiPolygon_union(const SvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
+        SvgMultiPolygon SvgMultiPolygon_intersection(const SvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
+        SvgMultiPolygon SvgMultiPolygon_difference(const SvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
+        SvgMultiPolygon SvgMultiPolygon_xor(const SvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
         TessellatedSvgNode SvgMultiPolygon_tessellateFill(const SvgMultiPolygon* svgmultipolygon, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgMultiPolygon_tessellateStroke(const SvgMultiPolygon* svgmultipolygon, AzSvgStrokeStyle  stroke_style);
         void SvgMultiPolygon_delete(SvgMultiPolygon* restrict instance);
@@ -10976,6 +10993,8 @@ namespace dll {
         bool  SvgPath_isClosed(const SvgPath* svgpath);
         void SvgPath_reverse(SvgPath* restrict svgpath);
         void SvgPath_joinWith(SvgPath* restrict svgpath, AzSvgPath  path);
+        SvgPath SvgPath_offset(SvgPath* restrict svgpath, float distance, AzSvgLineJoin  join, AzSvgLineCap  cap);
+        SvgPath SvgPath_bevel(SvgPath* restrict svgpath, float distance);
         TessellatedSvgNode SvgPath_tessellateFill(const SvgPath* svgpath, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgPath_tessellateStroke(const SvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
         void SvgPath_delete(SvgPath* restrict instance);
@@ -11002,6 +11021,7 @@ namespace dll {
         double SvgLine_getXAtT(const SvgLine* svgline, double t);
         double SvgLine_getYAtT(const SvgLine* svgline, double t);
         SvgVector SvgLine_getTangentVectorAtT(const SvgLine* svgline, double t);
+        OptionSvgPoint SvgLine_intersect(const SvgLine* svgline, AzSvgLine  other);
         TessellatedSvgNode SvgLine_tessellateStroke(const SvgLine* svgline, AzSvgStrokeStyle  stroke_style);
         void SvgQuadraticCurve_reverse(SvgQuadraticCurve* restrict svgquadraticcurve);
         SvgPoint SvgQuadraticCurve_getStart(const SvgQuadraticCurve* svgquadraticcurve);

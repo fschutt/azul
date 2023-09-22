@@ -7100,6 +7100,16 @@ mod dll {
             pub destructor: AzParentWithNodeDepthVecDestructor,
         }
 
+        /// Re-export of rust-allocated (stack based) `OptionSvgPoint` struct
+        #[repr(C, u8)]
+        #[derive(Debug)]
+        #[derive(Clone)]
+        #[derive(PartialEq, PartialOrd)]
+        pub enum AzOptionSvgPoint {
+            None,
+            Some(AzSvgPoint),
+        }
+
         /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
         #[repr(C, u8)]
         #[derive(Debug)]
@@ -11077,6 +11087,10 @@ mod dll {
         pub(crate) fn AzSvgXmlNode_deepCopy(object: &AzSvgXmlNode) -> AzSvgXmlNode { unsafe { transmute(azul::AzSvgXmlNode_deepCopy(transmute(object))) } }
         pub(crate) fn AzSvgMultiPolygon_getBounds(svgmultipolygon: &AzSvgMultiPolygon) -> AzSvgRect { unsafe { transmute(azul::AzSvgMultiPolygon_getBounds(transmute(svgmultipolygon))) } }
         pub(crate) fn AzSvgMultiPolygon_containsPoint(svgmultipolygon: &AzSvgMultiPolygon, point: AzSvgPoint, fill_rule: AzSvgFillRule, tolerance: f32) -> bool { unsafe { transmute(azul::AzSvgMultiPolygon_containsPoint(transmute(svgmultipolygon), transmute(point), transmute(fill_rule), transmute(tolerance))) } }
+        pub(crate) fn AzSvgMultiPolygon_union(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { unsafe { transmute(azul::AzSvgMultiPolygon_union(transmute(svgmultipolygon), transmute(other))) } }
+        pub(crate) fn AzSvgMultiPolygon_intersection(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { unsafe { transmute(azul::AzSvgMultiPolygon_intersection(transmute(svgmultipolygon), transmute(other))) } }
+        pub(crate) fn AzSvgMultiPolygon_difference(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { unsafe { transmute(azul::AzSvgMultiPolygon_difference(transmute(svgmultipolygon), transmute(other))) } }
+        pub(crate) fn AzSvgMultiPolygon_xor(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { unsafe { transmute(azul::AzSvgMultiPolygon_xor(transmute(svgmultipolygon), transmute(other))) } }
         pub(crate) fn AzSvgMultiPolygon_tessellateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgMultiPolygon_tessellateFill(transmute(svgmultipolygon), transmute(fill_style))) } }
         pub(crate) fn AzSvgMultiPolygon_tessellateStroke(svgmultipolygon: &AzSvgMultiPolygon, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgMultiPolygon_tessellateStroke(transmute(svgmultipolygon), transmute(stroke_style))) } }
         pub(crate) fn AzSvgNode_tessellateFill(svgnode: &AzSvgNode, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgNode_tessellateFill(transmute(svgnode), transmute(fill_style))) } }
@@ -11091,6 +11105,8 @@ mod dll {
         pub(crate) fn AzSvgPath_isClosed(svgpath: &AzSvgPath) -> bool { unsafe { transmute(azul::AzSvgPath_isClosed(transmute(svgpath))) } }
         pub(crate) fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { unsafe { transmute(azul::AzSvgPath_reverse(transmute(svgpath))) } }
         pub(crate) fn AzSvgPath_joinWith(svgpath: &mut AzSvgPath, path: AzSvgPath) { unsafe { transmute(azul::AzSvgPath_joinWith(transmute(svgpath), transmute(path))) } }
+        pub(crate) fn AzSvgPath_offset(svgpath: &mut AzSvgPath, distance: f32, join: AzSvgLineJoin, cap: AzSvgLineCap) -> AzSvgPath { unsafe { transmute(azul::AzSvgPath_offset(transmute(svgpath), transmute(distance), transmute(join), transmute(cap))) } }
+        pub(crate) fn AzSvgPath_bevel(svgpath: &mut AzSvgPath, distance: f32) -> AzSvgPath { unsafe { transmute(azul::AzSvgPath_bevel(transmute(svgpath), transmute(distance))) } }
         pub(crate) fn AzSvgPath_tessellateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgPath_tessellateFill(transmute(svgpath), transmute(fill_style))) } }
         pub(crate) fn AzSvgPath_tessellateStroke(svgpath: &AzSvgPath, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgPath_tessellateStroke(transmute(svgpath), transmute(stroke_style))) } }
         pub(crate) fn AzSvgPathElement_reverse(svgpathelement: &mut AzSvgPathElement) { unsafe { transmute(azul::AzSvgPathElement_reverse(transmute(svgpathelement))) } }
@@ -11116,6 +11132,7 @@ mod dll {
         pub(crate) fn AzSvgLine_getXAtT(svgline: &AzSvgLine, t: f64) -> f64 { unsafe { transmute(azul::AzSvgLine_getXAtT(transmute(svgline), transmute(t))) } }
         pub(crate) fn AzSvgLine_getYAtT(svgline: &AzSvgLine, t: f64) -> f64 { unsafe { transmute(azul::AzSvgLine_getYAtT(transmute(svgline), transmute(t))) } }
         pub(crate) fn AzSvgLine_getTangentVectorAtT(svgline: &AzSvgLine, t: f64) -> AzSvgVector { unsafe { transmute(azul::AzSvgLine_getTangentVectorAtT(transmute(svgline), transmute(t))) } }
+        pub(crate) fn AzSvgLine_intersect(svgline: &AzSvgLine, other: AzSvgLine) -> AzOptionSvgPoint { unsafe { transmute(azul::AzSvgLine_intersect(transmute(svgline), transmute(other))) } }
         pub(crate) fn AzSvgLine_tessellateStroke(svgline: &AzSvgLine, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgLine_tessellateStroke(transmute(svgline), transmute(stroke_style))) } }
         pub(crate) fn AzSvgQuadraticCurve_reverse(svgquadraticcurve: &mut AzSvgQuadraticCurve) { unsafe { transmute(azul::AzSvgQuadraticCurve_reverse(transmute(svgquadraticcurve))) } }
         pub(crate) fn AzSvgQuadraticCurve_getStart(svgquadraticcurve: &AzSvgQuadraticCurve) -> AzSvgPoint { unsafe { transmute(azul::AzSvgQuadraticCurve_getStart(transmute(svgquadraticcurve))) } }
@@ -11906,6 +11923,10 @@ mod dll {
             pub(crate) fn AzSvgXmlNode_deepCopy(_:  &AzSvgXmlNode) -> AzSvgXmlNode;
             pub(crate) fn AzSvgMultiPolygon_getBounds(_:  &AzSvgMultiPolygon) -> AzSvgRect;
             pub(crate) fn AzSvgMultiPolygon_containsPoint(_:  &AzSvgMultiPolygon, _:  AzSvgPoint, _:  AzSvgFillRule, _:  f32) -> bool;
+            pub(crate) fn AzSvgMultiPolygon_union(_:  &AzSvgMultiPolygon, _:  AzSvgMultiPolygon) -> AzSvgMultiPolygon;
+            pub(crate) fn AzSvgMultiPolygon_intersection(_:  &AzSvgMultiPolygon, _:  AzSvgMultiPolygon) -> AzSvgMultiPolygon;
+            pub(crate) fn AzSvgMultiPolygon_difference(_:  &AzSvgMultiPolygon, _:  AzSvgMultiPolygon) -> AzSvgMultiPolygon;
+            pub(crate) fn AzSvgMultiPolygon_xor(_:  &AzSvgMultiPolygon, _:  AzSvgMultiPolygon) -> AzSvgMultiPolygon;
             pub(crate) fn AzSvgMultiPolygon_tessellateFill(_:  &AzSvgMultiPolygon, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgMultiPolygon_tessellateStroke(_:  &AzSvgMultiPolygon, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgNode_tessellateFill(_:  &AzSvgNode, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
@@ -11920,6 +11941,8 @@ mod dll {
             pub(crate) fn AzSvgPath_isClosed(_:  &AzSvgPath) -> bool;
             pub(crate) fn AzSvgPath_reverse(_:  &mut AzSvgPath);
             pub(crate) fn AzSvgPath_joinWith(_:  &mut AzSvgPath, _:  AzSvgPath);
+            pub(crate) fn AzSvgPath_offset(_:  &mut AzSvgPath, _:  f32, _:  AzSvgLineJoin, _:  AzSvgLineCap) -> AzSvgPath;
+            pub(crate) fn AzSvgPath_bevel(_:  &mut AzSvgPath, _:  f32) -> AzSvgPath;
             pub(crate) fn AzSvgPath_tessellateFill(_:  &AzSvgPath, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgPath_tessellateStroke(_:  &AzSvgPath, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgPathElement_reverse(_:  &mut AzSvgPathElement);
@@ -11945,6 +11968,7 @@ mod dll {
             pub(crate) fn AzSvgLine_getXAtT(_:  &AzSvgLine, _:  f64) -> f64;
             pub(crate) fn AzSvgLine_getYAtT(_:  &AzSvgLine, _:  f64) -> f64;
             pub(crate) fn AzSvgLine_getTangentVectorAtT(_:  &AzSvgLine, _:  f64) -> AzSvgVector;
+            pub(crate) fn AzSvgLine_intersect(_:  &AzSvgLine, _:  AzSvgLine) -> AzOptionSvgPoint;
             pub(crate) fn AzSvgLine_tessellateStroke(_:  &AzSvgLine, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgQuadraticCurve_reverse(_:  &mut AzSvgQuadraticCurve);
             pub(crate) fn AzSvgQuadraticCurve_getStart(_:  &AzSvgQuadraticCurve) -> AzSvgPoint;
@@ -17889,6 +17913,14 @@ pub mod svg {
         pub fn get_bounds(&self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgMultiPolygon_getBounds(self) } }
         /// Returns whether the polygon contains a point
         pub fn contains_point<_1: Into<SvgPoint>, _2: Into<SvgFillRule>>(&self, point: _1, fill_rule: _2, tolerance: f32)  -> bool { unsafe { crate::dll::AzSvgMultiPolygon_containsPoint(self, point.into(), fill_rule.into(), tolerance) } }
+        /// Unions two MultiPolygons, returns the unioned MultiPolygon
+        pub fn union<_1: Into<SvgMultiPolygon>>(&self, other: _1)  -> crate::svg::SvgMultiPolygon { unsafe { crate::dll::AzSvgMultiPolygon_union(self, other.into()) } }
+        /// Intersects two MultiPolygons, returns the intersected MultiPolygon
+        pub fn intersection<_1: Into<SvgMultiPolygon>>(&self, other: _1)  -> crate::svg::SvgMultiPolygon { unsafe { crate::dll::AzSvgMultiPolygon_intersection(self, other.into()) } }
+        /// Calculates the difference two MultiPolygons, returns a MultiPolygon
+        pub fn difference<_1: Into<SvgMultiPolygon>>(&self, other: _1)  -> crate::svg::SvgMultiPolygon { unsafe { crate::dll::AzSvgMultiPolygon_difference(self, other.into()) } }
+        /// Xors two MultiPolygons, returns a MultiPolygon
+        pub fn xor<_1: Into<SvgMultiPolygon>>(&self, other: _1)  -> crate::svg::SvgMultiPolygon { unsafe { crate::dll::AzSvgMultiPolygon_xor(self, other.into()) } }
         /// Calls the `SvgMultiPolygon::tessellate_fill` function.
         pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgMultiPolygon_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgMultiPolygon::tessellate_stroke` function.
@@ -17952,6 +17984,10 @@ pub mod svg {
         pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPath_reverse(self) } }
         /// Adds a path to the end of the current path
         pub fn join_with<_1: Into<SvgPath>>(&mut self, path: _1)  { unsafe { crate::dll::AzSvgPath_joinWith(self, path.into()) } }
+        /// Offset the path by a certain distance. Will create bezier curves around the edges when the path is closed
+        pub fn offset<_2: Into<SvgLineJoin>, _3: Into<SvgLineCap>>(&mut self, distance: f32, join: _2, cap: _3)  -> crate::svg::SvgPath { unsafe { crate::dll::AzSvgPath_offset(self, distance, join.into(), cap.into()) } }
+        /// Round the edges with a cubic curve
+        pub fn bevel(&mut self, distance: f32)  -> crate::svg::SvgPath { unsafe { crate::dll::AzSvgPath_bevel(self, distance) } }
         /// Calls the `SvgPath::tessellate_fill` function.
         pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgPath_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgPath::tessellate_stroke` function.
@@ -18030,6 +18066,8 @@ pub mod svg {
         pub fn get_y_at_t(&self, t: f64)  -> f64 { unsafe { crate::dll::AzSvgLine_getYAtT(self, t) } }
         /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
         pub fn get_tangent_vector_at_t(&self, t: f64)  -> crate::svg::SvgVector { unsafe { crate::dll::AzSvgLine_getTangentVectorAtT(self, t) } }
+        /// Intersect two lines EVEN IF THEY ARE DISTINCT. Only returns None on parallel lines (never intersect)
+        pub fn intersect<_1: Into<SvgLine>>(&self, other: _1)  -> crate::option::OptionSvgPoint { unsafe { crate::dll::AzSvgLine_intersect(self, other.into()) } }
         /// Calls the `SvgLine::tessellate_stroke` function.
         pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgLine_tessellateStroke(self, stroke_style.into()) } }
     }
@@ -19845,6 +19883,10 @@ pub mod option {
     impl_option!(AzNodeGraphOnNodeFieldEdited, AzOptionNodeGraphOnNodeFieldEdited, [Debug, Copy, Clone]);
     impl_option!(AzGl, AzOptionGl, copy = false, [Debug, Clone]);
     impl_option!(AzPixelValueNoPercent, AzOptionPixelValueNoPercent, copy = false, [Debug, Copy, Clone]);
+    impl_option!(AzSvgPoint, AzOptionSvgPoint, [Debug, Copy, Clone]);
+    /// `OptionSvgPoint` struct
+    
+    #[doc(inline)] pub use crate::dll::AzOptionSvgPoint as OptionSvgPoint;
     /// `OptionListViewOnRowClick` struct
     
     #[doc(inline)] pub use crate::dll::AzOptionListViewOnRowClick as OptionListViewOnRowClick;

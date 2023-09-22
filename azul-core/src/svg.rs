@@ -26,13 +26,6 @@ pub struct SvgSize {
     pub height: f32,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-#[repr(C)]
-pub enum SvgWindingOrder {
-    EvenOdd,
-    NonZero,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgLine {

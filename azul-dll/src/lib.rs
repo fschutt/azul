@@ -3480,6 +3480,14 @@ pub use AzSvgMultiPolygonTT as AzSvgMultiPolygon;
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_getBounds(svgmultipolygon: &AzSvgMultiPolygon) -> AzSvgRect { svgmultipolygon.get_bounds() }
 /// Returns whether the polygon contains a point
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_containsPoint(svgmultipolygon: &AzSvgMultiPolygon, point: AzSvgPoint, fill_rule: AzSvgFillRule, tolerance: f32) -> bool { azul_impl::svg::polygon_contains_point(svgmultipolygon, point, fill_rule, tolerance) }
+/// Unions two MultiPolygons, returns the unioned MultiPolygon
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_union(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { azul_impl::svg::svg_multi_polygon_union(svgmultipolygon, &other) }
+/// Intersects two MultiPolygons, returns the intersected MultiPolygon
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_intersection(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { azul_impl::svg::svg_multi_polygon_intersection(svgmultipolygon, &other) }
+/// Calculates the difference two MultiPolygons, returns a MultiPolygon
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_difference(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { azul_impl::svg::svg_multi_polygon_difference(svgmultipolygon, &other) }
+/// Xors two MultiPolygons, returns a MultiPolygon
+#[no_mangle] pub extern "C" fn AzSvgMultiPolygon_xor(svgmultipolygon: &AzSvgMultiPolygon, other: AzSvgMultiPolygon) -> AzSvgMultiPolygon { azul_impl::svg::svg_multi_polygon_xor(svgmultipolygon, &other) }
 /// Equivalent to the Rust `SvgMultiPolygon::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgMultiPolygon_tessellateFill(svgmultipolygon: &AzSvgMultiPolygon, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_multi_polygon_fill(svgmultipolygon, fill_style) }
 /// Equivalent to the Rust `SvgMultiPolygon::tessellate_stroke()` function.
@@ -3536,6 +3544,10 @@ pub use AzSvgPathTT as AzSvgPath;
 #[no_mangle] pub extern "C" fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { svgpath.reverse() }
 /// Adds a path to the end of the current path
 #[no_mangle] pub extern "C" fn AzSvgPath_joinWith(svgpath: &mut AzSvgPath, path: AzSvgPath) { svgpath.join_with(path); }
+/// Offset the path by a certain distance. Will create bezier curves around the edges when the path is closed
+#[no_mangle] pub extern "C" fn AzSvgPath_offset(svgpath: &mut AzSvgPath, distance: f32, join: AzSvgLineJoin, cap: AzSvgLineCap) -> AzSvgPath { azul_impl::svg::svg_path_offset(svgpath, distance, join, cap) }
+/// Round the edges with a cubic curve
+#[no_mangle] pub extern "C" fn AzSvgPath_bevel(svgpath: &mut AzSvgPath, distance: f32) -> AzSvgPath { azul_impl::svg::svg_path_bevel(svgpath, distance) }
 /// Equivalent to the Rust `SvgPath::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgPath_tessellateFill(svgpath: &AzSvgPath, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_path_fill(svgpath, fill_style) }
 /// Equivalent to the Rust `SvgPath::tessellate_stroke()` function.
@@ -3604,6 +3616,8 @@ pub use AzSvgLineTT as AzSvgLine;
 #[no_mangle] pub extern "C" fn AzSvgLine_getYAtT(svgline: &AzSvgLine, t: f64) -> f64 { svgline.get_y_at_t(t) }
 /// Returns the angle in DEGREES of the line or curve at t (t = interpolation value between 0 and 1)
 #[no_mangle] pub extern "C" fn AzSvgLine_getTangentVectorAtT(svgline: &AzSvgLine, t: f64) -> AzSvgVector { svgline.get_tangent_vector_at_t(t) }
+/// Intersect two lines EVEN IF THEY ARE DISTINCT. Only returns None on parallel lines (never intersect)
+#[no_mangle] pub extern "C" fn AzSvgLine_intersect(svgline: &AzSvgLine, other: AzSvgLine) -> AzOptionSvgPoint { azul_impl::svg::raw_line_intersection(svgline, &other).into() }
 /// Equivalent to the Rust `SvgLine::tessellate_stroke()` function.
 #[no_mangle] pub extern "C" fn AzSvgLine_tessellateStroke(svgline: &AzSvgLine, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_line_stroke(svgline, stroke_style) }
 
@@ -4802,6 +4816,10 @@ pub use azul_impl::dom::NodeDataVecDestructor as AzNodeDataVecDestructorTT;
 pub use AzNodeDataVecDestructorTT as AzNodeDataVecDestructor;
 
 pub type AzNodeDataVecDestructorType = extern "C" fn(&mut AzNodeDataVec);
+/// Re-export of rust-allocated (stack based) `OptionSvgPoint` struct
+pub use azul_impl::css::OptionSvgPoint as AzOptionSvgPointTT;
+pub use AzOptionSvgPointTT as AzOptionSvgPoint;
+
 /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
 pub use crate::widgets::list_view::OptionListViewOnRowClick as AzOptionListViewOnRowClickTT;
 pub use AzOptionListViewOnRowClickTT as AzOptionListViewOnRowClick;
@@ -10350,6 +10368,13 @@ mod test_sizes {
         pub destructor: AzParentWithNodeDepthVecDestructor,
     }
 
+    /// Re-export of rust-allocated (stack based) `OptionSvgPoint` struct
+    #[repr(C, u8)]
+    pub enum AzOptionSvgPoint {
+        None,
+        Some(AzSvgPoint),
+    }
+
     /// Re-export of rust-allocated (stack based) `OptionListViewOnRowClick` struct
     #[repr(C, u8)]
     pub enum AzOptionListViewOnRowClick {
@@ -13428,6 +13453,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeIdVec>(), "AzNodeIdVec"), (Layout::new::<AzNodeIdVec>(), "AzNodeIdVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::NodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"), (Layout::new::<AzNodeHierarchyItemVec>(), "AzNodeHierarchyItemVec"));
         assert_eq!((Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"), (Layout::new::<AzParentWithNodeDepthVec>(), "AzParentWithNodeDepthVec"));
+        assert_eq!((Layout::new::<azul_impl::css::OptionSvgPoint>(), "AzOptionSvgPoint"), (Layout::new::<AzOptionSvgPoint>(), "AzOptionSvgPoint"));
         assert_eq!((Layout::new::<crate::widgets::list_view::OptionListViewOnRowClick>(), "AzOptionListViewOnRowClick"), (Layout::new::<AzOptionListViewOnRowClick>(), "AzOptionListViewOnRowClick"));
         assert_eq!((Layout::new::<crate::widgets::list_view::OptionListViewOnColumnClick>(), "AzOptionListViewOnColumnClick"), (Layout::new::<AzOptionListViewOnColumnClick>(), "AzOptionListViewOnColumnClick"));
         assert_eq!((Layout::new::<crate::widgets::list_view::OptionListViewOnLazyLoadScroll>(), "AzOptionListViewOnLazyLoadScroll"), (Layout::new::<AzOptionListViewOnLazyLoadScroll>(), "AzOptionListViewOnLazyLoadScroll"));

@@ -6818,6 +6818,22 @@ struct AzParentWithNodeDepthVec {
 };
 typedef struct AzParentWithNodeDepthVec AzParentWithNodeDepthVec;
 
+enum AzOptionSvgPointTag {
+   AzOptionSvgPointTag_None,
+   AzOptionSvgPointTag_Some,
+};
+typedef enum AzOptionSvgPointTag AzOptionSvgPointTag;
+
+struct AzOptionSvgPointVariant_None { AzOptionSvgPointTag tag; };
+typedef struct AzOptionSvgPointVariant_None AzOptionSvgPointVariant_None;
+struct AzOptionSvgPointVariant_Some { AzOptionSvgPointTag tag; AzSvgPoint payload; };
+typedef struct AzOptionSvgPointVariant_Some AzOptionSvgPointVariant_Some;
+union AzOptionSvgPoint {
+    AzOptionSvgPointVariant_None None;
+    AzOptionSvgPointVariant_Some Some;
+};
+typedef union AzOptionSvgPoint AzOptionSvgPoint;
+
 enum AzOptionListViewOnRowClickTag {
    AzOptionListViewOnRowClickTag_None,
    AzOptionListViewOnRowClickTag_Some,
@@ -11592,6 +11608,8 @@ typedef struct AzCss AzCss;
 #define AzThreadSendMsg_TerminateThread { .TerminateThread = { .tag = AzThreadSendMsgTag_TerminateThread } }
 #define AzThreadSendMsg_Tick { .Tick = { .tag = AzThreadSendMsgTag_Tick } }
 #define AzThreadSendMsg_Custom(v) { .Custom = { .tag = AzThreadSendMsgTag_Custom, .payload = v } }
+#define AzOptionSvgPoint_None { .None = { .tag = AzOptionSvgPointTag_None } }
+#define AzOptionSvgPoint_Some(v) { .Some = { .tag = AzOptionSvgPointTag_Some, .payload = v } }
 #define AzOptionListViewOnRowClick_None { .None = { .tag = AzOptionListViewOnRowClickTag_None } }
 #define AzOptionListViewOnRowClick_Some(v) { .Some = { .tag = AzOptionListViewOnRowClickTag_Some, .payload = v } }
 #define AzOptionListViewOnColumnClick_None { .None = { .tag = AzOptionListViewOnColumnClickTag_None } }
@@ -13092,6 +13110,10 @@ extern DLLIMPORT void AzSvgXmlNode_delete(AzSvgXmlNode* restrict instance);
 extern DLLIMPORT AzSvgXmlNode AzSvgXmlNode_deepCopy(AzSvgXmlNode* const instance);
 extern DLLIMPORT AzSvgRect AzSvgMultiPolygon_getBounds(const AzSvgMultiPolygon* svgmultipolygon);
 extern DLLIMPORT bool  AzSvgMultiPolygon_containsPoint(const AzSvgMultiPolygon* svgmultipolygon, AzSvgPoint  point, AzSvgFillRule  fill_rule, float tolerance);
+extern DLLIMPORT AzSvgMultiPolygon AzSvgMultiPolygon_union(const AzSvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
+extern DLLIMPORT AzSvgMultiPolygon AzSvgMultiPolygon_intersection(const AzSvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
+extern DLLIMPORT AzSvgMultiPolygon AzSvgMultiPolygon_difference(const AzSvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
+extern DLLIMPORT AzSvgMultiPolygon AzSvgMultiPolygon_xor(const AzSvgMultiPolygon* svgmultipolygon, AzSvgMultiPolygon  other);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgMultiPolygon_tessellateFill(const AzSvgMultiPolygon* svgmultipolygon, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgMultiPolygon_tessellateStroke(const AzSvgMultiPolygon* svgmultipolygon, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgMultiPolygon_delete(AzSvgMultiPolygon* restrict instance);
@@ -13110,6 +13132,8 @@ extern DLLIMPORT AzTessellatedSvgNode AzSvgCircle_tessellateStroke(const AzSvgCi
 extern DLLIMPORT bool  AzSvgPath_isClosed(const AzSvgPath* svgpath);
 extern DLLIMPORT void AzSvgPath_reverse(AzSvgPath* restrict svgpath);
 extern DLLIMPORT void AzSvgPath_joinWith(AzSvgPath* restrict svgpath, AzSvgPath  path);
+extern DLLIMPORT AzSvgPath AzSvgPath_offset(AzSvgPath* restrict svgpath, float distance, AzSvgLineJoin  join, AzSvgLineCap  cap);
+extern DLLIMPORT AzSvgPath AzSvgPath_bevel(AzSvgPath* restrict svgpath, float distance);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateFill(const AzSvgPath* svgpath, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgPath_tessellateStroke(const AzSvgPath* svgpath, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgPath_delete(AzSvgPath* restrict instance);
@@ -13136,6 +13160,7 @@ extern DLLIMPORT double AzSvgLine_getTAtOffset(const AzSvgLine* svgline, double 
 extern DLLIMPORT double AzSvgLine_getXAtT(const AzSvgLine* svgline, double t);
 extern DLLIMPORT double AzSvgLine_getYAtT(const AzSvgLine* svgline, double t);
 extern DLLIMPORT AzSvgVector AzSvgLine_getTangentVectorAtT(const AzSvgLine* svgline, double t);
+extern DLLIMPORT AzOptionSvgPoint AzSvgLine_intersect(const AzSvgLine* svgline, AzSvgLine  other);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgLine_tessellateStroke(const AzSvgLine* svgline, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT void AzSvgQuadraticCurve_reverse(AzSvgQuadraticCurve* restrict svgquadraticcurve);
 extern DLLIMPORT AzSvgPoint AzSvgQuadraticCurve_getStart(const AzSvgQuadraticCurve* svgquadraticcurve);
@@ -19829,6 +19854,20 @@ bool AzNodeDataVecDestructor_matchRefExternal(const AzNodeDataVecDestructor* val
 bool AzNodeDataVecDestructor_matchMutExternal(AzNodeDataVecDestructor* restrict value, AzNodeDataVecDestructorType* restrict * restrict out) {
     AzNodeDataVecDestructorVariant_External* restrict casted = (AzNodeDataVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzNodeDataVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionSvgPoint_matchRefSome(const AzOptionSvgPoint* value, const AzSvgPoint** restrict out) {
+    const AzOptionSvgPointVariant_Some* casted = (const AzOptionSvgPointVariant_Some*)value;
+    bool valid = casted->tag == AzOptionSvgPointTag_Some;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzOptionSvgPoint_matchMutSome(AzOptionSvgPoint* restrict value, AzSvgPoint* restrict * restrict out) {
+    AzOptionSvgPointVariant_Some* restrict casted = (AzOptionSvgPointVariant_Some* restrict)value;
+    bool valid = casted->tag == AzOptionSvgPointTag_Some;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

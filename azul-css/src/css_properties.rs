@@ -1847,6 +1847,12 @@ pub struct SvgPoint {
     pub y: f32,
 }
 
+impl_option!(
+    SvgPoint,
+    OptionSvgPoint,
+    [Debug, Clone, PartialEq, PartialOrd]
+);
+
 impl SvgPoint {
     #[inline]
     pub fn distance(&self, other: Self) -> f64 {

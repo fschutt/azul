@@ -11929,6 +11929,42 @@
                             "returns": {"type": "bool"},
                             "fn_body": "azul_impl::svg::polygon_contains_point(svgmultipolygon, point, fill_rule, tolerance)"
                         },
+                        "union": {
+                            "doc": "Unions two MultiPolygons, returns the unioned MultiPolygon",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"other": "SvgMultiPolygon"}
+                            ],
+                            "returns": {"type": "SvgMultiPolygon" },
+                            "fn_body": "azul_impl::svg::svg_multi_polygon_union(svgmultipolygon, &other)"
+                        },
+                        "intersection": {
+                            "doc": "Intersects two MultiPolygons, returns the intersected MultiPolygon",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"other": "SvgMultiPolygon"}
+                            ],
+                            "returns": {"type": "SvgMultiPolygon" },
+                            "fn_body": "azul_impl::svg::svg_multi_polygon_intersection(svgmultipolygon, &other)"
+                        },
+                        "difference": {
+                            "doc": "Calculates the difference two MultiPolygons, returns a MultiPolygon",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"other": "SvgMultiPolygon"}
+                            ],
+                            "returns": {"type": "SvgMultiPolygon" },
+                            "fn_body": "azul_impl::svg::svg_multi_polygon_difference(svgmultipolygon, &other)"
+                        },
+                        "xor": {
+                            "doc": "Xors two MultiPolygons, returns a MultiPolygon",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"other": "SvgMultiPolygon"}
+                            ],
+                            "returns": {"type": "SvgMultiPolygon" },
+                            "fn_body": "azul_impl::svg::svg_multi_polygon_xor(svgmultipolygon, &other)"
+                        },
                         "tessellate_fill": {
                             "fn_args": [
                                 {"self": "ref"},
@@ -12070,7 +12106,7 @@
                     "struct_fields": [
                         {"items": {"type": "SvgPathElementVec"}}
                     ],
-                    "functions": {
+                    "functions": {                        
                         "is_closed": {
                             "doc": "Returns whether the path is closed",
                             "fn_args": [
@@ -12093,6 +12129,26 @@
                                 {"path": "SvgPath"}
                             ],
                             "fn_body": "svgpath.join_with(path);"
+                        },
+                        "offset": {
+                            "doc": "Offset the path by a certain distance. Will create bezier curves around the edges when the path is closed",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"distance": "f32"},
+                                {"join": "SvgLineJoin"},
+                                {"cap": "SvgLineCap"}
+                            ],
+                            "returns": {"type": "SvgPath"},
+                            "fn_body": "azul_impl::svg::svg_path_offset(svgpath, distance, join, cap)"
+                        },
+                        "bevel": {
+                            "doc": "Round the edges with a cubic curve",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"distance": "f32"}
+                            ],
+                            "returns": {"type": "SvgPath"},
+                            "fn_body": "azul_impl::svg::svg_path_bevel(svgpath, distance)"
                         },
                         "tessellate_fill": {
                             "fn_args": [
@@ -12341,6 +12397,15 @@
                             ],
                             "returns": {"type": "SvgVector"},
                             "fn_body": "svgline.get_tangent_vector_at_t(t)"
+                        },
+                        "intersect": {
+                            "doc": "Intersect two lines EVEN IF THEY ARE DISTINCT. Only returns None on parallel lines (never intersect)",
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"other": "SvgLine"}
+                            ],
+                            "returns": {"type": "OptionSvgPoint"},
+                            "fn_body": "azul_impl::svg::raw_line_intersection(svgline, &other).into()"
                         },
                         "tessellate_stroke": {
                             "fn_args": [
@@ -15448,6 +15513,13 @@
         "option": {
             "doc": "Definition of azuls internal `Option<*>` wrappers",
             "classes": {
+                "OptionSvgPoint": {
+                    "external": "azul_impl::css::OptionSvgPoint",
+                    "enum_fields": [
+                        {"None": {}},
+                        {"Some": {"type": "SvgPoint"}}
+                    ]
+                },
                 "OptionListViewOnRowClick": {
                     "external": "crate::widgets::list_view::OptionListViewOnRowClick",
                     "enum_fields": [

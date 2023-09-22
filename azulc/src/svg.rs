@@ -2,7 +2,7 @@ use core::fmt;
 use azul_core::{
     app_resources::{RawImage, RawImageFormat},
     gl::{Texture, GlContextPtr},
-    window::PhysicalSizeU32, svg::SvgWindingOrder,
+    window::PhysicalSizeU32,
 };
 use azul_css::{
     OptionI16, OptionU16, U8Vec, OptionAzString,
@@ -192,7 +192,7 @@ fn svg_multi_shape_to_lyon_path(polygon: &[SvgSimpleNode]) -> Path {
     builder.build()
 }
 
-fn raw_line_intersection(p: &SvgLine, q: &SvgLine) -> Option<SvgPoint> {
+pub fn raw_line_intersection(p: &SvgLine, q: &SvgLine) -> Option<SvgPoint> {
     let p_min_x = p.start.x.min(p.end.x);
     let p_min_y = p.start.y.min(p.end.y);
     let p_max_x = p.start.x.max(p.end.x);
