@@ -4,6 +4,7 @@
 //! (since webrender is a huge dependency) just to use the types. Only if you depend on
 //! azul (not azul-core), you have to depend on webrender.
 
+use azul_core::app_resources::DpiScaleFactor;
 use webrender::render_api::{
     RenderApi as WrRenderApi,
     ResourceUpdate as WrResourceUpdate,
@@ -295,7 +296,7 @@ pub(crate) fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransac
 }
 
 /// Synchronize transform / opacity keys
-pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut WrTransaction) {
+pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], dpi: &DpiScaleFactor, txn: &mut WrTransaction) {
 
     use webrender::api::{
         PropertyBindingKey as WrPropertyBindingKey,
@@ -306,8 +307,9 @@ pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], txn: &mut 
 
     let transforms = layout_results.iter().flat_map(|lr| {
         lr.gpu_value_cache.transform_keys.iter().filter_map(|(nid, key)| {
-            let value = lr.gpu_value_cache.current_transform_values.get(nid)?;
-            Some((key, value.clone()))
+            let mut value = lr.gpu_value_cache.current_transform_values.get(nid).cloned()?;
+            value.scale_for_dpi(dpi.inner.get());
+            Some((key, value))
         }).collect::<Vec<_>>().into_iter()
     })
     .map(|(k, v)| WrPropertyValue {
@@ -421,7 +423,7 @@ pub(crate) fn rebuild_display_list(
 }
 
 /// Generates a new frame for webrender
-#[cfg(not(test))]
+// #[cfg(not(test))]
 pub(crate) fn generate_frame(
     internal: &mut WindowInternal,
     render_api: &mut WrRenderApi,
@@ -448,7 +450,11 @@ pub(crate) fn generate_frame(
     txn.set_root_pipeline(wr_translate_pipeline_id(PipelineId(0, internal.document_id.id)));
     txn.set_document_view(WrDeviceIntRect::from_origin_and_size(WrDeviceIntPoint::new(0, 0), framebuffer_size));
     scroll_all_nodes(&mut internal.scroll_states, &mut txn);
-    synchronize_gpu_values(&internal.layout_results, &mut txn);
+    synchronize_gpu_values(
+        &internal.layout_results, 
+        &internal.get_dpi_scale_factor(), 
+        &mut txn
+    );
 
     if !display_list_was_rebuilt {
         txn.skip_scene_builder(); // avoid rebuilding the scene if DL hasn't changed

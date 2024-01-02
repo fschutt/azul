@@ -637,8 +637,6 @@ impl TessellatedGPUSvgNode {
     }
 
     /// Draw the vertex buffer to the texture with the given color and transform
-    ///
-    /// Will resize the texture if necessary.
     pub fn draw(
         &self,
         texture: &mut Texture,

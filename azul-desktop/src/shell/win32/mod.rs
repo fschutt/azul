@@ -2633,7 +2633,7 @@ unsafe extern "system" fn WindowProc(
                             image_cache,
                             gl_context,
                             &mut resource_updates,
-                            DpiScaleFactor { inner: FloatValue::new(internal.current_window_state.size.get_hidpi_factor()) },
+                            internal.get_dpi_scale_factor(),
                             &crate::app::CALLBACKS,
                             fc_cache,
                             azul_layout::do_the_relayout,

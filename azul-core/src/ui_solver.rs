@@ -2096,14 +2096,20 @@ impl ComputedTransform3D {
     #[inline]
     pub const fn new_scale(x: f32, y: f32, z: f32) -> Self {
         Self::new(
-            x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0,
+            x, 0.0, 0.0, 0.0, 
+            0.0, y, 0.0, 0.0, 
+            0.0, 0.0, z, 0.0, 
+            0.0, 0.0, 0.0, 1.0,
         )
     }
 
     #[inline]
     pub const fn new_translation(x: f32, y: f32, z: f32) -> Self {
         Self::new(
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, x, y, z, 1.0,
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0, 
+            0.0, 0.0, 1.0, 0.0, 
+            x, y, z, 1.0,
         )
     }
 
@@ -2209,8 +2215,10 @@ impl ComputedTransform3D {
     }
 
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
-        let scale_matrix = Self::new_scale(scale_factor, scale_factor, 1.0);
-        *self = scale_matrix.then(&self);
+        // only scale the translation, don't scale anything else
+        self.m[3][0] *= scale_factor;
+        self.m[3][1] *= scale_factor;
+        self.m[3][2] *= scale_factor;
     }
 
     /// Computes the sum of two matrices while applying `other` AFTER the current matrix.

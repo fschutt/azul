@@ -698,6 +698,12 @@ pub struct WindowInternal {
     pub threads: BTreeMap<ThreadId, Thread>,
 }
 
+impl WindowInternal {
+    pub fn get_dpi_scale_factor(&self) -> DpiScaleFactor {
+        DpiScaleFactor { inner: FloatValue::new(self.current_window_state.size.get_hidpi_factor()) }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FullHitTest {
     pub hovered_nodes: BTreeMap<DomId, HitTest>,
