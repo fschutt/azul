@@ -3542,6 +3542,8 @@ pub use AzSvgPathTT as AzSvgPath;
 #[no_mangle] pub extern "C" fn AzSvgPath_isClosed(svgpath: &AzSvgPath) -> bool { svgpath.is_closed() }
 /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
 #[no_mangle] pub extern "C" fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { svgpath.reverse() }
+/// Returns the axis-aligned bounding rect of this path
+#[no_mangle] pub extern "C" fn AzSvgPath_getBounds(svgpath: &mut AzSvgPath) { svgpath.get_bounds() }
 /// Adds a path to the end of the current path
 #[no_mangle] pub extern "C" fn AzSvgPath_joinWith(svgpath: &mut AzSvgPath, path: AzSvgPath) { svgpath.join_with(path); }
 /// Offset the path by a certain distance. Will create bezier curves around the edges when the path is closed

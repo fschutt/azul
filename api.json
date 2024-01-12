@@ -12122,6 +12122,13 @@
                             ],
                             "fn_body": "svgpath.reverse()"
                         },
+                        "get_bounds": {
+                            "doc": "Returns the axis-aligned bounding rect of this path",
+                            "fn_args": [
+                                {"self": "refmut"}
+                            ],
+                            "fn_body": "svgpath.get_bounds()"
+                        },
                         "join_with": {
                             "doc": "Adds a path to the end of the current path",
                             "fn_args": [

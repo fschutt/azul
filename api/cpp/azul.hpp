@@ -10992,6 +10992,7 @@ namespace dll {
         TessellatedSvgNode SvgCircle_tessellateStroke(const SvgCircle* svgcircle, AzSvgStrokeStyle  stroke_style);
         bool  SvgPath_isClosed(const SvgPath* svgpath);
         void SvgPath_reverse(SvgPath* restrict svgpath);
+        void SvgPath_getBounds(SvgPath* restrict svgpath);
         void SvgPath_joinWith(SvgPath* restrict svgpath, AzSvgPath  path);
         SvgPath SvgPath_offset(SvgPath* restrict svgpath, float distance, AzSvgLineJoin  join, AzSvgLineCap  cap);
         SvgPath SvgPath_bevel(SvgPath* restrict svgpath, float distance);

@@ -31450,6 +31450,11 @@ impl AzSvgPath {
             mem::transmute(self),
         )) }
     }
+    fn get_bounds(&mut self) -> () {
+        unsafe { mem::transmute(crate::AzSvgPath_getBounds(
+            mem::transmute(self),
+        )) }
+    }
     fn join_with(&mut self, path: AzSvgPath) -> () {
         unsafe { mem::transmute(crate::AzSvgPath_joinWith(
             mem::transmute(self),
