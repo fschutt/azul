@@ -13185,6 +13185,7 @@ extern DLLIMPORT AzSvgVector AzSvgCubicCurve_getTangentVectorAtT(const AzSvgCubi
 extern DLLIMPORT AzTessellatedSvgNode AzSvgCubicCurve_tessellateStroke(const AzSvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzSvgPoint AzSvgRect_getCenter(const AzSvgRect* svgrect);
 extern DLLIMPORT bool  AzSvgRect_containsPoint(const AzSvgRect* svgrect, AzSvgPoint  point);
+extern DLLIMPORT AzSvgRect AzSvgRect_expand(const AzSvgRect* svgrect, float padding_top, float padding_bottom, float padding_left, float padding_right);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateFill(const AzSvgRect* svgrect, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateStroke(const AzSvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
 extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_empty();

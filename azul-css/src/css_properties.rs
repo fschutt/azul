@@ -1904,6 +1904,17 @@ impl SvgRect {
         x > self.x && x < self.x + self.width && y > self.y && y < self.y + self.height
     }
 
+    /// Expands the rect with a certain amount of padding
+    pub fn expand(&self, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32) -> SvgRect {
+        SvgRect {
+            width: self.width + padding_left + padding_right,
+            height: self.height + padding_top + padding_bottom,
+            x: self.x - padding_left,
+            y: self.y - padding_top,
+            .. *self
+        }
+    }
+
     pub fn get_center(&self) -> SvgPoint {
         SvgPoint {
             x: self.x + (self.width / 2.0),

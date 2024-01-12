@@ -31868,6 +31868,15 @@ impl AzSvgRect {
             mem::transmute(point),
         )) }
     }
+    fn expand(&self, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32) -> AzSvgRect {
+        unsafe { mem::transmute(crate::AzSvgRect_expand(
+            mem::transmute(self),
+            mem::transmute(padding_top),
+            mem::transmute(padding_bottom),
+            mem::transmute(padding_left),
+            mem::transmute(padding_right),
+        )) }
+    }
     fn tessellate_fill(&self, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode {
         unsafe { mem::transmute(crate::AzSvgRect_tessellateFill(
             mem::transmute(self),

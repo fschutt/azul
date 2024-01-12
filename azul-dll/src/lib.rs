@@ -3678,6 +3678,8 @@ pub use AzSvgRectTT as AzSvgRect;
 #[no_mangle] pub extern "C" fn AzSvgRect_getCenter(svgrect: &AzSvgRect) -> AzSvgPoint { svgrect.get_center() }
 /// Equivalent to the Rust `SvgRect::contains_point()` function.
 #[no_mangle] pub extern "C" fn AzSvgRect_containsPoint(svgrect: &AzSvgRect, point: AzSvgPoint) -> bool { svgrect.contains_point(point.x, point.y) }
+/// Equivalent to the Rust `SvgRect::expand()` function.
+#[no_mangle] pub extern "C" fn AzSvgRect_expand(svgrect: &AzSvgRect, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32) -> AzSvgRect { svgrect.expand(padding_top, padding_bottom, padding_left, padding_right) }
 /// Equivalent to the Rust `SvgRect::tessellate_fill()` function.
 #[no_mangle] pub extern "C" fn AzSvgRect_tessellateFill(svgrect: &AzSvgRect, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_rect_fill(svgrect, fill_style) }
 /// Equivalent to the Rust `SvgRect::tessellate_stroke()` function.

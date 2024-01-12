@@ -11046,6 +11046,7 @@ namespace dll {
         TessellatedSvgNode SvgCubicCurve_tessellateStroke(const SvgCubicCurve* svgcubiccurve, AzSvgStrokeStyle  stroke_style);
         SvgPoint SvgRect_getCenter(const SvgRect* svgrect);
         bool  SvgRect_containsPoint(const SvgRect* svgrect, AzSvgPoint  point);
+        SvgRect SvgRect_expand(const SvgRect* svgrect, float padding_top, float padding_bottom, float padding_left, float padding_right);
         TessellatedSvgNode SvgRect_tessellateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgRect_tessellateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
         TessellatedSvgNode TessellatedSvgNode_empty();

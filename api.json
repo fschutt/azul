@@ -12643,6 +12643,17 @@
                             "returns": {"type": "bool"},
                             "fn_body": "svgrect.contains_point(point.x, point.y)"
                         },
+                        "expand": {
+                            "fn_args": [
+                                {"self": "ref"},
+                                {"padding_top": "f32"},
+                                {"padding_bottom": "f32"},
+                                {"padding_left": "f32"},
+                                {"padding_right": "f32"}
+                            ],
+                            "returns": {"type": "SvgRect"},
+                            "fn_body": "svgrect.expand(padding_top, padding_bottom, padding_left, padding_right)"
+                        },
                         "tessellate_fill": {
                             "fn_args": [
                                 {"self": "ref"},

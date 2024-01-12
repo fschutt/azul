@@ -11157,6 +11157,7 @@ mod dll {
         pub(crate) fn AzSvgCubicCurve_tessellateStroke(svgcubiccurve: &AzSvgCubicCurve, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgCubicCurve_tessellateStroke(transmute(svgcubiccurve), transmute(stroke_style))) } }
         pub(crate) fn AzSvgRect_getCenter(svgrect: &AzSvgRect) -> AzSvgPoint { unsafe { transmute(azul::AzSvgRect_getCenter(transmute(svgrect))) } }
         pub(crate) fn AzSvgRect_containsPoint(svgrect: &AzSvgRect, point: AzSvgPoint) -> bool { unsafe { transmute(azul::AzSvgRect_containsPoint(transmute(svgrect), transmute(point))) } }
+        pub(crate) fn AzSvgRect_expand(svgrect: &AzSvgRect, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32) -> AzSvgRect { unsafe { transmute(azul::AzSvgRect_expand(transmute(svgrect), transmute(padding_top), transmute(padding_bottom), transmute(padding_left), transmute(padding_right))) } }
         pub(crate) fn AzSvgRect_tessellateFill(svgrect: &AzSvgRect, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgRect_tessellateFill(transmute(svgrect), transmute(fill_style))) } }
         pub(crate) fn AzSvgRect_tessellateStroke(svgrect: &AzSvgRect, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgRect_tessellateStroke(transmute(svgrect), transmute(stroke_style))) } }
         pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode { unsafe { transmute(azul::AzTessellatedSvgNode_empty()) } }
@@ -11994,6 +11995,7 @@ mod dll {
             pub(crate) fn AzSvgCubicCurve_tessellateStroke(_:  &AzSvgCubicCurve, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgRect_getCenter(_:  &AzSvgRect) -> AzSvgPoint;
             pub(crate) fn AzSvgRect_containsPoint(_:  &AzSvgRect, _:  AzSvgPoint) -> bool;
+            pub(crate) fn AzSvgRect_expand(_:  &AzSvgRect, _:  f32, _:  f32, _:  f32, _:  f32) -> AzSvgRect;
             pub(crate) fn AzSvgRect_tessellateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgRect_tessellateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode;
@@ -18139,6 +18141,8 @@ pub mod svg {
         pub fn get_center(&self)  -> crate::svg::SvgPoint { unsafe { crate::dll::AzSvgRect_getCenter(self) } }
         /// Calls the `SvgRect::contains_point` function.
         pub fn contains_point<_1: Into<SvgPoint>>(&self, point: _1)  -> bool { unsafe { crate::dll::AzSvgRect_containsPoint(self, point.into()) } }
+        /// Calls the `SvgRect::expand` function.
+        pub fn expand(&self, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgRect_expand(self, padding_top, padding_bottom, padding_left, padding_right) } }
         /// Calls the `SvgRect::tessellate_fill` function.
         pub fn tessellate_fill<_1: Into<SvgFillStyle>>(&self, fill_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateFill(self, fill_style.into()) } }
         /// Calls the `SvgRect::tessellate_stroke` function.
