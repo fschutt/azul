@@ -31450,7 +31450,7 @@ impl AzSvgPath {
             mem::transmute(self),
         )) }
     }
-    fn get_bounds(&mut self) -> () {
+    fn get_bounds(&mut self) -> AzSvgRect {
         unsafe { mem::transmute(crate::AzSvgPath_getBounds(
             mem::transmute(self),
         )) }

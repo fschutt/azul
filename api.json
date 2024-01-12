@@ -12124,6 +12124,7 @@
                         },
                         "get_bounds": {
                             "doc": "Returns the axis-aligned bounding rect of this path",
+                            "returns": {"type": "SvgRect"},
                             "fn_args": [
                                 {"self": "refmut"}
                             ],
