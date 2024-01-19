@@ -530,7 +530,14 @@ fn svg_multi_polygon_to_geo(poly: &SvgMultiPolygon) -> geo::MultiPolygon {
     use geo::Intersects;
 
     let linestrings = poly.rings.iter().map(|p| {
-        geo::LineString::new(p.items.iter().flat_map(|p| match p {
+
+        let mut p = p.clone();
+
+        if !p.is_closed() {
+            p.close();
+        }
+
+        let mut coords = p.items.iter().flat_map(|p| match p {
             SvgPathElement::Line(l) => vec![
                 Coord { x: l.start.x as f64, y: l.start.y as f64 }, 
                 Coord { x: l.end.x as f64, y: l.end.y as f64 }
@@ -546,7 +553,11 @@ fn svg_multi_polygon_to_geo(poly: &SvgMultiPolygon) -> geo::MultiPolygon {
                 Coord { x: l.ctrl_2.x as f64, y: l.ctrl_2.y as f64 }, 
                 Coord { x: l.end.x as f64, y: l.end.y as f64 }
             ],
-        }.into_iter()).collect())
+        }.into_iter()).collect::<Vec<_>>();
+        
+        coords.dedup();
+
+        geo::LineString::new(coords)
     }).collect::<Vec<_>>();
 
     let exterior_polys = linestrings.iter().filter(|ls| ls.is_cw()).cloned().collect::<Vec<geo::LineString<_>>>();

@@ -228,6 +228,26 @@ pub struct SvgPath {
 }
 
 impl SvgPath {
+
+    pub fn close(&mut self) {
+        let first = match self.items.as_ref().first() {
+            Some(s) => s,
+            None => return,
+        };
+        let last = match self.items.as_ref().last() {
+            Some(s) => s,
+            None => return,
+        };
+        if first.get_start() != last.get_end() {
+            let mut elements = self.items.as_slice().to_vec();
+            elements.push(SvgPathElement::Line(SvgLine {
+                start: last.get_end(),
+                end: first.get_start(),
+            }));
+            self.items = elements.into();
+        }
+    }
+
     pub fn is_closed(&self) -> bool {
         let first = self.items.as_ref().first();
         let last = self.items.as_ref().last();
