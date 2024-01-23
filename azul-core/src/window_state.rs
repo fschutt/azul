@@ -1057,11 +1057,15 @@ impl CallbacksOfHitTest {
 
         {
             for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {
-                let callbacks = callbacks_filter_list
-                    .iter()
-                    .map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.event_filter)))
-                    .collect::<BTreeMap<_, _>>();
-
+                let mut callbacks = BTreeMap::new();
+                for cbtc in callbacks_filter_list {
+                    callbacks
+                    .entry(cbtc.node_id)
+                    .or_insert_with(|| Vec::new())
+                    .push((cbtc.hit_test_item, cbtc.event_filter));
+                }
+                let callbacks = callbacks;
+                let mut empty_vec = Vec::new();
                 let lr = match layout_results.get(dom_id.inner) {
                     Some(s) => s,
                     None => continue,
@@ -1079,7 +1083,7 @@ impl CallbacksOfHitTest {
                         .unwrap()
                         .az_children(&lr.styled_dom.node_hierarchy.as_container())
                     {
-                        if let Some((hit_test_item, event_filter)) = callbacks.get(&child_id) {
+                        for (hit_test_item, event_filter) in callbacks.get(&child_id).unwrap_or(&empty_vec) {
                             if blacklisted_event_types.contains(&*event_filter) {
                                 continue;
                             }
@@ -1165,11 +1169,15 @@ impl CallbacksOfHitTest {
 
                 // run the callbacks for node ID 0
                 loop {
-                    if let Some(((hit_test_item, event_filter), root_id)) = lr
+                    for ((hit_test_item, event_filter), root_id) in lr
                         .styled_dom
                         .root
                         .into_crate_internal()
-                        .and_then(|root_id| callbacks.get(&root_id).map(|cb| (cb, root_id)))
+                        .map(|root_id| {
+                            callbacks.get(&root_id).unwrap_or(&empty_vec).iter()
+                            .map(|item| (item, root_id)).collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
                     {
                         if blacklisted_event_types.contains(&event_filter) {
                             break; // break out of loop
@@ -1255,6 +1263,7 @@ impl CallbacksOfHitTest {
                     break;
                 }
             }
+
         }
 
         // Scroll nodes from programmatic callbacks
@@ -1313,6 +1322,8 @@ impl CallbacksOfHitTest {
         if !ret_nodes_scrolled_in_callbacks.is_empty() {
             ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
         }
+
+        println!("---- frame end: {:#?}", ret);
 
         ret
     }
@@ -1510,6 +1521,10 @@ fn get_window_events(
 
     if current_window_state.theme != previous_window_state.theme {
         events.push(WindowEventFilter::ThemeChanged);
+    }
+
+    if !events.is_empty() {
+        println!("got window events {:?}", events);
     }
 
     events
