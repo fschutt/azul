@@ -1323,8 +1323,6 @@ impl CallbacksOfHitTest {
             ret.nodes_scrolled_in_callbacks = Some(ret_nodes_scrolled_in_callbacks);
         }
 
-        println!("---- frame end: {:#?}", ret);
-
         ret
     }
 }
@@ -1521,10 +1519,6 @@ fn get_window_events(
 
     if current_window_state.theme != previous_window_state.theme {
         events.push(WindowEventFilter::ThemeChanged);
-    }
-
-    if !events.is_empty() {
-        println!("got window events {:?}", events);
     }
 
     events
