@@ -12122,6 +12122,22 @@
                             ],
                             "fn_body": "svgpath.reverse()"
                         },
+                        "get_start": {
+                            "doc": "Returns the first point of the path (or None if path has no items)",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionSvgPoint"},
+                            "fn_body": "svgpath.get_start().into()"
+                        },
+                        "get_end": {
+                            "doc": "Returns the first point of the path (or None if path has no items)",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "OptionSvgPoint"},
+                            "fn_body": "svgpath.get_end().into()"
+                        },
                         "get_bounds": {
                             "doc": "Returns the axis-aligned bounding rect of this path",
                             "returns": {"type": "SvgRect"},

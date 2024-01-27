@@ -3542,6 +3542,10 @@ pub use AzSvgPathTT as AzSvgPath;
 #[no_mangle] pub extern "C" fn AzSvgPath_isClosed(svgpath: &AzSvgPath) -> bool { svgpath.is_closed() }
 /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
 #[no_mangle] pub extern "C" fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { svgpath.reverse() }
+/// Returns the first point of the path (or None if path has no items)
+#[no_mangle] pub extern "C" fn AzSvgPath_getStart(svgpath: &AzSvgPath) -> AzOptionSvgPoint { svgpath.get_start().into() }
+/// Returns the first point of the path (or None if path has no items)
+#[no_mangle] pub extern "C" fn AzSvgPath_getEnd(svgpath: &AzSvgPath) -> AzOptionSvgPoint { svgpath.get_end().into() }
 /// Returns the axis-aligned bounding rect of this path
 #[no_mangle] pub extern "C" fn AzSvgPath_getBounds(svgpath: &mut AzSvgPath) -> AzSvgRect { svgpath.get_bounds() }
 /// Adds a path to the end of the current path

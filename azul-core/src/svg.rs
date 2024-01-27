@@ -229,6 +229,14 @@ pub struct SvgPath {
 
 impl SvgPath {
 
+    pub fn get_start(&self) -> Option<SvgPoint> {
+        self.items.as_ref().first().map(|s| s.get_start())
+    }
+
+    pub fn get_end(&self) -> Option<SvgPoint> {
+        self.items.as_ref().last().map(|s| s.get_end())
+    }
+
     pub fn close(&mut self) {
         let first = match self.items.as_ref().first() {
             Some(s) => s,

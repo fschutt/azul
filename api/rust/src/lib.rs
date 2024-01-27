@@ -11104,6 +11104,8 @@ mod dll {
         pub(crate) fn AzSvgCircle_tessellateStroke(svgcircle: &AzSvgCircle, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgCircle_tessellateStroke(transmute(svgcircle), transmute(stroke_style))) } }
         pub(crate) fn AzSvgPath_isClosed(svgpath: &AzSvgPath) -> bool { unsafe { transmute(azul::AzSvgPath_isClosed(transmute(svgpath))) } }
         pub(crate) fn AzSvgPath_reverse(svgpath: &mut AzSvgPath) { unsafe { transmute(azul::AzSvgPath_reverse(transmute(svgpath))) } }
+        pub(crate) fn AzSvgPath_getStart(svgpath: &AzSvgPath) -> AzOptionSvgPoint { unsafe { transmute(azul::AzSvgPath_getStart(transmute(svgpath))) } }
+        pub(crate) fn AzSvgPath_getEnd(svgpath: &AzSvgPath) -> AzOptionSvgPoint { unsafe { transmute(azul::AzSvgPath_getEnd(transmute(svgpath))) } }
         pub(crate) fn AzSvgPath_getBounds(svgpath: &mut AzSvgPath) -> AzSvgRect { unsafe { transmute(azul::AzSvgPath_getBounds(transmute(svgpath))) } }
         pub(crate) fn AzSvgPath_joinWith(svgpath: &mut AzSvgPath, path: AzSvgPath) { unsafe { transmute(azul::AzSvgPath_joinWith(transmute(svgpath), transmute(path))) } }
         pub(crate) fn AzSvgPath_offset(svgpath: &mut AzSvgPath, distance: f32, join: AzSvgLineJoin, cap: AzSvgLineCap) -> AzSvgPath { unsafe { transmute(azul::AzSvgPath_offset(transmute(svgpath), transmute(distance), transmute(join), transmute(cap))) } }
@@ -11942,6 +11944,8 @@ mod dll {
             pub(crate) fn AzSvgCircle_tessellateStroke(_:  &AzSvgCircle, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgPath_isClosed(_:  &AzSvgPath) -> bool;
             pub(crate) fn AzSvgPath_reverse(_:  &mut AzSvgPath);
+            pub(crate) fn AzSvgPath_getStart(_:  &AzSvgPath) -> AzOptionSvgPoint;
+            pub(crate) fn AzSvgPath_getEnd(_:  &AzSvgPath) -> AzOptionSvgPoint;
             pub(crate) fn AzSvgPath_getBounds(_:  &mut AzSvgPath) -> AzSvgRect;
             pub(crate) fn AzSvgPath_joinWith(_:  &mut AzSvgPath, _:  AzSvgPath);
             pub(crate) fn AzSvgPath_offset(_:  &mut AzSvgPath, _:  f32, _:  AzSvgLineJoin, _:  AzSvgLineCap) -> AzSvgPath;
@@ -17986,6 +17990,10 @@ pub mod svg {
         pub fn is_closed(&self)  -> bool { unsafe { crate::dll::AzSvgPath_isClosed(self) } }
         /// Reverses the order of points in the path so that the path runs in the opposite direction afterwards
         pub fn reverse(&mut self)  { unsafe { crate::dll::AzSvgPath_reverse(self) } }
+        /// Returns the first point of the path (or None if path has no items)
+        pub fn get_start(&self)  -> crate::option::OptionSvgPoint { unsafe { crate::dll::AzSvgPath_getStart(self) } }
+        /// Returns the first point of the path (or None if path has no items)
+        pub fn get_end(&self)  -> crate::option::OptionSvgPoint { unsafe { crate::dll::AzSvgPath_getEnd(self) } }
         /// Returns the axis-aligned bounding rect of this path
         pub fn get_bounds(&mut self)  -> crate::svg::SvgRect { unsafe { crate::dll::AzSvgPath_getBounds(self) } }
         /// Adds a path to the end of the current path

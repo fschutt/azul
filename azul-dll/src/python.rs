@@ -31450,6 +31450,26 @@ impl AzSvgPath {
             mem::transmute(self),
         )) }
     }
+    fn get_start(&self) -> Option<AzSvgPoint> {
+        let m: AzOptionSvgPoint = unsafe { mem::transmute(crate::AzSvgPath_getStart(
+            mem::transmute(self),
+        )) };
+        match m {
+            AzOptionSvgPoint::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionSvgPoint::None => None,
+        }
+
+    }
+    fn get_end(&self) -> Option<AzSvgPoint> {
+        let m: AzOptionSvgPoint = unsafe { mem::transmute(crate::AzSvgPath_getEnd(
+            mem::transmute(self),
+        )) };
+        match m {
+            AzOptionSvgPoint::Some(s) => Some(unsafe { mem::transmute(s) }),
+            AzOptionSvgPoint::None => None,
+        }
+
+    }
     fn get_bounds(&mut self) -> AzSvgRect {
         unsafe { mem::transmute(crate::AzSvgPath_getBounds(
             mem::transmute(self),
