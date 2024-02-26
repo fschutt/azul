@@ -72,7 +72,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
         align-items: center;
         justify-content: center;
         flex-direction: row;
-    ".into());
+    ");
 
     let mut data_clone = data.clone();
     let downcasted = match data.downcast_ref::<MyDataModel>() {
@@ -80,20 +80,20 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
         None => return body.style(Css::empty()), // error
     };
 
-    body.add_child(Dom::div().with_inline_style("flex-direction: column; align-items: center; justify-content: center;".into())
+    body.add_child(Dom::div().with_inline_style("flex-direction: column; align-items: center; justify-content: center;")
     .with_children(vec![match &downcasted.connection_status {
         NotConnected { database } => {
             Dom::div()
             .with_children(vec![
-                Dom::text("Enter database to connect to:".into()),
+                Dom::text("Enter database to connect to:"),
                 TextInput::new()
-                .with_text(database.clone().into())
+                .with_text(database.clone())
                 .with_on_text_input(data_clone.clone(), edit_database_input)
                 .dom(),
-                Button::new("Connect".into())
+                Button::new("Connect")
                 .with_on_click(data_clone.clone(), start_background_thread)
                 .dom()
-            ].into())
+            ])
         },
         InProgress { stage, start_time, estimated_wait, data_in_progress, .. } => {
 
@@ -101,30 +101,30 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
 
             let progress_div = match stage {
                 EstablishingConnection => {
-                    Dom::text("Establishing connection...".into())
+                    Dom::text("Establishing connection...")
                 },
                 ConnectionEstablished => {
-                    Dom::text("Connection established! Waiting for data...".into())
+                    Dom::text("Connection established! Waiting for data...")
                 },
                 LoadingData { percent_done } => {
                     Dom::div()
                     .with_children(vec![
-                        Dom::text("Loading data...".into()),
+                        Dom::text("Loading data..."),
                         ProgressBar::new(*percent_done).dom()
-                    ].into())
+                    ])
                 },
                 LoadingFinished => {
-                    Dom::text("Loading finished!".into())
+                    Dom::text("Loading finished!")
                 },
             };
 
             let data_rendered_div = data_in_progress
             .chunks(10)
             .map(|chunk| {
-                Dom::text(format!("{:?}", chunk).into())
+                Dom::text(format!("{:?}", chunk))
             }).collect::<Dom>();
 
-            let stop_btn = Button::new("Stop thread".into())
+            let stop_btn = Button::new("Stop thread")
                 .with_on_click(data_clone.clone(), stop_background_thread)
                 .dom();
 
@@ -133,7 +133,7 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
                 progress_div,
                 data_rendered_div,
                 stop_btn,
-            ].into())
+            ])
 
         },
         DataLoaded { data: data_loaded } => {
@@ -141,10 +141,10 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
             let data_rendered_div = data_loaded
             .chunks(10)
             .map(|chunk| {
-                Dom::text(format!("{:?}", chunk).into())
+                Dom::text(format!("{:?}", chunk))
             }).collect::<Dom>();
 
-            let reset_btn = Button::new("Reset".into())
+            let reset_btn = Button::new("Reset")
                 .with_on_click(data_clone.clone(), reset)
                 .dom();
 
@@ -152,13 +152,13 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
             .with_children(vec![
                 data_rendered_div,
                 reset_btn,
-            ].into())
+            ])
 
         },
         Error { error } => {
-            let error_div = Dom::text(format!("{}", error).into());
+            let error_div = Dom::text(format!("{}", error));
 
-            let reset_btn = Button::new("Reset".into())
+            let reset_btn = Button::new("Reset")
                 .with_on_click(data_clone.clone(), reset)
                 .dom();
 
@@ -166,9 +166,9 @@ extern "C" fn render_ui(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> Styled
             .with_children(vec![
                 error_div,
                 reset_btn,
-            ].into())
+            ])
         },
-    }.with_inline_style("max-width: 350px; display:block;".into())].into()));
+    }.with_inline_style("max-width: 350px; display:block;")]));
 
     body.style(Css::empty())
 }

@@ -25,85 +25,85 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
 
     Dom::body()
     .with_menu_bar(Menu::new(vec![
-        MenuItem::String(StringMenuItem::new("Menu Item 1".into()).with_children(vec![
-            MenuItem::String(StringMenuItem::new("Submenu Item 1...".into()))
-        ].into()))
-    ].into()))
+        MenuItem::String(StringMenuItem::new("Menu Item 1").with_children(vec![
+            MenuItem::String(StringMenuItem::new("Submenu Item 1..."))
+        ]))
+    ]))
     .with_inline_style(if enable_padding {
         "padding: 10px"
     } else {
         ""
-    }.into())
+    })
     .with_child(
-        TabHeader::new(vec![format!("Test"), format!("Inactive"), format!("Inactive 2")].into())
+        TabHeader::new(vec![format!("Test"), format!("Inactive"), format!("Inactive 2")])
         .with_active_tab(active_tab)
         .with_on_click(data.clone(), switch_active_tab)
         .dom()
     ).with_child(
         TabContent::new(match active_tab {
-            0 => Frame::new("Frame".into(),
+            0 => Frame::new("Frame",
                 Dom::div()
                 .with_children(vec![
-                    Button::new(text.into())
+                    Button::new(text)
                     .with_on_click(data.clone(), enable_disable_padding)
                     .dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    .with_inline_style("margin-bottom: 5px;"),
 
                     CheckBox::new(enable_padding)
                     .with_on_toggle(data.clone(), enable_disable_padding_check)
                     .dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    .with_inline_style("margin-bottom: 5px;"),
 
-                    DropDown::new(Vec::<AzString>::new().into()).dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    DropDown::new(Vec::<AzString>::new()).dom()
+                    .with_inline_style("margin-bottom: 5px;"),
 
                     ProgressBar::new(20.0).dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    .with_inline_style("margin-bottom: 5px;"),
 
                     ColorInput::new(ColorU { r: 0, g: 0, b: 0, a: 255 }).dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    .with_inline_style("margin-bottom: 5px;"),
 
                     TextInput::new()
-                    .with_placeholder("Input text...".into())
+                    .with_placeholder("Input text...")
                     .dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    .with_inline_style("margin-bottom: 5px;"),
 
                     NumberInput::new(5.0).dom()
-                    .with_inline_style("margin-bottom: 5px;".into()),
+                    .with_inline_style("margin-bottom: 5px;"),
 
                     Dom::div()
-                    .with_inline_style("flex-direction: row;".into())
+                    .with_inline_style("flex-direction: row;")
                     .with_children(vec![
                         ListView::new(vec![
                             format!("Column 1"),
                             format!("Column 2"),
                             format!("Column 3"),
                             format!("Column 4"),
-                        ].into())
+                        ])
                         .with_rows((0..100).map(|i| {
                             ListViewRow {
-                                cells: vec![Dom::text(format!("{}", i).into())].into(),
+                                cells: vec![Dom::text(format!("{}", i))].into(),
                                 height: None.into(),
                             }
-                        }).collect::<Vec<_>>().into())
+                        }).collect::<Vec<_>>())
                         .dom(),
-                    ].into()),
+                    ]),
 
                     /*
                     Dom::div()
-                    .with_inline_style("flex-direction: row;padding:10px;".into())
+                    .with_inline_style("flex-direction: row;padding:10px;")
                     .with_children(vec![
                         Dom::div()
                         .with_children(vec![
                             Dom::text("This is a text 1 placerat urna, tristique sodales nisi. Fusce \
                               at commodo ipsum. Etiam consequat, metus rutrum porttitor tempor,  \
                               metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
-                              cursus, dolor semper ultricies ele".into())
+                              cursus, dolor semper ultricies ele")
                             .with_inline_style("
                                 font-family:Courier New Bold;
                                 font-size:25px;
                                 display:inline;
-                            ".into()),
+                            "),
                             Dom::text("\
                               Lorem ipsum dolor sit amet, consectetur adipiscing elit. \
                               Nulla gravida placerat urna, tristique sodales nisi. Fusce \
@@ -111,27 +111,27 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                               metus ante luctus est, sed iaculis turpis risus vel neque. Phasellus \
                               cursus, dolor semper ultricies eleifend, erat magna faucibus nisl, ut \
                               interdum velit magna quis neque. Integer mollis eros nec leo faucibus, \
-                              nec tincidunt dolor posuere.".into())
+                              nec tincidunt dolor posuere.")
                             .with_inline_style("
                                 font-family:serif;
                                 font-size:26px;
                                 display:inline;
                                 background: red;
                                 color:white;
-                            ".into())
+                            ")
                             .with_callback(
                                 On::LeftMouseDown.into_event_filter(),
                                 data.clone(),
                                 text_mouse_down
                             ),
-                            Dom::text("3".into())
-                            .with_inline_style("font-size:10px".into()),
-                            Dom::text("2".into())
-                            .with_inline_style("font-size:5px".into()),
-                        ].into())
-                    ].into())*/
+                            Dom::text("3")
+                            .with_inline_style("font-size:10px"),
+                            Dom::text("2")
+                            .with_inline_style("font-size:5px"),
+                        ])
+                    ])*/
 
-                ].into())
+                ])
             ).dom(),
             _ => Dom::div(),
         })
