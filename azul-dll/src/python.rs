@@ -3011,6 +3011,17 @@ pub enum AzTessellatedSvgNodeVecDestructor {
 /// `AzTessellatedSvgNodeVecDestructorType` struct
 pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 
+/// Re-export of rust-allocated (stack based) `TessellatedColoredSvgNodeVecDestructor` struct
+#[repr(C, u8)]
+pub enum AzTessellatedColoredSvgNodeVecDestructor {
+    DefaultRust,
+    NoDestructor,
+    External(AzTessellatedColoredSvgNodeVecDestructorType),
+}
+
+/// `AzTessellatedColoredSvgNodeVecDestructorType` struct
+pub type AzTessellatedColoredSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedColoredSvgNodeVec);
+
 /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
 #[repr(C, u8)]
 pub enum AzXmlNodeVecDestructor {
@@ -5419,7 +5430,7 @@ pub struct AzSvgVertexVec {
 /// Wrapper over a Rust-allocated `SvgColoredVertex`
 #[repr(C)]
 pub struct AzSvgColoredVertexVec {
-    pub(crate) ptr: *const AzSvgVertex,
+    pub(crate) ptr: *const AzSvgColoredVertex,
     pub len: usize,
     pub cap: usize,
     pub destructor: AzSvgColoredVertexVecDestructorEnumWrapper,
@@ -6539,6 +6550,15 @@ pub struct AzTessellatedSvgNodeVec {
     pub len: usize,
     pub cap: usize,
     pub destructor: AzTessellatedSvgNodeVecDestructorEnumWrapper,
+}
+
+/// Wrapper over a Rust-allocated `Vec<TessellatedColoredSvgNode>`
+#[repr(C)]
+pub struct AzTessellatedColoredSvgNodeVec {
+    pub(crate) ptr: *const AzTessellatedColoredSvgNode,
+    pub len: usize,
+    pub cap: usize,
+    pub destructor: AzTessellatedColoredSvgNodeVecDestructorEnumWrapper,
 }
 
 /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -8685,6 +8705,12 @@ pub struct AzTessellatedSvgNodeVecDestructorEnumWrapper {
     pub inner: AzTessellatedSvgNodeVecDestructor,
 }
 
+/// `AzTessellatedColoredSvgNodeVecDestructorEnumWrapper` struct
+#[repr(transparent)]
+pub struct AzTessellatedColoredSvgNodeVecDestructorEnumWrapper {
+    pub inner: AzTessellatedColoredSvgNodeVecDestructor,
+}
+
 /// `AzXmlNodeVecDestructorEnumWrapper` struct
 #[repr(transparent)]
 pub struct AzXmlNodeVecDestructorEnumWrapper {
@@ -10338,6 +10364,7 @@ unsafe impl Send for AzStyleFilterVec { }
 unsafe impl Send for AzInputConnectionVec { }
 unsafe impl Send for AzOutputConnectionVec { }
 unsafe impl Send for AzTessellatedSvgNodeVec { }
+unsafe impl Send for AzTessellatedColoredSvgNodeVec { }
 unsafe impl Send for AzStyleTransformVec { }
 unsafe impl Send for AzSvgPathElementVec { }
 unsafe impl Send for AzStringVec { }
@@ -10595,6 +10622,7 @@ impl Clone for AzInputNodeAndIndexVecDestructorEnumWrapper { fn clone(&self) -> 
 impl Clone for AzAccessibilityStateVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::dom::AccessibilityStateVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzMenuItemVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::MenuItemVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedColoredSvgNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedColoredSvgNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFmtArgVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::str::FmtArgVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzInlineLineVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::callbacks::InlineLineVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11002,6 +11030,7 @@ impl Clone for AzStyleFilterVec { fn clone(&self) -> Self { let r: &azul_impl::c
 impl Clone for AzInputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::InputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzOutputConnectionVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::OutputConnectionVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedColoredSvgNodeVec { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedColoredSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleTransformVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleTransformVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStringVec { fn clone(&self) -> Self { let r: &azul_impl::css::StringVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11220,6 +11249,7 @@ impl Drop for AzStyleFilterVec { fn drop(&mut self) { crate::AzStyleFilterVec_de
 impl Drop for AzInputConnectionVec { fn drop(&mut self) { crate::AzInputConnectionVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzOutputConnectionVec { fn drop(&mut self) { crate::AzOutputConnectionVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzTessellatedSvgNodeVec { fn drop(&mut self) { crate::AzTessellatedSvgNodeVec_delete(unsafe { mem::transmute(self) }); } }
+impl Drop for AzTessellatedColoredSvgNodeVec { fn drop(&mut self) { crate::AzTessellatedColoredSvgNodeVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStyleTransformVec { fn drop(&mut self) { crate::AzStyleTransformVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzSvgPathElementVec { fn drop(&mut self) { crate::AzSvgPathElementVec_delete(unsafe { mem::transmute(self) }); } }
 impl Drop for AzStringVec { fn drop(&mut self) { crate::AzStringVec_delete(unsafe { mem::transmute(self) }); } }
@@ -34108,6 +34138,36 @@ impl PyObjectProtocol for AzTessellatedSvgNodeVec {
 }
 
 #[pymethods]
+impl AzTessellatedColoredSvgNodeVec {
+    /// Creates a new `TessellatedColoredSvgNodeVec` from a Python array
+    #[new]
+    fn __new__(input: Vec<AzTessellatedColoredSvgNode>) -> Self {
+        let m: azul_impl::svg::TessellatedColoredSvgNodeVec = azul_impl::svg::TessellatedColoredSvgNodeVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+    }
+    
+    /// Returns the TessellatedColoredSvgNode as a Python array
+    fn array(&self) -> Vec<AzTessellatedColoredSvgNode> {
+        let m: &azul_impl::svg::TessellatedColoredSvgNodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+    }
+
+    fn as_ref_vec(&self) -> AzTessellatedColoredSvgNodeVecRef {
+        unsafe { mem::transmute(crate::AzTessellatedColoredSvgNodeVec_asRefVec(
+            mem::transmute(self),
+        )) }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzTessellatedColoredSvgNodeVec {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::TessellatedColoredSvgNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::TessellatedColoredSvgNodeVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
 impl AzStyleFontFamilyVec {
     /// Creates a new `StyleFontFamilyEnumWrapperVec` from a Python array
     #[new]
@@ -35848,6 +35908,36 @@ impl PyObjectProtocol for AzTessellatedSvgNodeVecDestructorEnumWrapper {
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
         let m: &azul_impl::svg::TessellatedSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+}
+
+#[pymethods]
+impl AzTessellatedColoredSvgNodeVecDestructorEnumWrapper {
+    #[classattr]
+    fn DefaultRust() -> AzTessellatedColoredSvgNodeVecDestructorEnumWrapper { AzTessellatedColoredSvgNodeVecDestructorEnumWrapper { inner: AzTessellatedColoredSvgNodeVecDestructor::DefaultRust } }
+    #[classattr]
+    fn NoDestructor() -> AzTessellatedColoredSvgNodeVecDestructorEnumWrapper { AzTessellatedColoredSvgNodeVecDestructorEnumWrapper { inner: AzTessellatedColoredSvgNodeVecDestructor::NoDestructor } }
+
+    fn r#match(&self) -> PyResult<Vec<PyObject>> {
+        use crate::python::AzTessellatedColoredSvgNodeVecDestructor;
+        use pyo3::conversion::IntoPy;
+        let gil = Python::acquire_gil();
+        let py = gil.python();
+        match &self.inner {
+            AzTessellatedColoredSvgNodeVecDestructor::DefaultRust => Ok(vec!["DefaultRust".into_py(py), ().into_py(py)]),
+            AzTessellatedColoredSvgNodeVecDestructor::NoDestructor => Ok(vec!["NoDestructor".into_py(py), ().into_py(py)]),
+            AzTessellatedColoredSvgNodeVecDestructor::External(v) => Ok(vec!["External".into_py(py), ().into_py(py)]),
+        }
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for AzTessellatedColoredSvgNodeVecDestructorEnumWrapper {
+    fn __str__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::TessellatedColoredSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+    }
+    fn __repr__(&self) -> Result<String, PyErr> { 
+        let m: &azul_impl::svg::TessellatedColoredSvgNodeVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -41186,6 +41276,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzAccessibilityStateVec>()?;
     m.add_class::<AzMenuItemVec>()?;
     m.add_class::<AzTessellatedSvgNodeVec>()?;
+    m.add_class::<AzTessellatedColoredSvgNodeVec>()?;
     m.add_class::<AzStyleFontFamilyVec>()?;
     m.add_class::<AzXmlNodeVec>()?;
     m.add_class::<AzFmtArgVec>()?;
@@ -41253,6 +41344,7 @@ fn azul(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AzAccessibilityStateVecDestructorEnumWrapper>()?;
     m.add_class::<AzMenuItemVecDestructorEnumWrapper>()?;
     m.add_class::<AzTessellatedSvgNodeVecDestructorEnumWrapper>()?;
+    m.add_class::<AzTessellatedColoredSvgNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzXmlNodeVecDestructorEnumWrapper>()?;
     m.add_class::<AzFmtArgVecDestructorEnumWrapper>()?;
     m.add_class::<AzInlineLineVecDestructorEnumWrapper>()?;

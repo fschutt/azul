@@ -14001,6 +14001,27 @@
                         }
                     }
                 },
+                "TessellatedColoredSvgNodeVec": {
+                    "doc": "Wrapper over a Rust-allocated `Vec<TessellatedColoredSvgNode>`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::svg::TessellatedColoredSvgNodeVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const TessellatedColoredSvgNode" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "TessellatedColoredSvgNodeVecDestructor" } }
+                    ],
+                    "functions": {
+                        "as_ref_vec": {
+                            "doc": "Returns the `TessellatedColoredSvgNodeVec` as a non-owning slice, NOTE: The `TessellatedColoredSvgNodeVec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`",
+                            "fn_args": [
+                                {"self": "ref"}
+                            ],
+                            "returns": {"type": "TessellatedColoredSvgNodeVecRef"},
+                            "fn_body": "tessellatedcoloredsvgnodevec.get_ref()"
+                        }
+                    }
+                },
                 "StyleFontFamilyVec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<StyleFontFamily>`",
                     "custom_destructor": true,
@@ -14270,7 +14291,7 @@
                     "custom_destructor": true,
                     "external": "azul_core::svg::SvgColoredVertexVec",
                     "struct_fields": [
-                        { "ptr": { "type": "*const SvgVertex" } },
+                        { "ptr": { "type": "*const SvgColoredVertex" } },
                         { "len": { "type": "usize" } },
                         { "cap": { "type": "usize" } },
                         { "destructor": { "type": "SvgColoredVertexVecDestructor" } }
@@ -14836,6 +14857,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "TessellatedSvgNodeVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "TessellatedColoredSvgNodeVecDestructor": {
+                    "external": "azul_impl::svg::TessellatedColoredSvgNodeVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "TessellatedColoredSvgNodeVecDestructorType"}}
+                    ]
+                },
+                "TessellatedColoredSvgNodeVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "TessellatedColoredSvgNodeVec", "ref": "refmut"}
                         ]
                     }
                 },

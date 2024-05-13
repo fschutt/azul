@@ -4226,6 +4226,14 @@ pub use AzTessellatedSvgNodeVecTT as AzTessellatedSvgNodeVec;
 /// Destructor: Takes ownership of the `TessellatedSvgNodeVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTessellatedSvgNodeVec_delete(object: &mut AzTessellatedSvgNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
+/// Wrapper over a Rust-allocated `Vec<TessellatedColoredSvgNode>`
+pub use azul_impl::svg::TessellatedColoredSvgNodeVec as AzTessellatedColoredSvgNodeVecTT;
+pub use AzTessellatedColoredSvgNodeVecTT as AzTessellatedColoredSvgNodeVec;
+/// Returns the `TessellatedColoredSvgNodeVec` as a non-owning slice, NOTE: The `TessellatedColoredSvgNodeVec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
+#[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNodeVec_asRefVec(tessellatedcoloredsvgnodevec: &AzTessellatedColoredSvgNodeVec) -> AzTessellatedColoredSvgNodeVecRef { tessellatedcoloredsvgnodevec.get_ref() }
+/// Destructor: Takes ownership of the `TessellatedColoredSvgNodeVec` pointer and deletes it.
+#[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNodeVec_delete(object: &mut AzTessellatedColoredSvgNodeVec) {  unsafe { core::ptr::drop_in_place(object); } }
+
 /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
 pub use azul_impl::css::StyleFontFamilyVec as AzStyleFontFamilyVecTT;
 pub use AzStyleFontFamilyVecTT as AzStyleFontFamilyVec;
@@ -4616,6 +4624,11 @@ pub use azul_impl::svg::TessellatedSvgNodeVecDestructor as AzTessellatedSvgNodeV
 pub use AzTessellatedSvgNodeVecDestructorTT as AzTessellatedSvgNodeVecDestructor;
 
 pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
+/// Re-export of rust-allocated (stack based) `TessellatedColoredSvgNodeVecDestructor` struct
+pub use azul_impl::svg::TessellatedColoredSvgNodeVecDestructor as AzTessellatedColoredSvgNodeVecDestructorTT;
+pub use AzTessellatedColoredSvgNodeVecDestructorTT as AzTessellatedColoredSvgNodeVecDestructor;
+
+pub type AzTessellatedColoredSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedColoredSvgNodeVec);
 /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
 pub use azul_impl::xml::XmlNodeVecDestructor as AzXmlNodeVecDestructorTT;
 pub use AzXmlNodeVecDestructorTT as AzXmlNodeVecDestructor;
@@ -7875,6 +7888,17 @@ mod test_sizes {
     /// `AzTessellatedSvgNodeVecDestructorType` struct
     pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 
+    /// Re-export of rust-allocated (stack based) `TessellatedColoredSvgNodeVecDestructor` struct
+    #[repr(C, u8)]
+    pub enum AzTessellatedColoredSvgNodeVecDestructor {
+        DefaultRust,
+        NoDestructor,
+        External(AzTessellatedColoredSvgNodeVecDestructorType),
+    }
+
+    /// `AzTessellatedColoredSvgNodeVecDestructorType` struct
+    pub type AzTessellatedColoredSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedColoredSvgNodeVec);
+
     /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
     #[repr(C, u8)]
     pub enum AzXmlNodeVecDestructor {
@@ -10311,7 +10335,7 @@ mod test_sizes {
     /// Wrapper over a Rust-allocated `SvgColoredVertex`
     #[repr(C)]
     pub struct AzSvgColoredVertexVec {
-        pub(crate) ptr: *const AzSvgVertex,
+        pub(crate) ptr: *const AzSvgColoredVertex,
         pub len: usize,
         pub cap: usize,
         pub destructor: AzSvgColoredVertexVecDestructor,
@@ -11436,6 +11460,15 @@ mod test_sizes {
         pub len: usize,
         pub cap: usize,
         pub destructor: AzTessellatedSvgNodeVecDestructor,
+    }
+
+    /// Wrapper over a Rust-allocated `Vec<TessellatedColoredSvgNode>`
+    #[repr(C)]
+    pub struct AzTessellatedColoredSvgNodeVec {
+        pub(crate) ptr: *const AzTessellatedColoredSvgNode,
+        pub len: usize,
+        pub cap: usize,
+        pub destructor: AzTessellatedColoredSvgNodeVecDestructor,
     }
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -13274,6 +13307,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::dom::AccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"), (Layout::new::<AzAccessibilityStateVecDestructor>(), "AzAccessibilityStateVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::MenuItemVecDestructor>(), "AzMenuItemVecDestructor"), (Layout::new::<AzMenuItemVecDestructor>(), "AzMenuItemVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"), (Layout::new::<AzTessellatedSvgNodeVecDestructor>(), "AzTessellatedSvgNodeVecDestructor"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedColoredSvgNodeVecDestructor>(), "AzTessellatedColoredSvgNodeVecDestructor"), (Layout::new::<AzTessellatedColoredSvgNodeVecDestructor>(), "AzTessellatedColoredSvgNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"), (Layout::new::<AzXmlNodeVecDestructor>(), "AzXmlNodeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::str::FmtArgVecDestructor>(), "AzFmtArgVecDestructor"), (Layout::new::<AzFmtArgVecDestructor>(), "AzFmtArgVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::callbacks::InlineLineVecDestructor>(), "AzInlineLineVecDestructor"), (Layout::new::<AzInlineLineVecDestructor>(), "AzInlineLineVecDestructor"));
@@ -13681,6 +13715,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<crate::widgets::node_graph::InputConnectionVec>(), "AzInputConnectionVec"), (Layout::new::<AzInputConnectionVec>(), "AzInputConnectionVec"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::OutputConnectionVec>(), "AzOutputConnectionVec"), (Layout::new::<AzOutputConnectionVec>(), "AzOutputConnectionVec"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"), (Layout::new::<AzTessellatedSvgNodeVec>(), "AzTessellatedSvgNodeVec"));
+        assert_eq!((Layout::new::<azul_impl::svg::TessellatedColoredSvgNodeVec>(), "AzTessellatedColoredSvgNodeVec"), (Layout::new::<AzTessellatedColoredSvgNodeVec>(), "AzTessellatedColoredSvgNodeVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleTransformVec>(), "AzStyleTransformVec"), (Layout::new::<AzStyleTransformVec>(), "AzStyleTransformVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVec>(), "AzSvgPathElementVec"), (Layout::new::<AzSvgPathElementVec>(), "AzSvgPathElementVec"));
         assert_eq!((Layout::new::<azul_impl::css::StringVec>(), "AzStringVec"), (Layout::new::<AzStringVec>(), "AzStringVec"));

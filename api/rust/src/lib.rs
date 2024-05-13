@@ -3693,6 +3693,19 @@ mod dll {
         /// `AzTessellatedSvgNodeVecDestructorType` struct
         pub type AzTessellatedSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedSvgNodeVec);
 
+        /// Re-export of rust-allocated (stack based) `TessellatedColoredSvgNodeVecDestructor` struct
+        #[repr(C, u8)]
+        #[derive(Clone)]
+        #[derive(Copy)]
+        pub enum AzTessellatedColoredSvgNodeVecDestructor {
+            DefaultRust,
+            NoDestructor,
+            External(AzTessellatedColoredSvgNodeVecDestructorType),
+        }
+
+        /// `AzTessellatedColoredSvgNodeVecDestructorType` struct
+        pub type AzTessellatedColoredSvgNodeVecDestructorType = extern "C" fn(&mut AzTessellatedColoredSvgNodeVec);
+
         /// Re-export of rust-allocated (stack based) `XmlNodeVecDestructor` struct
         #[repr(C, u8)]
         #[derive(Clone)]
@@ -6998,7 +7011,7 @@ mod dll {
         /// Wrapper over a Rust-allocated `SvgColoredVertex`
         #[repr(C)]
         pub struct AzSvgColoredVertexVec {
-            pub(crate) ptr: *const AzSvgVertex,
+            pub(crate) ptr: *const AzSvgColoredVertex,
             pub len: usize,
             pub cap: usize,
             pub destructor: AzSvgColoredVertexVecDestructor,
@@ -8503,6 +8516,15 @@ mod dll {
             pub len: usize,
             pub cap: usize,
             pub destructor: AzTessellatedSvgNodeVecDestructor,
+        }
+
+        /// Wrapper over a Rust-allocated `Vec<TessellatedColoredSvgNode>`
+        #[repr(C)]
+        pub struct AzTessellatedColoredSvgNodeVec {
+            pub(crate) ptr: *const AzTessellatedColoredSvgNode,
+            pub len: usize,
+            pub cap: usize,
+            pub destructor: AzTessellatedColoredSvgNodeVecDestructor,
         }
 
         /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
@@ -11305,6 +11327,8 @@ mod dll {
         pub(crate) fn AzMenuItemVec_delete(object: &mut AzMenuItemVec) { unsafe { transmute(azul::AzMenuItemVec_delete(transmute(object))) } }
         pub(crate) fn AzTessellatedSvgNodeVec_asRefVec(tessellatedsvgnodevec: &AzTessellatedSvgNodeVec) -> AzTessellatedSvgNodeVecRef { unsafe { transmute(azul::AzTessellatedSvgNodeVec_asRefVec(transmute(tessellatedsvgnodevec))) } }
         pub(crate) fn AzTessellatedSvgNodeVec_delete(object: &mut AzTessellatedSvgNodeVec) { unsafe { transmute(azul::AzTessellatedSvgNodeVec_delete(transmute(object))) } }
+        pub(crate) fn AzTessellatedColoredSvgNodeVec_asRefVec(tessellatedcoloredsvgnodevec: &AzTessellatedColoredSvgNodeVec) -> AzTessellatedColoredSvgNodeVecRef { unsafe { transmute(azul::AzTessellatedColoredSvgNodeVec_asRefVec(transmute(tessellatedcoloredsvgnodevec))) } }
+        pub(crate) fn AzTessellatedColoredSvgNodeVec_delete(object: &mut AzTessellatedColoredSvgNodeVec) { unsafe { transmute(azul::AzTessellatedColoredSvgNodeVec_delete(transmute(object))) } }
         pub(crate) fn AzStyleFontFamilyVec_delete(object: &mut AzStyleFontFamilyVec) { unsafe { transmute(azul::AzStyleFontFamilyVec_delete(transmute(object))) } }
         pub(crate) fn AzXmlNodeVec_delete(object: &mut AzXmlNodeVec) { unsafe { transmute(azul::AzXmlNodeVec_delete(transmute(object))) } }
         pub(crate) fn AzFmtArgVec_delete(object: &mut AzFmtArgVec) { unsafe { transmute(azul::AzFmtArgVec_delete(transmute(object))) } }
@@ -12150,6 +12174,8 @@ mod dll {
             pub(crate) fn AzMenuItemVec_delete(_:  &mut AzMenuItemVec);
             pub(crate) fn AzTessellatedSvgNodeVec_asRefVec(_:  &AzTessellatedSvgNodeVec) -> AzTessellatedSvgNodeVecRef;
             pub(crate) fn AzTessellatedSvgNodeVec_delete(_:  &mut AzTessellatedSvgNodeVec);
+            pub(crate) fn AzTessellatedColoredSvgNodeVec_asRefVec(_:  &AzTessellatedColoredSvgNodeVec) -> AzTessellatedColoredSvgNodeVecRef;
+            pub(crate) fn AzTessellatedColoredSvgNodeVec_delete(_:  &mut AzTessellatedColoredSvgNodeVec);
             pub(crate) fn AzStyleFontFamilyVec_delete(_:  &mut AzStyleFontFamilyVec);
             pub(crate) fn AzXmlNodeVec_delete(_:  &mut AzXmlNodeVec);
             pub(crate) fn AzFmtArgVec_delete(_:  &mut AzFmtArgVec);
@@ -19267,6 +19293,15 @@ pub mod vec {
         pub fn as_ref_vec(&self)  -> crate::svg::TessellatedSvgNodeVecRef { unsafe { crate::dll::AzTessellatedSvgNodeVec_asRefVec(self) } }
     }
 
+    /// Wrapper over a Rust-allocated `Vec<TessellatedColoredSvgNode>`
+    
+    #[doc(inline)] pub use crate::dll::AzTessellatedColoredSvgNodeVec as TessellatedColoredSvgNodeVec;
+    impl TessellatedColoredSvgNodeVec {
+
+        /// Returns the `TessellatedColoredSvgNodeVec` as a non-owning slice, NOTE: The `TessellatedColoredSvgNodeVec` that this slice was borrowed from MUST NOT be deleted before the `U8VecRef`
+        pub fn as_ref_vec(&self)  -> crate::svg::TessellatedColoredSvgNodeVecRef { unsafe { crate::dll::AzTessellatedColoredSvgNodeVec_asRefVec(self) } }
+    }
+
     /// Wrapper over a Rust-allocated `Vec<StyleFontFamily>`
     
     #[doc(inline)] pub use crate::dll::AzStyleFontFamilyVec as StyleFontFamilyVec;
@@ -19524,6 +19559,12 @@ pub mod vec {
     /// `TessellatedSvgNodeVecDestructorType` struct
     
     #[doc(inline)] pub use crate::dll::AzTessellatedSvgNodeVecDestructorType as TessellatedSvgNodeVecDestructorType;
+    /// `TessellatedColoredSvgNodeVecDestructor` struct
+    
+    #[doc(inline)] pub use crate::dll::AzTessellatedColoredSvgNodeVecDestructor as TessellatedColoredSvgNodeVecDestructor;
+    /// `TessellatedColoredSvgNodeVecDestructorType` struct
+    
+    #[doc(inline)] pub use crate::dll::AzTessellatedColoredSvgNodeVecDestructorType as TessellatedColoredSvgNodeVecDestructorType;
     /// `XmlNodeVecDestructor` struct
     
     #[doc(inline)] pub use crate::dll::AzXmlNodeVecDestructor as XmlNodeVecDestructor;

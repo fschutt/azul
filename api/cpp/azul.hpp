@@ -177,6 +177,9 @@ namespace dll {
     struct TessellatedSvgNodeVec;
     using TessellatedSvgNodeVecDestructorType = void(*)(TessellatedSvgNodeVec* restrict);
     
+    struct TessellatedColoredSvgNodeVec;
+    using TessellatedColoredSvgNodeVecDestructorType = void(*)(TessellatedColoredSvgNodeVec* restrict);
+    
     struct XmlNodeVec;
     using XmlNodeVecDestructorType = void(*)(XmlNodeVec* restrict);
     
@@ -2528,6 +2531,22 @@ namespace dll {
         TessellatedSvgNodeVecDestructorVariant_DefaultRust DefaultRust;
         TessellatedSvgNodeVecDestructorVariant_NoDestructor NoDestructor;
         TessellatedSvgNodeVecDestructorVariant_External External;
+    };
+    
+    
+    enum class TessellatedColoredSvgNodeVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct TessellatedColoredSvgNodeVecDestructorVariant_DefaultRust { TessellatedColoredSvgNodeVecDestructorTag tag; };
+    struct TessellatedColoredSvgNodeVecDestructorVariant_NoDestructor { TessellatedColoredSvgNodeVecDestructorTag tag; };
+    struct TessellatedColoredSvgNodeVecDestructorVariant_External { TessellatedColoredSvgNodeVecDestructorTag tag; TessellatedColoredSvgNodeVecDestructorType payload; };
+    union TessellatedColoredSvgNodeVecDestructor {
+        TessellatedColoredSvgNodeVecDestructorVariant_DefaultRust DefaultRust;
+        TessellatedColoredSvgNodeVecDestructorVariant_NoDestructor NoDestructor;
+        TessellatedColoredSvgNodeVecDestructorVariant_External External;
     };
     
     
@@ -6172,7 +6191,7 @@ namespace dll {
     };
     
     struct SvgColoredVertexVec {
-        SvgVertex* ptr;
+        SvgColoredVertex* ptr;
         size_t len;
         size_t cap;
         SvgColoredVertexVecDestructor destructor;
@@ -7900,6 +7919,16 @@ namespace dll {
         TessellatedSvgNodeVec& operator=(const TessellatedSvgNodeVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         TessellatedSvgNodeVec(const TessellatedSvgNodeVec&) = delete; /* disable copy constructor, use explicit .clone() */
         TessellatedSvgNodeVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct TessellatedColoredSvgNodeVec {
+        TessellatedColoredSvgNode* ptr;
+        size_t len;
+        size_t cap;
+        TessellatedColoredSvgNodeVecDestructor destructor;
+        TessellatedColoredSvgNodeVec& operator=(const TessellatedColoredSvgNodeVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedColoredSvgNodeVec(const TessellatedColoredSvgNodeVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedColoredSvgNodeVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
     struct StyleTransformVec {
@@ -11208,6 +11237,8 @@ namespace dll {
         void MenuItemVec_delete(MenuItemVec* restrict instance);
         TessellatedSvgNodeVecRef TessellatedSvgNodeVec_asRefVec(const TessellatedSvgNodeVec* tessellatedsvgnodevec);
         void TessellatedSvgNodeVec_delete(TessellatedSvgNodeVec* restrict instance);
+        TessellatedColoredSvgNodeVecRef TessellatedColoredSvgNodeVec_asRefVec(const TessellatedColoredSvgNodeVec* tessellatedcoloredsvgnodevec);
+        void TessellatedColoredSvgNodeVec_delete(TessellatedColoredSvgNodeVec* restrict instance);
         void StyleFontFamilyVec_delete(StyleFontFamilyVec* restrict instance);
         void XmlNodeVec_delete(XmlNodeVec* restrict instance);
         void FmtArgVec_delete(FmtArgVec* restrict instance);
