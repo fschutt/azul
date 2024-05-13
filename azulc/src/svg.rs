@@ -47,7 +47,9 @@ pub use azul_core::svg::{
     SvgPathElementVecDestructor, SvgVertexVecDestructor,
     OptionSvgDashPattern, ResultSvgXmlNodeSvgParseError,
     ResultSvgSvgParseError,
-
+    TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec,
+    TessellatedColoredSvgNodeVecDestructor,
+    
     // SvgXmlNode, Svg
 };
 
