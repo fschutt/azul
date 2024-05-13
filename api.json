@@ -7500,7 +7500,7 @@
                                 {"transforms": "StyleTransformVec"}
                             ],
                             "returns": {"type": "bool"},
-                            "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, color, transforms)"
+                            "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, transforms)"
                         },
                         "apply_fxaa": {
                             "doc": "Applies an FXAA filter to the texture",
@@ -12700,7 +12700,7 @@
                     }
                 },
                 "SvgColoredVertex": {
-                    "external": "azul_impl::svg::SvgColoredVertex",
+                    "external": "azul_core::svg::SvgColoredVertex",
                     "derive": ["Copy", "Serialize", "Deserialize"],
                     "struct_fields": [
                         {"x": {"type": "f32"}},
@@ -12713,7 +12713,7 @@
                     ]
                 },
                 "TessellatedColoredSvgNode": {
-                    "external": "azul_impl::svg::TessellatedColoredSvgNode",
+                    "external": "azul_core::svg::TessellatedColoredSvgNode",
                     "struct_fields": [
                         {"vertices": {"type": "SvgColoredVertexVec"}},
                         {"indices": {"type": "U32Vec"}}
@@ -12735,14 +12735,14 @@
                 },
                 "TessellatedColoredSvgNodeVecRef": {
                     "doc": "Rust wrapper over a `&[TessellatedColoredSvgNode]` or `&Vec<TessellatedColoredSvgNode>`",
-                    "external": "azul_impl::svg::TessellatedColoredSvgNodeVecRef",
+                    "external": "azul_core::svg::TessellatedColoredSvgNodeVecRef",
                     "struct_fields": [
                         {"ptr": {"type": "*const TessellatedColoredSvgNode"}},
                         {"len": {"type": "usize"}}
                     ]
                 },
                 "TessellatedColoredGPUSvgNode": {
-                    "external": "azul_impl::svg::TessellatedColoredGPUSvgNode",
+                    "external": "azul_core::svg::TessellatedColoredGPUSvgNode",
                     "derive": ["Debug"],
                     "struct_fields": [
                         {"vertex_index_buffer": {"type": "VertexBuffer"}}
@@ -14268,7 +14268,7 @@
                 "SvgColoredVertexVec": {
                     "doc": "Wrapper over a Rust-allocated `SvgColoredVertex`",
                     "custom_destructor": true,
-                    "external": "azul_impl::svg::SvgColoredVertexVec",
+                    "external": "azul_core::svg::SvgColoredVertexVec",
                     "struct_fields": [
                         { "ptr": { "type": "*const SvgVertex" } },
                         { "len": { "type": "usize" } },
@@ -15208,7 +15208,7 @@
                     }
                 },
                 "SvgColoredVertexVecDestructor": {
-                    "external": "azul_impl::svg::SvgColoredVertexVecDestructor",
+                    "external": "azul_core::svg::SvgColoredVertexVecDestructor",
                     "derive": ["Copy"],
                     "enum_fields": [
                         {"DefaultRust": {}},

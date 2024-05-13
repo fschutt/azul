@@ -2679,7 +2679,7 @@ pub use AzTextureTT as AzTexture;
 /// Draws a `&TessellatedGPUSvgNode` with the given color to the texture
 #[no_mangle] pub extern "C" fn AzTexture_drawTesselatedSvgGpuNode(texture: &mut AzTexture, node: *const AzTessellatedGPUSvgNode, size: AzPhysicalSizeU32, color: AzColorU, transforms: AzStyleTransformVec) -> bool { let node = unsafe { &*node }; node.draw(texture, size, color, transforms) }
 /// Draws a `&TessellatedColoredGPUSvgNode` with the given color to the texture
-#[no_mangle] pub extern "C" fn AzTexture_drawTesselatedColoredSvgGpuNode(texture: &mut AzTexture, node: *const AzTessellatedColoredGPUSvgNode, size: AzPhysicalSizeU32, transforms: AzStyleTransformVec) -> bool { let node = unsafe { &*node }; node.draw(texture, size, color, transforms) }
+#[no_mangle] pub extern "C" fn AzTexture_drawTesselatedColoredSvgGpuNode(texture: &mut AzTexture, node: *const AzTessellatedColoredGPUSvgNode, size: AzPhysicalSizeU32, transforms: AzStyleTransformVec) -> bool { let node = unsafe { &*node }; node.draw(texture, size, transforms) }
 /// Applies an FXAA filter to the texture
 #[no_mangle] pub extern "C" fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { azul_impl::svg::apply_fxaa(texture).is_some() }
 /// Destructor: Takes ownership of the `Texture` pointer and deletes it.
@@ -3692,11 +3692,11 @@ pub use AzSvgRectTT as AzSvgRect;
 #[no_mangle] pub extern "C" fn AzSvgRect_tessellateStroke(svgrect: &AzSvgRect, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { azul_impl::svg::tessellate_rect_stroke(svgrect, stroke_style) }
 
 /// Re-export of rust-allocated (stack based) `SvgColoredVertex` struct
-pub use azul_impl::svg::SvgColoredVertex as AzSvgColoredVertexTT;
+pub use azul_core::svg::SvgColoredVertex as AzSvgColoredVertexTT;
 pub use AzSvgColoredVertexTT as AzSvgColoredVertex;
 
 /// Re-export of rust-allocated (stack based) `TessellatedColoredSvgNode` struct
-pub use azul_impl::svg::TessellatedColoredSvgNode as AzTessellatedColoredSvgNodeTT;
+pub use azul_core::svg::TessellatedColoredSvgNode as AzTessellatedColoredSvgNodeTT;
 pub use AzTessellatedColoredSvgNodeTT as AzTessellatedColoredSvgNode;
 /// Returns an empty buffer vertices / indices
 #[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNode_empty() -> AzTessellatedColoredSvgNode { AzTessellatedColoredSvgNode::empty() }
@@ -3706,13 +3706,13 @@ pub use AzTessellatedColoredSvgNodeTT as AzTessellatedColoredSvgNode;
 #[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNode_delete(object: &mut AzTessellatedColoredSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Rust wrapper over a `&[TessellatedColoredSvgNode]` or `&Vec<TessellatedColoredSvgNode>`
-pub use azul_impl::svg::TessellatedColoredSvgNodeVecRef as AzTessellatedColoredSvgNodeVecRefTT;
+pub use azul_core::svg::TessellatedColoredSvgNodeVecRef as AzTessellatedColoredSvgNodeVecRefTT;
 pub use AzTessellatedColoredSvgNodeVecRefTT as AzTessellatedColoredSvgNodeVecRef;
 /// Destructor: Takes ownership of the `TessellatedColoredSvgNodeVecRef` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNodeVecRef_delete(object: &mut AzTessellatedColoredSvgNodeVecRef) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Re-export of rust-allocated (stack based) `TessellatedColoredGPUSvgNode` struct
-pub use azul_impl::svg::TessellatedColoredGPUSvgNode as AzTessellatedColoredGPUSvgNodeTT;
+pub use azul_core::svg::TessellatedColoredGPUSvgNode as AzTessellatedColoredGPUSvgNodeTT;
 pub use AzTessellatedColoredGPUSvgNodeTT as AzTessellatedColoredGPUSvgNode;
 /// Creates a new `TessellatedColoredGPUSvgNode` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `TessellatedColoredGPUSvgNode::new()` constructor.
@@ -4371,7 +4371,7 @@ pub use AzSvgVertexVecTT as AzSvgVertexVec;
 #[no_mangle] pub extern "C" fn AzSvgVertexVec_delete(object: &mut AzSvgVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
 
 /// Wrapper over a Rust-allocated `SvgColoredVertex`
-pub use azul_impl::svg::SvgColoredVertexVec as AzSvgColoredVertexVecTT;
+pub use azul_core::svg::SvgColoredVertexVec as AzSvgColoredVertexVecTT;
 pub use AzSvgColoredVertexVecTT as AzSvgColoredVertexVec;
 /// Destructor: Takes ownership of the `SvgColoredVertexVec` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzSvgColoredVertexVec_delete(object: &mut AzSvgColoredVertexVec) {  unsafe { core::ptr::drop_in_place(object); } }
@@ -4732,7 +4732,7 @@ pub use AzSvgVertexVecDestructorTT as AzSvgVertexVecDestructor;
 
 pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
 /// Re-export of rust-allocated (stack based) `SvgColoredVertexVecDestructor` struct
-pub use azul_impl::svg::SvgColoredVertexVecDestructor as AzSvgColoredVertexVecDestructorTT;
+pub use azul_core::svg::SvgColoredVertexVecDestructor as AzSvgColoredVertexVecDestructorTT;
 pub use AzSvgColoredVertexVecDestructorTT as AzSvgColoredVertexVecDestructor;
 
 pub type AzSvgColoredVertexVecDestructorType = extern "C" fn(&mut AzSvgColoredVertexVec);
@@ -13216,7 +13216,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::svg::SvgPoint>(), "AzSvgPoint"), (Layout::new::<AzSvgPoint>(), "AzSvgPoint"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVector>(), "AzSvgVector"), (Layout::new::<AzSvgVector>(), "AzSvgVector"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgRect>(), "AzSvgRect"), (Layout::new::<AzSvgRect>(), "AzSvgRect"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgColoredVertex>(), "AzSvgColoredVertex"), (Layout::new::<AzSvgColoredVertex>(), "AzSvgColoredVertex"));
+        assert_eq!((Layout::new::<azul_core::svg::SvgColoredVertex>(), "AzSvgColoredVertex"), (Layout::new::<AzSvgColoredVertex>(), "AzSvgColoredVertex"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertex>(), "AzSvgVertex"), (Layout::new::<AzSvgVertex>(), "AzSvgVertex"));
         assert_eq!((Layout::new::<azul_impl::svg::ShapeRendering>(), "AzShapeRendering"), (Layout::new::<AzShapeRendering>(), "AzShapeRendering"));
         assert_eq!((Layout::new::<azul_impl::svg::TextRendering>(), "AzTextRendering"), (Layout::new::<AzTextRendering>(), "AzTextRendering"));
@@ -13297,7 +13297,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"), (Layout::new::<AzVertexAttributeVecDestructor>(), "AzVertexAttributeVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"), (Layout::new::<AzSvgPathElementVecDestructor>(), "AzSvgPathElementVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"), (Layout::new::<AzSvgVertexVecDestructor>(), "AzSvgVertexVecDestructor"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgColoredVertexVecDestructor>(), "AzSvgColoredVertexVecDestructor"), (Layout::new::<AzSvgColoredVertexVecDestructor>(), "AzSvgColoredVertexVecDestructor"));
+        assert_eq!((Layout::new::<azul_core::svg::SvgColoredVertexVecDestructor>(), "AzSvgColoredVertexVecDestructor"), (Layout::new::<AzSvgColoredVertexVecDestructor>(), "AzSvgColoredVertexVecDestructor"));
         assert_eq!((Layout::new::<azul_impl::css::U32VecDestructor>(), "AzU32VecDestructor"), (Layout::new::<AzU32VecDestructor>(), "AzU32VecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::XWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"), (Layout::new::<AzXWindowTypeVecDestructor>(), "AzXWindowTypeVecDestructor"));
         assert_eq!((Layout::new::<azul_core::window::VirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"), (Layout::new::<AzVirtualKeyCodeVecDestructor>(), "AzVirtualKeyCodeVecDestructor"));
@@ -13544,7 +13544,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"), (Layout::new::<AzStyleBackgroundRepeatVec>(), "AzStyleBackgroundRepeatVec"));
         assert_eq!((Layout::new::<azul_impl::css::StyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"), (Layout::new::<AzStyleBackgroundSizeVec>(), "AzStyleBackgroundSizeVec"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgVertexVec>(), "AzSvgVertexVec"), (Layout::new::<AzSvgVertexVec>(), "AzSvgVertexVec"));
-        assert_eq!((Layout::new::<azul_impl::svg::SvgColoredVertexVec>(), "AzSvgColoredVertexVec"), (Layout::new::<AzSvgColoredVertexVec>(), "AzSvgColoredVertexVec"));
+        assert_eq!((Layout::new::<azul_core::svg::SvgColoredVertexVec>(), "AzSvgColoredVertexVec"), (Layout::new::<AzSvgColoredVertexVec>(), "AzSvgColoredVertexVec"));
         assert_eq!((Layout::new::<azul_impl::css::U32Vec>(), "AzU32Vec"), (Layout::new::<AzU32Vec>(), "AzU32Vec"));
         assert_eq!((Layout::new::<azul_core::window::XWindowTypeVec>(), "AzXWindowTypeVec"), (Layout::new::<AzXWindowTypeVec>(), "AzXWindowTypeVec"));
         assert_eq!((Layout::new::<azul_core::window::VirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"), (Layout::new::<AzVirtualKeyCodeVec>(), "AzVirtualKeyCodeVec"));
@@ -13666,8 +13666,8 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::resources::RawImageData>(), "AzRawImageData"), (Layout::new::<AzRawImageData>(), "AzRawImageData"));
         assert_eq!((Layout::new::<azul_impl::resources::LoadedFontSource>(), "AzFontSource"), (Layout::new::<AzFontSource>(), "AzFontSource"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgPathElement>(), "AzSvgPathElement"), (Layout::new::<AzSvgPathElement>(), "AzSvgPathElement"));
-        assert_eq!((Layout::new::<azul_impl::svg::TessellatedColoredSvgNode>(), "AzTessellatedColoredSvgNode"), (Layout::new::<AzTessellatedColoredSvgNode>(), "AzTessellatedColoredSvgNode"));
-        assert_eq!((Layout::new::<azul_impl::svg::TessellatedColoredSvgNodeVecRef>(), "AzTessellatedColoredSvgNodeVecRef"), (Layout::new::<AzTessellatedColoredSvgNodeVecRef>(), "AzTessellatedColoredSvgNodeVecRef"));
+        assert_eq!((Layout::new::<azul_core::svg::TessellatedColoredSvgNode>(), "AzTessellatedColoredSvgNode"), (Layout::new::<AzTessellatedColoredSvgNode>(), "AzTessellatedColoredSvgNode"));
+        assert_eq!((Layout::new::<azul_core::svg::TessellatedColoredSvgNodeVecRef>(), "AzTessellatedColoredSvgNodeVecRef"), (Layout::new::<AzTessellatedColoredSvgNodeVecRef>(), "AzTessellatedColoredSvgNodeVecRef"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNode>(), "AzTessellatedSvgNode"), (Layout::new::<AzTessellatedSvgNode>(), "AzTessellatedSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedSvgNodeVecRef>(), "AzTessellatedSvgNodeVecRef"), (Layout::new::<AzTessellatedSvgNodeVecRef>(), "AzTessellatedSvgNodeVecRef"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgRenderOptions>(), "AzSvgRenderOptions"), (Layout::new::<AzSvgRenderOptions>(), "AzSvgRenderOptions"));
@@ -13784,7 +13784,7 @@ mod test_sizes {
         assert_eq!((Layout::new::<azul_impl::gl::VertexBuffer>(), "AzVertexBuffer"), (Layout::new::<AzVertexBuffer>(), "AzVertexBuffer"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgMultiPolygon>(), "AzSvgMultiPolygon"), (Layout::new::<AzSvgMultiPolygon>(), "AzSvgMultiPolygon"));
         assert_eq!((Layout::new::<azul_impl::svg::SvgSimpleNode>(), "AzSvgSimpleNode"), (Layout::new::<AzSvgSimpleNode>(), "AzSvgSimpleNode"));
-        assert_eq!((Layout::new::<azul_impl::svg::TessellatedColoredGPUSvgNode>(), "AzTessellatedColoredGPUSvgNode"), (Layout::new::<AzTessellatedColoredGPUSvgNode>(), "AzTessellatedColoredGPUSvgNode"));
+        assert_eq!((Layout::new::<azul_core::svg::TessellatedColoredGPUSvgNode>(), "AzTessellatedColoredGPUSvgNode"), (Layout::new::<AzTessellatedColoredGPUSvgNode>(), "AzTessellatedColoredGPUSvgNode"));
         assert_eq!((Layout::new::<azul_impl::svg::TessellatedGPUSvgNode>(), "AzTessellatedGPUSvgNode"), (Layout::new::<AzTessellatedGPUSvgNode>(), "AzTessellatedGPUSvgNode"));
         assert_eq!((Layout::new::<azul_impl::xml::XmlNode>(), "AzXmlNode"), (Layout::new::<AzXmlNode>(), "AzXmlNode"));
         assert_eq!((Layout::new::<crate::widgets::node_graph::NodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"), (Layout::new::<AzNodeTypeIdInfoMapVec>(), "AzNodeTypeIdInfoMapVec"));

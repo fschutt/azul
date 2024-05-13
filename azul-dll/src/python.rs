@@ -10537,7 +10537,7 @@ impl Clone for AzSvgCircle { fn clone(&self) -> Self { let r: &azul_impl::svg::S
 impl Clone for AzSvgPoint { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPoint = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVector { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVector = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgRect { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgRect = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzSvgColoredVertex { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgColoredVertex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgColoredVertex { fn clone(&self) -> Self { let r: &azul_core::svg::SvgColoredVertex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVertex { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVertex = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzShapeRenderingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::ShapeRendering = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTextRenderingEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::TextRendering = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10618,7 +10618,7 @@ impl Clone for AzSvgPathVecDestructorEnumWrapper { fn clone(&self) -> Self { let
 impl Clone for AzVertexAttributeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexAttributeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElementVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVertexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVertexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzSvgColoredVertexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgColoredVertexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgColoredVertexVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::svg::SvgColoredVertexVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzU32VecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::css::U32VecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXWindowTypeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::XWindowTypeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVirtualKeyCodeVecDestructorEnumWrapper { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCodeVecDestructor = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10865,7 +10865,7 @@ impl Clone for AzStyleBackgroundPositionVec { fn clone(&self) -> Self { let r: &
 impl Clone for AzStyleBackgroundRepeatVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundRepeatVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzStyleBackgroundSizeVec { fn clone(&self) -> Self { let r: &azul_impl::css::StyleBackgroundSizeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgVertexVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgVertexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzSvgColoredVertexVec { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzSvgColoredVertexVec { fn clone(&self) -> Self { let r: &azul_core::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzU32Vec { fn clone(&self) -> Self { let r: &azul_impl::css::U32Vec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXWindowTypeVec { fn clone(&self) -> Self { let r: &azul_core::window::XWindowTypeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzVirtualKeyCodeVec { fn clone(&self) -> Self { let r: &azul_core::window::VirtualKeyCodeVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -10987,8 +10987,8 @@ impl Clone for AzGetProgramBinaryReturn { fn clone(&self) -> Self { let r: &azul
 impl Clone for AzRawImageDataEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::resources::RawImageData = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzFontSource { fn clone(&self) -> Self { let r: &azul_impl::resources::LoadedFontSource = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgPathElementEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgPathElement = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTessellatedColoredSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedColoredSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTessellatedColoredSvgNodeVecRef { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedColoredSvgNodeVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedColoredSvgNode { fn clone(&self) -> Self { let r: &azul_core::svg::TessellatedColoredSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedColoredSvgNodeVecRef { fn clone(&self) -> Self { let r: &azul_core::svg::TessellatedColoredSvgNodeVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedSvgNodeVecRef { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedSvgNodeVecRef = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgRenderOptions { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgRenderOptions = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -11105,7 +11105,7 @@ impl Clone for AzVertexArrayObject { fn clone(&self) -> Self { let r: &azul_impl
 impl Clone for AzVertexBuffer { fn clone(&self) -> Self { let r: &azul_impl::gl::VertexBuffer = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgMultiPolygon { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgMultiPolygon = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzSvgSimpleNodeEnumWrapper { fn clone(&self) -> Self { let r: &azul_impl::svg::SvgSimpleNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
-impl Clone for AzTessellatedColoredGPUSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedColoredGPUSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
+impl Clone for AzTessellatedColoredGPUSvgNode { fn clone(&self) -> Self { let r: &azul_core::svg::TessellatedColoredGPUSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzTessellatedGPUSvgNode { fn clone(&self) -> Self { let r: &azul_impl::svg::TessellatedGPUSvgNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzXmlNode { fn clone(&self) -> Self { let r: &azul_impl::xml::XmlNode = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
 impl Clone for AzNodeTypeIdInfoMapVec { fn clone(&self) -> Self { let r: &crate::widgets::node_graph::NodeTypeIdInfoMapVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(r.clone()) } } }
@@ -32008,10 +32008,10 @@ impl AzSvgColoredVertex {
 #[pyproto]
 impl PyObjectProtocol for AzSvgColoredVertex {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgColoredVertex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::SvgColoredVertex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgColoredVertex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::SvgColoredVertex = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -32032,10 +32032,10 @@ impl AzTessellatedColoredSvgNode {
 #[pyproto]
 impl PyObjectProtocol for AzTessellatedColoredSvgNode {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TessellatedColoredSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::TessellatedColoredSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TessellatedColoredSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::TessellatedColoredSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -32046,10 +32046,10 @@ impl AzTessellatedColoredSvgNodeVecRef {
 #[pyproto]
 impl PyObjectProtocol for AzTessellatedColoredSvgNodeVecRef {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TessellatedColoredSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::TessellatedColoredSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TessellatedColoredSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::TessellatedColoredSvgNodeVecRef = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -32060,10 +32060,10 @@ impl AzTessellatedColoredGPUSvgNode {
 #[pyproto]
 impl PyObjectProtocol for AzTessellatedColoredGPUSvgNode {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TessellatedColoredGPUSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::TessellatedColoredGPUSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::TessellatedColoredGPUSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::TessellatedColoredGPUSvgNode = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -34712,12 +34712,12 @@ impl AzSvgColoredVertexVec {
     /// Creates a new `SvgColoredVertexVec` from a Python array
     #[new]
     fn __new__(input: Vec<AzSvgColoredVertex>) -> Self {
-        let m: azul_impl::svg::SvgColoredVertexVec = azul_impl::svg::SvgColoredVertexVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
+        let m: azul_core::svg::SvgColoredVertexVec = azul_core::svg::SvgColoredVertexVec::from_vec(unsafe { mem::transmute(input) }); unsafe { mem::transmute(m) }
     }
     
     /// Returns the SvgColoredVertex as a Python array
     fn array(&self) -> Vec<AzSvgColoredVertex> {
-        let m: &azul_impl::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
+        let m: &azul_core::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; unsafe { mem::transmute(m.clone().into_library_owned_vec()) }
     }
 
 }
@@ -34725,10 +34725,10 @@ impl AzSvgColoredVertexVec {
 #[pyproto]
 impl PyObjectProtocol for AzSvgColoredVertexVec {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::SvgColoredVertexVec = unsafe { mem::transmute(self) }; Ok(format!("{:#?}", m))
     }
 }
 
@@ -36564,10 +36564,10 @@ impl AzSvgColoredVertexVecDestructorEnumWrapper {
 #[pyproto]
 impl PyObjectProtocol for AzSvgColoredVertexVecDestructorEnumWrapper {
     fn __str__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgColoredVertexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::SvgColoredVertexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
     fn __repr__(&self) -> Result<String, PyErr> { 
-        let m: &azul_impl::svg::SvgColoredVertexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
+        let m: &azul_core::svg::SvgColoredVertexVecDestructor = unsafe { mem::transmute(&self.inner) }; Ok(format!("{:#?}", m))
     }
 }
 
