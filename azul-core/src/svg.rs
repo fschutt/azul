@@ -521,6 +521,54 @@ pub struct SvgVertex {
     pub y: f32,
 }
 
+impl VertexLayoutDescription for SvgVertex {
+    fn get_description() -> VertexLayout {
+        VertexLayout {
+            fields: vec![VertexAttribute {
+                name: String::from("vAttrXY").into(),
+                layout_location: None.into(),
+                attribute_type: VertexAttributeType::Float,
+                item_count: 2,
+            }]
+            .into(),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+#[repr(C)]
+pub struct SvgColoredVertex {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+impl VertexLayoutDescription for SvgColoredVertex {
+    fn get_description() -> VertexLayout {
+        VertexLayout {
+            fields: vec![
+                VertexAttribute {
+                    name: String::from("vAttrXY").into(),
+                    layout_location: None.into(),
+                    attribute_type: VertexAttributeType::Float,
+                    item_count: 3,
+                },
+                VertexAttribute {
+                    name: String::from("vColor").into(),
+                    layout_location: None.into(),
+                    attribute_type: VertexAttributeType::Float,
+                    item_count: 4,
+                },
+            ]
+            .into(),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 #[repr(C)]
 pub struct SvgCircle {
@@ -545,20 +593,6 @@ impl SvgCircle {
             radius_top_right: 0.0,
             radius_bottom_left: 0.0,
             radius_bottom_right: 0.0,
-        }
-    }
-}
-
-impl VertexLayoutDescription for SvgVertex {
-    fn get_description() -> VertexLayout {
-        VertexLayout {
-            fields: vec![VertexAttribute {
-                name: String::from("vAttrXY").into(),
-                layout_location: None.into(),
-                attribute_type: VertexAttributeType::Float,
-                item_count: 2,
-            }]
-            .into(),
         }
     }
 }
@@ -637,11 +671,92 @@ impl TessellatedSvgNodeVecRef {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct TessellatedColoredSvgNode {
+    pub vertices: SvgColoredVertexVec,
+    pub indices: U32Vec,
+}
+
+impl Default for TessellatedColoredSvgNode {
+    fn default() -> Self {
+        Self {
+            vertices: Vec::new().into(),
+            indices: Vec::new().into(),
+        }
+    }
+}
+
+impl_vec!(
+    TessellatedColoredSvgNode,
+    TessellatedColoredSvgNodeVec,
+    TessellatedColoredSvgNodeVecDestructor
+);
+impl_vec_debug!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
+impl_vec_partialord!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
+impl_vec_clone!(
+    TessellatedColoredSvgNode,
+    TessellatedColoredSvgNodeVec,
+    TessellatedColoredSvgNodeVecDestructor
+);
+impl_vec_partialeq!(TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec);
+
+impl TessellatedColoredSvgNode {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+}
+
+impl TessellatedColoredSvgNodeVec {
+    pub fn get_ref(&self) -> TessellatedColoredSvgNodeVecRef {
+        let slice = self.as_ref();
+        TessellatedColoredSvgNodeVecRef {
+            ptr: slice.as_ptr(),
+            len: slice.len(),
+        }
+    }
+}
+
+impl fmt::Debug for TessellatedColoredSvgNodeVecRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.as_slice().fmt(f)
+    }
+}
+
+// C ABI wrapper over &[TessellatedColoredSvgNode]
+#[repr(C)]
+pub struct TessellatedColoredSvgNodeVecRef {
+    pub ptr: *const TessellatedColoredSvgNode,
+    pub len: usize,
+}
+
+impl Clone for TessellatedColoredSvgNodeVecRef {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            len: self.len,
+        }
+    }
+}
+
+impl TessellatedColoredSvgNodeVecRef {
+    pub fn as_slice<'a>(&'a self) -> &'a [TessellatedColoredSvgNode] {
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
 impl_vec!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_debug!(SvgVertex, SvgVertexVec);
 impl_vec_partialord!(SvgVertex, SvgVertexVec);
 impl_vec_clone!(SvgVertex, SvgVertexVec, SvgVertexVecDestructor);
 impl_vec_partialeq!(SvgVertex, SvgVertexVec);
+
+impl_vec!(SvgColoredVertex, SvgColoredVertexVec, SvgColoredVertexVecDestructor);
+impl_vec_debug!(SvgColoredVertex, SvgColoredVertexVec);
+impl_vec_partialord!(SvgColoredVertex, SvgColoredVertexVec);
+impl_vec_clone!(SvgColoredVertex, SvgColoredVertexVec, SvgColoredVertexVecDestructor);
+impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 
 #[derive(Debug, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -718,6 +833,82 @@ impl TessellatedGPUSvgNode {
 
         GlShader::draw(
             texture.gl_context.ptr.svg_shader,
+            texture,
+            &[(&self.vertex_index_buffer, &uniforms[..])],
+        );
+
+        true
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct TessellatedColoredGPUSvgNode {
+    pub vertex_index_buffer: VertexBuffer,
+}
+
+impl TessellatedColoredGPUSvgNode {
+    /// Uploads the tesselated SVG node to GPU memory
+    pub fn new(node: &TessellatedColoredSvgNode, gl: GlContextPtr) -> Self {
+        let svg_shader_id = gl.ptr.svg_multicolor_shader;
+        Self {
+            vertex_index_buffer: VertexBuffer::new(
+                gl,
+                svg_shader_id,
+                node.vertices.as_ref(),
+                node.indices.as_ref(),
+                IndexBufferFormat::Triangles,
+            ),
+        }
+    }
+
+    /// Draw the vertex buffer to the texture with the given color and transform
+    pub fn draw(
+        &self,
+        texture: &mut Texture,
+        target_size: PhysicalSizeU32,
+        transforms: StyleTransformVec,
+    ) -> bool {
+        use crate::gl::{GlShader, Uniform, UniformType};
+        use azul_css::PixelValue;
+
+        let transform_origin = StyleTransformOrigin {
+            x: PixelValue::px(target_size.width as f32 / 2.0),
+            y: PixelValue::px(target_size.height as f32 / 2.0),
+        };
+
+        let computed_transform = ComputedTransform3D::from_style_transform_vec(
+            transforms.as_ref(),
+            &transform_origin,
+            target_size.width as f32,
+            target_size.height as f32,
+            RotationMode::ForWebRender,
+        );
+
+        // NOTE: OpenGL draws are column-major, while ComputedTransform3D
+        // is row-major! Need to transpose the matrix!
+        let column_major = computed_transform.get_column_major();
+
+        // uniforms for the SVG shader
+        let uniforms = [
+            Uniform {
+                name: "vBboxSize".into(),
+                uniform_type: UniformType::FloatVec2([
+                    target_size.width as f32,
+                    target_size.height as f32,
+                ]),
+            },
+            Uniform {
+                name: "vTransformMatrix".into(),
+                uniform_type: UniformType::Matrix4 {
+                    transpose: false,
+                    matrix: unsafe { core::mem::transmute(column_major.m) },
+                },
+            },
+        ];
+
+        GlShader::draw(
+            texture.gl_context.ptr.svg_multicolor_shader,
             texture,
             &[(&self.vertex_index_buffer, &uniforms[..])],
         );

@@ -3021,6 +3021,23 @@ mod dll {
             pub radius_bottom_right: f32,
         }
 
+        /// Re-export of rust-allocated (stack based) `SvgColoredVertex` struct
+        #[repr(C)]
+        #[derive(Debug)]
+        #[derive(Clone)]
+        #[derive(PartialEq, PartialOrd)]
+        #[derive(Copy)]
+        #[cfg_attr(feature = "serde-support", derive(Serialize, Deserialize))]
+        pub struct AzSvgColoredVertex {
+            pub x: f32,
+            pub y: f32,
+            pub z: f32,
+            pub r: f32,
+            pub g: f32,
+            pub b: f32,
+            pub a: f32,
+        }
+
         /// Re-export of rust-allocated (stack based) `SvgVertex` struct
         #[repr(C)]
         #[derive(Debug)]
@@ -3974,6 +3991,19 @@ mod dll {
 
         /// `AzSvgVertexVecDestructorType` struct
         pub type AzSvgVertexVecDestructorType = extern "C" fn(&mut AzSvgVertexVec);
+
+        /// Re-export of rust-allocated (stack based) `SvgColoredVertexVecDestructor` struct
+        #[repr(C, u8)]
+        #[derive(Clone)]
+        #[derive(Copy)]
+        pub enum AzSvgColoredVertexVecDestructor {
+            DefaultRust,
+            NoDestructor,
+            External(AzSvgColoredVertexVecDestructorType),
+        }
+
+        /// `AzSvgColoredVertexVecDestructorType` struct
+        pub type AzSvgColoredVertexVecDestructorType = extern "C" fn(&mut AzSvgColoredVertexVec);
 
         /// Re-export of rust-allocated (stack based) `U32VecDestructor` struct
         #[repr(C, u8)]
@@ -6965,6 +6995,15 @@ mod dll {
             pub destructor: AzSvgVertexVecDestructor,
         }
 
+        /// Wrapper over a Rust-allocated `SvgColoredVertex`
+        #[repr(C)]
+        pub struct AzSvgColoredVertexVec {
+            pub(crate) ptr: *const AzSvgVertex,
+            pub len: usize,
+            pub cap: usize,
+            pub destructor: AzSvgColoredVertexVecDestructor,
+        }
+
         /// Wrapper over a Rust-allocated `Vec<u32>`
         #[repr(C)]
         pub struct AzU32Vec {
@@ -8310,6 +8349,26 @@ mod dll {
             Line(AzSvgLine),
             QuadraticCurve(AzSvgQuadraticCurve),
             CubicCurve(AzSvgCubicCurve),
+        }
+
+        /// Re-export of rust-allocated (stack based) `TessellatedColoredSvgNode` struct
+        #[repr(C)]
+        #[derive(Debug)]
+        #[derive(Clone)]
+        #[derive(PartialEq, PartialOrd)]
+        pub struct AzTessellatedColoredSvgNode {
+            pub vertices: AzSvgColoredVertexVec,
+            pub indices: AzU32Vec,
+        }
+
+        /// Rust wrapper over a `&[TessellatedColoredSvgNode]` or `&Vec<TessellatedColoredSvgNode>`
+        #[repr(C)]
+        #[derive(Debug)]
+        #[derive(Clone)]
+        #[derive(PartialEq, PartialOrd)]
+        pub struct AzTessellatedColoredSvgNodeVecRef {
+            pub(crate) ptr: *const AzTessellatedColoredSvgNode,
+            pub len: usize,
         }
 
         /// Re-export of rust-allocated (stack based) `TessellatedSvgNode` struct
@@ -9733,6 +9792,15 @@ mod dll {
             RectHole(AzSvgRect),
         }
 
+        /// Re-export of rust-allocated (stack based) `TessellatedColoredGPUSvgNode` struct
+        #[repr(C)]
+        #[derive(Debug)]
+        #[derive(Clone)]
+        #[derive(PartialEq, PartialOrd)]
+        pub struct AzTessellatedColoredGPUSvgNode {
+            pub vertex_index_buffer: AzVertexBuffer,
+        }
+
         /// Re-export of rust-allocated (stack based) `TessellatedGPUSvgNode` struct
         #[repr(C)]
         #[derive(Debug)]
@@ -10783,6 +10851,7 @@ mod dll {
         pub(crate) fn AzTexture_clear(texture: &mut AzTexture) { unsafe { transmute(azul::AzTexture_clear(transmute(texture))) } }
         pub(crate) fn AzTexture_drawClipMask(texture: &mut AzTexture, node: AzTessellatedSvgNode) -> bool { unsafe { transmute(azul::AzTexture_drawClipMask(transmute(texture), transmute(node))) } }
         pub(crate) fn AzTexture_drawTesselatedSvgGpuNode(texture: &mut AzTexture, node: *const AzTessellatedGPUSvgNode, size: AzPhysicalSizeU32, color: AzColorU, transforms: AzStyleTransformVec) -> bool { unsafe { transmute(azul::AzTexture_drawTesselatedSvgGpuNode(transmute(texture), transmute(node), transmute(size), transmute(color), transmute(transforms))) } }
+        pub(crate) fn AzTexture_drawTesselatedColoredSvgGpuNode(texture: &mut AzTexture, node: *const AzTessellatedColoredGPUSvgNode, size: AzPhysicalSizeU32, transforms: AzStyleTransformVec) -> bool { unsafe { transmute(azul::AzTexture_drawTesselatedColoredSvgGpuNode(transmute(texture), transmute(node), transmute(size), transmute(transforms))) } }
         pub(crate) fn AzTexture_applyFxaa(texture: &mut AzTexture) -> bool { unsafe { transmute(azul::AzTexture_applyFxaa(transmute(texture))) } }
         pub(crate) fn AzTexture_delete(object: &mut AzTexture) { unsafe { transmute(azul::AzTexture_delete(transmute(object))) } }
         pub(crate) fn AzTexture_deepCopy(object: &AzTexture) -> AzTexture { unsafe { transmute(azul::AzTexture_deepCopy(transmute(object))) } }
@@ -11162,6 +11231,9 @@ mod dll {
         pub(crate) fn AzSvgRect_expand(svgrect: &AzSvgRect, padding_top: f32, padding_bottom: f32, padding_left: f32, padding_right: f32) -> AzSvgRect { unsafe { transmute(azul::AzSvgRect_expand(transmute(svgrect), transmute(padding_top), transmute(padding_bottom), transmute(padding_left), transmute(padding_right))) } }
         pub(crate) fn AzSvgRect_tessellateFill(svgrect: &AzSvgRect, fill_style: AzSvgFillStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgRect_tessellateFill(transmute(svgrect), transmute(fill_style))) } }
         pub(crate) fn AzSvgRect_tessellateStroke(svgrect: &AzSvgRect, stroke_style: AzSvgStrokeStyle) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzSvgRect_tessellateStroke(transmute(svgrect), transmute(stroke_style))) } }
+        pub(crate) fn AzTessellatedColoredSvgNode_empty() -> AzTessellatedColoredSvgNode { unsafe { transmute(azul::AzTessellatedColoredSvgNode_empty()) } }
+        pub(crate) fn AzTessellatedColoredSvgNode_fromNodes(nodes: AzTessellatedColoredSvgNodeVecRef) -> AzTessellatedColoredSvgNode { unsafe { transmute(azul::AzTessellatedColoredSvgNode_fromNodes(transmute(nodes))) } }
+        pub(crate) fn AzTessellatedColoredGPUSvgNode_new(tessellated_node: *const AzTessellatedColoredSvgNode, gl: AzGl) -> AzTessellatedColoredGPUSvgNode { unsafe { transmute(azul::AzTessellatedColoredGPUSvgNode_new(transmute(tessellated_node), transmute(gl))) } }
         pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode { unsafe { transmute(azul::AzTessellatedSvgNode_empty()) } }
         pub(crate) fn AzTessellatedSvgNode_fromNodes(nodes: AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode { unsafe { transmute(azul::AzTessellatedSvgNode_fromNodes(transmute(nodes))) } }
         pub(crate) fn AzTessellatedGPUSvgNode_new(tessellated_node: *const AzTessellatedSvgNode, gl: AzGl) -> AzTessellatedGPUSvgNode { unsafe { transmute(azul::AzTessellatedGPUSvgNode_new(transmute(tessellated_node), transmute(gl))) } }
@@ -11257,6 +11329,7 @@ mod dll {
         pub(crate) fn AzVertexAttributeVec_delete(object: &mut AzVertexAttributeVec) { unsafe { transmute(azul::AzVertexAttributeVec_delete(transmute(object))) } }
         pub(crate) fn AzSvgPathElementVec_delete(object: &mut AzSvgPathElementVec) { unsafe { transmute(azul::AzSvgPathElementVec_delete(transmute(object))) } }
         pub(crate) fn AzSvgVertexVec_delete(object: &mut AzSvgVertexVec) { unsafe { transmute(azul::AzSvgVertexVec_delete(transmute(object))) } }
+        pub(crate) fn AzSvgColoredVertexVec_delete(object: &mut AzSvgColoredVertexVec) { unsafe { transmute(azul::AzSvgColoredVertexVec_delete(transmute(object))) } }
         pub(crate) fn AzU32Vec_delete(object: &mut AzU32Vec) { unsafe { transmute(azul::AzU32Vec_delete(transmute(object))) } }
         pub(crate) fn AzXWindowTypeVec_delete(object: &mut AzXWindowTypeVec) { unsafe { transmute(azul::AzXWindowTypeVec_delete(transmute(object))) } }
         pub(crate) fn AzVirtualKeyCodeVec_delete(object: &mut AzVirtualKeyCodeVec) { unsafe { transmute(azul::AzVirtualKeyCodeVec_delete(transmute(object))) } }
@@ -11623,6 +11696,7 @@ mod dll {
             pub(crate) fn AzTexture_clear(_:  &mut AzTexture);
             pub(crate) fn AzTexture_drawClipMask(_:  &mut AzTexture, _:  AzTessellatedSvgNode) -> bool;
             pub(crate) fn AzTexture_drawTesselatedSvgGpuNode(_:  &mut AzTexture, _:  *const AzTessellatedGPUSvgNode, _:  AzPhysicalSizeU32, _:  AzColorU, _:  AzStyleTransformVec) -> bool;
+            pub(crate) fn AzTexture_drawTesselatedColoredSvgGpuNode(_:  &mut AzTexture, _:  *const AzTessellatedColoredGPUSvgNode, _:  AzPhysicalSizeU32, _:  AzStyleTransformVec) -> bool;
             pub(crate) fn AzTexture_applyFxaa(_:  &mut AzTexture) -> bool;
             pub(crate) fn AzTexture_delete(_:  &mut AzTexture);
             pub(crate) fn AzTexture_deepCopy(_:  &AzTexture) -> AzTexture;
@@ -12002,6 +12076,9 @@ mod dll {
             pub(crate) fn AzSvgRect_expand(_:  &AzSvgRect, _:  f32, _:  f32, _:  f32, _:  f32) -> AzSvgRect;
             pub(crate) fn AzSvgRect_tessellateFill(_:  &AzSvgRect, _:  AzSvgFillStyle) -> AzTessellatedSvgNode;
             pub(crate) fn AzSvgRect_tessellateStroke(_:  &AzSvgRect, _:  AzSvgStrokeStyle) -> AzTessellatedSvgNode;
+            pub(crate) fn AzTessellatedColoredSvgNode_empty() -> AzTessellatedColoredSvgNode;
+            pub(crate) fn AzTessellatedColoredSvgNode_fromNodes(_:  AzTessellatedColoredSvgNodeVecRef) -> AzTessellatedColoredSvgNode;
+            pub(crate) fn AzTessellatedColoredGPUSvgNode_new(_:  *const AzTessellatedColoredSvgNode, _:  AzGl) -> AzTessellatedColoredGPUSvgNode;
             pub(crate) fn AzTessellatedSvgNode_empty() -> AzTessellatedSvgNode;
             pub(crate) fn AzTessellatedSvgNode_fromNodes(_:  AzTessellatedSvgNodeVecRef) -> AzTessellatedSvgNode;
             pub(crate) fn AzTessellatedGPUSvgNode_new(_:  *const AzTessellatedSvgNode, _:  AzGl) -> AzTessellatedGPUSvgNode;
@@ -12097,6 +12174,7 @@ mod dll {
             pub(crate) fn AzVertexAttributeVec_delete(_:  &mut AzVertexAttributeVec);
             pub(crate) fn AzSvgPathElementVec_delete(_:  &mut AzSvgPathElementVec);
             pub(crate) fn AzSvgVertexVec_delete(_:  &mut AzSvgVertexVec);
+            pub(crate) fn AzSvgColoredVertexVec_delete(_:  &mut AzSvgColoredVertexVec);
             pub(crate) fn AzU32Vec_delete(_:  &mut AzU32Vec);
             pub(crate) fn AzXWindowTypeVec_delete(_:  &mut AzXWindowTypeVec);
             pub(crate) fn AzVirtualKeyCodeVec_delete(_:  &mut AzVirtualKeyCodeVec);
@@ -15674,7 +15752,7 @@ pub mod gl {
     use crate::window::PhysicalSizeU32;
     use crate::css::ColorU;
     use crate::image::RawImageFormat;
-    use crate::svg::{TessellatedGPUSvgNode, TessellatedSvgNode};
+    use crate::svg::{TessellatedColoredGPUSvgNode, TessellatedGPUSvgNode, TessellatedSvgNode};
     use crate::vec::{GLuintVec, StringVec, StyleTransformVec};
     use crate::option::OptionU8VecRef;
     /// `Texture` struct
@@ -15694,6 +15772,8 @@ pub mod gl {
         pub fn draw_clip_mask<_1: Into<TessellatedSvgNode>>(&mut self, node: _1)  -> bool { unsafe { crate::dll::AzTexture_drawClipMask(self, node.into()) } }
         /// Draws a `&TessellatedGPUSvgNode` with the given color to the texture
         pub fn draw_tesselated_svg_gpu_node<_1: Into<*const AzTessellatedGPUSvgNode>, _2: Into<PhysicalSizeU32>, _3: Into<ColorU>, _4: Into<StyleTransformVec>>(&mut self, node: _1, size: _2, color: _3, transforms: _4)  -> bool { unsafe { crate::dll::AzTexture_drawTesselatedSvgGpuNode(self, node.into(), size.into(), color.into(), transforms.into()) } }
+        /// Draws a `&TessellatedColoredGPUSvgNode` with the given color to the texture
+        pub fn draw_tesselated_colored_svg_gpu_node<_1: Into<*const AzTessellatedColoredGPUSvgNode>, _2: Into<PhysicalSizeU32>, _3: Into<StyleTransformVec>>(&mut self, node: _1, size: _2, transforms: _3)  -> bool { unsafe { crate::dll::AzTexture_drawTesselatedColoredSvgGpuNode(self, node.into(), size.into(), transforms.into()) } }
         /// Applies an FXAA filter to the texture
         pub fn apply_fxaa(&mut self)  -> bool { unsafe { crate::dll::AzTexture_applyFxaa(self) } }
     }
@@ -18157,6 +18237,32 @@ pub mod svg {
         pub fn tessellate_stroke<_1: Into<SvgStrokeStyle>>(&self, stroke_style: _1)  -> crate::svg::TessellatedSvgNode { unsafe { crate::dll::AzSvgRect_tessellateStroke(self, stroke_style.into()) } }
     }
 
+    /// `SvgColoredVertex` struct
+    
+    #[doc(inline)] pub use crate::dll::AzSvgColoredVertex as SvgColoredVertex;
+    /// `TessellatedColoredSvgNode` struct
+    
+    #[doc(inline)] pub use crate::dll::AzTessellatedColoredSvgNode as TessellatedColoredSvgNode;
+    impl TessellatedColoredSvgNode {
+
+        /// Returns an empty buffer vertices / indices
+        pub fn empty() -> Self { unsafe { crate::dll::AzTessellatedColoredSvgNode_empty() } }
+        /// Creates a new TessellatedColoredSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
+        pub fn from_nodes<_1: Into<TessellatedColoredSvgNodeVecRef>>(nodes: _1) -> Self { unsafe { crate::dll::AzTessellatedColoredSvgNode_fromNodes(nodes.into()) } }
+    }
+
+    /// Rust wrapper over a `&[TessellatedColoredSvgNode]` or `&Vec<TessellatedColoredSvgNode>`
+    
+    #[doc(inline)] pub use crate::dll::AzTessellatedColoredSvgNodeVecRef as TessellatedColoredSvgNodeVecRef;
+    /// `TessellatedColoredGPUSvgNode` struct
+    
+    #[doc(inline)] pub use crate::dll::AzTessellatedColoredGPUSvgNode as TessellatedColoredGPUSvgNode;
+    impl TessellatedColoredGPUSvgNode {
+
+        /// Creates a new `TessellatedColoredGPUSvgNode` instance.
+        pub fn new<_1: Into<*const AzTessellatedColoredSvgNode>, _2: Into<Gl>>(tessellated_node: _1, gl: _2) -> Self { unsafe { crate::dll::AzTessellatedColoredGPUSvgNode_new(tessellated_node.into(), gl.into()) } }
+    }
+
     /// `SvgVertex` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
@@ -19080,6 +19186,10 @@ pub mod vec {
     impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
     impl_vec!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor, az_svg_simple_node_vec_destructor, AzSvgSimpleNodeVec_delete);
     impl_vec_clone!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor);
+    impl_vec!(AzSvgColoredVertex, AzSvgColoredVertexVec, AzSvgColoredVertexVecDestructor, az_svg_colored_vertex_vec_destructor, AzSvgColoredVertexVec_delete);
+    impl_vec_clone!(AzSvgColoredVertex, AzSvgColoredVertexVec, AzSvgColoredVertexVecDestructor);
+    impl_vec!(AzTessellatedColoredSvgNode,  AzTessellatedColoredSvgNodeVec,  AzTessellatedColoredSvgNodeVecDestructor, az_tesselated_colored_svg_node_vec_destructor, AzTessellatedColoredSvgNodeVec_delete);
+    impl_vec_clone!(AzTessellatedColoredSvgNode,  AzTessellatedColoredSvgNodeVec,  AzTessellatedColoredSvgNodeVecDestructor);
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {
@@ -19229,6 +19339,9 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `SvgVertex`
     
     #[doc(inline)] pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
+    /// Wrapper over a Rust-allocated `SvgColoredVertex`
+    
+    #[doc(inline)] pub use crate::dll::AzSvgColoredVertexVec as SvgColoredVertexVec;
     /// Wrapper over a Rust-allocated `Vec<u32>`
     
     #[doc(inline)] pub use crate::dll::AzU32Vec as U32Vec;
@@ -19549,6 +19662,12 @@ pub mod vec {
     /// `SvgVertexVecDestructorType` struct
     
     #[doc(inline)] pub use crate::dll::AzSvgVertexVecDestructorType as SvgVertexVecDestructorType;
+    /// `SvgColoredVertexVecDestructor` struct
+    
+    #[doc(inline)] pub use crate::dll::AzSvgColoredVertexVecDestructor as SvgColoredVertexVecDestructor;
+    /// `SvgColoredVertexVecDestructorType` struct
+    
+    #[doc(inline)] pub use crate::dll::AzSvgColoredVertexVecDestructorType as SvgColoredVertexVecDestructorType;
     /// `U32VecDestructor` struct
     
     #[doc(inline)] pub use crate::dll::AzU32VecDestructor as U32VecDestructor;

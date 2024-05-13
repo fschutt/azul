@@ -34,7 +34,7 @@ struct OpenGlAppState {
 
 extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom {
     Dom::body()
-        .with_inline_style("background: linear-gradient(blue, black); padding: 10px;".into())
+        .with_inline_style("background: linear-gradient(blue, black); padding: 10px;")
         .with_child(
             Dom::image(ImageRef::callback(data.clone(), render_my_texture))
             .with_inline_style("
@@ -42,14 +42,14 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
                 border-radius: 50px;
                 box-sizing: border-box;
                 box-shadow: 0px 0px 10px black;
-            ".into())
+            ")
             .with_child(
-                Button::new("Button composited over OpenGL content!".into())
+                Button::new("Button composited over OpenGL content!")
                 .dom()
                 .with_inline_style("
                     margin-top: 50px;
                     margin-left: 50px;
-                ".into()),
+                "),
             )
         )
         .style(Css::empty())
@@ -88,31 +88,31 @@ fn render_my_texture_inner(
     let mut texture = Texture::allocate_rgba8(
         gl_context.clone(),
         texture_size,
-        ColorU::from_str("#ffffffef".into()),
+        ColorU::from_str("#ffffffef"),
     );
 
     texture.clear();
 
     texture.draw_tesselated_svg_gpu_node(
-        fill_vertex_buffer,
+        fill_vertex_buffer as *const _,
         texture_size,
-        ColorU::from_str("#cc00cc".into()),
+        ColorU::from_str("#cc00cc"),
         vec![
             StyleTransform::Translate(StyleTransformTranslate2D {
                 x: PixelValue::const_percent(50),
                 y: PixelValue::const_percent(50),
             }),
             StyleTransform::Rotate(AngleValue::deg(rotation_deg)),
-        ].into(),
+        ],
     );
 
     texture.draw_tesselated_svg_gpu_node(
-        stroke_vertex_buffer,
+        stroke_vertex_buffer as *const _,
         texture_size,
-        ColorU::from_str("#158DE3".into()),
+        ColorU::from_str("#158DE3"),
         vec![
             StyleTransform::Rotate(AngleValue::deg(rotation_deg))
-        ].into(),
+        ],
     );
 
     // TODO: segfault when inserting the following line:
@@ -137,12 +137,12 @@ fn startup_window_inner(data: &mut RefAny, info: &mut CallbackInfo) -> Option<()
         let gl_context = info.get_gl_context().into_option()?;
 
         data.fill_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-            &fill_vertex_buffer,
+            &fill_vertex_buffer as *const _,
             gl_context.clone(),
         ));
 
         data.stroke_vertex_buffer_id = Some(TessellatedGPUSvgNode::new(
-            &stroke_vertex_buffer,
+            &stroke_vertex_buffer as *const _,
             gl_context.clone(),
         ));
     }
@@ -157,7 +157,7 @@ fn parse_multipolygons(data: &str) -> Vec<SvgMultiPolygon> {
     let parsed: Vec<Dataset> = match serde_json::from_str(data) {
         Ok(s) => s,
         Err(e) => {
-            MsgBox::error(format!("{}", e).into());
+            MsgBox::error(format!("{}", e));
             return Vec::new();
         }
     };

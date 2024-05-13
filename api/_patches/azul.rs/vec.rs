@@ -382,6 +382,10 @@
     impl_vec_clone!(AzMenuItem,  AzMenuItemVec,  AzMenuItemVecDestructor);
     impl_vec!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor, az_svg_simple_node_vec_destructor, AzSvgSimpleNodeVec_delete);
     impl_vec_clone!(AzSvgSimpleNode,  AzSvgSimpleNodeVec,  AzSvgSimpleNodeVecDestructor);
+    impl_vec!(AzSvgColoredVertex, AzSvgColoredVertexVec, AzSvgColoredVertexVecDestructor, az_svg_colored_vertex_vec_destructor, AzSvgColoredVertexVec_delete);
+    impl_vec_clone!(AzSvgColoredVertex, AzSvgColoredVertexVec, AzSvgColoredVertexVecDestructor);
+    impl_vec!(AzTessellatedColoredSvgNode,  AzTessellatedColoredSvgNodeVec,  AzTessellatedColoredSvgNodeVecDestructor, az_tesselated_colored_svg_node_vec_destructor, AzTessellatedColoredSvgNodeVec_delete);
+    impl_vec_clone!(AzTessellatedColoredSvgNode,  AzTessellatedColoredSvgNodeVec,  AzTessellatedColoredSvgNodeVecDestructor);
 
     impl From<vec::Vec<string::String>> for crate::vec::StringVec {
         fn from(v: vec::Vec<string::String>) -> crate::vec::StringVec {

@@ -7491,6 +7491,17 @@
                             "returns": {"type": "bool"},
                             "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, color, transforms)"
                         },
+                        "draw_tesselated_colored_svg_gpu_node": {
+                            "doc": "Draws a `&TessellatedColoredGPUSvgNode` with the given color to the texture",
+                            "fn_args": [
+                                {"self": "refmut"},
+                                {"node": "*const TessellatedColoredGPUSvgNode"},
+                                {"size": "PhysicalSizeU32"},
+                                {"transforms": "StyleTransformVec"}
+                            ],
+                            "returns": {"type": "bool"},
+                            "fn_body": "let node = unsafe { &*node }; node.draw(texture, size, color, transforms)"
+                        },
                         "apply_fxaa": {
                             "doc": "Applies an FXAA filter to the texture",
                             "fn_args": [
@@ -12688,6 +12699,64 @@
                         }
                     }
                 },
+                "SvgColoredVertex": {
+                    "external": "azul_impl::svg::SvgColoredVertex",
+                    "derive": ["Copy", "Serialize", "Deserialize"],
+                    "struct_fields": [
+                        {"x": {"type": "f32"}},
+                        {"y": {"type": "f32"}},
+                        {"z": {"type": "f32"}},
+                        {"r": {"type": "f32"}},
+                        {"g": {"type": "f32"}},
+                        {"b": {"type": "f32"}},
+                        {"a": {"type": "f32"}}
+                    ]
+                },
+                "TessellatedColoredSvgNode": {
+                    "external": "azul_impl::svg::TessellatedColoredSvgNode",
+                    "struct_fields": [
+                        {"vertices": {"type": "SvgColoredVertexVec"}},
+                        {"indices": {"type": "U32Vec"}}
+                    ],
+                    "constructors": {
+                        "empty": {
+                            "doc": "Returns an empty buffer vertices / indices",
+                            "fn_args": [],
+                            "fn_body": "AzTessellatedColoredSvgNode::empty()"
+                        },
+                        "from_nodes": {
+                            "doc": "Creates a new TessellatedColoredSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).",
+                            "fn_args": [
+                                {"nodes": "TessellatedColoredSvgNodeVecRef"}
+                            ],
+                            "fn_body": "azul_impl::svg::join_tessellated_nodes(nodes.as_slice())"
+                        }
+                    }
+                },
+                "TessellatedColoredSvgNodeVecRef": {
+                    "doc": "Rust wrapper over a `&[TessellatedColoredSvgNode]` or `&Vec<TessellatedColoredSvgNode>`",
+                    "external": "azul_impl::svg::TessellatedColoredSvgNodeVecRef",
+                    "struct_fields": [
+                        {"ptr": {"type": "*const TessellatedColoredSvgNode"}},
+                        {"len": {"type": "usize"}}
+                    ]
+                },
+                "TessellatedColoredGPUSvgNode": {
+                    "external": "azul_impl::svg::TessellatedColoredGPUSvgNode",
+                    "derive": ["Debug"],
+                    "struct_fields": [
+                        {"vertex_index_buffer": {"type": "VertexBuffer"}}
+                    ],
+                    "constructors": {
+                        "new": {
+                            "fn_args": [
+                                {"tessellated_node": "*const TessellatedColoredSvgNode"},
+                                {"gl": "Gl"}
+                            ],
+                            "fn_body": "AzTessellatedColoredGPUSvgNode::new(unsafe { &*tessellated_node }, gl)"
+                        }
+                    }
+                },
                 "SvgVertex": {
                     "external": "azul_impl::svg::SvgVertex",
                     "derive": ["Copy", "Serialize", "Deserialize"],
@@ -14196,6 +14265,17 @@
                         { "destructor": { "type": "SvgVertexVecDestructor" } }
                     ]
                 },
+                "SvgColoredVertexVec": {
+                    "doc": "Wrapper over a Rust-allocated `SvgColoredVertex`",
+                    "custom_destructor": true,
+                    "external": "azul_impl::svg::SvgColoredVertexVec",
+                    "struct_fields": [
+                        { "ptr": { "type": "*const SvgVertex" } },
+                        { "len": { "type": "usize" } },
+                        { "cap": { "type": "usize" } },
+                        { "destructor": { "type": "SvgColoredVertexVecDestructor" } }
+                    ]
+                },
                 "U32Vec": {
                     "doc": "Wrapper over a Rust-allocated `Vec<u32>`",
                     "custom_destructor": true,
@@ -15124,6 +15204,22 @@
                     "callback_typedef": {
                         "fn_args": [
                             {"type": "SvgVertexVec", "ref": "refmut"}
+                        ]
+                    }
+                },
+                "SvgColoredVertexVecDestructor": {
+                    "external": "azul_impl::svg::SvgColoredVertexVecDestructor",
+                    "derive": ["Copy"],
+                    "enum_fields": [
+                        {"DefaultRust": {}},
+                        {"NoDestructor": {}},
+                        {"External": {"type": "SvgColoredVertexVecDestructorType"}}
+                    ]
+                },
+                "SvgColoredVertexVecDestructorType": {
+                    "callback_typedef": {
+                        "fn_args": [
+                            {"type": "SvgColoredVertexVec", "ref": "refmut"}
                         ]
                     }
                 },

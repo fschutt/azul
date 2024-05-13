@@ -246,6 +246,9 @@ namespace dll {
     struct SvgVertexVec;
     using SvgVertexVecDestructorType = void(*)(SvgVertexVec* restrict);
     
+    struct SvgColoredVertexVec;
+    using SvgColoredVertexVecDestructorType = void(*)(SvgColoredVertexVec* restrict);
+    
     struct U32Vec;
     using U32VecDestructorType = void(*)(U32Vec* restrict);
     
@@ -1956,6 +1959,18 @@ namespace dll {
         SvgRect() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct SvgColoredVertex {
+        float x;
+        float y;
+        float z;
+        float r;
+        float g;
+        float b;
+        float a;
+        SvgColoredVertex& operator=(const SvgColoredVertex&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        SvgColoredVertex() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct SvgVertex {
         float x;
         float y;
@@ -2881,6 +2896,22 @@ namespace dll {
         SvgVertexVecDestructorVariant_DefaultRust DefaultRust;
         SvgVertexVecDestructorVariant_NoDestructor NoDestructor;
         SvgVertexVecDestructorVariant_External External;
+    };
+    
+    
+    enum class SvgColoredVertexVecDestructorTag {
+       DefaultRust,
+       NoDestructor,
+       External,
+    };
+    
+    struct SvgColoredVertexVecDestructorVariant_DefaultRust { SvgColoredVertexVecDestructorTag tag; };
+    struct SvgColoredVertexVecDestructorVariant_NoDestructor { SvgColoredVertexVecDestructorTag tag; };
+    struct SvgColoredVertexVecDestructorVariant_External { SvgColoredVertexVecDestructorTag tag; SvgColoredVertexVecDestructorType payload; };
+    union SvgColoredVertexVecDestructor {
+        SvgColoredVertexVecDestructorVariant_DefaultRust DefaultRust;
+        SvgColoredVertexVecDestructorVariant_NoDestructor NoDestructor;
+        SvgColoredVertexVecDestructorVariant_External External;
     };
     
     
@@ -6140,6 +6171,16 @@ namespace dll {
         SvgVertexVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
     };
     
+    struct SvgColoredVertexVec {
+        SvgVertex* ptr;
+        size_t len;
+        size_t cap;
+        SvgColoredVertexVecDestructor destructor;
+        SvgColoredVertexVec& operator=(const SvgColoredVertexVec&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        SvgColoredVertexVec(const SvgColoredVertexVec&) = delete; /* disable copy constructor, use explicit .clone() */
+        SvgColoredVertexVec() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct U32Vec {
         uint32_t* ptr;
         size_t len;
@@ -7712,6 +7753,22 @@ namespace dll {
         SvgPathElementVariant_CubicCurve CubicCurve;
     };
     
+    
+    struct TessellatedColoredSvgNode {
+        SvgColoredVertexVec vertices;
+        U32Vec indices;
+        TessellatedColoredSvgNode& operator=(const TessellatedColoredSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedColoredSvgNode(const TessellatedColoredSvgNode&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedColoredSvgNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
+    struct TessellatedColoredSvgNodeVecRef {
+        TessellatedColoredSvgNode* ptr;
+        size_t len;
+        TessellatedColoredSvgNodeVecRef& operator=(const TessellatedColoredSvgNodeVecRef&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedColoredSvgNodeVecRef(const TessellatedColoredSvgNodeVecRef&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedColoredSvgNodeVecRef() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
     
     struct TessellatedSvgNode {
         SvgVertexVec vertices;
@@ -9421,6 +9478,13 @@ namespace dll {
     };
     
     
+    struct TessellatedColoredGPUSvgNode {
+        VertexBuffer vertex_index_buffer;
+        TessellatedColoredGPUSvgNode& operator=(const TessellatedColoredGPUSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
+        TessellatedColoredGPUSvgNode(const TessellatedColoredGPUSvgNode&) = delete; /* disable copy constructor, use explicit .clone() */
+        TessellatedColoredGPUSvgNode() = delete; /* disable default constructor, use C++20 designated initializer instead */
+    };
+    
     struct TessellatedGPUSvgNode {
         VertexBuffer vertex_index_buffer;
         TessellatedGPUSvgNode& operator=(const TessellatedGPUSvgNode&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
@@ -10657,6 +10721,7 @@ namespace dll {
         void Texture_clear(Texture* restrict texture);
         bool  Texture_drawClipMask(Texture* restrict texture, AzTessellatedSvgNode  node);
         bool  Texture_drawTesselatedSvgGpuNode(Texture* restrict texture, AzTessellatedGPUSvgNode * node, AzPhysicalSizeU32  size, AzColorU  color, AzStyleTransformVec  transforms);
+        bool  Texture_drawTesselatedColoredSvgGpuNode(Texture* restrict texture, AzTessellatedColoredGPUSvgNode * node, AzPhysicalSizeU32  size, AzStyleTransformVec  transforms);
         bool  Texture_applyFxaa(Texture* restrict texture);
         void Texture_delete(Texture* restrict instance);
         Texture Texture_deepCopy(Texture* const instance);
@@ -11051,6 +11116,12 @@ namespace dll {
         SvgRect SvgRect_expand(const SvgRect* svgrect, float padding_top, float padding_bottom, float padding_left, float padding_right);
         TessellatedSvgNode SvgRect_tessellateFill(const SvgRect* svgrect, AzSvgFillStyle  fill_style);
         TessellatedSvgNode SvgRect_tessellateStroke(const SvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
+        TessellatedColoredSvgNode TessellatedColoredSvgNode_empty();
+        TessellatedColoredSvgNode TessellatedColoredSvgNode_fromNodes(AzTessellatedColoredSvgNodeVecRef  nodes);
+        void TessellatedColoredSvgNode_delete(TessellatedColoredSvgNode* restrict instance);
+        void TessellatedColoredSvgNodeVecRef_delete(TessellatedColoredSvgNodeVecRef* restrict instance);
+        TessellatedColoredGPUSvgNode TessellatedColoredGPUSvgNode_new(AzTessellatedColoredSvgNode * tessellated_node, AzGl  gl);
+        void TessellatedColoredGPUSvgNode_delete(TessellatedColoredGPUSvgNode* restrict instance);
         TessellatedSvgNode TessellatedSvgNode_empty();
         TessellatedSvgNode TessellatedSvgNode_fromNodes(AzTessellatedSvgNodeVecRef  nodes);
         void TessellatedSvgNode_delete(TessellatedSvgNode* restrict instance);
@@ -11161,6 +11232,7 @@ namespace dll {
         void VertexAttributeVec_delete(VertexAttributeVec* restrict instance);
         void SvgPathElementVec_delete(SvgPathElementVec* restrict instance);
         void SvgVertexVec_delete(SvgVertexVec* restrict instance);
+        void SvgColoredVertexVec_delete(SvgColoredVertexVec* restrict instance);
         void U32Vec_delete(U32Vec* restrict instance);
         void XWindowTypeVec_delete(XWindowTypeVec* restrict instance);
         void VirtualKeyCodeVec_delete(VirtualKeyCodeVec* restrict instance);

@@ -350,6 +350,10 @@ struct AzSvgVertexVec;
 typedef struct AzSvgVertexVec AzSvgVertexVec;
 typedef void (*AzSvgVertexVecDestructorType)(AzSvgVertexVec* restrict A);
 
+struct AzSvgColoredVertexVec;
+typedef struct AzSvgColoredVertexVec AzSvgColoredVertexVec;
+typedef void (*AzSvgColoredVertexVecDestructorType)(AzSvgColoredVertexVec* restrict A);
+
 struct AzU32Vec;
 typedef struct AzU32Vec AzU32Vec;
 typedef void (*AzU32VecDestructorType)(AzU32Vec* restrict A);
@@ -2003,6 +2007,17 @@ struct AzSvgRect {
 };
 typedef struct AzSvgRect AzSvgRect;
 
+struct AzSvgColoredVertex {
+    float x;
+    float y;
+    float z;
+    float r;
+    float g;
+    float b;
+    float a;
+};
+typedef struct AzSvgColoredVertex AzSvgColoredVertex;
+
 struct AzSvgVertex {
     float x;
     float y;
@@ -3061,6 +3076,26 @@ union AzSvgVertexVecDestructor {
     AzSvgVertexVecDestructorVariant_External External;
 };
 typedef union AzSvgVertexVecDestructor AzSvgVertexVecDestructor;
+
+enum AzSvgColoredVertexVecDestructorTag {
+   AzSvgColoredVertexVecDestructorTag_DefaultRust,
+   AzSvgColoredVertexVecDestructorTag_NoDestructor,
+   AzSvgColoredVertexVecDestructorTag_External,
+};
+typedef enum AzSvgColoredVertexVecDestructorTag AzSvgColoredVertexVecDestructorTag;
+
+struct AzSvgColoredVertexVecDestructorVariant_DefaultRust { AzSvgColoredVertexVecDestructorTag tag; };
+typedef struct AzSvgColoredVertexVecDestructorVariant_DefaultRust AzSvgColoredVertexVecDestructorVariant_DefaultRust;
+struct AzSvgColoredVertexVecDestructorVariant_NoDestructor { AzSvgColoredVertexVecDestructorTag tag; };
+typedef struct AzSvgColoredVertexVecDestructorVariant_NoDestructor AzSvgColoredVertexVecDestructorVariant_NoDestructor;
+struct AzSvgColoredVertexVecDestructorVariant_External { AzSvgColoredVertexVecDestructorTag tag; AzSvgColoredVertexVecDestructorType payload; };
+typedef struct AzSvgColoredVertexVecDestructorVariant_External AzSvgColoredVertexVecDestructorVariant_External;
+union AzSvgColoredVertexVecDestructor {
+    AzSvgColoredVertexVecDestructorVariant_DefaultRust DefaultRust;
+    AzSvgColoredVertexVecDestructorVariant_NoDestructor NoDestructor;
+    AzSvgColoredVertexVecDestructorVariant_External External;
+};
+typedef union AzSvgColoredVertexVecDestructor AzSvgColoredVertexVecDestructor;
 
 enum AzU32VecDestructorTag {
    AzU32VecDestructorTag_DefaultRust,
@@ -6698,6 +6733,14 @@ struct AzSvgVertexVec {
 };
 typedef struct AzSvgVertexVec AzSvgVertexVec;
 
+struct AzSvgColoredVertexVec {
+    AzSvgVertex* ptr;
+    size_t len;
+    size_t cap;
+    AzSvgColoredVertexVecDestructor destructor;
+};
+typedef struct AzSvgColoredVertexVec AzSvgColoredVertexVec;
+
 struct AzU32Vec {
     uint32_t* ptr;
     size_t len;
@@ -8447,6 +8490,18 @@ union AzSvgPathElement {
     AzSvgPathElementVariant_CubicCurve CubicCurve;
 };
 typedef union AzSvgPathElement AzSvgPathElement;
+
+struct AzTessellatedColoredSvgNode {
+    AzSvgColoredVertexVec vertices;
+    AzU32Vec indices;
+};
+typedef struct AzTessellatedColoredSvgNode AzTessellatedColoredSvgNode;
+
+struct AzTessellatedColoredSvgNodeVecRef {
+    AzTessellatedColoredSvgNode* ptr;
+    size_t len;
+};
+typedef struct AzTessellatedColoredSvgNodeVecRef AzTessellatedColoredSvgNodeVecRef;
 
 struct AzTessellatedSvgNode {
     AzSvgVertexVec vertices;
@@ -10253,6 +10308,11 @@ union AzSvgSimpleNode {
 };
 typedef union AzSvgSimpleNode AzSvgSimpleNode;
 
+struct AzTessellatedColoredGPUSvgNode {
+    AzVertexBuffer vertex_index_buffer;
+};
+typedef struct AzTessellatedColoredGPUSvgNode AzTessellatedColoredGPUSvgNode;
+
 struct AzTessellatedGPUSvgNode {
     AzVertexBuffer vertex_index_buffer;
 };
@@ -11153,6 +11213,9 @@ typedef struct AzCss AzCss;
 #define AzSvgVertexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgVertexVecDestructorTag_DefaultRust } }
 #define AzSvgVertexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor } }
 #define AzSvgVertexVecDestructor_External(v) { .External = { .tag = AzSvgVertexVecDestructorTag_External, .payload = v } }
+#define AzSvgColoredVertexVecDestructor_DefaultRust { .DefaultRust = { .tag = AzSvgColoredVertexVecDestructorTag_DefaultRust } }
+#define AzSvgColoredVertexVecDestructor_NoDestructor { .NoDestructor = { .tag = AzSvgColoredVertexVecDestructorTag_NoDestructor } }
+#define AzSvgColoredVertexVecDestructor_External(v) { .External = { .tag = AzSvgColoredVertexVecDestructorTag_External, .payload = v } }
 #define AzU32VecDestructor_DefaultRust { .DefaultRust = { .tag = AzU32VecDestructorTag_DefaultRust } }
 #define AzU32VecDestructor_NoDestructor { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor } }
 #define AzU32VecDestructor_External(v) { .External = { .tag = AzU32VecDestructorTag_External, .payload = v } }
@@ -12238,6 +12301,10 @@ AzSvgVertex AzSvgVertexVecArray[] = {};
 #define AzSvgVertexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgVertex), .cap = sizeof(v) / sizeof(AzSvgVertex), .destructor = { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor, }, }, }
 #define AzSvgVertexVec_empty { .ptr = &AzSvgVertexVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgVertexVecDestructorTag_NoDestructor, }, }, }
 
+AzSvgVertex AzSvgColoredVertexVecArray[] = {};
+#define AzSvgColoredVertexVec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(AzSvgColoredVertex), .cap = sizeof(v) / sizeof(AzSvgColoredVertex), .destructor = { .NoDestructor = { .tag = AzSvgColoredVertexVecDestructorTag_NoDestructor, }, }, }
+#define AzSvgColoredVertexVec_empty { .ptr = &AzSvgColoredVertexVecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzSvgColoredVertexVecDestructorTag_NoDestructor, }, }, }
+
 uint32_t AzU32VecArray[] = {};
 #define AzU32Vec_fromConstArray(v) { .ptr = &v, .len = sizeof(v) / sizeof(uint32_t), .cap = sizeof(v) / sizeof(uint32_t), .destructor = { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor, }, }, }
 #define AzU32Vec_empty { .ptr = &AzU32VecArray, .len = 0, .cap = 0, .destructor = { .NoDestructor = { .tag = AzU32VecDestructorTag_NoDestructor, }, }, }
@@ -12796,6 +12863,7 @@ extern DLLIMPORT AzTexture AzTexture_allocateClipMask(AzGl  gl, AzPhysicalSizeU3
 extern DLLIMPORT void AzTexture_clear(AzTexture* restrict texture);
 extern DLLIMPORT bool  AzTexture_drawClipMask(AzTexture* restrict texture, AzTessellatedSvgNode  node);
 extern DLLIMPORT bool  AzTexture_drawTesselatedSvgGpuNode(AzTexture* restrict texture, AzTessellatedGPUSvgNode * node, AzPhysicalSizeU32  size, AzColorU  color, AzStyleTransformVec  transforms);
+extern DLLIMPORT bool  AzTexture_drawTesselatedColoredSvgGpuNode(AzTexture* restrict texture, AzTessellatedColoredGPUSvgNode * node, AzPhysicalSizeU32  size, AzStyleTransformVec  transforms);
 extern DLLIMPORT bool  AzTexture_applyFxaa(AzTexture* restrict texture);
 extern DLLIMPORT void AzTexture_delete(AzTexture* restrict instance);
 extern DLLIMPORT AzTexture AzTexture_deepCopy(AzTexture* const instance);
@@ -13190,6 +13258,12 @@ extern DLLIMPORT bool  AzSvgRect_containsPoint(const AzSvgRect* svgrect, AzSvgPo
 extern DLLIMPORT AzSvgRect AzSvgRect_expand(const AzSvgRect* svgrect, float padding_top, float padding_bottom, float padding_left, float padding_right);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateFill(const AzSvgRect* svgrect, AzSvgFillStyle  fill_style);
 extern DLLIMPORT AzTessellatedSvgNode AzSvgRect_tessellateStroke(const AzSvgRect* svgrect, AzSvgStrokeStyle  stroke_style);
+extern DLLIMPORT AzTessellatedColoredSvgNode AzTessellatedColoredSvgNode_empty();
+extern DLLIMPORT AzTessellatedColoredSvgNode AzTessellatedColoredSvgNode_fromNodes(AzTessellatedColoredSvgNodeVecRef  nodes);
+extern DLLIMPORT void AzTessellatedColoredSvgNode_delete(AzTessellatedColoredSvgNode* restrict instance);
+extern DLLIMPORT void AzTessellatedColoredSvgNodeVecRef_delete(AzTessellatedColoredSvgNodeVecRef* restrict instance);
+extern DLLIMPORT AzTessellatedColoredGPUSvgNode AzTessellatedColoredGPUSvgNode_new(AzTessellatedColoredSvgNode * tessellated_node, AzGl  gl);
+extern DLLIMPORT void AzTessellatedColoredGPUSvgNode_delete(AzTessellatedColoredGPUSvgNode* restrict instance);
 extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_empty();
 extern DLLIMPORT AzTessellatedSvgNode AzTessellatedSvgNode_fromNodes(AzTessellatedSvgNodeVecRef  nodes);
 extern DLLIMPORT void AzTessellatedSvgNode_delete(AzTessellatedSvgNode* restrict instance);
@@ -13300,6 +13374,7 @@ extern DLLIMPORT void AzSvgPathVec_delete(AzSvgPathVec* restrict instance);
 extern DLLIMPORT void AzVertexAttributeVec_delete(AzVertexAttributeVec* restrict instance);
 extern DLLIMPORT void AzSvgPathElementVec_delete(AzSvgPathElementVec* restrict instance);
 extern DLLIMPORT void AzSvgVertexVec_delete(AzSvgVertexVec* restrict instance);
+extern DLLIMPORT void AzSvgColoredVertexVec_delete(AzSvgColoredVertexVec* restrict instance);
 extern DLLIMPORT void AzU32Vec_delete(AzU32Vec* restrict instance);
 extern DLLIMPORT void AzXWindowTypeVec_delete(AzXWindowTypeVec* restrict instance);
 extern DLLIMPORT void AzVirtualKeyCodeVec_delete(AzVirtualKeyCodeVec* restrict instance);
@@ -19494,6 +19569,20 @@ bool AzSvgVertexVecDestructor_matchRefExternal(const AzSvgVertexVecDestructor* v
 bool AzSvgVertexVecDestructor_matchMutExternal(AzSvgVertexVecDestructor* restrict value, AzSvgVertexVecDestructorType* restrict * restrict out) {
     AzSvgVertexVecDestructorVariant_External* restrict casted = (AzSvgVertexVecDestructorVariant_External* restrict)value;
     bool valid = casted->tag == AzSvgVertexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgColoredVertexVecDestructor_matchRefExternal(const AzSvgColoredVertexVecDestructor* value, const AzSvgColoredVertexVecDestructorType** restrict out) {
+    const AzSvgColoredVertexVecDestructorVariant_External* casted = (const AzSvgColoredVertexVecDestructorVariant_External*)value;
+    bool valid = casted->tag == AzSvgColoredVertexVecDestructorTag_External;
+    if (valid) { *out = &casted->payload; } else { *out = 0; }
+    return valid;
+}
+
+bool AzSvgColoredVertexVecDestructor_matchMutExternal(AzSvgColoredVertexVecDestructor* restrict value, AzSvgColoredVertexVecDestructorType* restrict * restrict out) {
+    AzSvgColoredVertexVecDestructorVariant_External* restrict casted = (AzSvgColoredVertexVecDestructorVariant_External* restrict)value;
+    bool valid = casted->tag == AzSvgColoredVertexVecDestructorTag_External;
     if (valid) { *out = &casted->payload; } else { *out = 0; }
     return valid;
 }

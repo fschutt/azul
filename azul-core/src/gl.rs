@@ -869,6 +869,8 @@ pub struct GlContextPtrInner {
     pub ptr: Rc<GenericGlContext>,
     /// SVG shader program (library-internal use)
     pub svg_shader: GLuint,
+    /// SVG multicolor shader program (library-internal use)
+    pub svg_multicolor_shader: GLuint,
     /// FXAA shader program (library-internal use)
     pub fxaa_shader: GLuint,
 }
@@ -876,6 +878,7 @@ pub struct GlContextPtrInner {
 impl Drop for GlContextPtrInner {
     fn drop(&mut self) {
         self.ptr.delete_program(self.svg_shader);
+        self.ptr.delete_program(self.svg_multicolor_shader);
         self.ptr.delete_program(self.fxaa_shader);
     }
 }
@@ -928,8 +931,52 @@ void main() {
     oFragColor = fDrawColor;
 }";
 
+static SVG_MULTICOLOR_VERTEX_SHADER: &[u8] = b"#version 150
+
+#if __VERSION__ != 100
+    #define varying out
+    #define attribute in
+#endif
+
+uniform vec2 vBboxSize;
+uniform mat4 vTransformMatrix;
+
+attribute vec3 vAttrXY;
+attribute vec4 vColor;
+varying vec4 fColor;
+
+void main() {
+    vec4 vTransposed = vec4(vAttrXY.xy, 1.0, 1.0) * vTransformMatrix;
+    vec2 vTransposedInScreen = vTransposed.xy / vBboxSize;
+    vec2 vCalcFinal = (vTransposedInScreen * vec2(2.0)) - vec2(1.0);
+    gl_Position = vec4(vCalcFinal, vAttrXY.z, 1.0);
+    fColor = vColor;
+}";
+
+static SVG_MULTICOLOR_FRAGMENT_SHADER: &[u8] = b"#version 150
+
+precision highp float;
+
+#if __VERSION__ != 100
+    #define varying out
+    #define attribute in
+#endif
+
+#if __VERSION__ == 100
+    #define oFragColor gl_FragColor
+#else
+    out vec4 oFragColor;
+#endif
+
+attribute vec4 fColor;
+
+void main() {
+    oFragColor = fColor;
+}";
+
 impl GlContextPtr {
     pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
+        // Compile basic shader
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
         gl_context.shader_source(vertex_shader_object, &[SVG_VERTEX_SHADER]);
         gl_context.compile_shader(vertex_shader_object);
@@ -948,9 +995,30 @@ impl GlContextPtr {
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
 
+        // Compile multi-color SVG shader
+        let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
+        gl_context.shader_source(vertex_shader_object, &[SVG_MULTICOLOR_VERTEX_SHADER]);
+        gl_context.compile_shader(vertex_shader_object);
+
+        let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
+        gl_context.shader_source(fragment_shader_object, &[SVG_MULTICOLOR_FRAGMENT_SHADER]);
+        gl_context.compile_shader(fragment_shader_object);
+
+        let svg_multicolor_program_id = gl_context.create_program();
+
+        gl_context.attach_shader(svg_multicolor_program_id, vertex_shader_object);
+        gl_context.attach_shader(svg_multicolor_program_id, fragment_shader_object);
+        gl_context.bind_attrib_location(svg_multicolor_program_id, 0, "vAttrXY".into());
+        gl_context.bind_attrib_location(svg_multicolor_program_id, 1, "vColor".into());
+        gl_context.link_program(svg_multicolor_program_id);
+
+        gl_context.delete_shader(vertex_shader_object);
+        gl_context.delete_shader(fragment_shader_object);
+
         Self {
             ptr: Box::new(Rc::new(GlContextPtrInner {
                 svg_shader: svg_program_id,
+                svg_multicolor_shader: svg_multicolor_program_id,
                 fxaa_shader: 0, // TODO
                 ptr: gl_context,
             })),
