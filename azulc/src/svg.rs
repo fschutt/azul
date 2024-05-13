@@ -49,7 +49,7 @@ pub use azul_core::svg::{
     ResultSvgSvgParseError,
     TessellatedColoredSvgNode, TessellatedColoredSvgNodeVec,
     TessellatedColoredSvgNodeVecDestructor,
-    
+
     // SvgXmlNode, Svg
 };
 
@@ -1350,7 +1350,7 @@ pub fn join_tessellated_colored_nodes(nodes: &[TessellatedColoredSvgNode]) -> Te
     })
     .collect::<Vec<_>>();
 
-    TessellatedSvgNode {
+    TessellatedColoredSvgNode {
         vertices: all_vertices.into(),
         indices: all_indices.into(),
     }
