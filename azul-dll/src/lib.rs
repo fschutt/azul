@@ -3701,7 +3701,7 @@ pub use AzTessellatedColoredSvgNodeTT as AzTessellatedColoredSvgNode;
 /// Returns an empty buffer vertices / indices
 #[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNode_empty() -> AzTessellatedColoredSvgNode { AzTessellatedColoredSvgNode::empty() }
 /// Creates a new TessellatedColoredSvgNode by joining all the given nodes together into one array and inserting a `GL_RESTART_INDEX` (`u32::MAX`) into the indices (so that the resulting buffer can be drawn in one draw call).
-#[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNode_fromNodes(nodes: AzTessellatedColoredSvgNodeVecRef) -> AzTessellatedColoredSvgNode { azul_impl::svg::join_tessellated_nodes(nodes.as_slice()) }
+#[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNode_fromNodes(nodes: AzTessellatedColoredSvgNodeVecRef) -> AzTessellatedColoredSvgNode { azul_impl::svg::join_tessellated_colored_nodes(nodes.as_slice()) }
 /// Destructor: Takes ownership of the `TessellatedColoredSvgNode` pointer and deletes it.
 #[no_mangle] pub extern "C" fn AzTessellatedColoredSvgNode_delete(object: &mut AzTessellatedColoredSvgNode) {  unsafe { core::ptr::drop_in_place(object); } }
 

@@ -1293,9 +1293,75 @@ pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNod
     }
 }
 
+#[cfg(feature = "svg")]
+pub fn join_tessellated_colored_nodes(nodes: &[TessellatedColoredSvgNode]) -> TessellatedColoredSvgNode {
+
+    use rayon::iter::IntoParallelRefIterator;
+    use rayon::iter::ParallelIterator;
+    use rayon::iter::IndexedParallelIterator;
+    use rayon::iter::IntoParallelRefMutIterator;
+
+    let mut index_offset = 0;
+
+    // note: can not be parallelized!
+    let all_index_offsets = nodes
+    .as_ref()
+    .iter()
+    .map(|t| {
+        let i = index_offset;
+        index_offset += t.vertices.len();
+        i
+    })
+    .collect::<Vec<_>>();
+
+    let all_vertices = nodes
+    .as_ref()
+    .par_iter()
+    .flat_map(|t| t.vertices.clone().into_library_owned_vec())
+    .collect::<Vec<_>>();
+
+    let all_indices = nodes
+    .as_ref()
+    .par_iter()
+    .enumerate()
+    .flat_map(|(buffer_index, t)| {
+
+        // since the vertex buffers are now joined,
+        // offset the indices by the vertex buffers lengths
+        // encountered so far
+        let vertex_buffer_offset: u32 = all_index_offsets
+            .get(buffer_index)
+            .copied()
+            .unwrap_or(0)
+            .min(core::u32::MAX as usize) as u32;
+
+        let mut indices = t.indices.clone().into_library_owned_vec();
+        if vertex_buffer_offset != 0 {
+            indices
+            .par_iter_mut()
+            .for_each(|i| { *i += vertex_buffer_offset; });
+        }
+
+        indices.push(GL_RESTART_INDEX);
+
+        indices
+    })
+    .collect::<Vec<_>>();
+
+    TessellatedSvgNode {
+        vertices: all_vertices.into(),
+        indices: all_indices.into(),
+    }
+}
+
 #[cfg(not(feature = "svg"))]
 pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNode {
     TessellatedSvgNode::default()
+}
+
+#[cfg(not(feature = "svg"))]
+pub fn join_tessellated_colored_nodes(nodes: &[TessellatedColoredSvgNode]) -> TessellatedColoredSvgNode {
+    TessellatedColoredSvgNode::default()
 }
 
 #[cfg(feature = "svg")]

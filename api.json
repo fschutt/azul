@@ -12729,7 +12729,7 @@
                             "fn_args": [
                                 {"nodes": "TessellatedColoredSvgNodeVecRef"}
                             ],
-                            "fn_body": "azul_impl::svg::join_tessellated_nodes(nodes.as_slice())"
+                            "fn_body": "azul_impl::svg::join_tessellated_colored_nodes(nodes.as_slice())"
                         }
                     }
                 },
