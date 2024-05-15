@@ -1280,7 +1280,9 @@ pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNod
         if vertex_buffer_offset != 0 {
             indices
             .par_iter_mut()
-            .for_each(|i| { *i += vertex_buffer_offset; });
+            .for_each(|i| {
+                if *i != GL_RESTART_INDEX { *i += vertex_buffer_offset; }
+            });
         }
 
         indices.push(GL_RESTART_INDEX);
@@ -1341,7 +1343,9 @@ pub fn join_tessellated_colored_nodes(nodes: &[TessellatedColoredSvgNode]) -> Te
         if vertex_buffer_offset != 0 {
             indices
             .par_iter_mut()
-            .for_each(|i| { *i += vertex_buffer_offset; });
+            .for_each(|i| {
+                if *i != GL_RESTART_INDEX { *i += vertex_buffer_offset; }
+            });
         }
 
         indices.push(GL_RESTART_INDEX);
