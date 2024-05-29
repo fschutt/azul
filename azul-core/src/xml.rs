@@ -1139,19 +1139,22 @@ pub fn normalize_casing(input: &str) -> String {
 /// Given a root node, traverses along the hierarchy, and returns a
 /// mutable reference to the last child node of the root node
 pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
-    let mut current_node = &*root_node;
-    let mut iter = hierarchy.iter();
-
-    while let Some(item) = iter.next() {
-        current_node = current_node.children.get(*item).as_ref()?;
-    }
-
-    // Safe because we only ever have one mutable reference, but
-    // the borrow checker doesn't allow recursive mutable borrowing
-    let node_ptr = current_node as *const XmlNode;
-    let mut_node_ptr = node_ptr as *mut XmlNode;
-    Some(unsafe { &mut *mut_node_ptr }) // safe because we hold a &'a mut XmlNode
+    let mut hierarchy = hierarchy.to_vec();
+    hierarchy.reverse();
+    let item = hierarchy.pop()?;
+    let node = root_node.children.as_mut_slice_extended().get_mut(item)?;
+    get_item_internal(&mut hierarchy, node)
 }
+
+fn get_item_internal<'a>(hierarchy: &mut Vec<usize>, root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
+    if hierarchy.is_empty() {
+        return Some(root_node);
+    }
+    let cur_item = hierarchy.pop()?;
+    let node = root_node.children.as_mut_slice_extended().get_mut(cur_item)?;
+    get_item_internal(hierarchy, node)
+}
+
 
 /// Parses an XML string and returns a `StyledDom` with the components instantiated in the `<app></app>`
 pub fn str_to_dom<'a>(
