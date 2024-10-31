@@ -89,12 +89,33 @@ pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlCom
 /// )
 /// ```
 #[cfg(feature = "xml")]
-pub fn parse_xml_string(xml: &str) -> Result<XmlNodeVec, XmlError> {
-
-    use xmlparser::Token::*;
-    use xmlparser::ElementEnd::*;
+pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlError> {
+    use self::XmlParseError::*;
+    use xmlparser::{
+        ElementEnd::*,
+        Token::*,
+        Tokenizer,
+    };
 
     let mut root_node = XmlNode::default();
+
+    // Search for "<?xml" and "?>" tags and delete them from the XML
+    let mut xml = xml.trim();
+    if xml.starts_with("<?") {
+        let pos = xml
+            .find("?>")
+            .ok_or(XmlError::MalformedHierarchy("<?xml".into(), "?>".into()))?;
+        xml = &xml[(pos + 2)..];
+    }
+
+    // Delete <!doctype if necessary
+    let mut xml = xml.trim();
+    if xml.starts_with("<!") {
+        let pos = xml
+            .find(">")
+            .ok_or(XmlError::MalformedHierarchy("<!doctype".into(), ">".into()))?;
+        xml = &xml[(pos + 1)..];
+    }
 
     let tokenizer = Tokenizer::from_fragment(xml, 0..xml.len());
 
@@ -104,63 +125,74 @@ pub fn parse_xml_string(xml: &str) -> Result<XmlNodeVec, XmlError> {
     let mut current_hierarchy: Vec<usize> = Vec::new();
 
     for token in tokenizer {
-
-        let token = token
-        .map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
-
+        let token = token.map_err(|e| XmlError::ParserError(translate_xmlparser_error(e)))?;
         match token {
             ElementStart { local, .. } => {
                 if let Some(current_parent) = get_item(&current_hierarchy, &mut root_node) {
-                    let children_len = current_parent.children.as_ref().len();
+                    let children_len = current_parent.children.len();
                     current_parent.children.push(XmlNode {
-                        node_type: normalize_casing(local.as_str()).into(),
-                        attributes: Vec::new().into(),
+                        node_type: local.to_string().into(),
+                        attributes: StringPairVec::new(),
                         children: Vec::new().into(),
                         text: None.into(),
                     });
                     current_hierarchy.push(children_len);
                 }
-            },
+            }
             ElementEnd { end: Empty, .. } => {
                 current_hierarchy.pop();
-            },
-            ElementEnd { end: Close(_, close_value), .. } => {
-                let close_value = normalize_casing(close_value.as_str());
-                if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
+            }
+            ElementEnd {
+                end: Close(_, close_value),
+                ..
+            } => {
+                let i = get_item(&current_hierarchy, &mut root_node);
+                if let Some(last) = i {
                     if last.node_type.as_str() != close_value.as_str() {
-                        return Err(XmlError::MalformedHierarchy(close_value.into(), last.node_type.clone().into()));
+                        return Err(XmlError::MalformedHierarchy(
+                            close_value.to_string().into(),
+                            last.node_type.clone(),
+                        ));
                     }
                 }
                 current_hierarchy.pop();
-            },
+            }
             Attribute { local, value, .. } => {
                 if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
                     // NOTE: Only lowercase the key ("local"), not the value!
-                    last.attributes.insert_kv(normalize_casing(local.as_str()), value.as_str().to_string());
+                    last.attributes
+                        .push(azul_core::window::AzStringPair {
+                            key: local.to_string().into(), 
+                            value: value.as_str().to_string().into(),
+                        });
                 }
-            },
+            }
             Text { text } => {
-                if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
-                    if let Some(s) = last.text.as_mut() {
-                        let mut s_copy = s.as_str().to_owned();
-                        s_copy.push_str(text.as_str());
-                        *s = s_copy.into();
-                    }
-                    if last.text.is_none() {
-                        last.text = Some(AzString::from(text.as_str())).into();
+                let text = text.trim();
+                if !text.is_empty() {
+                    if let Some(last) = get_item(&current_hierarchy, &mut root_node) {
+                        if let Some(s) = last.text.as_mut() {
+                            let mut newstr = s.as_str().to_string();
+                            newstr.push_str(text);
+                            *s = newstr.into();
+                        }
+                        if last.text.is_none() {
+                            last.text = Some(text.to_string().into()).into();
+                        }
                     }
                 }
             }
-            _ => { },
+            _ => {}
         }
     }
 
-    Ok(root_node.children)
+    Ok(root_node.children.into())
 }
+
 
 #[cfg(feature = "xml")]
 pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
-    Ok(Xml { root: parse_xml_string(s)? })
+    Ok(Xml { root: parse_xml_string(s)?.into() })
 }
 
 #[cfg(not(feature = "xml"))]

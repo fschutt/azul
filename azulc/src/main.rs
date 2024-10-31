@@ -18,6 +18,7 @@ use azul_core::{
         IdNamespace, LoadFontFn,
         Epoch, RendererResources,
         ImageCache, GlTextureCache,
+        DpiScaleFactor,
     },
     display_list::{
         SolvedLayout,
@@ -287,6 +288,7 @@ fn solve_layout(
         &fc_cache,
         &callbacks,
         renderer_resources,
+        DpiScaleFactor { inner: azul_css::FloatValue::new(fake_window_state.size.dpi as f32 / 96.0) }
     );
 
     solved_layout.layout_results.remove(0)

@@ -1138,20 +1138,30 @@ pub fn normalize_casing(input: &str) -> String {
 
 /// Given a root node, traverses along the hierarchy, and returns a
 /// mutable reference to the last child node of the root node
+#[allow(trivial_casts)]
 pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
     let mut hierarchy = hierarchy.to_vec();
     hierarchy.reverse();
-    let item = hierarchy.pop()?;
-    let node = root_node.children.as_mut_slice_extended().get_mut(item)?;
+    let item = match hierarchy.pop() {
+        Some(s) => s,
+        None => return Some(root_node),
+    };
+    let node = root_node.children.as_mut().get_mut(item)?;
     get_item_internal(&mut hierarchy, node)
 }
 
-fn get_item_internal<'a>(hierarchy: &mut Vec<usize>, root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
+fn get_item_internal<'a>(
+    hierarchy: &mut Vec<usize>,
+    root_node: &'a mut XmlNode,
+) -> Option<&'a mut XmlNode> {
     if hierarchy.is_empty() {
         return Some(root_node);
     }
-    let cur_item = hierarchy.pop()?;
-    let node = root_node.children.as_mut_slice_extended().get_mut(cur_item)?;
+    let cur_item = match hierarchy.pop() {
+        Some(s) => s,
+        None => return Some(root_node),
+    };
+    let node = root_node.children.as_mut().get_mut(cur_item)?;
     get_item_internal(hierarchy, node)
 }
 

@@ -225,10 +225,19 @@ pub fn load_system_font(id: &str, fc_cache: &FcFontCache) -> Option<(U8Vec, i32)
 
     for pattern in patterns {
         if let Some(FcFontPath { path, font_index }) = fc_cache.query(&pattern) {
-            use std::fs;
-            use std::path::Path;
-            if let Ok(bytes) = fs::read(Path::new(path)) {
-                return Some((bytes.into(), *font_index as i32));
+            if path.starts_with("base64:") {
+                use base64::{engine::general_purpose::URL_SAFE, Engine as _};
+                let base64_str = &path[7..];
+                let decoded = URL_SAFE.decode(base64_str).ok().map(|s| (s.into(), *font_index as i32));
+                if let Some(s) = decoded {
+                    return Some(s);
+                }
+            } else {
+                use std::fs;
+                use std::path::Path;
+                if let Ok(bytes) = fs::read(Path::new(path)) {
+                    return Some((bytes.into(), *font_index as i32));
+                }
             }
         }
     }
