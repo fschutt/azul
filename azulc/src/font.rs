@@ -82,6 +82,12 @@ const KNOWN_SYSTEM_SANS_SERIF_FONTS: &[&str] = &[
     "Lucida Grande", // other
 ];
 
+#[cfg(target_family = "wasm")]
+const KNOWN_SYSTEM_MONOSPACE_FONTS: &[&str] = &[];
+#[cfg(target_family = "wasm")]
+const KNOWN_SYSTEM_SANS_SERIF_FONTS: &[&str] = &[];
+#[cfg(target_family = "wasm")]
+const KNOWN_SYSTEM_SERIF_FONTS: &[&str] = &[];
 
 // italic / oblique / fantasy: same as sans-serif for now, but set the oblique flag
 
