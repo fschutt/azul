@@ -23,7 +23,7 @@ azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", opti
 rayon                   = { version = "1.5.3",   default-features = false,  optional = true }
 gl-context-loader       = { version ="0.1.8", default-features = false }
 highway                 = { version = "0.8.0", default-features = false }
-rust-fontconfig         = { version = "0.1.11", default-features = false }
+rust-fontconfig         = { version = "0.1.12", default-features = false }
 
 [features]
 default = ["std"]
