@@ -34,13 +34,14 @@ pub type ComponentName = String;
 pub type CompiledComponent = String;
 pub type FilteredComponentArguments = ComponentArguments;
 
-pub const DEFAULT_ARGS: [&str; 7] = [
+pub const DEFAULT_ARGS: [&str; 8] = [
     "id",
     "class",
     "tabindex",
     "focusable",
     "accepts_text",
     "name",
+    "style",
     "args",
 ];
 
@@ -1542,6 +1543,11 @@ pub fn set_attributes(
             i if i > 0 => node_data.set_tab_index(TabIndex::OverrideInParent(i as u32)),
             _ => node_data.set_tab_index(TabIndex::NoKeyboardFocus),
         }
+    }
+
+    if let Some(style) = xml_attributes.get_key("style") {
+        let css = CssApiWrapper::from_string(style.clone());
+        dom.restyle(css);
     }
 }
 
