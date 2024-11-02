@@ -6,11 +6,9 @@ use crate::styled_dom::StyledDom;
 use crate::window::{AzStringPair, StringPairVec};
 use alloc::collections::BTreeMap;
 use azul_css::{
-    AzString, Css, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock, NodeTypeTag,
-    NormalizedLinearColorStopVec, NormalizedRadialColorStopVec, OptionAzString,
-    StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec,
-    StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec,
+    AzString, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssProperty, CssRuleBlock, NodeTypeTag, NormalizedLinearColorStopVec, NormalizedRadialColorStopVec, OptionAzString, StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec
 };
+use azul_css_parser::ErrorLocation;
 #[cfg(feature = "css_parser")]
 use azul_css_parser::{CssApiWrapper, CssParseError};
 use core::fmt;
@@ -1546,8 +1544,38 @@ pub fn set_attributes(
     }
 
     if let Some(style) = xml_attributes.get_key("style") {
-        let css = CssApiWrapper::from_string(style.clone());
-        dom.restyle(css);
+    
+        let css_key_map = azul_css::get_css_key_map();
+        let mut attributes = Vec::new();
+        for s in style.as_str().split(";") {
+            let mut s = s.split(":");
+            let key = match s.next() {
+                Some(s) => s,
+                None => continue,
+            };
+            let value = match s.next() {
+                Some(s) => s,
+                None => continue,
+            };
+            azul_css_parser::parse_css_declaration(
+                key.trim(), 
+                value.trim(), 
+                (ErrorLocation::default(), ErrorLocation::default()), 
+                &css_key_map,
+                &mut Vec::new(),
+                &mut attributes,
+            );
+        }
+
+        let props = attributes.into_iter().filter_map(|s| {
+            use crate::dom::NodeDataInlineCssProperty::*;
+            match s {
+                CssDeclaration::Static(s) => Some(Normal(s)),
+                _ => return None,
+            }
+        }).collect::<Vec<_>>();
+        
+        node_data.set_inline_css_props(props.into());
     }
 }
 
