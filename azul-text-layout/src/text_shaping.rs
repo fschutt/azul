@@ -9,16 +9,9 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 use allsorts::{
-    binary::read::ReadScope,
-    font_data::FontData,
-    layout::{LayoutCache, GDEFTable, GPOS, GSUB},
-    tables::{
-        FontTableProvider, HheaTable, MaxpTable, HeadTable,
-        loca::LocaTable,
-        cmap::CmapSubtable,
-        glyf::{GlyfTable, Glyph, GlyfRecord},
-    },
-    tables::cmap::owned::CmapSubtable as OwnedCmapSubtable,
+    binary::read::ReadScope, font_data::FontData, gsub::RawGlyphFlags, layout::{GDEFTable, LayoutCache, GPOS, GSUB}, tables::{
+        cmap::{owned::CmapSubtable as OwnedCmapSubtable, CmapSubtable}, glyf::{BoundingBox, GlyfRecord, GlyfTable, Glyph}, loca::{LocaOffsets, LocaTable}, FontTableProvider, HeadTable, HheaTable, MaxpTable
+    }
 };
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
@@ -75,7 +68,7 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
         Err(_) => return FontMetrics::default(),
     };
     let font = match allsorts::font::Font::new(provider).ok() {
-        Some(Some(s)) => s,
+        Some(s) => s,
         _ => return FontMetrics::default(),
     };
 
@@ -110,7 +103,7 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
                 ul_unicode_range3: s.ul_unicode_range3,
                 ul_unicode_range4: s.ul_unicode_range4,
                 ach_vend_id: s.ach_vend_id,
-                fs_selection: s.fs_selection,
+                fs_selection: s.fs_selection.bits(),
                 us_first_char_index: s.us_first_char_index,
                 us_last_char_index: s.us_last_char_index,
 
@@ -211,14 +204,14 @@ pub struct ParsedFont {
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
-    pub hmtx_data: Box<[u8]>,
+    pub hmtx_data: Vec<u8>,
     pub maxp_table: MaxpTable,
-    pub gsub_cache: LayoutCache<GSUB>,
-    pub gpos_cache: LayoutCache<GPOS>,
+    pub gsub_cache: Option<LayoutCache<GSUB>>,
+    pub gpos_cache: Option<LayoutCache<GPOS>>,
     pub opt_gdef_table: Option<Rc<GDEFTable>>,
     pub glyph_records_decoded: BTreeMap<u16, OwnedGlyph>,
     pub space_width: Option<usize>,
-    pub cmap_subtable: OwnedCmapSubtable,
+    pub cmap_subtable: Option<OwnedCmapSubtable>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -313,17 +306,18 @@ pub struct OwnedGlyph {
 }
 
 impl OwnedGlyph {
-    fn from_glyph_data<'a>(glyph: Glyph<'a>, horz_advance: u16) -> Self {
-        Self {
+    fn from_glyph_data<'a>(glyph: Glyph<'a>, horz_advance: u16) -> Option<Self> {
+        let bbox = glyph.bounding_box()?;
+        Some(Self {
             bounding_box: OwnedGlyphBoundingBox {
-                max_x: glyph.bounding_box.x_max,
-                max_y: glyph.bounding_box.y_max,
-                min_x: glyph.bounding_box.x_min,
-                min_y: glyph.bounding_box.y_min,
+                max_x: bbox.x_max,
+                max_y: bbox.y_max,
+                min_x: bbox.x_min,
+                min_y: bbox.y_min,
             },
             horz_advance,
             outline: None,
-        }
+        })
     }
 }
 
@@ -332,38 +326,61 @@ impl ParsedFont {
     pub fn from_bytes(font_bytes: &[u8], font_index: usize, parse_glyph_outlines: bool) -> Option<Self> {
 
         use allsorts::tag;
-        use rayon::iter::IntoParallelIterator;
-        use rayon::iter::IndexedParallelIterator;
-        use rayon::iter::ParallelIterator;
 
         let scope = ReadScope::new(font_bytes);
         let font_file = scope.read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(font_index).ok()?;
 
-        let head_data = provider.table_data(tag::HEAD).ok()??.into_owned();
-        let head_table = ReadScope::new(&head_data).read::<HeadTable>().ok()?;
+        let head_table = provider
+        .table_data(tag::HEAD).ok()
+        .and_then(|head_data| {
+            ReadScope::new(&head_data?)
+            .read::<HeadTable>().ok()
+        });
 
-        let maxp_data = provider.table_data(tag::MAXP).ok()??.into_owned();
-        let maxp_table = ReadScope::new(&maxp_data).read::<MaxpTable>().ok()?;
+        let maxp_table = provider
+        .table_data(tag::MAXP).ok()
+        .and_then(|maxp_data| {
+            ReadScope::new(&maxp_data?)
+            .read::<MaxpTable>().ok()
+        }).unwrap_or(MaxpTable { num_glyphs: 0, version1_sub_table: None });
 
-        let loca_data = provider.table_data(tag::LOCA).ok()??.into_owned();
-        let loca_table = ReadScope::new(&loca_data).read_dep::<LocaTable<'_>>((maxp_table.num_glyphs as usize, head_table.index_to_loc_format)).ok()?;
+        let index_to_loc = head_table.map(|s| s.index_to_loc_format)
+        .unwrap_or(allsorts::tables::IndexToLocFormat::Long);
+        let num_glyphs = maxp_table.num_glyphs as usize;
 
-        let glyf_data = provider.table_data(tag::GLYF).ok()??.into_owned();
-        let glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
+        let loca_table = provider.table_data(tag::LOCA).ok();
+        let loca_table = loca_table.as_ref()
+        .and_then(|loca_data| {
+            ReadScope::new(&loca_data.as_ref()?)
+            .read_dep::<LocaTable<'_>>((num_glyphs, index_to_loc)).ok()
+        }).unwrap_or(LocaTable {
+            offsets: LocaOffsets::Long(allsorts::binary::read::ReadArray::empty())
+        });
 
-        let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
+        let glyf_table = provider.table_data(tag::GLYF).ok();
+        let mut glyf_table = glyf_table.as_ref()
+        .and_then(|glyf_data| {
+            ReadScope::new(&glyf_data.as_ref()?).read_dep::<GlyfTable<'_>>(&loca_table).ok()
+        }).unwrap_or(GlyfTable::new(Vec::new()).unwrap());
 
-        let hhea_data = provider.table_data(tag::HHEA).ok()??.into_owned();
-        let hhea_table = ReadScope::new(&hhea_data).read::<HheaTable>().ok()?;
+        let hmtx_data = provider
+        .table_data(tag::HMTX).ok()
+        .and_then(|s| Some(s?.to_vec()))
+        .unwrap_or_default();
+
+        let hhea_table = provider.table_data(tag::HHEA).ok()
+        .and_then(|hhea_data| {
+            ReadScope::new(&hhea_data?).read::<HheaTable>().ok()
+        }).unwrap_or(unsafe { std::mem::zeroed() });
 
         let font_metrics = get_font_metrics(font_bytes, font_index);
 
         // not parsing glyph outlines can save lots of memory
-        let glyph_records_decoded = glyf_table.records
-            .into_par_iter()
+        let glyph_records_decoded = glyf_table.records_mut()
+            .into_iter()
             .enumerate()
-            .filter_map(|(glyph_index, mut glyph_record)| {
+            .filter_map(|(glyph_index, glyph_record)| {
                 if glyph_index > (u16::MAX as usize) {
                     return None;
                 }
@@ -377,25 +394,23 @@ impl ParsedFont {
                 ).unwrap_or_default();
 
                 match glyph_record {
-                    GlyfRecord::Empty |
                     GlyfRecord::Present { .. } => None,
-                    GlyfRecord::Parsed(g) => {
-                        Some((glyph_index, OwnedGlyph::from_glyph_data(g, horz_advance)))
-                    }
+                    GlyfRecord::Parsed(g) => OwnedGlyph::from_glyph_data(g.clone(), horz_advance).map(|g| (glyph_index, g)),
                 }
             }).collect::<Vec<_>>();
 
         let glyph_records_decoded = glyph_records_decoded.into_iter().collect();
 
-        let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
-        let gsub_cache = font_data_impl.gsub_cache().ok()??;
-        let gpos_cache = font_data_impl.gpos_cache().ok()??;
+        let gsub_cache = font_data_impl.gsub_cache().ok().and_then(|s| s);
+        let gpos_cache = font_data_impl.gpos_cache().ok().and_then(|s| s);
         let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
         let num_glyphs = font_data_impl.num_glyphs();
 
-        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
+        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data());
+        let cmap_subtable = cmap_subtable.read::<CmapSubtable<'_>>().ok().and_then(|s| s.to_owned());
 
         let mut font = ParsedFont {
             font_metrics,
@@ -445,8 +460,8 @@ impl ParsedFont {
     }
 
     pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
-        match self.cmap_subtable.map_glyph(c) {
-            Ok(Some(c)) => Some(c),
+        match self.cmap_subtable.as_ref().and_then(|s| s.map_glyph(c).ok()) {
+            Some(Some(c)) => Some(c),
             _ => None,
         }
     }
@@ -739,16 +754,19 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
     let dotted_circle_index = font.lookup_glyph_index(DOTTED_CIRCLE).unwrap_or(0);
 
     // Apply glyph substitution if table is present
-    gsub_apply(
-        dotted_circle_index,
-        &font.gsub_cache,
-        font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
-        script,
-        lang,
-        &Features::Mask(FeatureMask::empty()),
-        font.num_glyphs,
-        &mut glyphs,
-    ).ok()?;
+    if let Some(gsub) = &font.gsub_cache {
+        gsub_apply(
+            dotted_circle_index,
+            gsub,
+            font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
+            script,
+            lang,
+            &Features::Mask(FeatureMask::empty()),
+            None, // TODO: variable fonts?
+            font.num_glyphs,
+            &mut glyphs,
+        ).ok()?;
+    }
 
     // Apply glyph positioning if table is present
 
@@ -758,15 +776,18 @@ fn shape<'a>(font: &ParsedFont, text: &[u32], script: u32, lang: Option<u32>) ->
         glyphs
     );
 
-    gpos_apply(
-        &font.gpos_cache,
-        font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
-        kerning,
-        &Features::Mask(FeatureMask::all()),
-        script,
-        lang,
-        &mut infos,
-    ).ok()?;
+    if let Some(gpos) = &font.gpos_cache {
+        gpos_apply(
+            gpos,
+            font.opt_gdef_table.as_ref().map(|f| Rc::as_ref(f)),
+            kerning,
+            &Features::Mask(FeatureMask::all()),
+            None, // TODO: variable fonts?
+            script,
+            lang,
+            &mut infos,
+        ).ok()?;
+    }
 
     // calculate the horizontal advance for each char
     let infos = infos.iter().filter_map(|info| {
@@ -797,11 +818,7 @@ fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicod
         glyph_index: glyph_index,
         liga_component_pos: 0,
         glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
-        small_caps: false,
-        multi_subst_dup: false,
-        is_vert_alt: false,
-        fake_bold: false,
-        fake_italic: false,
+        flags: RawGlyphFlags::empty(),
         extra_data: (),
         variation,
     }
@@ -814,11 +831,11 @@ fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
         glyph_index: rg.glyph_index,
         liga_component_pos: rg.liga_component_pos,
         glyph_origin: translate_glyph_origin(&rg.glyph_origin),
-        small_caps: rg.small_caps,
-        multi_subst_dup: rg.multi_subst_dup,
-        is_vert_alt: rg.is_vert_alt,
-        fake_bold: rg.fake_bold,
-        fake_italic: rg.fake_italic,
+        small_caps: rg.small_caps(),
+        multi_subst_dup: rg.multi_subst_dup(),
+        is_vert_alt: rg.is_vert_alt(),
+        fake_bold: rg.fake_bold(),
+        fake_italic: rg.fake_italic(),
         variation: rg.variation.as_ref().map(translate_variation_selector).into(),
     }
 }

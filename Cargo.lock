@@ -3,12 +3,6 @@
 version = 3
 
 [[package]]
-name = "Inflector"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
-
-[[package]]
 name = "addr2line"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -52,33 +46,6 @@ dependencies = [
 
 [[package]]
 name = "allsorts"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8709592cf54d0d803dd1c46aa78a11001eea5c2951d77311023555974609af5f"
-dependencies = [
- "bitflags 1.3.2",
- "bitreader",
- "brotli-decompressor",
- "byteorder",
- "encoding_rs",
- "flate2",
- "glyph-names 0.1.0",
- "itertools 0.8.2",
- "lazy_static",
- "libc",
- "log",
- "num-traits",
- "ouroboros 0.9.5",
- "rustc-hash",
- "tinyvec",
- "ucd-trie",
- "unicode-canonical-combining-class 0.2.0",
- "unicode-general-category 0.5.1",
- "unicode-joining-type 0.6.0",
-]
-
-[[package]]
-name = "allsorts"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7b566d29776fc848a8279a72339499db95ee5592926bac114d35aa9a92efe9c"
@@ -90,20 +57,20 @@ dependencies = [
  "crc32fast",
  "encoding_rs",
  "flate2",
- "glyph-names 0.2.0",
- "itertools 0.10.5",
+ "glyph-names",
+ "itertools",
  "lazy_static",
  "libc",
  "log",
  "num-traits",
- "ouroboros 0.17.2",
+ "ouroboros",
  "pathfinder_geometry",
  "rustc-hash",
  "tinyvec",
  "ucd-trie",
- "unicode-canonical-combining-class 0.5.0",
- "unicode-general-category 0.6.0",
- "unicode-joining-type 0.7.0",
+ "unicode-canonical-combining-class",
+ "unicode-general-category",
+ "unicode-joining-type",
 ]
 
 [[package]]
@@ -297,7 +264,7 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 name = "azul-text-layout"
 version = "0.0.5"
 dependencies = [
- "allsorts 0.10.0",
+ "allsorts",
  "azul-core",
  "azul-css",
  "rayon",
@@ -965,12 +932,6 @@ checksum = "41e665af714f24e0a0500e5592791bac06bfcb791b9a766f37fb0cb9bb149ef7"
 
 [[package]]
 name = "glyph-names"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8050dc1be3880f690a771051d09727d759229d299afffa1488acc3556879039d"
-
-[[package]]
-name = "glyph-names"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3531d702d6c1a3ba92a5fb55a404c7b8c476c8e7ca249951077afcbe4bc807f"
@@ -1039,15 +1000,6 @@ checksum = "84344c6e0b90a9e2b6f3f9abe5cc74402684e348df7b32adca28747e0cef091a"
 dependencies = [
  "ctor",
  "ghost",
-]
-
-[[package]]
-name = "itertools"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f56a2d0bc861f9165be4eb3442afd3c236d8a98afd426f65d92324ae1091a484"
-dependencies = [
- "either",
 ]
 
 [[package]]
@@ -1319,36 +1271,13 @@ dependencies = [
 
 [[package]]
 name = "ouroboros"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbeff60e3e37407a80ead3e9458145b456e978c4068cddbfea6afb48572962ca"
-dependencies = [
- "ouroboros_macro 0.9.5",
- "stable_deref_trait",
-]
-
-[[package]]
-name = "ouroboros"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2ba07320d39dfea882faa70554b4bd342a5f273ed59ba7c1c6b4c840492c954"
 dependencies = [
  "aliasable",
- "ouroboros_macro 0.17.2",
+ "ouroboros_macro",
  "static_assertions",
-]
-
-[[package]]
-name = "ouroboros_macro"
-version = "0.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03f2cb802b5bdfdf52f1ffa0b54ce105e4d346e91990dd571f86c91321ad49e2"
-dependencies = [
- "Inflector",
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -1663,11 +1592,11 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "0.1.12"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aac08bdae2def81169a073ec3af0757eae1bf504827fd900739d0394891767c"
+checksum = "34f79014d061d4b959d842bc1a09c41f752fff163e25dfdde68552859fed1bd0"
 dependencies = [
- "allsorts 0.15.0",
+ "allsorts",
  "base64 0.22.1",
  "mmapio",
  "xmlparser",
@@ -1979,21 +1908,9 @@ checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
 
 [[package]]
 name = "unicode-canonical-combining-class"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b096a36c3e75936616680e901b5e08c180f102ec6626249b4dd12f46b9d48e1"
-
-[[package]]
-name = "unicode-canonical-combining-class"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6925586af9268182c711e47c0853ed84131049efaca41776d0ca97f983865c32"
-
-[[package]]
-name = "unicode-general-category"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1218098468b8085b19a2824104c70d976491d247ce194bbd9dc77181150cdfd6"
 
 [[package]]
 name = "unicode-general-category"
@@ -2006,12 +1923,6 @@ name = "unicode-ident"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e91b56cd4cadaeb79bbf1a5645f6b4f8dc5bde8834ad5894a8db35fda9efa1fe"
-
-[[package]]
-name = "unicode-joining-type"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e069b4c5aba86d99ec9fc1b6d208b8b582f46c5d29a3cd7f3fd6806249fa50d"
 
 [[package]]
 name = "unicode-joining-type"
