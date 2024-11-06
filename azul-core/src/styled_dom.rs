@@ -2915,19 +2915,17 @@ impl StyledDom {
     }
 
     /// Scans the display list for all font IDs + their font size
-    #[cfg(feature = "multithreading")]
-    pub(crate) fn scan_for_font_keys(
+    pub fn scan_for_font_keys(
         &self,
         resources: &RendererResources,
     ) -> FastHashMap<ImmediateFontId, FastBTreeSet<Au>> {
         use crate::app_resources::font_size_to_au;
         use crate::dom::NodeType::*;
-        use rayon::prelude::*;
 
         let keys = self
             .node_data
             .as_ref()
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| {
                 let node_id = NodeId::new(node_id);
@@ -2980,8 +2978,7 @@ impl StyledDom {
     }
 
     /// Scans the display list for all image keys
-    #[cfg(feature = "multithreading")]
-    pub(crate) fn scan_for_image_keys(
+    pub fn scan_for_image_keys(
         &self,
         css_image_cache: &ImageCache,
     ) -> FastBTreeSet<ImageRef> {
@@ -2996,15 +2993,13 @@ impl StyledDom {
             clip_mask: Option<ImageRef>,
         }
 
-        use rayon::prelude::*;
-
         let default_backgrounds: StyleBackgroundContentVec = Vec::new().into();
 
         let images = self
             .node_data
             .as_container()
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, node_data)| {
                 let node_id = NodeId::new(node_id);
