@@ -436,8 +436,21 @@ impl ComponentArguments {
 }
 
 /// Specifies a component that reacts to a parsed XML node
-pub trait XmlComponent {
-    /// Should return all arguments that this component can take - for example if you have a
+pub trait XmlComponentTrait {
+
+    /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
+    fn render_dom<'a>(
+        &'a self,
+        components: &'a XmlComponentMap,
+        arguments: &FilteredComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<StyledDom, RenderDomError<'a>>;
+
+    /// Returns the XML node for this component, used in the `get_html_string` debugging code
+    /// (necessary to compile the component into a function during the Rust compilation stage)
+    fn get_xml_node<'a>(&'a self) -> &'a XmlNode;
+
+    /// (Optional): Should return all arguments that this component can take - for example if you have a
     /// component called `Calendar`, which can take a `selectedDate` argument:
     ///
     /// ```xml,no_run,ignore
@@ -452,7 +465,7 @@ pub trait XmlComponent {
     /// ... then the `ComponentArguments` returned by this function should look something like this:
     ///
     /// ```rust,no_run,ignore
-    /// impl XmlComponent for CalendarRenderer {
+    /// impl XmlComponentTrait for CalendarRenderer {
     ///     fn get_available_arguments(&self) -> ComponentArguments {
     ///         btreemap![
     ///             "selected_date" => "DateTime",
@@ -488,24 +501,19 @@ pub trait XmlComponent {
     /// put it somewhere else and create another component out of it - XML should only be seen as a
     /// high-level prototyping tool (to get around the problem of compile times), not as the final
     /// data format.
-    fn get_available_arguments(&self) -> ComponentArguments;
-    /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom<'a>(
-        &'a self,
-        components: &'a XmlComponentMap,
-        arguments: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError<'a>>;
-    /// Used to compile the XML component to Rust code - input
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
+
+    /// (Optional): Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(
         &self,
         components: &XmlComponentMap,
         attributes: &FilteredComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<String, CompileError>;
-    /// Returns the XML node for this component (necessary to compile the component into a function
-    /// during the Rust compilation stage)
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode;
+    ) -> Result<String, CompileError> {
+        Ok(String::new())
+    }
 }
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
@@ -581,11 +589,18 @@ impl_vec_ord!(XmlNode, XmlNodeVec);
 impl_vec_hash!(XmlNode, XmlNodeVec);
 impl_vec_clone!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
 
+pub struct XmlComponent {
+    /// DOM rendering component (boxed trait)
+    pub renderer: Box<dyn XmlComponentTrait>,
+    /// Whether this component should inherit variables from the parent scope
+    pub inherit_vars: bool,
+}
+
 /// Holds all XML components - builtin components
 pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
     /// + whether this component should inherit variables from the parent scope
-    components: BTreeMap<String, (Box<dyn XmlComponent>, bool)>,
+    components: BTreeMap<String, XmlComponent>,
 }
 
 impl Default for XmlComponentMap {
@@ -593,9 +608,18 @@ impl Default for XmlComponentMap {
         let mut map = Self {
             components: BTreeMap::new(),
         };
-        map.register_component("body", Box::new(BodyRenderer::new()), true);
-        map.register_component("div", Box::new(DivRenderer::new()), true);
-        map.register_component("p", Box::new(TextRenderer::new()), true);
+        map.register_component("body", XmlComponent { 
+            renderer: Box::new(BodyRenderer::new()), 
+            inherit_vars: true 
+        });
+        map.register_component("div", XmlComponent { 
+            renderer: Box::new(DivRenderer::new()), 
+            inherit_vars: true 
+        });
+        map.register_component("p", XmlComponent { 
+            renderer: Box::new(TextRenderer::new()), 
+            inherit_vars: true 
+        });
         map
     }
 }
@@ -604,11 +628,10 @@ impl XmlComponentMap {
     pub fn register_component(
         &mut self,
         id: &str,
-        component: Box<dyn XmlComponent>,
-        inherit_variables: bool,
+        comp: XmlComponent,
     ) {
         self.components
-            .insert(normalize_casing(id), (component, inherit_variables));
+            .insert(normalize_casing(id), comp);
     }
 }
 
@@ -853,7 +876,7 @@ impl DivRenderer {
     }
 }
 
-impl XmlComponent for DivRenderer {
+impl XmlComponentTrait for DivRenderer {
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
@@ -895,7 +918,7 @@ impl BodyRenderer {
     }
 }
 
-impl XmlComponent for BodyRenderer {
+impl XmlComponentTrait for BodyRenderer {
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
@@ -937,7 +960,7 @@ impl TextRenderer {
     }
 }
 
-impl XmlComponent for TextRenderer {
+impl XmlComponentTrait for TextRenderer {
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments {
             args: ComponentArgumentsMap::default(),
@@ -1181,7 +1204,10 @@ pub fn str_to_dom<'a>(
             match DynamicXmlComponent::new(node) {
                 Ok(node) => {
                     let node_name = node.name.clone();
-                    component_map.register_component(node_name.as_str(), Box::new(node), false);
+                    component_map.register_component(node_name.as_str(), XmlComponent {
+                        renderer: Box::new(node), 
+                        inherit_vars: false,
+                    });
                 }
                 Err(ComponentParseError::NotAComponent) => {} // not a <component /> node, ignore
                 Err(e) => return Err(e.into()), // Error during parsing the XML component, bail
@@ -1221,7 +1247,10 @@ pub fn str_to_rust_code<'a>(
             match DynamicXmlComponent::new(node) {
                 Ok(node) => {
                     let node_name = node.name.clone();
-                    component_map.register_component(node_name.as_str(), Box::new(node), false);
+                    component_map.register_component(node_name.as_str(), XmlComponent {
+                        renderer: Box::new(node), 
+                        inherit_vars: false,
+                    });
                 }
                 Err(ComponentParseError::NotAComponent) => {} // not a <component /> node, ignore
                 Err(e) => return Err(CompileError::Xml(e.into())), // Error during parsing the XML component, bail
@@ -1443,7 +1472,7 @@ pub fn render_dom_from_body_node_inner<'a>(
 ) -> Result<StyledDom, RenderDomError<'a>> {
     let component_name = normalize_casing(&xml_node.node_type);
 
-    let (renderer, inherit_variables) =
+    let xml_component =
         component_map
             .components
             .get(&component_name)
@@ -1452,11 +1481,11 @@ pub fn render_dom_from_body_node_inner<'a>(
             ))?;
 
     // Arguments of the current node
-    let available_function_args = renderer.get_available_arguments();
+    let available_function_args = xml_component.renderer.get_available_arguments();
     let mut filtered_xml_attributes =
         validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
 
-    if *inherit_variables {
+    if xml_component.inherit_vars {
         // Append all variables that are in scope for the parent node
         filtered_xml_attributes
             .args
@@ -1473,7 +1502,7 @@ pub fn render_dom_from_body_node_inner<'a>(
         .as_ref()
         .map(|t| AzString::from(format_args_dynamic(t, &filtered_xml_attributes.args)));
 
-    let mut dom = renderer.render_dom(component_map, &filtered_xml_attributes, &text.into())?;
+    let mut dom = xml_component.renderer.render_dom(component_map, &filtered_xml_attributes, &text.into())?;
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
     for child_node in xml_node.children.as_ref() {
@@ -1874,7 +1903,7 @@ pub fn render_component_inner<'a>(
         ),
     >,
     component_name: String,
-    (renderer, inherit_variables): &'a (Box<dyn XmlComponent>, bool),
+    xml_component: &'a XmlComponent,
     component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
@@ -1883,7 +1912,7 @@ pub fn render_component_inner<'a>(
     let t1 = String::from("    ").repeat(tabs);
 
     let component_name = normalize_casing(&component_name);
-    let xml_node = renderer.get_xml_node();
+    let xml_node = xml_component.renderer.get_xml_node();
 
     let mut css = match find_node_by_type(xml_node.children.as_ref(), "style")
         .and_then(|style_node| style_node.text.as_ref().map(|s| s.as_str()))
@@ -1895,10 +1924,10 @@ pub fn render_component_inner<'a>(
     css.sort_by_specificity();
 
     // Arguments of the current node
-    let available_function_args = renderer.get_available_arguments();
+    let available_function_args = xml_component.renderer.get_available_arguments();
     let mut filtered_xml_attributes = available_function_args.clone(); // <- important, only for Rust code compilation
 
-    if *inherit_variables {
+    if xml_component.inherit_vars {
         // Append all variables that are in scope for the parent node
         filtered_xml_attributes
             .args
@@ -1915,8 +1944,9 @@ pub fn render_component_inner<'a>(
         .as_ref()
         .map(|t| AzString::from(format_args_dynamic(t, &filtered_xml_attributes.args)));
 
-    let mut dom_string =
-        renderer.compile_to_rust_code(component_map, &filtered_xml_attributes, &text.into())?;
+    let mut dom_string = xml_component.renderer
+        .compile_to_rust_code(component_map, &filtered_xml_attributes, &text.into())?;
+
     set_stringified_attributes(
         &mut dom_string,
         &xml_node.attributes,
@@ -1933,6 +1963,7 @@ pub fn render_component_inner<'a>(
 
     let mut css_blocks = BTreeMap::new();
     let mut extra_blocks = VecContents::default();
+
     if !xml_node.children.as_ref().is_empty() {
         dom_string.push_str(&format!(
             "\r\n{}.with_children(DomVec::from_vec(vec![\r\n",
@@ -2402,7 +2433,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
 
     let component_name = normalize_casing(&node.node_type);
 
-    let (renderer, inherit_variables) =
+    let xml_component =
         component_map
             .components
             .get(&component_name)
@@ -2411,11 +2442,11 @@ pub fn compile_node_to_rust_code_inner<'a>(
             ))?;
 
     // Arguments of the current node
-    let available_function_args = renderer.get_available_arguments();
+    let available_function_args = xml_component.renderer.get_available_arguments();
     let mut filtered_xml_attributes =
         validate_and_filter_component_args(&node.attributes, &available_function_args)?;
 
-    if *inherit_variables {
+    if xml_component.inherit_vars {
         // Append all variables that are in scope for the parent node
         filtered_xml_attributes
             .args
@@ -2501,15 +2532,18 @@ pub fn compile_node_to_rust_code_inner<'a>(
         .get_key("id")
         .map(|s| s.split_whitespace().collect::<Vec<_>>())
         .unwrap_or_default();
+
     matcher.path.extend(
         ids.into_iter()
             .map(|id| CssPathSelector::Id(id.to_string().into())),
     );
+
     let classes = node
         .attributes
         .get_key("class")
         .map(|s| s.split_whitespace().collect::<Vec<_>>())
         .unwrap_or_default();
+
     matcher.path.extend(
         classes
             .into_iter()
@@ -2658,7 +2692,7 @@ impl DynamicXmlComponent {
     }
 }
 
-impl XmlComponent for DynamicXmlComponent {
+impl XmlComponentTrait for DynamicXmlComponent {
     fn get_available_arguments(&self) -> ComponentArguments {
         self.arguments.clone()
     }
