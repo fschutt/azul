@@ -1430,7 +1430,7 @@ pub fn compile_component(
     component_args: &ComponentArguments,
     component_function_body: &str,
 ) -> String {
-    let name = &normalize_casing(&name);
+    let component_name = &normalize_casing(&component_name);
     let function_args = format_component_args(&component_args.args);
     let component_function_body = component_function_body
         .lines()
