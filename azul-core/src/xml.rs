@@ -590,33 +590,47 @@ impl_vec_hash!(XmlNode, XmlNodeVec);
 impl_vec_clone!(XmlNode, XmlNodeVec, XmlNodeVecDestructor);
 
 pub struct XmlComponent {
+    pub id: String,
     /// DOM rendering component (boxed trait)
     pub renderer: Box<dyn XmlComponentTrait>,
     /// Whether this component should inherit variables from the parent scope
     pub inherit_vars: bool,
 }
 
+impl core::fmt::Debug for XmlComponent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("XmlComponent")
+        .field("id", &self.id)
+        .field("args", &self.renderer.get_available_arguments())
+        .field("inherit_vars", &self.inherit_vars)
+        .finish()
+    }
+}
+
 /// Holds all XML components - builtin components
 pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
     /// + whether this component should inherit variables from the parent scope
-    components: BTreeMap<String, XmlComponent>,
+    components: Vec<XmlComponent>,
 }
 
 impl Default for XmlComponentMap {
     fn default() -> Self {
         let mut map = Self {
-            components: BTreeMap::new(),
+            components: Vec::new(),
         };
-        map.register_component("body", XmlComponent { 
+        map.register_component(XmlComponent { 
+            id: normalize_casing("body"),
             renderer: Box::new(BodyRenderer::new()), 
             inherit_vars: true 
         });
-        map.register_component("div", XmlComponent { 
+        map.register_component(XmlComponent { 
+            id: normalize_casing("div"),
             renderer: Box::new(DivRenderer::new()), 
             inherit_vars: true 
         });
-        map.register_component("p", XmlComponent { 
+        map.register_component(XmlComponent { 
+            id: normalize_casing("p"),
             renderer: Box::new(TextRenderer::new()), 
             inherit_vars: true 
         });
@@ -627,11 +641,9 @@ impl Default for XmlComponentMap {
 impl XmlComponentMap {
     pub fn register_component(
         &mut self,
-        id: &str,
         comp: XmlComponent,
     ) {
-        self.components
-            .insert(normalize_casing(id), comp);
+        self.components.push(comp);
     }
 }
 
@@ -1204,7 +1216,8 @@ pub fn str_to_dom<'a>(
             match DynamicXmlComponent::new(node) {
                 Ok(node) => {
                     let node_name = node.name.clone();
-                    component_map.register_component(node_name.as_str(), XmlComponent {
+                    component_map.register_component(XmlComponent {
+                        id: normalize_casing(&node_name),
                         renderer: Box::new(node), 
                         inherit_vars: false,
                     });
@@ -1247,7 +1260,8 @@ pub fn str_to_rust_code<'a>(
             match DynamicXmlComponent::new(node) {
                 Ok(node) => {
                     let node_name = node.name.clone();
-                    component_map.register_component(node_name.as_str(), XmlComponent {
+                    component_map.register_component(XmlComponent {
+                        id: normalize_casing(&node_name),
                         renderer: Box::new(node), 
                         inherit_vars: false,
                     });
@@ -1359,16 +1373,17 @@ fn main() {
 
 // Compile all components to source code
 pub fn compile_components(
-    components: BTreeMap<
-        ComponentName,
+    components: Vec<
         (
+            ComponentName,
             CompiledComponent,
             FilteredComponentArguments,
             BTreeMap<String, String>,
         ),
     >,
 ) -> String {
-    let cs = components.iter().map(|(name, (function_body, function_args, css_blocks))| {
+    let cs = components.iter().map(|(name, function_body, function_args, css_blocks)| {
+        let name = &normalize_casing(&name);
         let f = compile_component(name, function_args, function_body)
         .lines()
         .map(|l| format!("    {}", l))
@@ -1415,6 +1430,7 @@ pub fn compile_component(
     component_args: &ComponentArguments,
     component_function_body: &str,
 ) -> String {
+    let name = &normalize_casing(&name);
     let function_args = format_component_args(&component_args.args);
     let component_function_body = component_function_body
         .lines()
@@ -1475,7 +1491,8 @@ pub fn render_dom_from_body_node_inner<'a>(
     let xml_component =
         component_map
             .components
-            .get(&component_name)
+            .iter()
+            .find(|s| normalize_casing(&s.id) == component_name)
             .ok_or(ComponentError::UnknownComponent(
                 component_name.clone().into(),
             ))?;
@@ -1894,9 +1911,9 @@ pub fn parse_bool(input: &str) -> Option<bool> {
 }
 
 pub fn render_component_inner<'a>(
-    map: &mut BTreeMap<
-        ComponentName,
+    map: &mut Vec<
         (
+            ComponentName,
             CompiledComponent,
             FilteredComponentArguments,
             BTreeMap<String, String>,
@@ -1994,10 +2011,12 @@ pub fn render_component_inner<'a>(
         dom_string.push_str(&format!("\r\n{}]))", t));
     }
 
-    map.insert(
-        component_name,
-        (dom_string, filtered_xml_attributes, css_blocks),
-    );
+    map.push((
+        component_name, 
+        dom_string, 
+        filtered_xml_attributes, 
+        css_blocks
+    ));
 
     Ok(())
 }
@@ -2006,9 +2025,9 @@ pub fn render_component_inner<'a>(
 pub fn compile_components_to_rust_code(
     components: &XmlComponentMap,
 ) -> Result<
-    BTreeMap<
-        ComponentName,
+    Vec<
         (
+            ComponentName,
             CompiledComponent,
             FilteredComponentArguments,
             BTreeMap<String, String>,
@@ -2016,12 +2035,12 @@ pub fn compile_components_to_rust_code(
     >,
     CompileError,
 > {
-    let mut map = BTreeMap::new();
+    let mut map = Vec::new();
 
-    for (xml_node_name, xml_component) in &components.components {
+    for xml_component in &components.components {
         render_component_inner(
             &mut map,
-            xml_node_name.clone(),
+            normalize_casing(&xml_component.id),
             xml_component,
             &components,
             &FilteredComponentArguments::default(),
@@ -2436,7 +2455,8 @@ pub fn compile_node_to_rust_code_inner<'a>(
     let xml_component =
         component_map
             .components
-            .get(&component_name)
+            .iter()
+            .find(|s| normalize_casing(&s.id) == component_name)
             .ok_or(ComponentError::UnknownComponent(
                 component_name.clone().into(),
             ))?;
