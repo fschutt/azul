@@ -6,11 +6,15 @@ use crate::styled_dom::StyledDom;
 use crate::window::{AzStringPair, StringPairVec};
 use alloc::collections::BTreeMap;
 use azul_css::{
-    AzString, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssProperty, CssRuleBlock, NodeTypeTag, NormalizedLinearColorStopVec, NormalizedRadialColorStopVec, OptionAzString, StyleBackgroundContentVec, StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec
+    AzString, Css, CssDeclaration, CssPath, CssPathPseudoSelector, 
+    CssPathSelector, CssProperty, CssRuleBlock, NodeTypeTag, NormalizedLinearColorStopVec, 
+    NormalizedRadialColorStopVec, OptionAzString, StyleBackgroundContentVec, 
+    StyleBackgroundPositionVec, StyleBackgroundRepeatVec, StyleBackgroundSizeVec, 
+    StyleFontFamilyVec, StyleTransformVec, U8Vec
 };
 use azul_css_parser::ErrorLocation;
 #[cfg(feature = "css_parser")]
-use azul_css_parser::{CssApiWrapper, CssParseError};
+use azul_css_parser::{CssApiWrapper, CssParseErrorOwned};
 use core::fmt;
 
 /// Error that can happen during hot-reload -
@@ -438,17 +442,24 @@ impl ComponentArguments {
 /// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponentTrait {
 
+    /// Returns the type ID of this component, default = `div`
+    fn get_type_id(&self) -> String {
+        "div".to_string()
+    }
+
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom<'a>(
-        &'a self,
-        components: &'a XmlComponentMap,
+    fn render_dom(
+        &self,
+        components: &XmlComponentMap,
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError<'a>>;
+    ) -> Result<StyledDom, RenderDomError>;
 
     /// Returns the XML node for this component, used in the `get_html_string` debugging code
     /// (necessary to compile the component into a function during the Rust compilation stage)
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode;
+    fn get_xml_node(&self) -> XmlNode {
+        XmlNode::new(self.get_type_id())
+    }
 
     /// (Optional): Should return all arguments that this component can take - for example if you have a
     /// component called `Calendar`, which can take a `selectedDate` argument:
@@ -537,10 +548,10 @@ impl DomXml {
     /// ```
     #[cfg(test)]
     pub fn assert_eq(self, other: StyledDom) {
-        let fixed = StyledDom::body().append(other);
+        let fixed = Dom::body().style(CssApiWrapper::empty()).append(other);
         if self.parsed_dom != fixed {
             panic!("\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: ----------\r\n{}\r\n",
-                expected.get_html_string(), fixed.get_html_string()
+                self.parsed_dom.get_html_string("", "", true), fixed.get_html_string("", "", true)
             );
         }
     }
@@ -648,7 +659,7 @@ impl XmlComponentMap {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum DomXmlParseError<'a> {
+pub enum DomXmlParseError {
     /// No `<html></html>` node component present
     NoHtmlNode,
     /// Multiple `<html>` nodes
@@ -665,33 +676,33 @@ pub enum DomXmlParseError<'a> {
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(AzString, AzString),
     /// A component raised an error while rendering the DOM - holds the component name + error string
-    RenderDom(RenderDomError<'a>),
+    RenderDom(RenderDomError),
     /// Something went wrong while parsing an XML component
-    Component(ComponentParseError<'a>),
+    Component(ComponentParseError),
     /// Error parsing global CSS in head node
-    Css(CssParseError<'a>),
+    Css(CssParseErrorOwned),
 }
 
-impl<'a> From<XmlError> for DomXmlParseError<'a> {
+impl From<XmlError> for DomXmlParseError {
     fn from(e: XmlError) -> Self {
         Self::Xml(e)
     }
 }
 
-impl<'a> From<ComponentParseError<'a>> for DomXmlParseError<'a> {
-    fn from(e: ComponentParseError<'a>) -> Self {
+impl From<ComponentParseError> for DomXmlParseError {
+    fn from(e: ComponentParseError) -> Self {
         Self::Component(e)
     }
 }
 
-impl<'a> From<RenderDomError<'a>> for DomXmlParseError<'a> {
-    fn from(e: RenderDomError<'a>) -> Self {
+impl From<RenderDomError> for DomXmlParseError {
+    fn from(e: RenderDomError) -> Self {
         Self::RenderDom(e)
     }
 }
 
-impl<'a> From<CssParseError<'a>> for DomXmlParseError<'a> {
-    fn from(e: CssParseError<'a>) -> Self {
+impl From<CssParseErrorOwned> for DomXmlParseError {
+    fn from(e: CssParseErrorOwned) -> Self {
         Self::Css(e)
     }
 }
@@ -699,43 +710,43 @@ impl<'a> From<CssParseError<'a>> for DomXmlParseError<'a> {
 /// Error that can happen from the translation from XML code to Rust code -
 /// stringified, since it is only used for printing and is not exposed in the public API
 #[derive(Debug, Clone, PartialEq)]
-pub enum CompileError<'a> {
-    Dom(RenderDomError<'a>),
-    Xml(DomXmlParseError<'a>),
-    Css(CssParseError<'a>),
+pub enum CompileError {
+    Dom(RenderDomError),
+    Xml(DomXmlParseError),
+    Css(CssParseErrorOwned),
 }
 
-impl<'a> From<ComponentError> for CompileError<'a> {
+impl From<ComponentError> for CompileError {
     fn from(e: ComponentError) -> Self {
         CompileError::Dom(RenderDomError::Component(e))
     }
 }
 
-impl<'a> From<CssParseError<'a>> for CompileError<'a> {
-    fn from(e: CssParseError<'a>) -> Self {
+impl From<CssParseErrorOwned> for CompileError {
+    fn from(e: CssParseErrorOwned) -> Self {
         CompileError::Css(e)
     }
 }
 
-impl<'a> fmt::Display for CompileError<'a> {
+impl<'a> fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::CompileError::*;
         match self {
             Dom(d) => write!(f, "{}", d),
             Xml(s) => write!(f, "{}", s),
-            Css(s) => write!(f, "{}", s),
+            Css(s) => write!(f, "{}", s.to_shared()),
         }
     }
 }
 
-impl<'a> From<RenderDomError<'a>> for CompileError<'a> {
-    fn from(e: RenderDomError<'a>) -> Self {
+impl From<RenderDomError> for CompileError {
+    fn from(e: RenderDomError) -> Self {
         CompileError::Dom(e)
     }
 }
 
-impl<'a> From<DomXmlParseError<'a>> for CompileError<'a> {
-    fn from(e: DomXmlParseError<'a>) -> Self {
+impl From<DomXmlParseError> for CompileError {
+    fn from(e: DomXmlParseError) -> Self {
         CompileError::Xml(e)
     }
 }
@@ -753,26 +764,26 @@ pub enum ComponentError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RenderDomError<'a> {
+pub enum RenderDomError {
     Component(ComponentError),
     /// Error parsing the CSS on the component style
-    CssError(CssParseError<'a>),
+    CssError(CssParseErrorOwned),
 }
 
-impl<'a> From<ComponentError> for RenderDomError<'a> {
+impl From<ComponentError> for RenderDomError {
     fn from(e: ComponentError) -> Self {
         Self::Component(e)
     }
 }
 
-impl<'a> From<CssParseError<'a>> for RenderDomError<'a> {
-    fn from(e: CssParseError<'a>) -> Self {
+impl From<CssParseErrorOwned> for RenderDomError {
+    fn from(e: CssParseErrorOwned) -> Self {
         Self::CssError(e)
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComponentParseError<'a> {
+pub enum ComponentParseError {
     /// Given XmlNode is not a `<component />` node.
     NotAComponent,
     /// A `<component>` node does not have a `name` attribute.
@@ -789,10 +800,10 @@ pub enum ComponentParseError<'a> {
     /// (probably missing a `,` between the type and the next name)
     WhiteSpaceInComponentType(usize, AzString, AzString),
     /// Error parsing the <style> tag / CSS
-    CssError(CssParseError<'a>),
+    CssError(CssParseErrorOwned),
 }
 
-impl<'a> fmt::Display for DomXmlParseError<'a> {
+impl<'a> fmt::Display for DomXmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::DomXmlParseError::*;
         match self {
@@ -804,12 +815,12 @@ impl<'a> fmt::Display for DomXmlParseError<'a> {
             MalformedHierarchy(got, expected) => write!(f, "Invalid </{}> tag: expected </{}>", got.as_str(), expected.as_str()),
             RenderDom(e) => write!(f, "Error rendering DOM: {}", e),
             Component(c) => write!(f, "Error parsing component in <head> node:\r\n{}", c),
-            Css(c) => write!(f, "Error parsing CSS in <head> node:\r\n{}", c),
+            Css(c) => write!(f, "Error parsing CSS in <head> node:\r\n{}", c.to_shared()),
         }
     }
 }
 
-impl<'a> fmt::Display for ComponentParseError<'a> {
+impl<'a> fmt::Display for ComponentParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::ComponentParseError::*;
         match self {
@@ -841,7 +852,7 @@ impl<'a> fmt::Display for ComponentParseError<'a> {
                        arg_name, arg_pos, arg_type_unparsed
                 )
             }
-            CssError(lsf) => write!(f, "Error parsing <style> tag: {}", lsf),
+            CssError(lsf) => write!(f, "Error parsing <style> tag: {}", lsf.to_shared()),
         }
     }
 }
@@ -862,12 +873,12 @@ impl fmt::Display for ComponentError {
     }
 }
 
-impl<'a> fmt::Display for RenderDomError<'a> {
+impl<'a> fmt::Display for RenderDomError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::RenderDomError::*;
         match self {
             Component(c) => write!(f, "{}", c),
-            CssError(e) => write!(f, "Error parsing CSS in component: {}", e),
+            CssError(e) => write!(f, "Error parsing CSS in component: {}", e.to_shared()),
         }
     }
 }
@@ -911,8 +922,8 @@ impl XmlComponentTrait for DivRenderer {
         Ok("Dom::div()".into())
     }
 
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
-        &self.node
+    fn get_xml_node(&self) -> XmlNode {
+        self.node.clone()
     }
 }
 
@@ -953,8 +964,8 @@ impl XmlComponentTrait for BodyRenderer {
         Ok("Dom::body()".into())
     }
 
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
-        &self.node
+    fn get_xml_node(&self) -> XmlNode {
+        self.node.clone()
     }
 }
 
@@ -1002,15 +1013,15 @@ impl XmlComponentTrait for TextRenderer {
         Ok(String::from("Dom::text(text)"))
     }
 
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
-        &self.node
+    fn get_xml_node(&self) -> XmlNode {
+        self.node.clone()
     }
 }
 
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
 pub fn parse_component_arguments<'a>(
     input: &'a str,
-) -> Result<ComponentArgumentsMap, ComponentParseError<'a>> {
+) -> Result<ComponentArgumentsMap, ComponentParseError> {
     use self::ComponentParseError::*;
 
     let mut args = ComponentArgumentsMap::default();
@@ -1204,7 +1215,7 @@ fn get_item_internal<'a>(
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNode],
     component_map: &'a mut XmlComponentMap,
-) -> Result<StyledDom, DomXmlParseError<'a>> {
+) -> Result<StyledDom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
 
@@ -1245,7 +1256,7 @@ pub fn str_to_rust_code<'a>(
     root_nodes: &'a [XmlNode],
     imports: &str,
     component_map: &'a mut XmlComponentMap,
-) -> Result<String, CompileError<'a>> {
+) -> Result<String, CompileError> {
     let html_node = get_html_node(&root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
     let mut global_style = Css::empty();
@@ -1273,7 +1284,7 @@ pub fn str_to_rust_code<'a>(
 
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
-                let parsed_css = azul_css_parser::new_from_str(&text)?;
+                let parsed_css = azul_css_parser::new_from_str(&text).map_err(|e| e.to_contained())?;
                 global_style = parsed_css;
             }
         }
@@ -1461,7 +1472,7 @@ pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap,
-) -> Result<StyledDom, RenderDomError<'a>> {
+) -> Result<StyledDom, RenderDomError> {
     // Don't actually render the <body></body> node itself
     let mut dom = StyledDom::default();
 
@@ -1485,7 +1496,7 @@ pub fn render_dom_from_body_node_inner<'a>(
     xml_node: &'a XmlNode,
     component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
-) -> Result<StyledDom, RenderDomError<'a>> {
+) -> Result<StyledDom, RenderDomError> {
     let component_name = normalize_casing(&xml_node.node_type);
 
     let xml_component =
@@ -1924,7 +1935,7 @@ pub fn render_component_inner<'a>(
     component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
-) -> Result<(), CompileError<'a>> {
+) -> Result<(), CompileError> {
     let t = String::from("    ").repeat(tabs - 1);
     let t1 = String::from("    ").repeat(tabs);
 
@@ -1934,8 +1945,8 @@ pub fn render_component_inner<'a>(
     let mut css = match find_node_by_type(xml_node.children.as_ref(), "style")
         .and_then(|style_node| style_node.text.as_ref().map(|s| s.as_str()))
     {
-        Some(text) => azul_css_parser::new_from_str(&text)?,
-        None => Css::empty(),
+        Some(text) => azul_css_parser::new_from_str(&text).map_err(|e| e.to_contained())?,
+        None => Css::empty(),  
     };
 
     css.sort_by_specificity();
@@ -2248,7 +2259,7 @@ pub fn compile_body_node_to_rust_code<'a>(
     css_blocks: &mut BTreeMap<String, String>,
     css: &Css,
     mut matcher: CssMatcher,
-) -> Result<String, CompileError<'a>> {
+) -> Result<String, CompileError> {
     use azul_css::CssDeclaration;
 
     let t = "";
@@ -2436,7 +2447,7 @@ fn format_args_for_rust_code(input: &str) -> String {
 }
 
 pub fn compile_node_to_rust_code_inner<'a>(
-    node: &'a XmlNode,
+    node: &XmlNode,
     component_map: &'a XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
@@ -2444,7 +2455,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     css_blocks: &mut BTreeMap<String, String>,
     css: &Css,
     mut matcher: CssMatcher,
-) -> Result<String, CompileError<'a>> {
+) -> Result<String, CompileError> {
     use azul_css::CssDeclaration;
 
     let t = String::from("    ").repeat(tabs - 1);
@@ -2681,7 +2692,7 @@ pub struct DynamicXmlComponent {
 
 impl DynamicXmlComponent {
     /// Parses a `component` from an XML node
-    pub fn new<'a>(root: &'a XmlNode) -> Result<Self, ComponentParseError<'a>> {
+    pub fn new<'a>(root: &'a XmlNode) -> Result<Self, ComponentParseError> {
         let node_type = normalize_casing(&root.node_type);
 
         if node_type.as_str() != "component" {
@@ -2717,8 +2728,8 @@ impl XmlComponentTrait for DynamicXmlComponent {
         self.arguments.clone()
     }
 
-    fn get_xml_node<'a>(&'a self) -> &'a XmlNode {
-        &self.root
+    fn get_xml_node(&self) -> XmlNode {
+        self.root.clone()
     }
 
     fn render_dom<'a>(
@@ -2726,7 +2737,7 @@ impl XmlComponentTrait for DynamicXmlComponent {
         components: &'a XmlComponentMap,
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError<'a>> {
+    ) -> Result<StyledDom, RenderDomError> {
         let mut component_css = match find_node_by_type(self.root.children.as_ref(), "style") {
             Some(style_node) => {
                 if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {

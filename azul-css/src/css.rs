@@ -356,6 +356,28 @@ impl<'a> fmt::Display for NodeTypeTagParseError<'a> {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NodeTypeTagParseErrorOwned {
+    Invalid(String),
+}
+
+impl<'a> NodeTypeTagParseError<'a> {
+    pub fn to_contained(&self) -> NodeTypeTagParseErrorOwned {
+        match self {
+            NodeTypeTagParseError::Invalid(s) => NodeTypeTagParseErrorOwned::Invalid(s.to_string()),
+        }
+    }
+}
+
+impl NodeTypeTagParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> NodeTypeTagParseError<'a> {
+        match self {
+            NodeTypeTagParseErrorOwned::Invalid(s) => NodeTypeTagParseError::Invalid(s),
+        }
+    }
+}
+
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
     pub fn from_str(css_key: &str) -> Result<Self, NodeTypeTagParseError> {

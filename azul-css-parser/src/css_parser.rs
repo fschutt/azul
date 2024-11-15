@@ -624,9 +624,109 @@ impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssParsingErrorOwned {
+    CssBorderParseError(CssBorderParseErrorOwned),
+    CssShadowParseError(CssShadowParseErrorOwned),
+    InvalidValueErr(InvalidValueErrOwned),
+    PixelParseError(CssPixelValueParseErrorOwned),
+    PercentageParseError(PercentageParseError),
+    CssImageParseError(CssImageParseErrorOwned),
+    CssStyleFontFamilyParseError(CssStyleFontFamilyParseErrorOwned),
+    CssBackgroundParseError(CssBackgroundParseErrorOwned),
+    CssColorParseError(CssColorParseErrorOwned),
+    CssStyleBorderRadiusParseError(CssStyleBorderRadiusParseErrorOwned),
+    PaddingParseError(LayoutPaddingParseErrorOwned),
+    MarginParseError(LayoutMarginParseErrorOwned),
+    FlexShrinkParseError(FlexShrinkParseErrorOwned),
+    FlexGrowParseError(FlexGrowParseErrorOwned),
+    BackgroundPositionParseError(CssBackgroundPositionParseErrorOwned),
+    TransformParseError(CssStyleTransformParseErrorOwned),
+    TransformOriginParseError(CssStyleTransformOriginParseErrorOwned),
+    PerspectiveOriginParseError(CssStylePerspectiveOriginParseErrorOwned),
+    Opacity(OpacityParseErrorOwned),
+    Scrollbar(CssScrollbarStyleParseErrorOwned),
+    Filter(CssStyleFilterParseErrorOwned),
+}
+
+// Implement `to_contained` and `to_shared` for CssParsingError
+impl<'a> CssParsingError<'a> {
+    pub fn to_contained(&self) -> CssParsingErrorOwned {
+        match self {
+            CssParsingError::CssBorderParseError(e) => CssParsingErrorOwned::CssBorderParseError(e.to_contained()),
+            CssParsingError::CssShadowParseError(e) => CssParsingErrorOwned::CssShadowParseError(e.to_contained()),
+            CssParsingError::InvalidValueErr(e) => CssParsingErrorOwned::InvalidValueErr(e.to_contained()),
+            CssParsingError::PixelParseError(e) => CssParsingErrorOwned::PixelParseError(e.to_contained()),
+            CssParsingError::PercentageParseError(e) => CssParsingErrorOwned::PercentageParseError(e.clone()),
+            CssParsingError::CssImageParseError(e) => CssParsingErrorOwned::CssImageParseError(e.to_contained()),
+            CssParsingError::CssStyleFontFamilyParseError(e) => CssParsingErrorOwned::CssStyleFontFamilyParseError(e.to_contained()),
+            CssParsingError::CssBackgroundParseError(e) => CssParsingErrorOwned::CssBackgroundParseError(e.to_contained()),
+            CssParsingError::CssColorParseError(e) => CssParsingErrorOwned::CssColorParseError(e.to_contained()),
+            CssParsingError::CssStyleBorderRadiusParseError(e) => CssParsingErrorOwned::CssStyleBorderRadiusParseError(e.to_contained()),
+            CssParsingError::PaddingParseError(e) => CssParsingErrorOwned::PaddingParseError(e.to_contained()),
+            CssParsingError::MarginParseError(e) => CssParsingErrorOwned::MarginParseError(e.to_contained()),
+            CssParsingError::FlexShrinkParseError(e) => CssParsingErrorOwned::FlexShrinkParseError(e.to_contained()),
+            CssParsingError::FlexGrowParseError(e) => CssParsingErrorOwned::FlexGrowParseError(e.to_contained()),
+            CssParsingError::BackgroundPositionParseError(e) => CssParsingErrorOwned::BackgroundPositionParseError(e.to_contained()),
+            CssParsingError::TransformParseError(e) => CssParsingErrorOwned::TransformParseError(e.to_contained()),
+            CssParsingError::TransformOriginParseError(e) => CssParsingErrorOwned::TransformOriginParseError(e.to_contained()),
+            CssParsingError::PerspectiveOriginParseError(e) => CssParsingErrorOwned::PerspectiveOriginParseError(e.to_contained()),
+            CssParsingError::Opacity(e) => CssParsingErrorOwned::Opacity(e.to_contained()),
+            CssParsingError::Scrollbar(e) => CssParsingErrorOwned::Scrollbar(e.to_contained()),
+            CssParsingError::Filter(e) => CssParsingErrorOwned::Filter(e.to_contained()),
+        }
+    }
+}
+
+impl CssParsingErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssParsingError<'a> {
+        match self {
+            CssParsingErrorOwned::CssBorderParseError(e) => CssParsingError::CssBorderParseError(e.to_shared()),
+            CssParsingErrorOwned::CssShadowParseError(e) => CssParsingError::CssShadowParseError(e.to_shared()),
+            CssParsingErrorOwned::InvalidValueErr(e) => CssParsingError::InvalidValueErr(e.to_shared()),
+            CssParsingErrorOwned::PixelParseError(e) => CssParsingError::PixelParseError(e.to_shared()),
+            CssParsingErrorOwned::PercentageParseError(e) => CssParsingError::PercentageParseError(e.clone()),
+            CssParsingErrorOwned::CssImageParseError(e) => CssParsingError::CssImageParseError(e.to_shared()),
+            CssParsingErrorOwned::CssStyleFontFamilyParseError(e) => CssParsingError::CssStyleFontFamilyParseError(e.to_shared()),
+            CssParsingErrorOwned::CssBackgroundParseError(e) => CssParsingError::CssBackgroundParseError(e.to_shared()),
+            CssParsingErrorOwned::CssColorParseError(e) => CssParsingError::CssColorParseError(e.to_shared()),
+            CssParsingErrorOwned::CssStyleBorderRadiusParseError(e) => CssParsingError::CssStyleBorderRadiusParseError(e.to_shared()),
+            CssParsingErrorOwned::PaddingParseError(e) => CssParsingError::PaddingParseError(e.to_shared()),
+            CssParsingErrorOwned::MarginParseError(e) => CssParsingError::MarginParseError(e.to_shared()),
+            CssParsingErrorOwned::FlexShrinkParseError(e) => CssParsingError::FlexShrinkParseError(e.to_shared()),
+            CssParsingErrorOwned::FlexGrowParseError(e) => CssParsingError::FlexGrowParseError(e.to_shared()),
+            CssParsingErrorOwned::BackgroundPositionParseError(e) => CssParsingError::BackgroundPositionParseError(e.to_shared()),
+            CssParsingErrorOwned::TransformParseError(e) => CssParsingError::TransformParseError(e.to_shared()),
+            CssParsingErrorOwned::TransformOriginParseError(e) => CssParsingError::TransformOriginParseError(e.to_shared()),
+            CssParsingErrorOwned::PerspectiveOriginParseError(e) => CssParsingError::PerspectiveOriginParseError(e.to_shared()),
+            CssParsingErrorOwned::Opacity(e) => CssParsingError::Opacity(e.to_shared()),
+            CssParsingErrorOwned::Scrollbar(e) => CssParsingError::Scrollbar(e.to_shared()),
+            CssParsingErrorOwned::Filter(e) => CssParsingError::Filter(e.to_shared()),
+        }
+    }
+}
+
 /// Simple "invalid value" error, used for
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InvalidValueErr<'a>(pub &'a str);
+
+
+/// Owned version of InvalidValueErr with String.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InvalidValueErrOwned(pub String);
+
+impl<'a> InvalidValueErr<'a> {
+    pub fn to_contained(&self) -> InvalidValueErrOwned {
+        InvalidValueErrOwned(self.0.to_string())
+    }
+}
+
+impl InvalidValueErrOwned {
+    pub fn to_shared<'a>(&'a self) -> InvalidValueErr<'a> {
+        InvalidValueErr(&self.0)
+    }
+}
 
 #[derive(Clone, PartialEq)]
 pub enum CssStyleBorderRadiusParseError<'a> {
@@ -641,6 +741,32 @@ impl_display!{ CssStyleBorderRadiusParseError<'a>, {
 }}
 
 impl_from!(CssPixelValueParseError<'a>, CssStyleBorderRadiusParseError::CssPixelValueParseError);
+
+
+// Owned version
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleBorderRadiusParseErrorOwned {
+    TooManyValues(String),
+    CssPixelValueParseError(CssPixelValueParseErrorOwned),
+}
+
+impl<'a> CssStyleBorderRadiusParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleBorderRadiusParseErrorOwned {
+        match self {
+            CssStyleBorderRadiusParseError::TooManyValues(s) => CssStyleBorderRadiusParseErrorOwned::TooManyValues(s.to_string()),
+            CssStyleBorderRadiusParseError::CssPixelValueParseError(e) => CssStyleBorderRadiusParseErrorOwned::CssPixelValueParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssStyleBorderRadiusParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleBorderRadiusParseError<'a> {
+        match self {
+            CssStyleBorderRadiusParseErrorOwned::TooManyValues(s) => CssStyleBorderRadiusParseError::TooManyValues(s),
+            CssStyleBorderRadiusParseErrorOwned::CssPixelValueParseError(e) => CssStyleBorderRadiusParseError::CssPixelValueParseError(e.to_shared()),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum CssColorComponent {
@@ -701,6 +827,64 @@ impl<'a> From<ParseFloatError> for CssColorParseError<'a> {
 
 impl_from!(CssDirectionParseError<'a>, CssColorParseError::DirectionParseError);
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssColorParseErrorOwned {
+    InvalidColor(String),
+    InvalidFunctionName(String),
+    InvalidColorComponent(u8),
+    IntValueParseErr(ParseIntError),
+    FloatValueParseErr(ParseFloatError),
+    FloatValueOutOfRange(f32),
+    MissingColorComponent(CssColorComponent),
+    ExtraArguments(String),
+    UnclosedColor(String),
+    EmptyInput,
+    DirectionParseError(CssDirectionParseErrorOwned),
+    UnsupportedDirection(String),
+    InvalidPercentage(PercentageParseError),
+}
+
+impl<'a> CssColorParseError<'a> {
+    pub fn to_contained(&self) -> CssColorParseErrorOwned {
+        match self {
+            CssColorParseError::InvalidColor(s) => CssColorParseErrorOwned::InvalidColor(s.to_string()),
+            CssColorParseError::InvalidFunctionName(s) => CssColorParseErrorOwned::InvalidFunctionName(s.to_string()),
+            CssColorParseError::InvalidColorComponent(n) => CssColorParseErrorOwned::InvalidColorComponent(*n),
+            CssColorParseError::IntValueParseErr(e) => CssColorParseErrorOwned::IntValueParseErr(e.clone()),
+            CssColorParseError::FloatValueParseErr(e) => CssColorParseErrorOwned::FloatValueParseErr(e.clone()),
+            CssColorParseError::FloatValueOutOfRange(n) => CssColorParseErrorOwned::FloatValueOutOfRange(*n),
+            CssColorParseError::MissingColorComponent(c) => CssColorParseErrorOwned::MissingColorComponent(*c),
+            CssColorParseError::ExtraArguments(s) => CssColorParseErrorOwned::ExtraArguments(s.to_string()),
+            CssColorParseError::UnclosedColor(s) => CssColorParseErrorOwned::UnclosedColor(s.to_string()),
+            CssColorParseError::EmptyInput => CssColorParseErrorOwned::EmptyInput,
+            CssColorParseError::DirectionParseError(e) => CssColorParseErrorOwned::DirectionParseError(e.to_contained()),
+            CssColorParseError::UnsupportedDirection(s) => CssColorParseErrorOwned::UnsupportedDirection(s.to_string()),
+            CssColorParseError::InvalidPercentage(e) => CssColorParseErrorOwned::InvalidPercentage(e.clone()),
+        }
+    }
+}
+
+impl CssColorParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssColorParseError<'a> {
+        match self {
+            CssColorParseErrorOwned::InvalidColor(s) => CssColorParseError::InvalidColor(s),
+            CssColorParseErrorOwned::InvalidFunctionName(s) => CssColorParseError::InvalidFunctionName(s),
+            CssColorParseErrorOwned::InvalidColorComponent(n) => CssColorParseError::InvalidColorComponent(*n),
+            CssColorParseErrorOwned::IntValueParseErr(e) => CssColorParseError::IntValueParseErr(e.clone()),
+            CssColorParseErrorOwned::FloatValueParseErr(e) => CssColorParseError::FloatValueParseErr(e.clone()),
+            CssColorParseErrorOwned::FloatValueOutOfRange(n) => CssColorParseError::FloatValueOutOfRange(*n),
+            CssColorParseErrorOwned::MissingColorComponent(c) => CssColorParseError::MissingColorComponent(*c),
+            CssColorParseErrorOwned::ExtraArguments(s) => CssColorParseError::ExtraArguments(s),
+            CssColorParseErrorOwned::UnclosedColor(s) => CssColorParseError::UnclosedColor(s),
+            CssColorParseErrorOwned::EmptyInput => CssColorParseError::EmptyInput,
+            CssColorParseErrorOwned::DirectionParseError(e) => CssColorParseError::DirectionParseError(e.to_shared()),
+            CssColorParseErrorOwned::UnsupportedDirection(s) => CssColorParseError::UnsupportedDirection(s),
+            CssColorParseErrorOwned::InvalidPercentage(e) => CssColorParseError::InvalidPercentage(e.clone()),
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq)]
 pub enum CssImageParseError<'a> {
     UnclosedQuotes(&'a str),
@@ -710,6 +894,29 @@ impl_debug_as_display!(CssImageParseError<'a>);
 impl_display!{CssImageParseError<'a>, {
     UnclosedQuotes(e) => format!("Unclosed quotes: \"{}\"", e),
 }}
+
+
+/// Owned version of CssImageParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssImageParseErrorOwned {
+    UnclosedQuotes(String),
+}
+
+impl<'a> CssImageParseError<'a> {
+    pub fn to_contained(&self) -> CssImageParseErrorOwned {
+        match self {
+            CssImageParseError::UnclosedQuotes(s) => CssImageParseErrorOwned::UnclosedQuotes(s.to_string()),
+        }
+    }
+}
+
+impl CssImageParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssImageParseError<'a> {
+        match self {
+            CssImageParseErrorOwned::UnclosedQuotes(s) => CssImageParseError::UnclosedQuotes(s.as_str()),
+        }
+    }
+}
 
 /// String has unbalanced `'` or `"` quotation marks
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -738,6 +945,41 @@ impl_display!{ CssBorderParseError<'a>, {
     ColorParseError(e) => format!("Invalid color: {}", e),
 }}
 
+
+/// Owned version of CssBorderParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssBorderParseErrorOwned {
+    MissingThickness(String),
+    InvalidBorderStyle(InvalidValueErrOwned),
+    InvalidBorderDeclaration(String),
+    ThicknessParseError(CssPixelValueParseErrorOwned),
+    ColorParseError(CssColorParseErrorOwned),
+}
+
+impl<'a> CssBorderParseError<'a> {
+    pub fn to_contained(&self) -> CssBorderParseErrorOwned {
+        match self {
+            CssBorderParseError::MissingThickness(s) => CssBorderParseErrorOwned::MissingThickness(s.to_string()),
+            CssBorderParseError::InvalidBorderStyle(e) => CssBorderParseErrorOwned::InvalidBorderStyle(e.to_contained()),
+            CssBorderParseError::InvalidBorderDeclaration(s) => CssBorderParseErrorOwned::InvalidBorderDeclaration(s.to_string()),
+            CssBorderParseError::ThicknessParseError(e) => CssBorderParseErrorOwned::ThicknessParseError(e.to_contained()),
+            CssBorderParseError::ColorParseError(e) => CssBorderParseErrorOwned::ColorParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssBorderParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssBorderParseError<'a> {
+        match self {
+            CssBorderParseErrorOwned::MissingThickness(s) => CssBorderParseError::MissingThickness(s.as_str()),
+            CssBorderParseErrorOwned::InvalidBorderStyle(e) => CssBorderParseError::InvalidBorderStyle(e.to_shared()),
+            CssBorderParseErrorOwned::InvalidBorderDeclaration(s) => CssBorderParseError::InvalidBorderDeclaration(s.as_str()),
+            CssBorderParseErrorOwned::ThicknessParseError(e) => CssBorderParseError::ThicknessParseError(e.to_shared()),
+            CssBorderParseErrorOwned::ColorParseError(e) => CssBorderParseError::ColorParseError(e.to_shared()),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum CssShadowParseError<'a> {
     InvalidSingleStatement(&'a str),
@@ -755,6 +997,38 @@ impl_display!{ CssShadowParseError<'a>, {
 
 impl_from!(CssPixelValueParseError<'a>, CssShadowParseError::ValueParseErr);
 impl_from!(CssColorParseError<'a>, CssShadowParseError::ColorParseError);
+
+
+/// Owned version of CssShadowParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssShadowParseErrorOwned {
+    InvalidSingleStatement(String),
+    TooManyComponents(String),
+    ValueParseErr(CssPixelValueParseErrorOwned),
+    ColorParseError(CssColorParseErrorOwned),
+}
+
+impl<'a> CssShadowParseError<'a> {
+    pub fn to_contained(&self) -> CssShadowParseErrorOwned {
+        match self {
+            CssShadowParseError::InvalidSingleStatement(s) => CssShadowParseErrorOwned::InvalidSingleStatement(s.to_string()),
+            CssShadowParseError::TooManyComponents(s) => CssShadowParseErrorOwned::TooManyComponents(s.to_string()),
+            CssShadowParseError::ValueParseErr(e) => CssShadowParseErrorOwned::ValueParseErr(e.to_contained()),
+            CssShadowParseError::ColorParseError(e) => CssShadowParseErrorOwned::ColorParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssShadowParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssShadowParseError<'a> {
+        match self {
+            CssShadowParseErrorOwned::InvalidSingleStatement(s) => CssShadowParseError::InvalidSingleStatement(s.as_str()),
+            CssShadowParseErrorOwned::TooManyComponents(s) => CssShadowParseError::TooManyComponents(s.as_str()),
+            CssShadowParseErrorOwned::ValueParseErr(e) => CssShadowParseError::ValueParseErr(e.to_shared()),
+            CssShadowParseErrorOwned::ColorParseError(e) => CssShadowParseError::ColorParseError(e.to_shared()),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct StyleBorderRadius {
@@ -880,6 +1154,38 @@ impl_display!{ CssPixelValueParseError<'a>, {
     ValueParseErr(err, number_str) => format!("Could not parse \"{}\" as floating-point value: \"{}\"", number_str, err),
     InvalidPixelValue(s) => format!("Invalid pixel value: \"{}\"", s),
 }}
+
+
+/// Owned version of CssPixelValueParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssPixelValueParseErrorOwned {
+    EmptyString,
+    NoValueGiven(String, SizeMetric),
+    ValueParseErr(ParseFloatError, String),
+    InvalidPixelValue(String),
+}
+
+impl<'a> CssPixelValueParseError<'a> {
+    pub fn to_contained(&self) -> CssPixelValueParseErrorOwned {
+        match self {
+            CssPixelValueParseError::EmptyString => CssPixelValueParseErrorOwned::EmptyString,
+            CssPixelValueParseError::NoValueGiven(s, metric) => CssPixelValueParseErrorOwned::NoValueGiven(s.to_string(), *metric),
+            CssPixelValueParseError::ValueParseErr(err, s) => CssPixelValueParseErrorOwned::ValueParseErr(err.clone(), s.to_string()),
+            CssPixelValueParseError::InvalidPixelValue(s) => CssPixelValueParseErrorOwned::InvalidPixelValue(s.to_string()),
+        }
+    }
+}
+
+impl CssPixelValueParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssPixelValueParseError<'a> {
+        match self {
+            CssPixelValueParseErrorOwned::EmptyString => CssPixelValueParseError::EmptyString,
+            CssPixelValueParseErrorOwned::NoValueGiven(s, metric) => CssPixelValueParseError::NoValueGiven(s.as_str(), *metric),
+            CssPixelValueParseErrorOwned::ValueParseErr(err, s) => CssPixelValueParseError::ValueParseErr(err.clone(), s.as_str()),
+            CssPixelValueParseErrorOwned::InvalidPixelValue(s) => CssPixelValueParseError::InvalidPixelValue(s.as_str()),
+        }
+    }
+}
 
 /// parses an angle value like `30deg`, `1.64rad`, `100%`, etc.
 fn parse_pixel_value_inner<'a>(input: &'a str, match_values: &[(&'static str, SizeMetric)])
@@ -1419,6 +1725,35 @@ impl_display!{ LayoutPaddingParseError<'a>, {
 
 impl_from!(CssPixelValueParseError<'a>, LayoutPaddingParseError::CssPixelValueParseError);
 
+
+/// Owned version of LayoutPaddingParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutPaddingParseErrorOwned {
+    CssPixelValueParseError(CssPixelValueParseErrorOwned),
+    TooManyValues,
+    TooFewValues,
+}
+
+impl<'a> LayoutPaddingParseError<'a> {
+    pub fn to_contained(&self) -> LayoutPaddingParseErrorOwned {
+        match self {
+            LayoutPaddingParseError::CssPixelValueParseError(e) => LayoutPaddingParseErrorOwned::CssPixelValueParseError(e.to_contained()),
+            LayoutPaddingParseError::TooManyValues => LayoutPaddingParseErrorOwned::TooManyValues,
+            LayoutPaddingParseError::TooFewValues => LayoutPaddingParseErrorOwned::TooFewValues,
+        }
+    }
+}
+
+impl LayoutPaddingParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> LayoutPaddingParseError<'a> {
+        match self {
+            LayoutPaddingParseErrorOwned::CssPixelValueParseError(e) => LayoutPaddingParseError::CssPixelValueParseError(e.to_shared()),
+            LayoutPaddingParseErrorOwned::TooManyValues => LayoutPaddingParseError::TooManyValues,
+            LayoutPaddingParseErrorOwned::TooFewValues => LayoutPaddingParseError::TooFewValues,
+        }
+    }
+}
+
 /// Represents a parsed `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutPadding {
@@ -1490,6 +1825,35 @@ impl_display!{ LayoutMarginParseError<'a>, {
 }}
 
 impl_from!(CssPixelValueParseError<'a>, LayoutMarginParseError::CssPixelValueParseError);
+
+
+/// Owned version of LayoutMarginParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutMarginParseErrorOwned {
+    CssPixelValueParseError(CssPixelValueParseErrorOwned),
+    TooManyValues,
+    TooFewValues,
+}
+
+impl<'a> LayoutMarginParseError<'a> {
+    pub fn to_contained(&self) -> LayoutMarginParseErrorOwned {
+        match self {
+            LayoutMarginParseError::CssPixelValueParseError(e) => LayoutMarginParseErrorOwned::CssPixelValueParseError(e.to_contained()),
+            LayoutMarginParseError::TooManyValues => LayoutMarginParseErrorOwned::TooManyValues,
+            LayoutMarginParseError::TooFewValues => LayoutMarginParseErrorOwned::TooFewValues,
+        }
+    }
+}
+
+impl LayoutMarginParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> LayoutMarginParseError<'a> {
+        match self {
+            LayoutMarginParseErrorOwned::CssPixelValueParseError(e) => LayoutMarginParseError::CssPixelValueParseError(e.to_shared()),
+            LayoutMarginParseErrorOwned::TooManyValues => LayoutMarginParseError::TooManyValues,
+            LayoutMarginParseErrorOwned::TooFewValues => LayoutMarginParseError::TooFewValues,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PixelValueWithAuto {
@@ -1766,6 +2130,59 @@ impl_from!(CssImageParseError<'a>, CssBackgroundParseError::ImageParseError);
 impl_from!(CssColorParseError<'a>, CssBackgroundParseError::ColorParseError);
 impl_from!(CssConicGradientParseError<'a>, CssBackgroundParseError::ConicGradient);
 
+
+/// Owned version of CssBackgroundParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssBackgroundParseErrorOwned {
+    Error(String),
+    InvalidBackground(ParenthesisParseErrorOwned),
+    UnclosedGradient(String),
+    NoDirection(String),
+    TooFewGradientStops(String),
+    DirectionParseError(CssDirectionParseErrorOwned),
+    GradientParseError(CssGradientStopParseErrorOwned),
+    ConicGradient(CssConicGradientParseErrorOwned),
+    ShapeParseError(CssShapeParseErrorOwned),
+    ImageParseError(CssImageParseErrorOwned),
+    ColorParseError(CssColorParseErrorOwned),
+}
+
+impl<'a> CssBackgroundParseError<'a> {
+    pub fn to_contained(&self) -> CssBackgroundParseErrorOwned {
+        match self {
+            CssBackgroundParseError::Error(s) => CssBackgroundParseErrorOwned::Error(s.to_string()),
+            CssBackgroundParseError::InvalidBackground(e) => CssBackgroundParseErrorOwned::InvalidBackground(e.to_contained()),
+            CssBackgroundParseError::UnclosedGradient(s) => CssBackgroundParseErrorOwned::UnclosedGradient(s.to_string()),
+            CssBackgroundParseError::NoDirection(s) => CssBackgroundParseErrorOwned::NoDirection(s.to_string()),
+            CssBackgroundParseError::TooFewGradientStops(s) => CssBackgroundParseErrorOwned::TooFewGradientStops(s.to_string()),
+            CssBackgroundParseError::DirectionParseError(e) => CssBackgroundParseErrorOwned::DirectionParseError(e.to_contained()),
+            CssBackgroundParseError::GradientParseError(e) => CssBackgroundParseErrorOwned::GradientParseError(e.to_contained()),
+            CssBackgroundParseError::ConicGradient(e) => CssBackgroundParseErrorOwned::ConicGradient(e.to_contained()),
+            CssBackgroundParseError::ShapeParseError(e) => CssBackgroundParseErrorOwned::ShapeParseError(e.to_contained()),
+            CssBackgroundParseError::ImageParseError(e) => CssBackgroundParseErrorOwned::ImageParseError(e.to_contained()),
+            CssBackgroundParseError::ColorParseError(e) => CssBackgroundParseErrorOwned::ColorParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssBackgroundParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssBackgroundParseError<'a> {
+        match self {
+            CssBackgroundParseErrorOwned::Error(s) => CssBackgroundParseError::Error(s.as_str()),
+            CssBackgroundParseErrorOwned::InvalidBackground(e) => CssBackgroundParseError::InvalidBackground(e.to_shared()),
+            CssBackgroundParseErrorOwned::UnclosedGradient(s) => CssBackgroundParseError::UnclosedGradient(s.as_str()),
+            CssBackgroundParseErrorOwned::NoDirection(s) => CssBackgroundParseError::NoDirection(s.as_str()),
+            CssBackgroundParseErrorOwned::TooFewGradientStops(s) => CssBackgroundParseError::TooFewGradientStops(s.as_str()),
+            CssBackgroundParseErrorOwned::DirectionParseError(e) => CssBackgroundParseError::DirectionParseError(e.to_shared()),
+            CssBackgroundParseErrorOwned::GradientParseError(e) => CssBackgroundParseError::GradientParseError(e.to_shared()),
+            CssBackgroundParseErrorOwned::ConicGradient(e) => CssBackgroundParseError::ConicGradient(e.to_shared()),
+            CssBackgroundParseErrorOwned::ShapeParseError(e) => CssBackgroundParseError::ShapeParseError(e.to_shared()),
+            CssBackgroundParseErrorOwned::ImageParseError(e) => CssBackgroundParseError::ImageParseError(e.to_shared()),
+            CssBackgroundParseErrorOwned::ColorParseError(e) => CssBackgroundParseError::ColorParseError(e.to_shared()),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum GradientType {
     LinearGradient,
@@ -1856,6 +2273,35 @@ impl_display!{ CssConicGradientParseError<'a>, {
 impl_from!(CssAngleValueParseError<'a>, CssConicGradientParseError::Angle);
 impl_from!(CssBackgroundPositionParseError<'a>, CssConicGradientParseError::Position);
 
+
+/// Owned version of CssConicGradientParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssConicGradientParseErrorOwned {
+    Position(CssBackgroundPositionParseErrorOwned),
+    Angle(CssAngleValueParseErrorOwned),
+    NoAngle(String),
+}
+
+impl<'a> CssConicGradientParseError<'a> {
+    pub fn to_contained(&self) -> CssConicGradientParseErrorOwned {
+        match self {
+            CssConicGradientParseError::Position(e) => CssConicGradientParseErrorOwned::Position(e.to_contained()),
+            CssConicGradientParseError::Angle(e) => CssConicGradientParseErrorOwned::Angle(e.to_contained()),
+            CssConicGradientParseError::NoAngle(s) => CssConicGradientParseErrorOwned::NoAngle(s.to_string()),
+        }
+    }
+}
+
+impl CssConicGradientParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssConicGradientParseError<'a> {
+        match self {
+            CssConicGradientParseErrorOwned::Position(e) => CssConicGradientParseError::Position(e.to_shared()),
+            CssConicGradientParseErrorOwned::Angle(e) => CssConicGradientParseError::Angle(e.to_shared()),
+            CssConicGradientParseErrorOwned::NoAngle(s) => CssConicGradientParseError::NoAngle(s.as_str()),
+        }
+    }
+}
+
 // parse a conic gradient first item such as "from 0.25turn at 50% 30%"
 pub fn parse_conic_first_item<'a>(input: &'a str)
 -> Result<Option<(AngleValue, StyleBackgroundPosition)>, CssConicGradientParseError<'a>>
@@ -1886,6 +2332,29 @@ impl_debug_as_display!(CssScrollbarStyleParseError<'a>);
 impl_display!{ CssScrollbarStyleParseError<'a>, {
     Invalid(e) => format!("Invalid scrollbar style: \"{}\"", e),
 }}
+
+
+/// Owned version of CssScrollbarStyleParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssScrollbarStyleParseErrorOwned {
+    Invalid(String),
+}
+
+impl<'a> CssScrollbarStyleParseError<'a> {
+    pub fn to_contained(&self) -> CssScrollbarStyleParseErrorOwned {
+        match self {
+            CssScrollbarStyleParseError::Invalid(s) => CssScrollbarStyleParseErrorOwned::Invalid(s.to_string()),
+        }
+    }
+}
+
+impl CssScrollbarStyleParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssScrollbarStyleParseError<'a> {
+        match self {
+            CssScrollbarStyleParseErrorOwned::Invalid(s) => CssScrollbarStyleParseError::Invalid(s.as_str()),
+        }
+    }
+}
 
 pub fn parse_scrollbar_style<'a>(input: &'a str) -> Result<ScrollbarStyle, CssScrollbarStyleParseError<'a>> {
     Ok(ScrollbarStyle::default()) // TODO!
@@ -1934,6 +2403,56 @@ impl<'a> From<PercentageParseError> for CssStyleFilterParseError<'a> {
     }
 }
 
+
+/// Owned version of CssStyleFilterParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleFilterParseErrorOwned {
+    InvalidFilter(String),
+    InvalidParenthesis(ParenthesisParseErrorOwned),
+    Shadow(CssShadowParseErrorOwned),
+    BlendMode(InvalidValueErrOwned),
+    Color(CssColorParseErrorOwned),
+    Opacity(PercentageParseError),
+    BlurError(CssStyleBlurParseErrorOwned),
+    ColorMatrixError(CssStyleColorMatrixParseErrorOwned),
+    FilterOffsetError(CssStyleFilterOffsetParseErrorOwned),
+    CompositeFilterError(CssStyleCompositeFilterParseErrorOwned),
+}
+
+impl<'a> CssStyleFilterParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleFilterParseErrorOwned {
+        match self {
+            CssStyleFilterParseError::InvalidFilter(s) => CssStyleFilterParseErrorOwned::InvalidFilter(s.to_string()),
+            CssStyleFilterParseError::InvalidParenthesis(e) => CssStyleFilterParseErrorOwned::InvalidParenthesis(e.to_contained()),
+            CssStyleFilterParseError::Shadow(e) => CssStyleFilterParseErrorOwned::Shadow(e.to_contained()),
+            CssStyleFilterParseError::BlendMode(e) => CssStyleFilterParseErrorOwned::BlendMode(e.to_contained()),
+            CssStyleFilterParseError::Color(e) => CssStyleFilterParseErrorOwned::Color(e.to_contained()),
+            CssStyleFilterParseError::Opacity(e) => CssStyleFilterParseErrorOwned::Opacity(e.clone()),
+            CssStyleFilterParseError::BlurError(e) => CssStyleFilterParseErrorOwned::BlurError(e.to_contained()),
+            CssStyleFilterParseError::ColorMatrixError(e) => CssStyleFilterParseErrorOwned::ColorMatrixError(e.to_contained()),
+            CssStyleFilterParseError::FilterOffsetError(e) => CssStyleFilterParseErrorOwned::FilterOffsetError(e.to_contained()),
+            CssStyleFilterParseError::CompositeFilterError(e) => CssStyleFilterParseErrorOwned::CompositeFilterError(e.to_contained()),
+        }
+    }
+}
+
+impl CssStyleFilterParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleFilterParseError<'a> {
+        match self {
+            CssStyleFilterParseErrorOwned::InvalidFilter(s) => CssStyleFilterParseError::InvalidFilter(s.as_str()),
+            CssStyleFilterParseErrorOwned::InvalidParenthesis(e) => CssStyleFilterParseError::InvalidParenthesis(e.to_shared()),
+            CssStyleFilterParseErrorOwned::Shadow(e) => CssStyleFilterParseError::Shadow(e.to_shared()),
+            CssStyleFilterParseErrorOwned::BlendMode(e) => CssStyleFilterParseError::BlendMode(e.to_shared()),
+            CssStyleFilterParseErrorOwned::Color(e) => CssStyleFilterParseError::Color(e.to_shared()),
+            CssStyleFilterParseErrorOwned::Opacity(e) => CssStyleFilterParseError::Opacity(e.clone()),
+            CssStyleFilterParseErrorOwned::BlurError(e) => CssStyleFilterParseError::BlurError(e.to_shared()),
+            CssStyleFilterParseErrorOwned::ColorMatrixError(e) => CssStyleFilterParseError::ColorMatrixError(e.to_shared()),
+            CssStyleFilterParseErrorOwned::FilterOffsetError(e) => CssStyleFilterParseError::FilterOffsetError(e.to_shared()),
+            CssStyleFilterParseErrorOwned::CompositeFilterError(e) => CssStyleFilterParseError::CompositeFilterError(e.to_shared()),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum CssStyleBlurParseError<'a> {
     Invalid(&'a str),
@@ -1948,6 +2467,43 @@ impl_display!{ CssStyleBlurParseError<'a>, {
     WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
 }}
 impl_from!(CssPixelValueParseError<'a>, CssStyleBlurParseError::Pixel);
+
+
+/// Owned version of CssStyleBlurParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleBlurParseErrorOwned {
+    Invalid(String),
+    Pixel(CssPixelValueParseErrorOwned),
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+}
+
+impl<'a> CssStyleBlurParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleBlurParseErrorOwned {
+        match self {
+            CssStyleBlurParseError::Invalid(s) => CssStyleBlurParseErrorOwned::Invalid(s.to_string()),
+            CssStyleBlurParseError::Pixel(e) => CssStyleBlurParseErrorOwned::Pixel(e.to_contained()),
+            CssStyleBlurParseError::WrongNumberOfComponents { expected, got, input } => CssStyleBlurParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+        }
+    }
+}
+
+impl CssStyleBlurParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleBlurParseError<'a> {
+        match self {
+            CssStyleBlurParseErrorOwned::Invalid(s) => CssStyleBlurParseError::Invalid(s.as_str()),
+            CssStyleBlurParseErrorOwned::Pixel(e) => CssStyleBlurParseError::Pixel(e.to_shared()),
+            CssStyleBlurParseErrorOwned::WrongNumberOfComponents { expected, got, input } => CssStyleBlurParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.as_str(),
+            },
+        }
+    }
+}
 
 #[derive(Clone, PartialEq)]
 pub enum CssStyleColorMatrixParseError<'a> {
@@ -1969,6 +2525,42 @@ impl<'a> From<ParseFloatError> for CssStyleColorMatrixParseError<'a> {
     }
 }
 
+/// Owned version of CssStyleColorMatrixParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleColorMatrixParseErrorOwned {
+    Invalid(String),
+    Float(ParseFloatError),
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+}
+
+impl<'a> CssStyleColorMatrixParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleColorMatrixParseErrorOwned {
+        match self {
+            CssStyleColorMatrixParseError::Invalid(s) => CssStyleColorMatrixParseErrorOwned::Invalid(s.to_string()),
+            CssStyleColorMatrixParseError::Float(e) => CssStyleColorMatrixParseErrorOwned::Float(e.clone()),
+            CssStyleColorMatrixParseError::WrongNumberOfComponents { expected, got, input } => CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+        }
+    }
+}
+
+impl CssStyleColorMatrixParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleColorMatrixParseError<'a> {
+        match self {
+            CssStyleColorMatrixParseErrorOwned::Invalid(s) => CssStyleColorMatrixParseError::Invalid(s.as_str()),
+            CssStyleColorMatrixParseErrorOwned::Float(e) => CssStyleColorMatrixParseError::Float(e.clone()),
+            CssStyleColorMatrixParseErrorOwned::WrongNumberOfComponents { expected, got, input } => CssStyleColorMatrixParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.as_str(),
+            },
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum CssStyleFilterOffsetParseError<'a> {
     Invalid(&'a str),
@@ -1983,6 +2575,43 @@ impl_display!{ CssStyleFilterOffsetParseError<'a>, {
     WrongNumberOfComponents { expected, got, input } => format!("Expected {} components, got {}: \"{}\"", expected, got, input),
 }}
 impl_from!(CssPixelValueParseError<'a>, CssStyleFilterOffsetParseError::Pixel);
+
+
+/// Owned version of CssStyleFilterOffsetParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleFilterOffsetParseErrorOwned {
+    Invalid(String),
+    Pixel(CssPixelValueParseErrorOwned),
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+}
+
+impl<'a> CssStyleFilterOffsetParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleFilterOffsetParseErrorOwned {
+        match self {
+            CssStyleFilterOffsetParseError::Invalid(s) => CssStyleFilterOffsetParseErrorOwned::Invalid(s.to_string()),
+            CssStyleFilterOffsetParseError::Pixel(e) => CssStyleFilterOffsetParseErrorOwned::Pixel(e.to_contained()),
+            CssStyleFilterOffsetParseError::WrongNumberOfComponents { expected, got, input } => CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+        }
+    }
+}
+
+impl CssStyleFilterOffsetParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleFilterOffsetParseError<'a> {
+        match self {
+            CssStyleFilterOffsetParseErrorOwned::Invalid(s) => CssStyleFilterOffsetParseError::Invalid(s.as_str()),
+            CssStyleFilterOffsetParseErrorOwned::Pixel(e) => CssStyleFilterOffsetParseError::Pixel(e.to_shared()),
+            CssStyleFilterOffsetParseErrorOwned::WrongNumberOfComponents { expected, got, input } => CssStyleFilterOffsetParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.as_str(),
+            },
+        }
+    }
+}
 
 #[derive(Clone, PartialEq)]
 pub enum CssStyleCompositeFilterParseError<'a> {
@@ -2004,6 +2633,46 @@ impl_from!(ParenthesisParseError<'a>, CssStyleCompositeFilterParseError::Invalid
 impl<'a> From<ParseFloatError> for CssStyleCompositeFilterParseError<'a> {
     fn from(p: ParseFloatError) -> CssStyleCompositeFilterParseError<'a> {
         CssStyleCompositeFilterParseError::Float(p)
+    }
+}
+
+
+/// Owned version of CssStyleCompositeFilterParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleCompositeFilterParseErrorOwned {
+    Invalid(String),
+    Float(ParseFloatError),
+    InvalidParenthesis(ParenthesisParseErrorOwned),
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+}
+
+impl<'a> CssStyleCompositeFilterParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleCompositeFilterParseErrorOwned {
+        match self {
+            CssStyleCompositeFilterParseError::Invalid(s) => CssStyleCompositeFilterParseErrorOwned::Invalid(s.to_string()),
+            CssStyleCompositeFilterParseError::Float(e) => CssStyleCompositeFilterParseErrorOwned::Float(e.clone()),
+            CssStyleCompositeFilterParseError::InvalidParenthesis(e) => CssStyleCompositeFilterParseErrorOwned::InvalidParenthesis(e.to_contained()),
+            CssStyleCompositeFilterParseError::WrongNumberOfComponents { expected, got, input } => CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+        }
+    }
+}
+
+impl CssStyleCompositeFilterParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleCompositeFilterParseError<'a> {
+        match self {
+            CssStyleCompositeFilterParseErrorOwned::Invalid(s) => CssStyleCompositeFilterParseError::Invalid(s.as_str()),
+            CssStyleCompositeFilterParseErrorOwned::Float(e) => CssStyleCompositeFilterParseError::Float(e.clone()),
+            CssStyleCompositeFilterParseErrorOwned::InvalidParenthesis(e) => CssStyleCompositeFilterParseError::InvalidParenthesis(e.to_shared()),
+            CssStyleCompositeFilterParseErrorOwned::WrongNumberOfComponents { expected, got, input } => CssStyleCompositeFilterParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.as_str(),
+            },
+        }
     }
 }
 
@@ -2145,6 +2814,52 @@ impl_from!(CssAngleValueParseError<'a>, CssStyleTransformParseError::AngleValueP
 impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
     fn from(p: PercentageParseError) -> CssStyleTransformParseError<'a> {
         CssStyleTransformParseError::PercentageValueParseError(p)
+    }
+}
+
+
+/// Owned version of CssStyleTransformParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleTransformParseErrorOwned {
+    InvalidTransform(String),
+    InvalidParenthesis(ParenthesisParseErrorOwned),
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+    PixelValueParseError(CssPixelValueParseErrorOwned),
+    AngleValueParseError(CssAngleValueParseErrorOwned),
+    PercentageValueParseError(PercentageParseError),
+}
+
+impl<'a> CssStyleTransformParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
+        match self {
+            CssStyleTransformParseError::InvalidTransform(s) => CssStyleTransformParseErrorOwned::InvalidTransform(s.to_string()),
+            CssStyleTransformParseError::InvalidParenthesis(e) => CssStyleTransformParseErrorOwned::InvalidParenthesis(e.to_contained()),
+            CssStyleTransformParseError::WrongNumberOfComponents { expected, got, input } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.to_string(),
+            },
+            CssStyleTransformParseError::PixelValueParseError(e) => CssStyleTransformParseErrorOwned::PixelValueParseError(e.to_contained()),
+            CssStyleTransformParseError::AngleValueParseError(e) => CssStyleTransformParseErrorOwned::AngleValueParseError(e.to_contained()),
+            CssStyleTransformParseError::PercentageValueParseError(e) => CssStyleTransformParseErrorOwned::PercentageValueParseError(e.clone()),
+        }
+    }
+}
+
+impl CssStyleTransformParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleTransformParseError<'a> {
+        match self {
+            CssStyleTransformParseErrorOwned::InvalidTransform(s) => CssStyleTransformParseError::InvalidTransform(s.as_str()),
+            CssStyleTransformParseErrorOwned::InvalidParenthesis(e) => CssStyleTransformParseError::InvalidParenthesis(e.to_shared()),
+            CssStyleTransformParseErrorOwned::WrongNumberOfComponents { expected, got, input } => CssStyleTransformParseError::WrongNumberOfComponents {
+                expected: *expected,
+                got: *got,
+                input: input.as_str(),
+            },
+            CssStyleTransformParseErrorOwned::PixelValueParseError(e) => CssStyleTransformParseError::PixelValueParseError(e.to_shared()),
+            CssStyleTransformParseErrorOwned::AngleValueParseError(e) => CssStyleTransformParseError::AngleValueParseError(e.to_shared()),
+            CssStyleTransformParseErrorOwned::PercentageValueParseError(e) => CssStyleTransformParseError::PercentageValueParseError(e.clone()),
+        }
     }
 }
 
@@ -2333,6 +3048,44 @@ impl_display!{ CssStyleTransformOriginParseError<'a>, {
 }}
 impl_from!(CssPixelValueParseError<'a>, CssStyleTransformOriginParseError::PixelValueParseError);
 
+
+/// Owned version of CssStyleTransformOriginParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleTransformOriginParseErrorOwned {
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+    PixelValueParseError(CssPixelValueParseErrorOwned),
+}
+
+impl<'a> CssStyleTransformOriginParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleTransformOriginParseErrorOwned {
+        match self {
+            CssStyleTransformOriginParseError::WrongNumberOfComponents { expected, got, input } => {
+                CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.to_string(),
+                }
+            }
+            CssStyleTransformOriginParseError::PixelValueParseError(e) => CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssStyleTransformOriginParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleTransformOriginParseError<'a> {
+        match self {
+            CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents { expected, got, input } => {
+                CssStyleTransformOriginParseError::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.as_str(),
+                }
+            }
+            CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e) => CssStyleTransformOriginParseError::PixelValueParseError(e.to_shared()),
+        }
+    }
+}
+
 pub fn parse_style_transform_origin<'a>(input: &'a str)
 -> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'a>>
 {
@@ -2357,6 +3110,46 @@ impl_display!{ CssStylePerspectiveOriginParseError<'a>, {
     PixelValueParseError(e) => format!("Invalid transform property: {}", e),
 }}
 impl_from!(CssPixelValueParseError<'a>, CssStylePerspectiveOriginParseError::PixelValueParseError);
+
+
+/// Owned version of CssStylePerspectiveOriginParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStylePerspectiveOriginParseErrorOwned {
+    WrongNumberOfComponents { expected: usize, got: usize, input: String },
+    PixelValueParseError(CssPixelValueParseErrorOwned),
+}
+
+impl<'a> CssStylePerspectiveOriginParseError<'a> {
+    pub fn to_contained(&self) -> CssStylePerspectiveOriginParseErrorOwned {
+        match self {
+            CssStylePerspectiveOriginParseError::WrongNumberOfComponents { expected, got, input } => {
+                CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.to_string(),
+                }
+            }
+            CssStylePerspectiveOriginParseError::PixelValueParseError(e) => {
+                CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained())
+            }
+        }
+    }
+}
+
+impl CssStylePerspectiveOriginParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStylePerspectiveOriginParseError<'a> {
+        match self {
+            CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents { expected, got, input } => {
+                CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
+                    expected: *expected,
+                    got: *got,
+                    input: input.as_str(),
+                }
+            }
+            CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e) => CssStylePerspectiveOriginParseError::PixelValueParseError(e.to_shared()),
+        }
+    }
+}
 
 pub fn parse_style_perspective_origin<'a>(input: &'a str)
 -> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'a>>
@@ -2384,6 +3177,38 @@ impl_display!{CssBackgroundPositionParseError<'a>, {
     FirstComponentWrong(e) => format!("Failed to parse first component: \"{}\"", e),
     SecondComponentWrong(e) => format!("Failed to parse second component: \"{}\"", e),
 }}
+
+
+/// Owned version of CssBackgroundPositionParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssBackgroundPositionParseErrorOwned {
+    NoPosition(String),
+    TooManyComponents(String),
+    FirstComponentWrong(CssPixelValueParseErrorOwned),
+    SecondComponentWrong(CssPixelValueParseErrorOwned),
+}
+
+impl<'a> CssBackgroundPositionParseError<'a> {
+    pub fn to_contained(&self) -> CssBackgroundPositionParseErrorOwned {
+        match self {
+            CssBackgroundPositionParseError::NoPosition(s) => CssBackgroundPositionParseErrorOwned::NoPosition(s.to_string()),
+            CssBackgroundPositionParseError::TooManyComponents(s) => CssBackgroundPositionParseErrorOwned::TooManyComponents(s.to_string()),
+            CssBackgroundPositionParseError::FirstComponentWrong(e) => CssBackgroundPositionParseErrorOwned::FirstComponentWrong(e.to_contained()),
+            CssBackgroundPositionParseError::SecondComponentWrong(e) => CssBackgroundPositionParseErrorOwned::SecondComponentWrong(e.to_contained()),
+        }
+    }
+}
+
+impl CssBackgroundPositionParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssBackgroundPositionParseError<'a> {
+        match self {
+            CssBackgroundPositionParseErrorOwned::NoPosition(s) => CssBackgroundPositionParseError::NoPosition(s.as_str()),
+            CssBackgroundPositionParseErrorOwned::TooManyComponents(s) => CssBackgroundPositionParseError::TooManyComponents(s.as_str()),
+            CssBackgroundPositionParseErrorOwned::FirstComponentWrong(e) => CssBackgroundPositionParseError::FirstComponentWrong(e.to_shared()),
+            CssBackgroundPositionParseErrorOwned::SecondComponentWrong(e) => CssBackgroundPositionParseError::SecondComponentWrong(e.to_shared()),
+        }
+    }
+}
 
 pub fn parse_background_position_horizontal<'a>(input: &'a str) -> Result<BackgroundPositionHorizontal, CssPixelValueParseError<'a>> {
     Ok(match input {
@@ -2634,6 +3459,37 @@ impl_display!{ CssGradientStopParseError<'a>, {
 impl_from!(CssColorParseError<'a>, CssGradientStopParseError::ColorParseError);
 
 
+/// Owned version of CssGradientStopParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssGradientStopParseErrorOwned {
+    Error(String),
+    Percentage(PercentageParseError),
+    Angle(CssAngleValueParseErrorOwned),
+    ColorParseError(CssColorParseErrorOwned),
+}
+
+impl<'a> CssGradientStopParseError<'a> {
+    pub fn to_contained(&self) -> CssGradientStopParseErrorOwned {
+        match self {
+            CssGradientStopParseError::Error(s) => CssGradientStopParseErrorOwned::Error(s.to_string()),
+            CssGradientStopParseError::Percentage(e) => CssGradientStopParseErrorOwned::Percentage(e.clone()),
+            CssGradientStopParseError::Angle(e) => CssGradientStopParseErrorOwned::Angle(e.to_contained()),
+            CssGradientStopParseError::ColorParseError(e) => CssGradientStopParseErrorOwned::ColorParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssGradientStopParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssGradientStopParseError<'a> {
+        match self {
+            CssGradientStopParseErrorOwned::Error(s) => CssGradientStopParseError::Error(s.as_str()),
+            CssGradientStopParseErrorOwned::Percentage(e) => CssGradientStopParseError::Percentage(e.clone()),
+            CssGradientStopParseErrorOwned::Angle(e) => CssGradientStopParseError::Angle(e.to_shared()),
+            CssGradientStopParseErrorOwned::ColorParseError(e) => CssGradientStopParseError::ColorParseError(e.to_shared()),
+        }
+    }
+}
+
 // parses "red" , "red 5%"
 pub fn parse_linear_color_stop<'a>(input: &'a str)
 -> Result<LinearColorStop, CssGradientStopParseError<'a>>
@@ -2745,6 +3601,38 @@ impl<'a> From<CssDirectionCornerParseError<'a>> for CssDirectionParseError<'a> {
     }
 }
 
+
+/// Owned version of CssDirectionParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssDirectionParseErrorOwned {
+    Error(String),
+    InvalidArguments(String),
+    ParseFloat(ParseFloatError),
+    CornerError(CssDirectionCornerParseErrorOwned),
+}
+
+impl<'a> CssDirectionParseError<'a> {
+    pub fn to_contained(&self) -> CssDirectionParseErrorOwned {
+        match self {
+            CssDirectionParseError::Error(s) => CssDirectionParseErrorOwned::Error(s.to_string()),
+            CssDirectionParseError::InvalidArguments(s) => CssDirectionParseErrorOwned::InvalidArguments(s.to_string()),
+            CssDirectionParseError::ParseFloat(e) => CssDirectionParseErrorOwned::ParseFloat(e.clone()),
+            CssDirectionParseError::CornerError(e) => CssDirectionParseErrorOwned::CornerError(e.to_contained()),
+        }
+    }
+}
+
+impl CssDirectionParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssDirectionParseError<'a> {
+        match self {
+            CssDirectionParseErrorOwned::Error(s) => CssDirectionParseError::Error(s.as_str()),
+            CssDirectionParseErrorOwned::InvalidArguments(s) => CssDirectionParseError::InvalidArguments(s.as_str()),
+            CssDirectionParseErrorOwned::ParseFloat(e) => CssDirectionParseError::ParseFloat(e.clone()),
+            CssDirectionParseErrorOwned::CornerError(e) => CssDirectionParseError::CornerError(e.to_shared()),
+        }
+    }
+}
+
 /// Parses an `direction` such as `"50deg"` or `"to right bottom"` (in the context of gradients)
 ///
 /// # Example
@@ -2821,6 +3709,38 @@ impl_display!{ CssAngleValueParseError<'a>, {
     InvalidAngle(s) => format!("Invalid angle value: \"{}\"", s),
 }}
 
+
+/// Owned version of CssAngleValueParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssAngleValueParseErrorOwned {
+    EmptyString,
+    NoValueGiven(String, AngleMetric),
+    ValueParseErr(ParseFloatError, String),
+    InvalidAngle(String),
+}
+
+impl<'a> CssAngleValueParseError<'a> {
+    pub fn to_contained(&self) -> CssAngleValueParseErrorOwned {
+        match self {
+            CssAngleValueParseError::EmptyString => CssAngleValueParseErrorOwned::EmptyString,
+            CssAngleValueParseError::NoValueGiven(s, metric) => CssAngleValueParseErrorOwned::NoValueGiven(s.to_string(), *metric),
+            CssAngleValueParseError::ValueParseErr(err, s) => CssAngleValueParseErrorOwned::ValueParseErr(err.clone(), s.to_string()),
+            CssAngleValueParseError::InvalidAngle(s) => CssAngleValueParseErrorOwned::InvalidAngle(s.to_string()),
+        }
+    }
+}
+
+impl CssAngleValueParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssAngleValueParseError<'a> {
+        match self {
+            CssAngleValueParseErrorOwned::EmptyString => CssAngleValueParseError::EmptyString,
+            CssAngleValueParseErrorOwned::NoValueGiven(s, metric) => CssAngleValueParseError::NoValueGiven(s.as_str(), *metric),
+            CssAngleValueParseErrorOwned::ValueParseErr(err, s) => CssAngleValueParseError::ValueParseErr(err.clone(), s.as_str()),
+            CssAngleValueParseErrorOwned::InvalidAngle(s) => CssAngleValueParseError::InvalidAngle(s.as_str()),
+        }
+    }
+}
+
 /// parses an angle value like `30deg`, `1.64rad`, `100%`, etc.
 pub fn parse_angle_value<'a>(input: &'a str)
 -> Result<AngleValue, CssAngleValueParseError<'a>>
@@ -2866,6 +3786,29 @@ impl_display!{ CssDirectionCornerParseError<'a>, {
     InvalidDirection(val) => format!("Invalid direction: \"{}\"", val),
 }}
 
+
+/// Owned version of CssDirectionCornerParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssDirectionCornerParseErrorOwned {
+    InvalidDirection(String),
+}
+
+impl<'a> CssDirectionCornerParseError<'a> {
+    pub fn to_contained(&self) -> CssDirectionCornerParseErrorOwned {
+        match self {
+            CssDirectionCornerParseError::InvalidDirection(s) => CssDirectionCornerParseErrorOwned::InvalidDirection(s.to_string()),
+        }
+    }
+}
+
+impl CssDirectionCornerParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssDirectionCornerParseError<'a> {
+        match self {
+            CssDirectionCornerParseErrorOwned::InvalidDirection(s) => CssDirectionCornerParseError::InvalidDirection(s.as_str()),
+        }
+    }
+}
+
 pub fn parse_direction_corner<'a>(input: &'a str)
 -> Result<DirectionCorner, CssDirectionCornerParseError<'a>>
 {
@@ -2886,6 +3829,29 @@ pub enum CssShapeParseError<'a> {
 impl_display!{CssShapeParseError<'a>, {
     ShapeErr(e) => format!("\"{}\"", e.0),
 }}
+
+
+/// Owned version of CssShapeParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssShapeParseErrorOwned {
+    ShapeErr(InvalidValueErrOwned),
+}
+
+impl<'a> CssShapeParseError<'a> {
+    pub fn to_contained(&self) -> CssShapeParseErrorOwned {
+        match self {
+            CssShapeParseError::ShapeErr(err) => CssShapeParseErrorOwned::ShapeErr(err.to_contained()),
+        }
+    }
+}
+
+impl CssShapeParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssShapeParseError<'a> {
+        match self {
+            CssShapeParseErrorOwned::ShapeErr(err) => CssShapeParseError::ShapeErr(err.to_shared()),
+        }
+    }
+}
 
 typed_pixel_value_parser!(parse_style_letter_spacing, StyleLetterSpacing);
 typed_pixel_value_parser!(parse_style_word_spacing, StyleWordSpacing);
@@ -2932,6 +3898,27 @@ impl_display!{FlexGrowParseError<'a>, {
     ParseFloat(e, orig_str) => format!("flex-grow: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
 }}
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlexGrowParseErrorOwned {
+    ParseFloat(ParseFloatError, String),
+}
+
+impl<'a> FlexGrowParseError<'a> {
+    pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
+        match self {
+            FlexGrowParseError::ParseFloat(err, s) => FlexGrowParseErrorOwned::ParseFloat(err.clone(), s.to_string()),
+        }
+    }
+}
+
+impl FlexGrowParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> FlexGrowParseError<'a> {
+        match self {
+            FlexGrowParseErrorOwned::ParseFloat(err, s) => FlexGrowParseError::ParseFloat(err.clone(), s),
+        }
+    }
+}
+
 pub fn parse_layout_flex_grow<'a>(input: &'a str) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
     match parse_float_value(input) {
         Ok(o) => Ok(LayoutFlexGrow { inner: o }),
@@ -2947,6 +3934,29 @@ pub enum FlexShrinkParseError<'a> {
 impl_display!{FlexShrinkParseError<'a>, {
     ParseFloat(e, orig_str) => format!("flex-shrink: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
 }}
+
+
+/// Owned version of FlexShrinkParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlexShrinkParseErrorOwned {
+    ParseFloat(ParseFloatError, String),
+}
+
+impl<'a> FlexShrinkParseError<'a> {
+    pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
+        match self {
+            FlexShrinkParseError::ParseFloat(err, s) => FlexShrinkParseErrorOwned::ParseFloat(err.clone(), s.to_string()),
+        }
+    }
+}
+
+impl FlexShrinkParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> FlexShrinkParseError<'a> {
+        match self {
+            FlexShrinkParseErrorOwned::ParseFloat(err, s) => FlexShrinkParseError::ParseFloat(err.clone(), s.as_str()),
+        }
+    }
+}
 
 pub fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
     match parse_float_value(input) {
@@ -2978,6 +3988,29 @@ impl_display!{OpacityParseError<'a>, {
     ParsePercentage(e, orig_str) => format!("opacity: Could not parse percentage value: \"{}\" - Error: \"{}\"", orig_str, e),
 }}
 
+
+/// Owned version of OpacityParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpacityParseErrorOwned {
+    ParsePercentage(PercentageParseError, String),
+}
+
+impl<'a> OpacityParseError<'a> {
+    pub fn to_contained(&self) -> OpacityParseErrorOwned {
+        match self {
+            OpacityParseError::ParsePercentage(err, s) => OpacityParseErrorOwned::ParsePercentage(err.clone(), s.to_string()),
+        }
+    }
+}
+
+impl OpacityParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> OpacityParseError<'a> {
+        match self {
+            OpacityParseErrorOwned::ParsePercentage(err, s) => OpacityParseError::ParsePercentage(err.clone(), s.as_str()),
+        }
+    }
+}
+
 pub fn parse_style_opacity<'a>(input: &'a str)
 -> Result<StyleOpacity, OpacityParseError<'a>>
 {
@@ -3000,6 +4033,32 @@ impl_display!{CssStyleFontFamilyParseError<'a>, {
 impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
     fn from(err: UnclosedQuotesError<'a>) -> Self {
         CssStyleFontFamilyParseError::UnclosedQuotes(err.0)
+    }
+}
+
+
+/// Owned version of CssStyleFontFamilyParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssStyleFontFamilyParseErrorOwned {
+    InvalidStyleFontFamily(String),
+    UnclosedQuotes(String),
+}
+
+impl<'a> CssStyleFontFamilyParseError<'a> {
+    pub fn to_contained(&self) -> CssStyleFontFamilyParseErrorOwned {
+        match self {
+            CssStyleFontFamilyParseError::InvalidStyleFontFamily(s) => CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily(s.to_string()),
+            CssStyleFontFamilyParseError::UnclosedQuotes(s) => CssStyleFontFamilyParseErrorOwned::UnclosedQuotes(s.to_string()),
+        }
+    }
+}
+
+impl CssStyleFontFamilyParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssStyleFontFamilyParseError<'a> {
+        match self {
+            CssStyleFontFamilyParseErrorOwned::InvalidStyleFontFamily(s) => CssStyleFontFamilyParseError::InvalidStyleFontFamily(s.as_str()),
+            CssStyleFontFamilyParseErrorOwned::UnclosedQuotes(s) => CssStyleFontFamilyParseError::UnclosedQuotes(s.as_str()),
+        }
     }
 }
 
@@ -3054,6 +4113,41 @@ impl_display!{ ParenthesisParseError<'a>, {
     StopWordNotFound(e) => format!("Stopword not found, found: \"{}\"", e),
     EmptyInput => format!("Empty parenthesis"),
 }}
+
+
+/// Owned version of ParenthesisParseError.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParenthesisParseErrorOwned {
+    UnclosedBraces,
+    NoOpeningBraceFound,
+    NoClosingBraceFound,
+    StopWordNotFound(String),
+    EmptyInput,
+}
+
+impl<'a> ParenthesisParseError<'a> {
+    pub fn to_contained(&self) -> ParenthesisParseErrorOwned {
+        match self {
+            ParenthesisParseError::UnclosedBraces => ParenthesisParseErrorOwned::UnclosedBraces,
+            ParenthesisParseError::NoOpeningBraceFound => ParenthesisParseErrorOwned::NoOpeningBraceFound,
+            ParenthesisParseError::NoClosingBraceFound => ParenthesisParseErrorOwned::NoClosingBraceFound,
+            ParenthesisParseError::StopWordNotFound(s) => ParenthesisParseErrorOwned::StopWordNotFound(s.to_string()),
+            ParenthesisParseError::EmptyInput => ParenthesisParseErrorOwned::EmptyInput,
+        }
+    }
+}
+
+impl ParenthesisParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> ParenthesisParseError<'a> {
+        match self {
+            ParenthesisParseErrorOwned::UnclosedBraces => ParenthesisParseError::UnclosedBraces,
+            ParenthesisParseErrorOwned::NoOpeningBraceFound => ParenthesisParseError::NoOpeningBraceFound,
+            ParenthesisParseErrorOwned::NoClosingBraceFound => ParenthesisParseError::NoClosingBraceFound,
+            ParenthesisParseErrorOwned::StopWordNotFound(s) => ParenthesisParseError::StopWordNotFound(s.as_str()),
+            ParenthesisParseErrorOwned::EmptyInput => ParenthesisParseError::EmptyInput,
+        }
+    }
+}
 
 /// Checks wheter a given input is enclosed in parentheses, prefixed
 /// by a certain number of stopwords.

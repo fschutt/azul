@@ -10,12 +10,13 @@ pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
 use crate::css_parser;
-pub use crate::css_parser::CssParsingError;
+pub use crate::css_parser::{CssParsingError, CssParsingErrorOwned};
 use azul_css::{
     Css, CssDeclaration, Stylesheet, DynamicCssProperty, AzString,
     CssPropertyType, CssRuleBlock, CssPath, CssPathSelector,
     CssNthChildSelector, CssPathPseudoSelector, CssNthChildSelector::*,
     NodeTypeTag, NodeTypeTagParseError, CombinedCssPropertyType, CssKeyMap,
+    NodeTypeTagParseErrorOwned,
 };
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
@@ -42,6 +43,35 @@ pub struct CssParseError<'a> {
     pub css_string: &'a str,
     pub error: CssParseErrorInner<'a>,
     pub location: (ErrorLocation, ErrorLocation),
+}
+
+
+/// Owned version of CssParseError, without references.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CssParseErrorOwned {
+    pub css_string: String,
+    pub error: CssParseErrorInnerOwned,
+    pub location: (ErrorLocation, ErrorLocation),
+}
+
+impl<'a> CssParseError<'a> {
+    pub fn to_contained(&self) -> CssParseErrorOwned {
+        CssParseErrorOwned {
+            css_string: self.css_string.to_string(),
+            error: self.error.to_contained(),
+            location: self.location.clone(),
+        }
+    }
+}
+
+impl CssParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssParseError<'a> {
+        CssParseError {
+            css_string: &self.css_string,
+            error: self.error.to_shared(),
+            location: self.location.clone(),
+        }
+    }
 }
 
 impl<'a> CssParseError<'a> {
@@ -75,6 +105,55 @@ pub enum CssParseErrorInner<'a> {
     /// when setting the variable, whether all sides should be set, instead, you have to use `margin-top: var(--blah)`,
     /// `margin-bottom: var(--baz)` in order to work around this limitation.
     VarOnShorthandProperty { key: CombinedCssPropertyType, value: &'a str },
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssParseErrorInnerOwned {
+    ParseError(CssSyntaxError),
+    UnclosedBlock,
+    MalformedCss,
+    DynamicCssParseError(DynamicCssParseErrorOwned),
+    PseudoSelectorParseError(CssPseudoSelectorParseErrorOwned),
+    NodeTypeTag(NodeTypeTagParseErrorOwned),
+    UnknownPropertyKey(String, String),
+    VarOnShorthandProperty { key: CombinedCssPropertyType, value: String },
+}
+
+impl<'a> CssParseErrorInner<'a> {
+    pub fn to_contained(&self) -> CssParseErrorInnerOwned {
+        match self {
+            CssParseErrorInner::ParseError(e) => CssParseErrorInnerOwned::ParseError(e.clone()),
+            CssParseErrorInner::UnclosedBlock => CssParseErrorInnerOwned::UnclosedBlock,
+            CssParseErrorInner::MalformedCss => CssParseErrorInnerOwned::MalformedCss,
+            CssParseErrorInner::DynamicCssParseError(e) => CssParseErrorInnerOwned::DynamicCssParseError(e.to_contained()),
+            CssParseErrorInner::PseudoSelectorParseError(e) => CssParseErrorInnerOwned::PseudoSelectorParseError(e.to_contained()),
+            CssParseErrorInner::NodeTypeTag(e) => CssParseErrorInnerOwned::NodeTypeTag(e.to_contained()),
+            CssParseErrorInner::UnknownPropertyKey(a, b) => CssParseErrorInnerOwned::UnknownPropertyKey(a.to_string(), b.to_string()),
+            CssParseErrorInner::VarOnShorthandProperty { key, value } => CssParseErrorInnerOwned::VarOnShorthandProperty {
+                key: key.clone(),
+                value: value.to_string(),
+            },
+        }
+    }
+}
+
+impl CssParseErrorInnerOwned {
+    pub fn to_shared<'a>(&'a self) -> CssParseErrorInner<'a> {
+        match self {
+            CssParseErrorInnerOwned::ParseError(e) => CssParseErrorInner::ParseError(e.clone()),
+            CssParseErrorInnerOwned::UnclosedBlock => CssParseErrorInner::UnclosedBlock,
+            CssParseErrorInnerOwned::MalformedCss => CssParseErrorInner::MalformedCss,
+            CssParseErrorInnerOwned::DynamicCssParseError(e) => CssParseErrorInner::DynamicCssParseError(e.to_shared()),
+            CssParseErrorInnerOwned::PseudoSelectorParseError(e) => CssParseErrorInner::PseudoSelectorParseError(e.to_shared()),
+            CssParseErrorInnerOwned::NodeTypeTag(e) => CssParseErrorInner::NodeTypeTag(e.to_shared()),
+            CssParseErrorInnerOwned::UnknownPropertyKey(a, b) => CssParseErrorInner::UnknownPropertyKey(a, b),
+            CssParseErrorInnerOwned::VarOnShorthandProperty { key, value } => CssParseErrorInner::VarOnShorthandProperty {
+                key: key.clone(),
+                value,
+            },
+        }
+    }
 }
 
 impl_display!{ CssParseErrorInner<'a>, {
@@ -132,6 +211,43 @@ impl_display! { CssPseudoSelectorParseError<'a>, {
     InvalidNthChild(e) => format!("Invalid :nth-child pseudo-selector: ':{}'", e),
 }}
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssPseudoSelectorParseErrorOwned {
+    EmptyNthChild,
+    UnknownSelector(String, Option<String>),
+    InvalidNthChildPattern(String),
+    InvalidNthChild(ParseIntError),
+}
+
+impl<'a> CssPseudoSelectorParseError<'a> {
+    pub fn to_contained(&self) -> CssPseudoSelectorParseErrorOwned {
+        match self {
+            CssPseudoSelectorParseError::EmptyNthChild => CssPseudoSelectorParseErrorOwned::EmptyNthChild,
+            CssPseudoSelectorParseError::UnknownSelector(a, b) => CssPseudoSelectorParseErrorOwned::UnknownSelector(
+                a.to_string(),
+                b.map(|s| s.to_string())
+            ),
+            CssPseudoSelectorParseError::InvalidNthChildPattern(s) => CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s.to_string()),
+            CssPseudoSelectorParseError::InvalidNthChild(e) => CssPseudoSelectorParseErrorOwned::InvalidNthChild(e.clone()),
+        }
+    }
+}
+
+impl CssPseudoSelectorParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssPseudoSelectorParseError<'a> {
+        match self {
+            CssPseudoSelectorParseErrorOwned::EmptyNthChild => CssPseudoSelectorParseError::EmptyNthChild,
+            CssPseudoSelectorParseErrorOwned::UnknownSelector(a, b) => CssPseudoSelectorParseError::UnknownSelector(
+                a,
+                b.as_deref(),
+            ),
+            CssPseudoSelectorParseErrorOwned::InvalidNthChildPattern(s) => CssPseudoSelectorParseError::InvalidNthChildPattern(s),
+            CssPseudoSelectorParseErrorOwned::InvalidNthChild(e) => CssPseudoSelectorParseError::InvalidNthChild(e.clone()),
+        }
+    }
+}
+
 /// Error that can happen during `css_parser::parse_key_value_pair`
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynamicCssParseError<'a> {
@@ -149,6 +265,31 @@ impl_display!{ DynamicCssParseError<'a>, {
 impl<'a> From<CssParsingError<'a>> for DynamicCssParseError<'a> {
     fn from(e: CssParsingError<'a>) -> Self {
         DynamicCssParseError::UnexpectedValue(e)
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DynamicCssParseErrorOwned {
+    InvalidBraceContents(String),
+    UnexpectedValue(CssParsingErrorOwned),
+}
+
+impl<'a> DynamicCssParseError<'a> {
+    pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
+        match self {
+            DynamicCssParseError::InvalidBraceContents(s) => DynamicCssParseErrorOwned::InvalidBraceContents(s.to_string()),
+            DynamicCssParseError::UnexpectedValue(e) => DynamicCssParseErrorOwned::UnexpectedValue(e.to_contained()),
+        }
+    }
+}
+
+impl DynamicCssParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> DynamicCssParseError<'a> {
+        match self {
+            DynamicCssParseErrorOwned::InvalidBraceContents(s) => DynamicCssParseError::InvalidBraceContents(s),
+            DynamicCssParseErrorOwned::UnexpectedValue(e) => DynamicCssParseError::UnexpectedValue(e.to_shared()),
+        }
     }
 }
 
@@ -345,6 +486,43 @@ impl<'a> From<CssSyntaxError> for CssPathParseError<'a> {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssPathParseErrorOwned {
+    EmptyPath,
+    InvalidTokenEncountered(String),
+    UnexpectedEndOfStream(String),
+    SyntaxError(CssSyntaxError),
+    NodeTypeTag(NodeTypeTagParseErrorOwned),
+    PseudoSelectorParseError(CssPseudoSelectorParseErrorOwned),
+}
+
+impl<'a> CssPathParseError<'a> {
+    pub fn to_contained(&self) -> CssPathParseErrorOwned {
+        match self {
+            CssPathParseError::EmptyPath => CssPathParseErrorOwned::EmptyPath,
+            CssPathParseError::InvalidTokenEncountered(s) => CssPathParseErrorOwned::InvalidTokenEncountered(s.to_string()),
+            CssPathParseError::UnexpectedEndOfStream(s) => CssPathParseErrorOwned::UnexpectedEndOfStream(s.to_string()),
+            CssPathParseError::SyntaxError(e) => CssPathParseErrorOwned::SyntaxError(e.clone()),
+            CssPathParseError::NodeTypeTag(e) => CssPathParseErrorOwned::NodeTypeTag(e.to_contained()),
+            CssPathParseError::PseudoSelectorParseError(e) => CssPathParseErrorOwned::PseudoSelectorParseError(e.to_contained()),
+        }
+    }
+}
+
+impl CssPathParseErrorOwned {
+    pub fn to_shared<'a>(&'a self) -> CssPathParseError<'a> {
+        match self {
+            CssPathParseErrorOwned::EmptyPath => CssPathParseError::EmptyPath,
+            CssPathParseErrorOwned::InvalidTokenEncountered(s) => CssPathParseError::InvalidTokenEncountered(s),
+            CssPathParseErrorOwned::UnexpectedEndOfStream(s) => CssPathParseError::UnexpectedEndOfStream(s),
+            CssPathParseErrorOwned::SyntaxError(e) => CssPathParseError::SyntaxError(e.clone()),
+            CssPathParseErrorOwned::NodeTypeTag(e) => CssPathParseError::NodeTypeTag(e.to_shared()),
+            CssPathParseErrorOwned::PseudoSelectorParseError(e) => CssPathParseError::PseudoSelectorParseError(e.to_shared()),
+        }
+    }
+}
+
 /// Parses a CSS path from a string (only the path,.no commas allowed)
 ///
 /// ```rust
@@ -431,16 +609,99 @@ pub struct UnparsedCssRuleBlock<'a> {
     pub declarations: BTreeMap<&'a str, (&'a str, (ErrorLocation, ErrorLocation))>,
 }
 
+
+/// Owned version of UnparsedCssRuleBlock, with BTreeMap of Strings.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnparsedCssRuleBlockOwned {
+    pub path: CssPath,
+    pub declarations: BTreeMap<String, (String, (ErrorLocation, ErrorLocation))>,
+}
+
+impl<'a> UnparsedCssRuleBlock<'a> {
+    pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
+        UnparsedCssRuleBlockOwned {
+            path: self.path.clone(),
+            declarations: self.declarations.iter()
+                .map(|(k, (v, loc))| (k.to_string(), (v.to_string(), loc.clone())))
+                .collect(),
+        }
+    }
+}
+
+impl UnparsedCssRuleBlockOwned {
+    pub fn to_shared<'a>(&'a self) -> UnparsedCssRuleBlock<'a> {
+        UnparsedCssRuleBlock {
+            path: self.path.clone(),
+            declarations: self.declarations.iter()
+                .map(|(k, (v, loc))| (k.as_str(), (v.as_str(), loc.clone())))
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CssParseWarnMsg<'a> {
     warning: CssParseWarnMsgInner<'a>,
     location: (ErrorLocation, ErrorLocation),
 }
 
+/// Owned version of CssParseWarnMsg, where warning is the owned type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CssParseWarnMsgOwned {
+    warning: CssParseWarnMsgInnerOwned,
+    location: (ErrorLocation, ErrorLocation),
+}
+
+impl<'a> CssParseWarnMsg<'a> {
+    pub fn to_contained(&self) -> CssParseWarnMsgOwned {
+        CssParseWarnMsgOwned {
+            warning: self.warning.to_contained(),
+            location: self.location.clone(),
+        }
+    }
+}
+
+impl CssParseWarnMsgOwned {
+    pub fn to_shared<'a>(&'a self) -> CssParseWarnMsg<'a> {
+        CssParseWarnMsg {
+            warning: self.warning.to_shared(),
+            location: self.location.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CssParseWarnMsgInner<'a> {
     /// Key "blah" isn't (yet) supported, so the parser didn't attempt to parse the value at all
     UnsupportedKeyValuePair { key: &'a str, value: &'a str },
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CssParseWarnMsgInnerOwned {
+    UnsupportedKeyValuePair { key: String, value: String },
+}
+
+impl<'a> CssParseWarnMsgInner<'a> {
+    pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
+        match self {
+            CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value } => CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair {
+                key: key.to_string(),
+                value: value.to_string(),
+            },
+        }
+    }
+}
+
+impl CssParseWarnMsgInnerOwned {
+    pub fn to_shared<'a>(&'a self) -> CssParseWarnMsgInner<'a> {
+        match self {
+            CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair { key, value } => CssParseWarnMsgInner::UnsupportedKeyValuePair {
+                key,
+                value,
+            },
+        }
+    }
 }
 
 /// Parses a CSS string (single-threaded) and returns the parsed rules in blocks
