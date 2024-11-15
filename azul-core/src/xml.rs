@@ -30,11 +30,9 @@ pub type XmlAttributeMap = StringPairVec;
 pub type ComponentArgumentName = String;
 pub type ComponentArgumentType = String;
 pub type ComponentArgumentOrder = usize;
-pub type ComponentArgumentsMap =
-    BTreeMap<ComponentArgumentName, (ComponentArgumentType, ComponentArgumentOrder)>;
+pub type ComponentArgumentTypes = Vec<(ComponentArgumentName, ComponentArgumentType)>;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
-pub type FilteredComponentArguments = ComponentArguments;
 
 pub const DEFAULT_ARGS: [&str; 8] = [
     "id",
@@ -418,7 +416,7 @@ impl fmt::Display for XmlError {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ComponentArguments {
     /// The arguments of the component, i.e. `date => String`
-    pub args: ComponentArgumentsMap,
+    pub args: ComponentArgumentTypes,
     /// Whether this widget accepts text. Note that this will be passed as the first
     /// argument when rendering the Rust code.
     pub accepts_text: bool,
@@ -427,7 +425,7 @@ pub struct ComponentArguments {
 impl Default for ComponentArguments {
     fn default() -> Self {
         Self {
-            args: ComponentArgumentsMap::default(),
+            args: ComponentArgumentTypes::default(),
             accepts_text: false,
         }
     }
@@ -439,6 +437,34 @@ impl ComponentArguments {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FilteredComponentArguments {
+    /// The types of the component, i.e. `date => String`, in order
+    pub types: ComponentArgumentTypes,
+    /// The types of the component, i.e. `date => "01.01.1998"`
+    pub values: BTreeMap<String, String>,
+    /// Whether this widget accepts text. Note that this will be passed as the first
+    /// argument when rendering the Rust code.
+    pub accepts_text: bool,
+}
+
+impl Default for FilteredComponentArguments {
+    fn default() -> Self {
+        Self {
+            types: Vec::new(),
+            values: BTreeMap::default(),
+            accepts_text: false,
+        }
+    }
+}
+
+impl FilteredComponentArguments {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+
 /// Specifies a component that reacts to a parsed XML node
 pub trait XmlComponentTrait {
 
@@ -446,14 +472,6 @@ pub trait XmlComponentTrait {
     fn get_type_id(&self) -> String {
         "div".to_string()
     }
-
-    /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(
-        &self,
-        components: &XmlComponentMap,
-        arguments: &FilteredComponentArguments,
-        content: &XmlTextContent,
-    ) -> Result<StyledDom, RenderDomError>;
 
     /// Returns the XML node for this component, used in the `get_html_string` debugging code
     /// (necessary to compile the component into a function during the Rust compilation stage)
@@ -516,11 +534,21 @@ pub trait XmlComponentTrait {
         ComponentArguments::new()
     }
 
+    // - necessary functions
+
+    /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
+    fn render_dom(
+        &self,
+        components: &XmlComponentMap,
+        arguments: &FilteredComponentArguments,
+        content: &XmlTextContent,
+    ) -> Result<StyledDom, RenderDomError>;
+
     /// (Optional): Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(
         &self,
         components: &XmlComponentMap,
-        attributes: &FilteredComponentArguments,
+        attributes: &ComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok(String::new())
@@ -622,7 +650,7 @@ impl core::fmt::Debug for XmlComponent {
 pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
     /// + whether this component should inherit variables from the parent scope
-    components: Vec<XmlComponent>,
+    pub components: Vec<XmlComponent>,
 }
 
 impl Default for XmlComponentMap {
@@ -916,7 +944,7 @@ impl XmlComponentTrait for DivRenderer {
     fn compile_to_rust_code(
         &self,
         _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
+        _: &ComponentArguments,
         _: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
@@ -958,7 +986,7 @@ impl XmlComponentTrait for BodyRenderer {
     fn compile_to_rust_code(
         &self,
         _: &XmlComponentMap,
-        _: &FilteredComponentArguments,
+        _: &ComponentArguments,
         _: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok("Dom::body()".into())
@@ -986,7 +1014,7 @@ impl TextRenderer {
 impl XmlComponentTrait for TextRenderer {
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments {
-            args: ComponentArgumentsMap::default(),
+            args: ComponentArgumentTypes::default(),
             accepts_text: true, // important!
         }
     }
@@ -1007,7 +1035,7 @@ impl XmlComponentTrait for TextRenderer {
     fn compile_to_rust_code(
         &self,
         _: &XmlComponentMap,
-        args: &FilteredComponentArguments,
+        args: &ComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok(String::from("Dom::text(text)"))
@@ -1021,10 +1049,10 @@ impl XmlComponentTrait for TextRenderer {
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
 pub fn parse_component_arguments<'a>(
     input: &'a str,
-) -> Result<ComponentArgumentsMap, ComponentParseError> {
+) -> Result<ComponentArgumentTypes, ComponentParseError> {
     use self::ComponentParseError::*;
 
-    let mut args = ComponentArgumentsMap::default();
+    let mut args = ComponentArgumentTypes::default();
 
     for (arg_idx, arg) in input.split(",").enumerate() {
         let mut colon_iterator = arg.split(":");
@@ -1059,7 +1087,7 @@ pub fn parse_component_arguments<'a>(
         let arg_name = normalize_casing(arg_name);
         let arg_type = arg_type.to_string();
 
-        args.insert(arg_name, (arg_type, arg_idx));
+        args.push((arg_name, arg_type));
     }
 
     Ok(args)
@@ -1070,26 +1098,27 @@ pub fn validate_and_filter_component_args(
     xml_attributes: &XmlAttributeMap,
     valid_args: &ComponentArguments,
 ) -> Result<FilteredComponentArguments, ComponentError> {
+
     let mut map = FilteredComponentArguments {
-        args: ComponentArgumentsMap::default(),
+        types: ComponentArgumentTypes::default(),
+        values: BTreeMap::new(),
         accepts_text: valid_args.accepts_text,
     };
 
     for AzStringPair { key, value } in xml_attributes.as_ref().iter() {
         let xml_attribute_name = key;
         let xml_attribute_value = value;
-        if let Some((valid_arg_type, valid_arg_index)) =
-            valid_args.args.get(xml_attribute_name.as_str())
+        if let Some(valid_arg_type) =
+            valid_args.args.iter().find(|s| s.0 == xml_attribute_name.as_str()).map(|q| &q.1)
         {
-            map.args.insert(
-                xml_attribute_name.clone().into_library_owned_string(),
-                (valid_arg_type.clone(), *valid_arg_index),
-            );
+            map.types.push((xml_attribute_name.as_str().to_string(), valid_arg_type.clone()));
+            map.values.insert(xml_attribute_name.as_str().to_string(), xml_attribute_value.as_str().to_string());
         } else if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
             // no error, but don't insert the attribute name
+            map.values.insert(xml_attribute_name.as_str().to_string(), xml_attribute_value.as_str().to_string());
         } else {
             // key was not expected for this component
-            let keys = valid_args.args.keys().cloned().collect();
+            let keys = valid_args.args.iter().map(|s| s.0.clone()).collect();
             return Err(ComponentError::UselessFunctionArgument(
                 xml_attribute_name.clone(),
                 xml_attribute_value.clone(),
@@ -1388,7 +1417,7 @@ pub fn compile_components(
         (
             ComponentName,
             CompiledComponent,
-            FilteredComponentArguments,
+            ComponentArguments,
             BTreeMap<String, String>,
         ),
     >,
@@ -1420,20 +1449,17 @@ pub fn compile_components(
     }
 }
 
-pub fn format_component_args(component_args: &ComponentArgumentsMap) -> String {
+pub fn format_component_args(component_args: &ComponentArgumentTypes) -> String {
     let mut args = component_args
         .iter()
-        .map(|(arg_name, (arg_type, arg_index))| {
-            (*arg_index, format!("{}: {}", arg_name, arg_type))
+        .map(|(arg_name, arg_type)| {
+            format!("{}: {}", arg_name, arg_type)
         })
-        .collect::<Vec<(usize, String)>>();
+        .collect::<Vec<String>>();
 
-    args.sort_by(|(_, a), (_, b)| b.cmp(&a));
+    args.sort_by(|a, b| b.cmp(&a));
 
-    args.iter()
-        .map(|(k, v)| v.clone())
-        .collect::<Vec<String>>()
-        .join(", ")
+    args.join(", ")
 }
 
 pub fn compile_component(
@@ -1516,19 +1542,19 @@ pub fn render_dom_from_body_node_inner<'a>(
     if xml_component.inherit_vars {
         // Append all variables that are in scope for the parent node
         filtered_xml_attributes
-            .args
-            .extend(parent_xml_attributes.args.clone().into_iter());
+            .types
+            .extend(parent_xml_attributes.types.clone().into_iter());
     }
 
     // Instantiate the parent arguments in the current child arguments
-    for v in filtered_xml_attributes.args.values_mut() {
-        v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
+    for v in filtered_xml_attributes.types.iter_mut() {
+        v.1 = format_args_dynamic(&v.1, &parent_xml_attributes.types).to_string();
     }
 
     let text = xml_node
         .text
         .as_ref()
-        .map(|t| AzString::from(format_args_dynamic(t, &filtered_xml_attributes.args)));
+        .map(|t| AzString::from(format_args_dynamic(t, &filtered_xml_attributes.types)));
 
     let mut dom = xml_component.renderer.render_dom(component_map, &filtered_xml_attributes, &text.into())?;
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
@@ -1562,7 +1588,7 @@ pub fn set_attributes(
     if let Some(ids) = xml_attributes.get_key("id") {
         for id in ids.split_whitespace() {
             ids_and_classes.push(Id(
-                format_args_dynamic(id, &filtered_xml_attributes.args).into()
+                format_args_dynamic(id, &filtered_xml_attributes.types).into()
             ));
         }
     }
@@ -1570,7 +1596,7 @@ pub fn set_attributes(
     if let Some(classes) = xml_attributes.get_key("class") {
         for class in classes.split_whitespace() {
             ids_and_classes.push(Class(
-                format_args_dynamic(class, &filtered_xml_attributes.args).into(),
+                format_args_dynamic(class, &filtered_xml_attributes.types).into(),
             ));
         }
     }
@@ -1579,7 +1605,7 @@ pub fn set_attributes(
 
     if let Some(focusable) = xml_attributes
         .get_key("focusable")
-        .map(|f| format_args_dynamic(f.as_str(), &filtered_xml_attributes.args))
+        .map(|f| format_args_dynamic(f.as_str(), &filtered_xml_attributes.types))
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
@@ -1590,7 +1616,7 @@ pub fn set_attributes(
 
     if let Some(tab_index) = xml_attributes
         .get_key("tabindex")
-        .map(|val| format_args_dynamic(val, &filtered_xml_attributes.args))
+        .map(|val| format_args_dynamic(val, &filtered_xml_attributes.types))
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
@@ -1639,7 +1665,7 @@ pub fn set_attributes(
 pub fn set_stringified_attributes(
     dom_string: &mut String,
     xml_attributes: &XmlAttributeMap,
-    filtered_xml_attributes: &ComponentArgumentsMap,
+    filtered_xml_attributes: &ComponentArgumentTypes,
     tabs: usize,
 ) {
     let t0 = String::from("    ").repeat(tabs);
@@ -1817,7 +1843,7 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 /// => "hello value1, valuec{ {c} }"
 pub fn combine_and_replace_dynamic_items(
     input: &[DynamicItem],
-    variables: &ComponentArgumentsMap,
+    variables: &ComponentArgumentTypes,
 ) -> String {
     let mut s = String::new();
 
@@ -1825,8 +1851,8 @@ pub fn combine_and_replace_dynamic_items(
         match item {
             DynamicItem::Var(v) => {
                 let variable_name = normalize_casing(v.trim());
-                match variables.get(&variable_name) {
-                    Some((resolved_var, _)) => {
+                match variables.iter().find(|s| s.0 == variable_name).map(|q| &q.1) {
+                    Some(resolved_var) => {
                         s.push_str(&resolved_var);
                     }
                     None => {
@@ -1862,7 +1888,7 @@ pub fn combine_and_replace_dynamic_items(
 /// Note: the number (0, 1, etc.) is the order of the argument, it is irrelevant for
 /// runtime formatting, only important for keeping the component / function arguments
 /// in order when compiling the arguments to Rust code
-pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentsMap) -> String {
+pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentTypes) -> String {
     let dynamic_str_items = split_dynamic_string(input);
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
@@ -1926,16 +1952,17 @@ pub fn render_component_inner<'a>(
         (
             ComponentName,
             CompiledComponent,
-            FilteredComponentArguments,
+            ComponentArguments,
             BTreeMap<String, String>,
         ),
     >,
     component_name: String,
     xml_component: &'a XmlComponent,
     component_map: &'a XmlComponentMap,
-    parent_xml_attributes: &FilteredComponentArguments,
+    parent_xml_attributes: &ComponentArguments,
     tabs: usize,
 ) -> Result<(), CompileError> {
+
     let t = String::from("    ").repeat(tabs - 1);
     let t1 = String::from("    ").repeat(tabs);
 
@@ -1952,8 +1979,9 @@ pub fn render_component_inner<'a>(
     css.sort_by_specificity();
 
     // Arguments of the current node
-    let available_function_args = xml_component.renderer.get_available_arguments();
-    let mut filtered_xml_attributes = available_function_args.clone(); // <- important, only for Rust code compilation
+    let available_function_arg_types = xml_component.renderer.get_available_arguments();
+    // Types of the filtered xml arguments, important, only for Rust code compilation
+    let mut filtered_xml_attributes = available_function_arg_types.clone(); 
 
     if xml_component.inherit_vars {
         // Append all variables that are in scope for the parent node
@@ -1963,8 +1991,8 @@ pub fn render_component_inner<'a>(
     }
 
     // Instantiate the parent arguments in the current child arguments
-    for v in filtered_xml_attributes.args.values_mut() {
-        v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
+    for v in filtered_xml_attributes.args.iter_mut() {
+        v.1 = format_args_dynamic(&v.1, &parent_xml_attributes.args).to_string();
     }
 
     let text = xml_node
@@ -2040,7 +2068,7 @@ pub fn compile_components_to_rust_code(
         (
             ComponentName,
             CompiledComponent,
-            FilteredComponentArguments,
+            ComponentArguments,
             BTreeMap<String, String>,
         ),
     >,
@@ -2054,7 +2082,7 @@ pub fn compile_components_to_rust_code(
             normalize_casing(&xml_component.id),
             xml_component,
             &components,
-            &FilteredComponentArguments::default(),
+            &ComponentArguments::default(),
             1,
         )?;
     }
@@ -2361,7 +2389,7 @@ pub fn compile_body_node_to_rust_code<'a>(
                 compile_node_to_rust_code_inner(
                     child_node,
                     component_map,
-                    &FilteredComponentArguments::default(),
+                    &ComponentArguments::default(),
                     1,
                     extra_blocks,
                     css_blocks,
@@ -2449,7 +2477,7 @@ fn format_args_for_rust_code(input: &str) -> String {
 pub fn compile_node_to_rust_code_inner<'a>(
     node: &XmlNode,
     component_map: &'a XmlComponentMap,
-    parent_xml_attributes: &FilteredComponentArguments,
+    parent_xml_attributes: &ComponentArguments,
     tabs: usize,
     extra_blocks: &mut VecContents,
     css_blocks: &mut BTreeMap<String, String>,
@@ -2480,23 +2508,23 @@ pub fn compile_node_to_rust_code_inner<'a>(
     if xml_component.inherit_vars {
         // Append all variables that are in scope for the parent node
         filtered_xml_attributes
-            .args
+            .types
             .extend(parent_xml_attributes.args.clone().into_iter());
     }
 
     // Instantiate the parent arguments in the current child arguments
-    for v in filtered_xml_attributes.args.values_mut() {
-        v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
+    for v in filtered_xml_attributes.types.iter_mut() {
+        v.1 = format_args_dynamic(&v.1, &parent_xml_attributes.args).to_string();
     }
 
     let instantiated_function_arguments = {
         let mut args = filtered_xml_attributes
-            .args
+            .types
             .iter()
             .filter_map(
-                |(xml_attribute_key, (_xml_attribute_type, xml_attribute_order))| {
+                |(xml_attribute_key, _xml_attribute_type)| {
                     match node.attributes.get_key(xml_attribute_key).cloned() {
-                        Some(s) => Some((*xml_attribute_order, format_args_for_rust_code(&s))),
+                        Some(s) => Some(format_args_for_rust_code(&s)),
                         None => {
                             // __TODO__
                             // let node_text = format_args_for_rust_code(&xml_attribute_key);
@@ -2508,14 +2536,11 @@ pub fn compile_node_to_rust_code_inner<'a>(
                     }
                 },
             )
-            .collect::<Vec<(usize, String)>>();
+            .collect::<Vec<String>>();
 
-        args.sort_by(|(_, a), (_, b)| a.cmp(&b));
+        args.sort_by(|a, b| a.cmp(&b));
 
-        args.into_iter()
-            .map(|(k, v)| v.clone())
-            .collect::<Vec<String>>()
-            .join(", ")
+        args.join(", ")
     };
 
     let text_as_first_arg = if filtered_xml_attributes.accepts_text {
@@ -2640,7 +2665,7 @@ pub fn compile_node_to_rust_code_inner<'a>(
     set_stringified_attributes(
         &mut dom_string,
         &node.attributes,
-        &filtered_xml_attributes.args,
+        &filtered_xml_attributes.types,
         tabs,
     );
 
@@ -2658,7 +2683,10 @@ pub fn compile_node_to_rust_code_inner<'a>(
             compile_node_to_rust_code_inner(
                 c,
                 component_map,
-                &filtered_xml_attributes,
+                &ComponentArguments {
+                    args: filtered_xml_attributes.types.clone(),
+                    accepts_text: filtered_xml_attributes.accepts_text,
+                },
                 tabs + 1,
                 extra_blocks,
                 css_blocks,
@@ -2712,7 +2740,7 @@ impl DynamicXmlComponent {
 
         let args = match root.attributes.get_key("args") {
             Some(s) => parse_component_arguments(s)?,
-            None => ComponentArgumentsMap::default(),
+            None => ComponentArgumentTypes::default(),
         };
 
         Ok(Self {
@@ -2768,7 +2796,7 @@ impl XmlComponentTrait for DynamicXmlComponent {
     fn compile_to_rust_code(
         &self,
         components: &XmlComponentMap,
-        attributes: &FilteredComponentArguments,
+        attributes: &ComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
         Ok("Dom::div()".into()) // TODO!s
