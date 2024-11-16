@@ -1244,6 +1244,7 @@ fn get_item_internal<'a>(
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNode],
     component_map: &'a mut XmlComponentMap,
+    max_width: Option<f32>,
 ) -> Result<StyledDom, DomXmlParseError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
@@ -1276,7 +1277,7 @@ pub fn str_to_dom<'a>(
         }
     }
 
-    render_dom_from_body_node(&body_node, global_style, component_map).map_err(|e| e.into())
+    render_dom_from_body_node(&body_node, global_style, component_map, max_width).map_err(|e| e.into())
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code
@@ -1498,9 +1499,14 @@ pub fn render_dom_from_body_node<'a>(
     body_node: &'a XmlNode,
     mut global_css: Option<CssApiWrapper>,
     component_map: &'a XmlComponentMap,
+    max_width: Option<f32>,
 ) -> Result<StyledDom, RenderDomError> {
     // Don't actually render the <body></body> node itself
     let mut dom = StyledDom::default();
+    
+    if let Some(max_width) = max_width {
+        dom.restyle(CssApiWrapper::from_string(format!("body, html {{ max-width: {max_width}px; }}").into()));
+    }
 
     for child_node in body_node.children.as_ref() {
         dom.append_child(render_dom_from_body_node_inner(

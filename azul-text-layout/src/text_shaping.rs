@@ -460,10 +460,13 @@ impl ParsedFont {
     }
 
     pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
-        match self.cmap_subtable.as_ref().and_then(|s| s.map_glyph(c).ok()) {
+        let s = match self.cmap_subtable.as_ref().and_then(|s| s.map_glyph(c).ok()) {
             Some(Some(c)) => Some(c),
             _ => None,
-        }
+        };
+        println!("cmap subtable: {:#?}", self.cmap_subtable);
+        println!("lookup glyph index: {:?} - {}: {:?}", char::from_u32(c), c, s);
+        s
     }
 }
 

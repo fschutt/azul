@@ -31,7 +31,7 @@ pub fn domxml_from_str(xml: &str, component_map: &mut XmlComponentMap) -> DomXml
         },
     };
 
-    let parsed_dom = match str_to_dom(parsed.as_ref(), component_map) {
+    let parsed_dom = match str_to_dom(parsed.as_ref(), component_map, None) {
         Ok(o) => o,
         Err(e) => return DomXml {
             parsed_dom: Dom::body().with_children(vec![Dom::text(format!("{}", e))].into()).style(error_css.clone()),

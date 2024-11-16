@@ -157,7 +157,7 @@ fn process(action: Action, file: Option<&String>) {
         }
     };
 
-    let styled_dom = match str_to_dom(root_nodes.as_ref(), &mut XmlComponentMap::default()) {
+    let styled_dom = match str_to_dom(root_nodes.as_ref(), &mut XmlComponentMap::default(), None) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: could not render DOM:\r\n{}", e);
