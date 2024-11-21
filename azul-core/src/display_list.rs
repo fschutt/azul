@@ -819,7 +819,6 @@ pub struct RenderCallbacks {
 
 impl SolvedLayout {
     /// Does the layout, updates the image + font resources for the RenderAPI
-    #[cfg(feature = "multithreading")]
     pub fn new(
         styled_dom: StyledDom,
         epoch: Epoch,
@@ -851,12 +850,10 @@ impl SolvedLayout {
     }
 }
 
-#[cfg(feature = "multithreading")]
 pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a>,
 ) -> Option<DisplayListMsg> {
-    use rayon::prelude::*;
 
     let mut content = displaylist_handle_rect(
         root_content_group.root.into_crate_internal().unwrap(),
@@ -866,7 +863,7 @@ pub fn push_rectangles_into_displaylist<'a>(
     let children = root_content_group
         .children
         .as_ref()
-        .par_iter()
+        .iter()
         .filter_map(|child_content_group| {
             push_rectangles_into_displaylist(child_content_group, referenced_content)
         })
@@ -878,7 +875,6 @@ pub fn push_rectangles_into_displaylist<'a>(
 }
 
 /// Push a single rectangle into the display list builder
-#[cfg(feature = "multithreading")]
 pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a>,

@@ -1573,7 +1573,7 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    #[cfg(all(feature = "multithreading", feature = "css_parser"))]
+    #[cfg(feature = "css_parser")]
     pub fn style(&mut self, css: azul_css_parser::CssApiWrapper) -> StyledDom {
         StyledDom::new(self, css)
     }

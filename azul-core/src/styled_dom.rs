@@ -227,7 +227,6 @@ impl CssPropertyCache {
         use azul_css::CssDeclaration;
         use azul_css::CssPathPseudoSelector::*;
         use azul_css::LayoutDisplay;
-        use rayon::prelude::*;
 
         let css_is_empty = css.is_empty();
 
@@ -468,7 +467,7 @@ impl CssPropertyCache {
         // why the tag IDs have to be re-generated on every .restyle() call!
         node_data
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| {
                 let node_id = NodeId::new(node_id);
@@ -2395,11 +2394,9 @@ impl StyledDom {
     // This is for memory optimization, so that the DOM does not need to be cloned.
     //
     // The CSS will be left in-place, but will be re-ordered
-    #[cfg(feature = "multithreading")]
     pub fn new(dom: &mut Dom, mut css: CssApiWrapper) -> Self {
         use crate::dom::EventFilter;
         use core::mem;
-        use rayon::prelude::*;
 
         let mut swap_dom = Dom::body();
 
@@ -2414,7 +2411,7 @@ impl StyledDom {
             .node_hierarchy
             .as_ref()
             .internal
-            .par_iter()
+            .iter()
             .map(|i| (*i).into())
             .collect::<Vec<NodeHierarchyItem>>()
             .into();
@@ -2436,7 +2433,7 @@ impl StyledDom {
             construct_html_cascade_tree(&compact_dom.node_hierarchy.as_ref(), &non_leaf_nodes[..]);
 
         let non_leaf_nodes = non_leaf_nodes
-            .par_iter()
+            .iter()
             .map(|(depth, node_id)| ParentWithNodeDepth {
                 depth: *depth,
                 node_id: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
@@ -2472,7 +2469,7 @@ impl StyledDom {
             .node_data
             .as_ref()
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, c)| {
                 let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
@@ -2493,7 +2490,7 @@ impl StyledDom {
             .node_data
             .as_ref()
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, c)| {
                 let node_has_none_callbacks = c.get_callbacks().iter().any(|cb| match cb.event {
@@ -2515,7 +2512,7 @@ impl StyledDom {
             .node_data
             .as_ref()
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, c)| {
                 if !c.get_callbacks().is_empty() || c.get_dataset().is_some() {
@@ -2801,7 +2798,6 @@ impl StyledDom {
     }
 
     pub fn restyle(&mut self, mut css: CssApiWrapper) {
-        use rayon::prelude::*;
 
         let new_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css.css,
@@ -2816,7 +2812,7 @@ impl StyledDom {
 
         styled_nodes_mut
             .internal
-            .par_iter_mut()
+            .iter_mut()
             .for_each(|styled_node| {
                 styled_node.tag_id = None.into();
             });
@@ -3060,18 +3056,16 @@ impl StyledDom {
         set
     }
 
-    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_hover(
         &mut self,
         nodes: &[NodeId],
         new_hover_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        use rayon::prelude::*;
 
         // save the old node state
         let old_node_states = nodes
-            .par_iter()
+            .iter()
             .map(|nid| self.styled_nodes.as_container()[*nid].state.clone())
             .collect::<Vec<_>>();
 
@@ -3087,8 +3081,8 @@ impl StyledDom {
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
-            .par_iter()
-            .zip(old_node_states.par_iter())
+            .iter()
+            .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = css_property_cache
                     .css_hover_props
@@ -3170,18 +3164,16 @@ impl StyledDom {
         v.into_iter().collect()
     }
 
-    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_active(
         &mut self,
         nodes: &[NodeId],
         new_active_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        use rayon::prelude::*;
 
         // save the old node state
         let old_node_states = nodes
-            .par_iter()
+            .iter()
             .map(|nid| self.styled_nodes.as_container()[*nid].state.clone())
             .collect::<Vec<_>>();
 
@@ -3197,8 +3189,8 @@ impl StyledDom {
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
-            .par_iter()
-            .zip(old_node_states.par_iter())
+            .iter()
+            .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = css_property_cache
                     .css_active_props
@@ -3282,18 +3274,16 @@ impl StyledDom {
         v.into_iter().collect()
     }
 
-    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_nodes_focus(
         &mut self,
         nodes: &[NodeId],
         new_focus_state: bool,
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        use rayon::prelude::*;
 
         // save the old node state
         let old_node_states = nodes
-            .par_iter()
+            .iter()
             .map(|nid| self.styled_nodes.as_container()[*nid].state.clone())
             .collect::<Vec<_>>();
 
@@ -3309,8 +3299,8 @@ impl StyledDom {
 
         // scan all properties that could have changed because of addition / removal
         let v = nodes
-            .par_iter()
-            .zip(old_node_states.par_iter())
+            .iter()
+            .zip(old_node_states.iter())
             .filter_map(|(node_id, old_node_state)| {
                 let mut keys_normal: Vec<_> = css_property_cache
                     .css_focus_props
@@ -3395,14 +3385,12 @@ impl StyledDom {
     }
 
     // Inserts a property into the self.user_overridden_properties
-    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn restyle_user_property(
         &mut self,
         node_id: &NodeId,
         new_properties: &[CssProperty],
     ) -> BTreeMap<NodeId, Vec<ChangedCssProperty>> {
-        use rayon::prelude::*;
 
         let mut map = BTreeMap::default();
 
@@ -3420,7 +3408,7 @@ impl StyledDom {
             let css_property_cache = self.get_css_property_cache();
 
             new_properties
-                .par_iter()
+                .iter()
                 .filter_map(|new_prop| {
                     let old_prop = css_property_cache.get_property(
                         node_data,
@@ -3484,13 +3472,11 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for iframe callbacks
-    #[cfg(feature = "multithreading")]
     pub fn scan_for_iframe_callbacks(&self) -> Vec<NodeId> {
         use crate::dom::NodeType;
-        use rayon::prelude::*;
         self.node_data
             .as_ref()
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| match node_data.get_node_type() {
                 NodeType::IFrame(_) => Some(NodeId::new(node_id)),
@@ -3500,13 +3486,11 @@ impl StyledDom {
     }
 
     /// Scans the `StyledDom` for OpenGL callbacks
-    #[cfg(all(feature = "multithreading"))]
     pub(crate) fn scan_for_gltexture_callbacks(&self) -> Vec<NodeId> {
         use crate::dom::NodeType;
-        use rayon::prelude::*;
         self.node_data
             .as_ref()
-            .par_iter()
+            .iter()
             .enumerate()
             .filter_map(|(node_id, node_data)| {
                 use crate::app_resources::DecodedImage;
@@ -3668,7 +3652,6 @@ impl StyledDom {
         }
     }
 
-    #[cfg(feature = "multithreading")]
     pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(
             &self.non_leaf_nodes.as_ref(),
@@ -3681,7 +3664,6 @@ impl StyledDom {
 
     /// Returns the rendering order of the items (the rendering
     /// order doesn't have to be the original order)
-    #[cfg(feature = "multithreading")]
     fn determine_rendering_order<'a>(
         non_leaf_nodes: &[ParentWithNodeDepth],
         node_hierarchy: &NodeDataContainerRef<'a, NodeHierarchyItem>,
@@ -3689,10 +3671,9 @@ impl StyledDom {
         node_data_container: &NodeDataContainerRef<NodeData>,
         css_property_cache: &CssPropertyCache,
     ) -> ContentGroup {
-        use rayon::prelude::*;
 
         let children_sorted = non_leaf_nodes
-            .par_iter()
+            .iter()
             .filter_map(|parent| {
                 Some((
                     parent.node_id,
@@ -3821,12 +3802,11 @@ fn fill_content_group_children(
     group: &mut ContentGroup,
     children_sorted: &BTreeMap<NodeHierarchyItemId, Vec<NodeHierarchyItemId>>,
 ) {
-    use rayon::prelude::*;
 
     if let Some(c) = children_sorted.get(&group.root) {
         // returns None for leaf nodes
         group.children = c
-            .par_iter()
+            .iter()
             .map(|child| ContentGroup {
                 root: *child,
                 children: Vec::new().into(),
@@ -3848,7 +3828,6 @@ fn sort_children_by_position<'a>(
     css_property_cache: &CssPropertyCache,
 ) -> Vec<NodeHierarchyItemId> {
     use azul_css::LayoutPosition::*;
-    use rayon::prelude::*;
 
     let children_positions = parent
         .az_children(node_hierarchy)
@@ -3863,7 +3842,7 @@ fn sort_children_by_position<'a>(
         .collect::<Vec<_>>();
 
     let mut not_absolute_children = children_positions
-        .par_iter()
+        .iter()
         .filter_map(|(node_id, position)| {
             if *position != Absolute {
                 Some(*node_id)
@@ -3874,7 +3853,7 @@ fn sort_children_by_position<'a>(
         .collect::<Vec<_>>();
 
     let mut absolute_children = children_positions
-        .par_iter()
+        .iter()
         .filter_map(|(node_id, position)| {
             if *position == Absolute {
                 Some(*node_id)

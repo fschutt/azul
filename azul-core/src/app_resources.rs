@@ -689,7 +689,6 @@ impl RendererResources {
     /// This function should be called after the StyledDom has been
     /// exchanged for the next frame and AFTER all OpenGL textures
     /// and image callbacks have been resolved.
-    #[cfg(feature = "multithreading")]
     pub fn do_gc(
         &mut self,
         all_resource_updates: &mut Vec<ResourceUpdate>,
@@ -699,8 +698,6 @@ impl RendererResources {
         // initialized texture cache of the NEXT frame
         gl_texture_cache: &GlTextureCache,
     ) {
-        use crate::rayon::iter::IntoParallelRefIterator;
-        use crate::rayon::iter::ParallelIterator;
         use alloc::collections::btree_set::BTreeSet;
 
         // Get all fonts / images that are in the DOM for the next frame
@@ -754,7 +751,7 @@ impl RendererResources {
         // If the current frame contains an image, but the next frame does not, delete it
         let delete_image_resources = self
             .currently_registered_images
-            .par_iter()
+            .iter()
             .filter(|(image_ref_hash, _)| !next_frame_image_keys.contains(image_ref_hash))
             .map(|(image_ref_hash, resolved_image)| {
                 (
@@ -782,7 +779,7 @@ impl RendererResources {
 
         self.last_frame_registered_fonts = self
             .currently_registered_fonts
-            .par_iter()
+            .iter()
             .map(|(fk, (_, fi))| (fk.clone(), fi.clone()))
             .collect();
 
@@ -2191,7 +2188,6 @@ pub struct GlyphInfo {
     pub placement: Placement,
 }
 
-#[cfg(feature = "multithreading")]
 pub fn get_inline_text(
     words: &Words,
     shaped_words: &ShapedWords,
@@ -2199,7 +2195,6 @@ pub fn get_inline_text(
     inline_text_layout: &InlineTextLayout,
 ) -> InlineText {
     use crate::callbacks::{InlineGlyph, InlineLine, InlineTextContents, InlineWord};
-    use rayon::prelude::*;
 
     // check the range so that in the worst case there isn't a random crash here
     fn get_range_checked_inclusive_end(
@@ -2227,14 +2222,14 @@ pub fn get_inline_text(
     let inline_lines = inline_text_layout
         .lines
         .as_ref()
-        .par_iter()
+        .iter()
         .filter_map(|line| {
             let word_items = words.items.as_ref();
             let word_start = line.word_start.min(line.word_end);
             let word_end = line.word_end.max(line.word_start);
 
             let words = get_range_checked_inclusive_end(word_items, word_start, word_end)?
-                .par_iter()
+                .iter()
                 .enumerate()
                 .filter_map(|(word_idx, word)| {
                     let word_idx = word_start + word_idx;
@@ -2507,7 +2502,6 @@ pub struct LayoutedGlyphs {
 /// Scans the `StyledDom` for new images and fonts. After this call,
 /// the `all_resource_updates` contains all the `AddFont` / `AddImage`
 /// / `AddFontInstance` messages.
-#[cfg(feature = "multithreading")]
 pub fn add_fonts_and_images(
     image_cache: &ImageCache,
     renderer_resources: &mut RendererResources,
@@ -3123,7 +3117,6 @@ pub fn build_add_font_resource_updates(
 /// add-and-remove images after every IFrameCallback, which would cause a lot of
 /// I/O waiting.
 #[allow(unused_variables)]
-#[cfg(feature = "multithreading")]
 pub fn build_add_image_resource_updates(
     renderer_resources: &RendererResources,
     id_namespace: IdNamespace,
@@ -3132,10 +3125,9 @@ pub fn build_add_image_resource_updates(
     images_in_dom: &FastBTreeSet<ImageRef>,
     insert_into_active_gl_textures: GlStoreImageFn,
 ) -> Vec<(ImageRefHash, AddImageMsg)> {
-    use rayon::prelude::*;
 
     images_in_dom
-        .par_iter()
+        .iter()
         .filter_map(|image_ref| {
             let image_ref_hash = image_ref.get_hash();
 

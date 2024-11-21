@@ -690,7 +690,6 @@ impl LayoutResult {
         LayoutRect::new(self.root_position, self.root_size)
     }
 
-    #[cfg(feature = "multithreading")]
     pub fn get_cached_display_list(
         document_id: &DocumentId,
         dom_id: DomId,
@@ -705,7 +704,6 @@ impl LayoutResult {
             displaylist_handle_rect, push_rectangles_into_displaylist, DisplayListFrame,
             DisplayListMsg, DisplayListParametersRef, LayoutRectContent, RectBackground,
         };
-        use rayon::prelude::*;
 
         let layout_result = match layout_results.get(dom_id.inner) {
             Some(s) => s,
@@ -742,7 +740,7 @@ impl LayoutResult {
         let children = rects_in_rendering_order
             .children
             .as_ref()
-            .par_iter()
+            .iter()
             .filter_map(|child_content_group| {
                 push_rectangles_into_displaylist(child_content_group, &referenced_content)
             })
@@ -1071,14 +1069,12 @@ impl GpuValueCache {
         Self::default()
     }
 
-    #[cfg(feature = "multithreading")]
     #[must_use]
     pub fn synchronize<'a>(
         &mut self,
         positioned_rects: &NodeDataContainerRef<'a, PositionedRectangle>,
         styled_dom: &StyledDom,
     ) -> GpuEventChanges {
-        use rayon::prelude::*;
 
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_data = styled_dom.node_data.as_container();
@@ -1106,7 +1102,7 @@ impl GpuValueCache {
 
         // calculate the transform values of every single node that has a non-default transform
         let all_current_transform_events = (0..styled_dom.node_data.len())
-            .into_par_iter()
+            .into_iter()
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].state;
@@ -1177,7 +1173,7 @@ impl GpuValueCache {
 
         // calculate the opacity of every single node that has a non-default opacity
         let all_current_opacity_events = (0..styled_dom.node_data.len())
-            .into_par_iter()
+            .into_iter()
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].state;

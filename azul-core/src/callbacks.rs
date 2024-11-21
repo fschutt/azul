@@ -1605,7 +1605,6 @@ impl CallbackInfo {
         }
     }
 
-    #[cfg(feature = "multithreading")]
     pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
         let nid = node_id.node.into_crate_internal()?;
         let layout_result = self.internal_get_layout_results().get(node_id.dom.inner)?;
@@ -2191,7 +2190,6 @@ impl RenderImageCallbackInfo {
     // fn get_font()
     // fn get_image()
 
-    #[cfg(feature = "multithreading")]
     pub fn get_inline_text(&self, node_id: DomNodeId) -> Option<InlineText> {
         if node_id.dom != self.get_callback_node_id().dom {
             return None;

@@ -373,7 +373,6 @@ pub type RelayoutFn = fn(
 
 impl StyleAndLayoutChanges {
     /// Determines and immediately applies the changes to the layout results
-    #[cfg(feature = "multithreading")]
     pub fn new(
         nodes: &NodesToCheck,
         layout_results: &mut [LayoutResult],
@@ -718,7 +717,6 @@ impl CallbacksOfHitTest {
         events: &Events,
         layout_results: &[LayoutResult],
     ) -> Self {
-        use rayon::prelude::*;
 
         let mut nodes_with_callbacks = BTreeMap::new();
 

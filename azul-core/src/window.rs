@@ -797,7 +797,7 @@ pub struct WindowInternalInit {
 
 impl WindowInternal {
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
-    #[cfg(all(feature = "multithreading", feature = "std"))]
+    #[cfg(feature = "std")]
     pub fn new<F>(
         mut init: WindowInternalInit,
         data: &mut RefAny,
@@ -918,7 +918,6 @@ impl WindowInternal {
     }
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
-    #[cfg(all(feature = "multithreading"))]
     pub fn regenerate_styled_dom<F>(
         &mut self,
         data: &mut RefAny,

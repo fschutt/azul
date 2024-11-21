@@ -10,8 +10,6 @@ extern crate alloc;
 
 extern crate libm;
 
-#[cfg(feature = "multithreading")]
-extern crate rayon;
 #[macro_use]
 extern crate azul_css;
 #[cfg(feature = "css_parser")]
