@@ -37,7 +37,7 @@ default = ["std", "logging", "css_parser", "image_loading", "ico", "tga", "hdr",
 # removing any of these features will lead to compile error
 # this will be fixed in the future
 minimal = ["std", "css_parser", "font_loading", "text_layout", "no_static_freetype"]
-std = ["azul-core/std", "azul-desktop/std", "azul-core/multithreading"]
+std = ["azul-core/std", "azul-desktop/std"]
 logging = ["azul-desktop/logging", "log"]
 use_fern_logger = ["azul-desktop/use_fern_logger", "logging"]
 use_pyo3_logger = ["azul-desktop/use_pyo3_logger", "pyo3-log", "logging"]

@@ -149,7 +149,6 @@ dependencies = [
  "gl-context-loader",
  "highway",
  "libm",
- "rayon",
  "rust-fontconfig",
 ]
 

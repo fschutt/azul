@@ -29,4 +29,4 @@ default = ["std"]
 # Enables the CSS parser
 css_parser = ["azul-css-parser"]
 # Enables hashing for timing and threading
-std = ["multithreading", "css_parser"]
+std = ["css_parser"]

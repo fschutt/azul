@@ -43,7 +43,7 @@ dispatch = "0.2.0"
 
 [features]
 default = ["std", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "image_loading", "gif", "jpeg", "png", "tiff", "bmp", "use_fern_logger"]
-std = ["azul-core/multithreading", "azul-core/std"]
+std = ["azul-core/std"]
 use_pyo3_logger = []
 use_fern_logger = ["fern"]
 logging = ["log"]
