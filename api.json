@@ -11367,7 +11367,8 @@
                         {"width": {"type": "usize", "doc": "Width of the image"}},
                         {"height": {"type": "usize", "doc": "Height of the image"}},
                         {"alpha_premultiplied": {"type": "bool", "doc": "Whether the image already has the alpha channel premultiplied"}},
-                        {"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}}
+                        {"data_format": {"type": "RawImageFormat", "doc": "Which data format (channels) the image uses"}},
+                        {"tag": {"type": "U8Vec", "doc": "Optional tag for this image"}}
                     ],
                     "constructors": {
                         "empty": {

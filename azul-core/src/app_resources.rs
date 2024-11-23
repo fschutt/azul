@@ -409,6 +409,7 @@ impl ImageRef {
                 height: image_descriptor.height,
                 premultiplied_alpha: true,
                 data_format: image_descriptor.format,
+                tag: Vec::new().into(),
             }),
             _ => None,
         }
@@ -1490,6 +1491,7 @@ pub struct RawImage {
     pub height: usize,
     pub premultiplied_alpha: bool,
     pub data_format: RawImageFormat,
+    pub tag: U8Vec,
 }
 
 impl RawImage {
@@ -1501,6 +1503,7 @@ impl RawImage {
             height: 0,
             premultiplied_alpha: true,
             data_format: RawImageFormat::BGRA8,
+            tag: Vec::new().into(),
         }
     }
 
@@ -1514,6 +1517,7 @@ impl RawImage {
             height: size.height as usize,
             premultiplied_alpha: true,
             data_format: RawImageFormat::R8,
+            tag: Vec::new().into()
         }
     }
 
@@ -1547,6 +1551,7 @@ impl RawImage {
             pixels,
             mut data_format,
             premultiplied_alpha,
+            tag,
         } = self;
 
         const FOUR_BPP: usize = 4;
