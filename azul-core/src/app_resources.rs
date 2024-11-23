@@ -260,6 +260,8 @@ pub enum DecodedImage {
         width: usize,
         height: usize,
         format: RawImageFormat,
+        /// Sometimes images need to be tagged with extra data
+        tag: Vec<u8>,
     },
     // OpenGl texture
     Gl(Texture),
@@ -341,10 +343,12 @@ impl ImageRef {
                 width,
                 height,
                 format,
+                tag,
             } => DecodedImage::NullImage {
                 width: *width,
                 height: *height,
                 format: *format,
+                tag: tag.clone(),
             },
             // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that are missing from the trait),
             // so calling clone() on a GL texture will result in an empty image
@@ -352,6 +356,7 @@ impl ImageRef {
                 width: tex.size.width as usize,
                 height: tex.size.height as usize,
                 format: tex.format,
+                tag: Vec::new(),
             },
             // WARNING: the data may still be a U8Vec<'static> - the data may still not be
             // actually cloned. The data only gets cloned on a write operation
@@ -430,11 +435,12 @@ impl ImageRef {
         ImageRefHash(self.data as usize)
     }
 
-    pub fn invalid(width: usize, height: usize, format: RawImageFormat) -> Self {
+    pub fn null_image(width: usize, height: usize, format: RawImageFormat, tag: Vec<u8>) -> Self {
         Self::new(DecodedImage::NullImage {
             width,
             height,
             format,
+            tag,
         })
     }
 
@@ -1332,6 +1338,7 @@ impl GlTextureCache {
                         width: _,
                         height: _,
                         format: _,
+                        tag: _,
                     } => None,
                     // Texture callbacks inside of texture callbacks are not rendered
                     DecodedImage::Callback(_) => None,
@@ -3176,9 +3183,10 @@ pub fn build_add_image_resource_updates(
                     ))
                 }
                 DecodedImage::NullImage {
-                    width,
-                    height,
-                    format,
+                    width: _,
+                    height: _,
+                    format: _,
+                    tag: _,
                 } => None,
                 DecodedImage::Callback(_) => None, // Texture callbacks are handled after layout is done
             }
