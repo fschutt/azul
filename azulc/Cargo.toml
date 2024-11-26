@@ -39,7 +39,7 @@ rayon                   = { version = "1.5.3",    default-features = false, opti
 usvg                    = { version = "0.22.0",   default-features = false, optional = true, features = ["export"] }
 resvg                   = { version = "0.22.0",   default-features = false, optional = true }
 roxmltree               = { version = "0.14.0",   default-features = false, optional = true }
-tiny-skia               = { version = "0.6.5",    default-features = false, optional = true, features = ["libm"] }
+tiny-skia               = { version = "0.6.6",    default-features = false, optional = true, features = ["libm"] }
 xmlwriter               = { version = "0.1.0",    default-features = false }
 geo-booleanop           = { version = "0.2.1", default-features = false }
 geo                     = { version = "0.26.0", default-features = false }
