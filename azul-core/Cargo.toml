@@ -13,9 +13,6 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 autoexamples = false
 
-[lib]
-crate-type = ["rlib", "cdylib"]
-
 [dependencies]
 azul-css                = { path = "../azul-css",        version = "0.0.1", default-features = false }
 libm                    = { version = "0.2.2",   default-features = false                   }
