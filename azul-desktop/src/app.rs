@@ -158,7 +158,7 @@ impl App {
         }
 
         #[cfg(target_os = "macos")] {
-            crate::shell::cocoa::get_monitors(self)
+            crate::shell::appkit::get_monitors(self)
         }
     }
 
@@ -175,7 +175,7 @@ impl App {
         let err = crate::shell::x11::run(self, root_window);
 
         #[cfg(target_os = "macos")]
-        let err = crate::shell::cocoa::run(root_window);
+        let err = crate::shell::appkit::run(root_window);
 
         if let Err(e) = err {
             crate::dialogs::msg_box(&format!("{:?}", e));
