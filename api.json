@@ -11268,14 +11268,15 @@
                         {"run_destructor": {"type": "bool"}}
                     ],
                     "constructors": {
-                        "invalid": {
+                        "null_image": {
                             "doc": "Creates an \"invalid\" image with a width and height that reserves an image key, but does not render anything",
                             "fn_args": [
                                 {"width": "usize"},
                                 {"height": "usize"},
-                                {"format": "RawImageFormat"}
+                                {"format": "RawImageFormat"},
+                                {"tag": "U8Vec"}
                             ],
-                            "fn_body": "AzImageRef::invalid(width, height, format)"
+                            "fn_body": "AzImageRef::null_image(width, height, format, tag.as_ref().to_vec())"
                         },
                         "raw_image": {
                             "doc": "Creates an image reference from a CPU-backed buffer",

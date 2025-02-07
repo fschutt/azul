@@ -2513,10 +2513,11 @@ extern "C"
 fn draw_connection(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> ImageRef {
 
     let size = info.get_bounds().get_physical_size();
-    let invalid = ImageRef::invalid(
+    let invalid = ImageRef::null_image(
         size.width as usize,
         size.height as usize,
         RawImageFormat::R8,
+        Vec::new(),
     );
 
     match draw_connection_inner(data, info, size) {

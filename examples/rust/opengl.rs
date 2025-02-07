@@ -61,10 +61,11 @@ fn render_my_texture(data: &mut RefAny, info: &mut RenderImageCallbackInfo) -> I
     // this way you can render the OpenGL texture with the correct size
     // even if you don't know upfront what the size of the texture in the UI is going to be
     let size = info.get_bounds().get_physical_size();
-    let invalid = ImageRef::invalid(
+    let invalid = ImageRef::null_image(
         size.width as usize,
         size.height as usize,
         RawImageFormat::R8,
+        Vec::new(),
     );
 
     match render_my_texture_inner(data, info, size) {
@@ -257,6 +258,7 @@ fn main() {
         stroke_vertex_buffer_id: None,
     });
 
+    println!("starting app");
     let mut app = App::new(data, AppConfig::new(LayoutSolver::Default));
 
     let mut window = WindowCreateOptions::new(layout);

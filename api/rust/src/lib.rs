@@ -9225,6 +9225,7 @@ mod dll {
             pub height: usize,
             pub alpha_premultiplied: bool,
             pub data_format: AzRawImageFormat,
+            pub tag: AzU8Vec,
         }
 
         /// Re-export of rust-allocated (stack based) `SvgPath` struct
@@ -11111,7 +11112,7 @@ mod dll {
         pub(crate) fn AzGLsyncPtr_delete(object: &mut AzGLsyncPtr) { unsafe { transmute(azul::AzGLsyncPtr_delete(transmute(object))) } }
         pub(crate) fn AzGLsyncPtr_deepCopy(object: &AzGLsyncPtr) -> AzGLsyncPtr { unsafe { transmute(azul::AzGLsyncPtr_deepCopy(transmute(object))) } }
         pub(crate) fn AzTextureFlags_default() -> AzTextureFlags { unsafe { transmute(azul::AzTextureFlags_default()) } }
-        pub(crate) fn AzImageRef_invalid(width: usize, height: usize, format: AzRawImageFormat) -> AzImageRef { unsafe { transmute(azul::AzImageRef_invalid(transmute(width), transmute(height), transmute(format))) } }
+        pub(crate) fn AzImageRef_nullImage(width: usize, height: usize, format: AzRawImageFormat, tag: AzU8Vec) -> AzImageRef { unsafe { transmute(azul::AzImageRef_nullImage(transmute(width), transmute(height), transmute(format), transmute(tag))) } }
         pub(crate) fn AzImageRef_rawImage(data: AzRawImage) -> AzOptionImageRef { unsafe { transmute(azul::AzImageRef_rawImage(transmute(data))) } }
         pub(crate) fn AzImageRef_glTexture(texture: AzTexture) -> AzImageRef { unsafe { transmute(azul::AzImageRef_glTexture(transmute(texture))) } }
         pub(crate) fn AzImageRef_callback(data: AzRefAny, callback: AzRenderImageCallbackType) -> AzImageRef { unsafe { transmute(azul::AzImageRef_callback(transmute(data), transmute(callback))) } }
@@ -11958,7 +11959,7 @@ mod dll {
             pub(crate) fn AzGLsyncPtr_delete(_:  &mut AzGLsyncPtr);
             pub(crate) fn AzGLsyncPtr_deepCopy(_:  &AzGLsyncPtr) -> AzGLsyncPtr;
             pub(crate) fn AzTextureFlags_default() -> AzTextureFlags;
-            pub(crate) fn AzImageRef_invalid(_:  usize, _:  usize, _:  AzRawImageFormat) -> AzImageRef;
+            pub(crate) fn AzImageRef_nullImage(_:  usize, _:  usize, _:  AzRawImageFormat, _:  AzU8Vec) -> AzImageRef;
             pub(crate) fn AzImageRef_rawImage(_:  AzRawImage) -> AzOptionImageRef;
             pub(crate) fn AzImageRef_glTexture(_:  AzTexture) -> AzImageRef;
             pub(crate) fn AzImageRef_callback(_:  AzRefAny, _:  AzRenderImageCallbackType) -> AzImageRef;
@@ -17811,6 +17812,7 @@ pub mod image {
     //! Struct definitions for image loading
     use crate::dll::*;
     use core::ffi::c_void;
+    use crate::vec::U8Vec;
     use crate::gl::{Texture, U8VecRef};
     use crate::callbacks::{RefAny, RenderImageCallbackType};
     use crate::window::LayoutSize;
@@ -17821,7 +17823,7 @@ pub mod image {
     impl ImageRef {
 
         /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
-        pub fn invalid<_3: Into<RawImageFormat>>(width: usize, height: usize, format: _3) -> Self { unsafe { crate::dll::AzImageRef_invalid(width, height, format.into()) } }
+        pub fn null_image<_3: Into<RawImageFormat>, _4: Into<U8Vec>>(width: usize, height: usize, format: _3, tag: _4) -> Self { unsafe { crate::dll::AzImageRef_nullImage(width, height, format.into(), tag.into()) } }
         /// Creates an image reference from a CPU-backed buffer
         pub fn raw_image<_1: Into<RawImage>>(data: _1) ->  crate::option::OptionImageRef { unsafe { crate::dll::AzImageRef_rawImage(data.into()) } }
         /// Creates an image reference from an OpenGL texture

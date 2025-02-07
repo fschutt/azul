@@ -3289,7 +3289,7 @@ pub use AzTextureFlagsTT as AzTextureFlags;
 pub use azul_impl::resources::ImageRef as AzImageRefTT;
 pub use AzImageRefTT as AzImageRef;
 /// Creates an "invalid" image with a width and height that reserves an image key, but does not render anything
-#[no_mangle] pub extern "C" fn AzImageRef_invalid(width: usize, height: usize, format: AzRawImageFormat) -> AzImageRef { AzImageRef::invalid(width, height, format) }
+#[no_mangle] pub extern "C" fn AzImageRef_nullImage(width: usize, height: usize, format: AzRawImageFormat, tag: AzU8Vec) -> AzImageRef { AzImageRef::null_image(width, height, format, tag.as_ref().to_vec()) }
 /// Creates an image reference from a CPU-backed buffer
 #[no_mangle] pub extern "C" fn AzImageRef_rawImage(data: AzRawImage) -> AzOptionImageRef { AzImageRef::new_rawimage(data).into() }
 /// Creates an image reference from an OpenGL texture
@@ -12010,6 +12010,7 @@ mod test_sizes {
         pub height: usize,
         pub alpha_premultiplied: bool,
         pub data_format: AzRawImageFormat,
+        pub tag: AzU8Vec,
     }
 
     /// Re-export of rust-allocated (stack based) `SvgPath` struct

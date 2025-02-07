@@ -8689,6 +8689,7 @@ namespace dll {
         size_t height;
         bool  alpha_premultiplied;
         RawImageFormat data_format;
+        U8Vec tag;
         RawImage& operator=(const RawImage&) = delete; /* disable assignment operator, use std::move (default) or .clone() */
         RawImage(const RawImage&) = delete; /* disable copy constructor, use explicit .clone() */
         RawImage() = delete; /* disable default constructor, use C++20 designated initializer instead */
@@ -10994,7 +10995,7 @@ namespace dll {
         GLsyncPtr GLsyncPtr_deepCopy(GLsyncPtr* const instance);
         void GetActiveUniformReturn_delete(GetActiveUniformReturn* restrict instance);
         TextureFlags TextureFlags_default();
-        ImageRef ImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
+        ImageRef ImageRef_nullImage(size_t width, size_t height, AzRawImageFormat  format, AzU8Vec  tag);
         ImageRef ImageRef_rawImage(AzRawImage  data);
         ImageRef ImageRef_glTexture(AzTexture  texture);
         ImageRef ImageRef_callback(AzRefAny  data, AzRenderImageCallbackType  callback);

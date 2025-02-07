@@ -9438,6 +9438,7 @@ struct AzRawImage {
     size_t height;
     bool  alpha_premultiplied;
     AzRawImageFormat data_format;
+    AzU8Vec tag;
 };
 typedef struct AzRawImage AzRawImage;
 
@@ -13146,7 +13147,7 @@ extern DLLIMPORT void AzGLsyncPtr_delete(AzGLsyncPtr* restrict instance);
 extern DLLIMPORT AzGLsyncPtr AzGLsyncPtr_deepCopy(AzGLsyncPtr* const instance);
 extern DLLIMPORT void AzGetActiveUniformReturn_delete(AzGetActiveUniformReturn* restrict instance);
 extern DLLIMPORT AzTextureFlags AzTextureFlags_default();
-extern DLLIMPORT AzImageRef AzImageRef_invalid(size_t width, size_t height, AzRawImageFormat  format);
+extern DLLIMPORT AzImageRef AzImageRef_nullImage(size_t width, size_t height, AzRawImageFormat  format, AzU8Vec  tag);
 extern DLLIMPORT AzImageRef AzImageRef_rawImage(AzRawImage  data);
 extern DLLIMPORT AzImageRef AzImageRef_glTexture(AzTexture  texture);
 extern DLLIMPORT AzImageRef AzImageRef_callback(AzRefAny  data, AzRenderImageCallbackType  callback);

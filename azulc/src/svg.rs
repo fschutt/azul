@@ -1937,6 +1937,7 @@ pub fn svg_render(s: &Svg, options: SvgRenderOptions) -> Option<RawImage> {
     )?;
 
     Some(RawImage {
+        tag: Vec::new().into(),
         pixels: RawImageData::U8(pixmap.take().into()),
         width: target_width as usize,
         height: target_height as usize,

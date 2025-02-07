@@ -7095,6 +7095,7 @@ pub struct AzRawImage {
     pub height: usize,
     pub alpha_premultiplied: bool,
     pub data_format: AzRawImageFormatEnumWrapper,
+    pub tag: AzU8Vec,
 }
 
 /// Re-export of rust-allocated (stack based) `SvgPath` struct
@@ -30647,11 +30648,13 @@ impl PyObjectProtocol for AzTextureFlags {
 #[pymethods]
 impl AzImageRef {
     #[staticmethod]
-    fn invalid(width: usize, height: usize, format: AzRawImageFormatEnumWrapper) -> AzImageRef {
-        unsafe { mem::transmute(crate::AzImageRef_invalid(
+    fn null_image(width: usize, height: usize, format: AzRawImageFormatEnumWrapper, tag: Vec<u8>) -> AzImageRef {
+        let tag = pyvecu8_to_vecu8(&tag);
+        unsafe { mem::transmute(crate::AzImageRef_nullImage(
             mem::transmute(width),
             mem::transmute(height),
             mem::transmute(format),
+            mem::transmute(tag),
         )) }
     }
     #[staticmethod]

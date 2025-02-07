@@ -93,6 +93,7 @@ pub mod decode {
         };
 
         ResultRawImageDecodeImageError::Ok(RawImage {
+            tag: Vec::new().into(),
             pixels,
             width: width as usize,
             height: height as usize,

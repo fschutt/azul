@@ -35,8 +35,6 @@ extern crate log;
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
-#[cfg(target_os = "macos")]
-extern crate core_foundation;
 
 extern crate rust_fontconfig;
 extern crate strfmt;
