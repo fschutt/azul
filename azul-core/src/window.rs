@@ -28,6 +28,7 @@ use azul_css::{
     AzString, ColorU, CssPath, CssProperty, LayoutPoint, LayoutRect, LayoutSize, OptionAzString,
     OptionF32, OptionI32, U8Vec, FloatValue,
 };
+use core::sync::atomic::AtomicI64;
 use core::{
     cmp::Ordering,
     ffi::c_void,
@@ -39,21 +40,19 @@ use rust_fontconfig::FcFontCache;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 
-static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
+static LAST_WINDOW_ID: AtomicI64 = AtomicI64::new(0);
 
 /// Each default callback is identified by its ID (not by it's function pointer),
 /// since multiple IDs could point to the same function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct WindowId {
-    id: usize,
+    pub id: i64,
 }
 
 impl WindowId {
     pub fn new() -> Self {
-        WindowId {
-            id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst),
-        }
+        WindowId { id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst) }
     }
 }
 
@@ -155,6 +154,51 @@ impl HwAcceleration {
             HwAcceleration::Enabled => true,
             _ => false,
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ProcessEventResult {
+    DoNothing = 0,
+    ShouldReRenderCurrentWindow = 1,
+    ShouldUpdateDisplayListCurrentWindow = 2,
+    // GPU transforms changed: do another hit-test and recurse
+    // until nothing has changed anymore
+    UpdateHitTesterAndProcessAgain = 3,
+    // Only refresh the display (in case of pure scroll or GPU-only events)
+    ShouldRegenerateDomCurrentWindow = 4,
+    ShouldRegenerateDomAllWindows = 5,
+}
+
+impl ProcessEventResult {
+    pub fn order(&self) -> usize {
+        use self::ProcessEventResult::*;
+        match self {
+           DoNothing => 0,
+           ShouldReRenderCurrentWindow => 1,
+           ShouldUpdateDisplayListCurrentWindow => 2,
+           UpdateHitTesterAndProcessAgain => 3,
+           ShouldRegenerateDomCurrentWindow => 4,
+           ShouldRegenerateDomAllWindows => 5,
+        }
+    }
+}
+
+impl PartialOrd for ProcessEventResult {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.order().partial_cmp(&other.order())
+    }
+}
+
+impl Ord for ProcessEventResult {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.order().cmp(&other.order())
+    }
+}
+
+impl ProcessEventResult {
+    pub fn max_self(self, other: Self) -> Self {
+        self.max(other)
     }
 }
 
@@ -2630,6 +2674,16 @@ impl WindowCreateOptions {
             ..WindowCreateOptions::default()
         }
     }
+    pub fn renderer_types(&self) -> Vec<RendererType> {
+        match self.renderer.into_option() {
+            Some(s) => match s.hw_accel {
+                HwAcceleration::DontCare => vec![RendererType::Hardware, RendererType::Software],
+                HwAcceleration::Enabled => vec![RendererType::Hardware],
+                HwAcceleration::Disabled => vec![RendererType::Software],
+            },
+            None => vec![RendererType::Hardware, RendererType::Software],
+        }
+    }
 }
 
 #[repr(C)]
@@ -3280,6 +3334,58 @@ pub enum VirtualKeyCode {
     Copy,
     Paste,
     Cut,
+}
+
+impl VirtualKeyCode {
+    pub fn get_lowercase(&self) -> Option<char> {
+        use self::VirtualKeyCode::*;
+        match self {
+            A => Some('a'),
+            B => Some('b'),
+            C => Some('c'),
+            D => Some('d'),
+            E => Some('e'),
+            F => Some('f'),
+            G => Some('g'),
+            H => Some('h'),
+            I => Some('i'),
+            J => Some('j'),
+            K => Some('k'),
+            L => Some('l'),
+            M => Some('m'),
+            N => Some('n'),
+            O => Some('o'),
+            P => Some('p'),
+            Q => Some('q'),
+            R => Some('r'),
+            S => Some('s'),
+            T => Some('t'),
+            U => Some('u'),
+            V => Some('v'),
+            W => Some('w'),
+            X => Some('x'),
+            Y => Some('y'),
+            Z => Some('z'),
+            Key0 | Numpad0 => Some('0'),
+            Key1 | Numpad1 => Some('1'),
+            Key2 | Numpad2 => Some('2'),
+            Key3 | Numpad3 => Some('3'),
+            Key4 | Numpad4 => Some('4'),
+            Key5 | Numpad5 => Some('5'),
+            Key6 | Numpad6 => Some('6'),
+            Key7 | Numpad7 => Some('7'),
+            Key8 | Numpad8 => Some('8'),
+            Key9 | Numpad9 => Some('9'),
+            Minus => Some('-'),
+            Asterisk => Some('´'),
+            At => Some('@'),
+            Period => Some('.'),
+            Semicolon => Some(';'),
+            Slash => Some('/'),
+            Caret => Some('^'),
+            _ => None,
+        }
+    }
 }
 
 /// 16x16x4 bytes icon

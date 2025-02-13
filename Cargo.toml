@@ -10,6 +10,7 @@ members = [
     "azul-text-layout",
     "azul-css-parser",
     "examples/rust",
+    "examples/rust/ios"
 ]
 
 [profile.dev]

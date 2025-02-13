@@ -208,6 +208,7 @@ dependencies = [
  "azulc",
  "backtrace",
  "bitflags 2.8.0",
+ "block2",
  "cgl",
  "clipboard2",
  "dispatch2",
@@ -246,6 +247,13 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+]
+
+[[package]]
+name = "azul-ios"
+version = "0.1.0"
+dependencies = [
+ "azul",
 ]
 
 [[package]]

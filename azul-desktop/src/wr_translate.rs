@@ -360,7 +360,7 @@ pub(crate) fn wr_synchronize_updated_images(
 }
 
 /// Returns the size fo the built display list
-#[cfg(not(test))]
+#[cfg(not(any(all(macos, test), all(windows, test))))]
 pub(crate) fn rebuild_display_list(
     internal: &mut WindowInternal,
     render_api: &mut WrRenderApi,
