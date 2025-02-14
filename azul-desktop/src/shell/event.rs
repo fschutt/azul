@@ -1,4 +1,6 @@
-use crate::app;
+use std::collections::BTreeMap;
+use std::rc::Rc;
+
 ///! This module encapsulates the different "event actions" that were formerly
 ///! triggered by Windows messages such as `AZ_REGENERATE_DOM`, `AZ_REDO_HIT_TEST`,
 ///! and so on.
@@ -7,14 +9,20 @@ use crate::app;
 ///! This way, the same logic is reusable for both Win32 and macOS.
 
 use crate::wr_translate::{
-    generate_frame, rebuild_display_list, wr_synchronize_updated_images, wr_translate_document_id
+    generate_frame, rebuild_display_list, 
+    wr_synchronize_updated_images, wr_translate_document_id, 
+    AsyncHitTester
 };
+use crate::app::{self, App};
 use azul_core::app_resources::ResourceUpdate;
 use azul_core::callbacks::LayoutCallbackInfo;
-use azul_core::window_state::NodesToCheck;
-use azul_core::window::{RawWindowHandle, WindowId};
+use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
+use azul_core::window::{CursorPosition, FullHitTest, LogicalPosition, LogicalSize, MenuCallback, MouseCursorType, OptionMouseCursorType, PhysicalSize, ProcessEventResult, RawWindowHandle, VirtualKeyCode, WindowFrame, WindowId};
+use gl_context_loader::GenericGlContext;
+use webrender::api::units::{DeviceIntRect, DeviceIntSize};
+use webrender::Transaction;
 use super::appkit::GlContextGuard;
-use super::{AZ_TICK_REGENERATE_DOM, AZ_THREAD_TICK};
+use super::{MenuTarget, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM};
 
 #[cfg(target_os = "macos")]
 use crate::shell::appkit::Window;
@@ -28,87 +36,81 @@ use crate::shell::win32::AppData;
 
 /// Regenerate the entire DOM (style, layout, etc.).
 /// On Win32, this was triggered by `AZ_REGENERATE_DOM`.
-pub fn regenerate_dom(window: &mut Window, appdata: &mut AppData, _guard: &GlContextGuard) {
+pub fn regenerate_dom(window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
 
-    // 2) Re-build the styled DOM (layout callback).
-    //    This used to happen in the `WM_TIMER` or `AZ_REGENERATE_DOM` handler in Win32.
-    let mut resource_updates = Vec::new();
-    let mut ud = &mut appdata.userdata;
-    let fc_cache = &mut ud.fc_cache;
-    let dat = &mut ud.data;
-    let image_cache = &ud.image_cache;
-
-    {
-        let hit_tester = window.render_api
-            .request_hit_tester(wr_translate_document_id(window.internal.document_id))
-            .resolve();
-
-        let hit_tester_ref = &*hit_tester;
-        let did = window.internal.document_id;
-
-        fc_cache.apply_closure(|fc_cache| {
-            window.internal.regenerate_styled_dom(
-                dat,
-                image_cache,
-                &window.gl_context_ptr,
-                &mut resource_updates,
-                window.internal.get_dpi_scale_factor(),
-                &crate::app::CALLBACKS, // your user callbacks
-                fc_cache,
-                azul_layout::do_the_relayout,
-                // new hit-tester creation:
-                |window_state, _, layout_results| {
-                    crate::wr_translate::fullhittest_new_webrender(
-                        &*hit_tester_ref,
-                        did,
-                        window_state.focused_node,
-                        layout_results,
-                        &window_state.mouse_state.cursor_position,
-                        window_state.size.get_hidpi_factor(),
-                    )
-                },
-            );
-        });
-    }
+    /// 1) Invoke the user-defined layout() function
+    let resource_updates = invoke_layout(window, userdata);
 
     // 3) Stop any timers associated with now-removed NodeIds.
     window.stop_timers_with_node_ids();
+
+    // window.start_timers_with_node_ids();
 
     // 4) Possibly update the menu bar (if your framework allows).
     window.update_menus();
 
     // 5) Rebuild display list after DOM update.
-    rebuild_display_list(&mut window.internal, &mut window.render_api, image_cache, resource_updates);
+    rebuild_display_list(&mut window.internal, &mut window.render_api, &userdata.image_cache, resource_updates);
 
     // 6) The new display list will produce a new hit-tester, schedule that.
-    window.request_new_hit_tester();
+    window.render_api.flush_scene_builder();
 
-    // 7) Since we've updated the entire DOM, we then want a new GPU render:
-    generate_frame(&mut window.internal, &mut window.render_api, true);
+    window.request_redraw();
+
+    println!("regenerate dom, scene builder flushed!");
+}
+
+pub fn invoke_layout(window: &mut Window, userdata: &mut App) -> Vec<ResourceUpdate> {
     
-    window.request_redraw(); // (if needed)
+    let mut resource_updates = Vec::new();
+    let fc_cache = &mut userdata.fc_cache;
+    let dat = &mut userdata.data;
+    let image_cache = &userdata.image_cache;
 
-    // 8) Done. The caller might also queue a second message to "AZ_REDO_HIT_TEST",
-    //    but in this design, we can do the hit test here or just call
-    //    event::redo_hit_test() as a separate function if you prefer.
+    let hit_tester = window.hit_tester.resolve();
+    let hit_tester_ref = &*hit_tester;
+    let did = window.internal.document_id;
+
+    fc_cache.apply_closure(|fc_cache| {
+        window.internal.regenerate_styled_dom(
+            dat,
+            image_cache,
+            &window.gl_context_ptr,
+            &mut resource_updates,
+            window.internal.get_dpi_scale_factor(),
+            &crate::app::CALLBACKS, // your user callbacks
+            fc_cache,
+            azul_layout::do_the_relayout,
+            // new hit-tester creation:
+            |window_state, _, layout_results| {
+                crate::wr_translate::fullhittest_new_webrender(
+                    &*hit_tester_ref,
+                    did,
+                    window_state.focused_node,
+                    layout_results,
+                    &window_state.mouse_state.cursor_position,
+                    window_state.size.get_hidpi_factor(),
+                )
+            },
+        );
+    });
+
+    resource_updates
 }
 
 /// Rebuild the display-list for the *existing* DOM (no layout reflow).
 /// On Win32, triggered by `AZ_REGENERATE_DISPLAY_LIST`.
-pub fn rebuild_display_list_only(window: &mut Window, appdata: &mut AppData, _guard: &GlContextGuard) {
-
-    let image_cache = &appdata.userdata.image_cache;
-
-    // No new resources, we only re-send the existing display-list
+pub fn rebuild_display_list_only(window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+    let image_cache = &userdata.image_cache;
     rebuild_display_list(&mut window.internal, &mut window.render_api, image_cache, vec![]);
-    window.request_new_hit_tester(); // refresh the hit-tester
+    window.render_api.flush_scene_builder();
     generate_frame(&mut window.internal, &mut window.render_api, true);
     window.request_redraw();
 }
 
 /// Re-run the hit-test logic after the display list is up-to-date,
 /// previously triggered by `AZ_REDO_HIT_TEST` on Win32.
-pub fn redo_hit_test(window: &mut Window, appdata: &mut AppData, _guard: &GlContextGuard) {
+pub fn redo_hit_test(window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
 
     let new_hit_tester = window.render_api.request_hit_tester(
         crate::wr_translate::wr_translate_document_id(window.internal.document_id),
@@ -127,24 +129,65 @@ pub fn redo_hit_test(window: &mut Window, appdata: &mut AppData, _guard: &GlCont
     window.internal.current_window_state.last_hit_test = hit;
 
     // Possibly re-render or check callbacks that depend on the new hittest
-    window.request_redraw();
+    // window.request_redraw();
 }
 
 /// Rerun the "GPU scroll render" step, i.e. do any final re-draw calls needed.
 /// On Win32, triggered by `AZ_GPU_SCROLL_RENDER`.
-pub fn gpu_scroll_render(window: &mut Window, _appdata: &mut AppData, _guard: &GlContextGuard) {
+pub fn gpu_scroll_render(window: &mut Window, _userdata: &mut App, _guard: &GlContextGuard) {
+    window.render_api.flush_scene_builder();
     generate_frame(&mut window.internal, &mut window.render_api, false);
-    window.request_redraw();
+}
+
+/// Update window.internal.last_hit_test, restyle nodes and request a redraw only if necessary
+pub fn on_mouse_move(window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+
+    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+        &*window.hit_tester.resolve(),
+        window.internal.document_id,
+        window.internal.current_window_state.focused_node,
+        &window.internal.layout_results,
+        &window.internal.current_window_state.mouse_state.cursor_position,
+        window.internal.current_window_state.size.get_hidpi_factor(),
+    );
+
+    window.internal.previous_window_state = None;
+    window.internal.current_window_state.last_hit_test = hit_test;
+
+    let mut nodes_to_check = NodesToCheck::simulated_mouse_move(
+        &window.internal.current_window_state.last_hit_test,
+        window.internal.current_window_state.focused_node,
+        window.internal.current_window_state.mouse_state.mouse_down()
+    );
+
+    // TODO: invocable callbacks?
+
+    let mut style_layout_changes = StyleAndLayoutChanges::new(
+        &nodes_to_check,
+        &mut window.internal.layout_results,
+        &userdata.image_cache,
+        &mut window.internal.renderer_resources,
+        window.internal.current_window_state.size.get_layout_size(),
+        &window.internal.document_id,
+        None,
+        None,
+        &None,
+        azul_layout::do_the_relayout,
+    );
+    
+    if !style_layout_changes.is_empty() {
+        rebuild_display_list_only(window, userdata, _guard);
+    }
 }
 
 /// Called when the OS says "size changed" or "resized to new physical size",
 /// merges logic from `WM_SIZE + the partial re-layout`.
-pub fn do_resize(window: &mut Window, appdata: &mut AppData, new_width: u32, new_height: u32, _guard: &GlContextGuard) {
+pub fn do_resize(window: &mut Window, userdata: &mut App, new_width: u32, new_height: u32, new_dpi: u32, _guard: &GlContextGuard) {
 
-    let new_physical_size = azul_core::window::PhysicalSize {
-        width: new_width,
-        height: new_height,
-    };
+    let new_physical_size = azul_core::window::LogicalSize {
+        width: new_width as f32,
+        height: new_height as f32,
+    }.to_physical(new_dpi as f32 / 96.0);
 
     // TODO: check if size is above / below a certain bounds to trigger a DOM_REFRESH event
     // (switching from desktop to mobile view)
@@ -153,8 +196,8 @@ pub fn do_resize(window: &mut Window, appdata: &mut AppData, new_width: u32, new
 
     let resize = window.do_resize_impl(
         new_physical_size,
-        &appdata.userdata.image_cache,
-        &mut appdata.userdata.fc_cache,
+        &userdata.image_cache,
+        &mut userdata.fc_cache,
         &glc,
     );
 
@@ -166,21 +209,23 @@ pub fn do_resize(window: &mut Window, appdata: &mut AppData, new_width: u32, new
     }
 
     // Rebuild display-list after resizing
-    rebuild_display_list(&mut window.internal, &mut window.render_api, &appdata.userdata.image_cache, vec![]);
-    window.request_new_hit_tester(); // Must re-request after size changed
+    rebuild_display_list(&mut window.internal, &mut window.render_api, &userdata.image_cache, vec![]);
+    
+    window.render_api.flush_scene_builder();
     
     generate_frame(&mut window.internal, &mut window.render_api, true);
+
     window.request_redraw();
 }
 
 /// Called from your OS timer or thread events, merges logic from `WM_TIMER` + `AZ_THREAD_TICK`.
-pub fn handle_timer_event(window: &mut Window, appdata: &mut AppData, timer_id: usize, guard: &GlContextGuard) {
+pub fn handle_timer_event(window: &mut Window, userdata: &mut App, timer_id: usize, guard: &GlContextGuard) {
     // 1) Possibly dispatch user timers
     // 2) Possibly handle "regenerate DOM" if it's the hot-reload timer
     // ...
     match timer_id {
         AZ_TICK_REGENERATE_DOM => {
-            regenerate_dom(window, appdata, guard);
+            regenerate_dom(window, userdata, guard);
         },
         AZ_THREAD_TICK => {
             // process threads
@@ -188,4 +233,597 @@ pub fn handle_timer_event(window: &mut Window, appdata: &mut AppData, timer_id: 
         // or custom user TimerId => do callback, etc.
         _ => { /* user timer logic */ }
     }
+}
+
+// --------------------------
+
+fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+
+    let mut ret = ProcessEventResult::DoNothing;
+
+    // borrow checker :|
+    let fc_cache = &mut userdata.fc_cache;
+    let data = &mut userdata.data;
+    let image_cache = &mut userdata.image_cache;
+
+
+
+    let document_id = current_window.internal.document_id;
+    let mut hit_tester = &mut current_window.hit_tester;
+    let internal = &mut current_window.internal;
+    let gl_context = &current_window.gl_context_ptr;
+
+    // unset the focus
+    internal.current_window_state.focused_node = None;
+
+    let mut resource_updates = Vec::new();
+    fc_cache.apply_closure(|fc_cache| {
+        internal.regenerate_styled_dom(
+            data,
+            image_cache,
+            gl_context,
+            &mut resource_updates,
+            internal.get_dpi_scale_factor(),
+            &crate::app::CALLBACKS,
+            fc_cache,
+            azul_layout::do_the_relayout,
+            |window_state, scroll_states, layout_results| {
+                crate::wr_translate::fullhittest_new_webrender(
+                     &*hit_tester.resolve(),
+                     document_id,
+                     window_state.focused_node,
+                     layout_results,
+                     &window_state.mouse_state.cursor_position,
+                     window_state.size.get_hidpi_factor(),
+                )
+            }
+        );
+    });
+
+    // stop timers that have a DomNodeId attached to them
+    current_window.stop_timers_with_node_ids();
+
+    /*
+    current_window.context_menu = None;
+    Window::set_menu_bar(
+        hwnd,
+        &mut current_window.menu_bar,
+        current_window.internal.get_menu_bar()
+    );
+    */
+
+    // rebuild the display list and send it
+    rebuild_display_list(
+        &mut current_window.internal,
+        &mut current_window.render_api,
+        image_cache,
+        resource_updates,
+    );
+
+    current_window.render_api.flush_scene_builder();
+
+    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+    current_window.hit_tester = AsyncHitTester::Requested(
+        current_window.render_api.request_hit_tester(wr_document_id)
+    );
+
+    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+        &*current_window.hit_tester.resolve(),
+        current_window.internal.document_id,
+        current_window.internal.current_window_state.focused_node,
+        &current_window.internal.layout_results,
+        &current_window.internal.current_window_state.mouse_state.cursor_position,
+        current_window.internal.current_window_state.size.get_hidpi_factor(),
+    );
+
+    current_window.internal.previous_window_state = None;
+    current_window.internal.current_window_state.last_hit_test = hit_test;
+
+    let mut nodes_to_check = NodesToCheck::simulated_mouse_move(
+        &current_window.internal.current_window_state.last_hit_test,
+        current_window.internal.current_window_state.focused_node,
+        current_window.internal.current_window_state.mouse_state.mouse_down()
+    );
+
+    let mut style_layout_changes = StyleAndLayoutChanges::new(
+        &nodes_to_check,
+        &mut current_window.internal.layout_results,
+        &image_cache,
+        &mut current_window.internal.renderer_resources,
+        current_window.internal.current_window_state.size.get_layout_size(),
+        &current_window.internal.document_id,
+        None,
+        None,
+        &None,
+        azul_layout::do_the_relayout,
+    );
+
+    az_regenerate_display_list(current_window, userdata, _guard);
+
+}
+
+/// `az_redo_hit_test => ProcessEventResult``
+///
+/// ```rust,ignore
+///    match az_redo_hittest {
+///        ProcessEventResult::DoNothing => { },
+///        ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+///            az_regenerate_dom(window, app, guard);
+///        },
+///        ProcessEventResult::ShouldRegenerateDomAllWindows => {
+///            for window in mac_app.windows.values() {
+///                let guard = window.make_gl_current();
+///                az_regenerate_dom(window, app, guard);
+///            }
+///        },
+///        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+///            az_regenerate_display_list(window, app, guard);
+///        },
+///        ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+///            window.internal.previous_window_state = Some(w.internal.current_window_state.clone());
+///            az_regenerate_display_list(window, app, guard);
+///            az_redo_hit_test(window, app, guard);
+///        },
+///        ProcessEventResult::ShouldReRenderCurrentWindow => {
+///            az_gpu_scroll_render(window, app, guard);
+///        },
+///    }
+/// ```
+fn az_redo_hit_test(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard, handle: &RawWindowHandle) -> ProcessEventResult {
+
+    let fc_cache = &mut userdata.fc_cache;
+    let image_cache = &mut userdata.image_cache;
+    let config = &userdata.config;
+
+    let mut new_windows = Vec::new();
+    let mut destroyed_windows = Vec::new();
+
+    crate::shell::process::process_event(
+        handle,
+        current_window,
+        fc_cache,
+        image_cache,
+        config,
+        &mut new_windows,
+        &mut destroyed_windows,
+    )
+
+    // create_windows(hinstance, shared_application_data, new_windows);
+    // destroy_windows(ab, destroyed_windows);
+}
+
+fn az_regenerate_display_list(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+
+    let image_cache = &userdata.image_cache;
+
+    rebuild_display_list(
+        &mut current_window.internal,
+        &mut current_window.render_api,
+        image_cache,
+        Vec::new(), // no resource updates
+    );
+
+    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+    current_window.hit_tester = AsyncHitTester::Requested(
+        current_window.render_api.request_hit_tester(wr_document_id)
+    );
+
+    generate_frame(
+        &mut current_window.internal,
+        &mut current_window.render_api,
+        true,
+    );
+}
+
+fn az_gpu_scroll_render(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+    generate_frame(
+        &mut current_window.internal,
+        &mut current_window.render_api,
+        false,
+    );
+}
+
+// Window has received focus
+fn wm_set_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) {
+    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+    current_window.internal.current_window_state.flags.has_focus = true;
+    az_redo_hit_test(current_window, userdata, guard, handle);
+}
+
+// Window has lost focus
+fn wm_kill_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) {
+    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+    current_window.internal.current_window_state.flags.has_focus = false;
+    az_redo_hit_test(current_window, userdata, guard, handle);
+}
+
+fn wm_mousemove(
+    current_window: &mut Window, 
+    userdata: &mut App, 
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    newpos: LogicalPosition,
+) -> ProcessEventResult {
+
+    use azul_core::window::{
+        CursorTypeHitTest, LogicalPosition,
+        CursorPosition, OptionMouseCursorType,
+        FullHitTest,
+    };
+
+    let pos = CursorPosition::InWindow(newpos);
+
+    // call SetCapture(hwnd) so that we can capture the WM_MOUSELEAVE event
+    let cur_cursor_pos = current_window.internal.current_window_state.mouse_state.cursor_position;
+    let prev_cursor_pos = current_window.internal.previous_window_state
+        .as_ref().map(|m| m.mouse_state.cursor_position).unwrap_or_default();
+
+    if !prev_cursor_pos.is_inside_window() && cur_cursor_pos.is_inside_window() {
+        current_window.on_mouse_enter(prev_cursor_pos, cur_cursor_pos);
+    }
+
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    current_window.internal.current_window_state.mouse_state.cursor_position = pos;
+    
+    // mouse moved, so we need a new hit test
+    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+        &*current_window.hit_tester.resolve(),
+        current_window.internal.document_id,
+        current_window.internal.current_window_state.focused_node,
+        &current_window.internal.layout_results,
+        &current_window.internal.current_window_state.mouse_state.cursor_position,
+        current_window.internal.current_window_state.size.get_hidpi_factor(),
+    );
+    let cht = CursorTypeHitTest::new(&hit_test, &current_window.internal.layout_results);
+    current_window.internal.current_window_state.last_hit_test = hit_test;
+
+    // update the cursor if necessary
+    if current_window.internal.current_window_state.mouse_state.mouse_cursor_type != OptionMouseCursorType::Some(cht.cursor_icon) {
+        // TODO: unset previous cursor?
+        current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::Some(cht.cursor_icon);
+        current_window.on_cursor_change(current_window.internal.current_window_state.mouse_state.mouse_cursor_type, cht.cursor_icon);
+    }
+
+    az_redo_hit_test(current_window, userdata, guard, handle)
+} 
+
+fn wm_keydown(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    scancode: u32,
+    vk: Option<VirtualKeyCode>,
+) -> ProcessEventResult {
+
+    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+    current_window.internal.current_window_state.keyboard_state.current_char = None.into();
+    current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
+    
+    if let Some(vk) = vk {
+        current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
+        current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+    }
+
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+// Composite text input
+fn wm_char(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    c: char,
+) -> ProcessEventResult {
+
+    if c.is_control() {
+        return ProcessEventResult::DoNothing;
+    }
+
+    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+    current_window.internal.current_window_state.keyboard_state.current_char = Some(c as u32).into();
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_keyup(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    scancode: u32,
+    vk: Option<VirtualKeyCode>,
+) -> ProcessEventResult {
+    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+    current_window.internal.current_window_state.keyboard_state.current_char = None.into();
+    current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
+    if let Some(vk) = vk {
+        current_window.internal.current_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
+        current_window.internal.current_window_state.keyboard_state.current_virtual_keycode = None.into();
+    }
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_mouseleave(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+) -> ProcessEventResult {
+
+    let current_focus = current_window.internal.current_window_state.focused_node;
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    let last_seen = match current_window.internal.current_window_state.mouse_state.cursor_position {
+        CursorPosition::InWindow(i) => i,
+        _ => LogicalPosition::zero(),
+    };
+    current_window.internal.current_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow(last_seen);
+    current_window.internal.current_window_state.last_hit_test = FullHitTest::empty(current_focus);
+    current_window.internal.current_window_state.mouse_state.mouse_cursor_type = OptionMouseCursorType::None;
+    
+    current_window.set_cursor(handle, MouseCursorType::Default);
+    
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_rbuttondown(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    current_window.internal.current_window_state.mouse_state.right_down = true;
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_rbuttonup(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    active_menus: &mut BTreeMap<MenuTarget, MenuCallback>,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+
+    // open context menu
+    if let Some((context_menu, hit, node_id)) = current_window.internal.get_context_menu() {
+        current_window.create_and_open_context_menu(&*context_menu, hit, node_id, active_menus);
+    }
+
+    current_window.internal.current_window_state.mouse_state.right_down = false;
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_mbuttondown(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    current_window.internal.current_window_state.mouse_state.middle_down = true;
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_mbuttonup(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    current_window.internal.current_window_state.mouse_state.middle_down = false;
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_lbuttondown(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    current_window.internal.current_window_state.mouse_state.left_down = true;
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_lbuttonup(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    active_menus: &mut BTreeMap<MenuTarget, MenuCallback>,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+
+    // open context menu
+    if let Some((context_menu, hit, node_id)) = current_window.internal.get_context_menu() {
+        current_window.create_and_open_context_menu(&*context_menu, hit, node_id, active_menus);
+    }
+
+    current_window.internal.current_window_state.mouse_state.left_down = false;
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_mousewheel(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    scroll_amount: f32,
+) -> ProcessEventResult {
+    let previous_state = current_window.internal.current_window_state.clone();
+    current_window.internal.previous_window_state = Some(previous_state);
+    current_window.internal.current_window_state.mouse_state.scroll_y = Some(scroll_amount).into();
+    az_redo_hit_test(current_window, userdata, guard, handle)
+}
+
+fn wm_dpichanged(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    dpi: u32,
+) -> ProcessEventResult {
+    // TODO!
+    ProcessEventResult::DoNothing
+}
+
+// NOTE: This will generate a new frame, but not paint it yet, call wm_paint() afterwards
+fn wm_size(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    new_size: PhysicalSize<u32>,
+    dpi: u32,
+    frame: WindowFrame, // minimized, maximized, restored
+) {
+
+    let mut new_window_state = current_window.internal.current_window_state.clone();
+    new_window_state.size.dpi = dpi;
+    new_window_state.size.dimensions = new_size.to_logical(new_window_state.size.get_hidpi_factor());
+    new_window_state.flags.frame = frame;
+
+    let mut fc_cache = &mut userdata.fc_cache;
+    let image_cache = &userdata.image_cache;
+
+    let resize_result = fc_cache.apply_closure(|mut fc_cache| {
+        current_window.internal.do_quick_resize(
+            &image_cache,
+            &crate::app::CALLBACKS,
+            azul_layout::do_the_relayout,
+            &mut fc_cache,
+            &current_window.gl_context_ptr,
+            &new_window_state.size,
+            new_window_state.theme,
+        )
+    });
+
+    let mut txn = Transaction::new();
+    
+    wr_synchronize_updated_images(
+        resize_result.updated_images,
+        &mut txn
+    );
+
+    current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
+    current_window.internal.current_window_state = new_window_state;
+
+    txn.set_document_view(
+        DeviceIntRect::from_size(
+            DeviceIntSize::new(new_size.width as i32, new_size.height as i32),
+        )
+    );
+    current_window.render_api.send_transaction(wr_translate_document_id(current_window.internal.document_id), txn);
+
+    rebuild_display_list(
+        &mut current_window.internal,
+        &mut current_window.render_api,
+        &userdata.image_cache,
+        Vec::new(),
+    );
+
+    let wr_document_id = wr_translate_document_id(current_window.internal.document_id);
+    current_window.hit_tester = AsyncHitTester::Requested(
+        current_window.render_api.request_hit_tester(wr_document_id)
+    );
+
+    generate_frame(
+        &mut current_window.internal,
+        &mut current_window.render_api,
+        true,
+    );
+}
+
+fn wm_paint(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: GlContextGuard,
+    handle: &RawWindowHandle,
+    gl_functions: Rc<GenericGlContext>,
+) {
+    // Assuming that the display list has been submitted and the
+    // scene on the background thread has been rebuilt, now tell
+    // webrender to pain the scene
+
+    // gl context is current (assured by GlContextGuard)
+
+    let rect_size = current_window.internal.current_window_state.size.dimensions.to_physical(
+        current_window.internal.current_window_state.size.get_hidpi_factor()
+    );
+
+    // Block until all transactions (display list build)
+    // have finished processing
+    //
+    // Usually this shouldn't take too long, since DL building
+    // happens asynchronously between WM_SIZE and WM_PAINT
+    current_window.render_api.flush_scene_builder();
+
+    let mut gl = &gl_functions;
+
+    gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+    gl.disable(gl_context_loader::gl::FRAMEBUFFER_SRGB);
+    gl.disable(gl_context_loader::gl::MULTISAMPLE);
+    gl.viewport(0, 0, rect_size.width as i32, rect_size.height as i32);
+
+    let mut current_program = [0_i32];
+    unsafe {
+        gl.get_integer_v(gl_context_loader::gl::CURRENT_PROGRAM, (&mut current_program[..]).into())
+    };
+
+    let framebuffer_size = DeviceIntSize::new(
+        rect_size.width as i32,
+        rect_size.height as i32
+    );
+
+    // Render
+    if let Some(r) = current_window.renderer.as_mut() {
+        r.update();
+        let _ = r.render(framebuffer_size, 0);
+    }
+
+    current_window.swap_buffers(handle);
+
+    gl.bind_framebuffer(gl_context_loader::gl::FRAMEBUFFER, 0);
+    gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
+    gl.use_program(current_program[0] as u32);
+
+    Window::finish_gl(guard);
+}
+
+fn wm_quit(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    gl_functions: Rc<GenericGlContext>,
+) {
+    // TODO: execute quit callback
+}
+
+fn wm_destroy(
+    current_window: &mut Window,
+    userdata: &mut App,
+    guard: &GlContextGuard,
+    handle: &RawWindowHandle,
+    gl_functions: Rc<GenericGlContext>,
+) {
+    // deallocate objects, etc.
+
+    current_window.destroy(
+        userdata,
+        guard,
+        handle,
+        gl_functions,
+    );
 }

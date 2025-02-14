@@ -1,3 +1,4 @@
+use azul_core::window::MenuCallback;
 use azul_core::window::WindowCreateOptions;
 use webrender::RendererOptions as WrRendererOptions;
 use webrender::ProgramCache as WrProgramCache;
@@ -5,8 +6,11 @@ use webrender::ShaderPrecacheFlags as WrShaderPrecacheFlags;
 use webrender::api::RenderNotifier as WrRenderNotifier;
 use webrender::api::DocumentId as WrDocumentId;
 use webrender::Shaders as WrShaders;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::sync::atomic::AtomicIsize;
+use std::sync::atomic::Ordering;
 
 // ID sent by WM_TIMER to re-generate the DOM
 const AZ_TICK_REGENERATE_DOM: usize = 1;
@@ -63,6 +67,33 @@ impl WrRenderNotifier for Notifier {
         composite_needed: bool,
         _render_time: Option<u64>,
     ) {
+    }
+}
+
+// We'll store: (tag: i32) => MenuCallback
+// (On macOS, `tag` is an `NSInteger` or `i64`. We'll just use `i32` for simplicity.)
+pub type CommandMap = BTreeMap<CommandId, MenuCallback>;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MacOsMenuCommands {
+    pub menu_hash: u64,
+    pub commands: CommandMap,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MenuTarget {
+    App,
+    Window(isize),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct CommandId(pub isize);
+
+impl CommandId {
+    pub fn new() -> Self {
+        static NEXT_MENU_TAG: AtomicIsize = AtomicIsize::new(0);
+        Self(NEXT_MENU_TAG.fetch_add(1, Ordering::SeqCst))
     }
 }
 

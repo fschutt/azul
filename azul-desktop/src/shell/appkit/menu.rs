@@ -19,33 +19,7 @@ use once_cell::sync::Lazy;
 use objc2::{declare::ClassDecl, sel, msg_send};
 
 use super::{AppData, MacApp, WindowId};
-
-// We'll store: (tag: i32) => MenuCallback
-// (On macOS, `tag` is an `NSInteger` or `i64`. We'll just use `i32` for simplicity.)
-pub type CommandMap = BTreeMap<CommandId, MenuCallback>;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MacOsMenuCommands {
-    pub menu_hash: u64,
-    pub commands: CommandMap,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MenuTarget {
-    App,
-    Window(isize),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct CommandId(pub isize);
-
-impl CommandId {
-    pub fn new() -> Self {
-        static NEXT_MENU_TAG: AtomicIsize = AtomicIsize::new(0);
-        Self(NEXT_MENU_TAG.fetch_add(1, Ordering::SeqCst))
-    }
-}
+use crate::shell::{MacOsMenuCommands, MenuTarget, CommandId, CommandMap};
 
 // If the app_data.active_menus[target] differs from the `menu`, creates a new
 // NSMenu and returns it. Should only be called on the main thread.

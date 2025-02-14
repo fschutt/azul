@@ -23,6 +23,8 @@ extern "C" fn layout(data: &mut RefAny, _: &mut LayoutCallbackInfo) -> StyledDom
         "Enable padding"
     };
 
+    println!("layout!");
+    
     Dom::body()
     .with_menu_bar(Menu::new(vec![
         MenuItem::String(StringMenuItem::new("Menu Item 1").with_children(vec![

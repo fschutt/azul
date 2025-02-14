@@ -16,7 +16,8 @@ use objc2::runtime::{AnyClass, AnyObject, Class, ClassBuilder, Object, ProtocolO
 use objc2::*;
 use azul_core::window::{MacOSHandle, MonitorVec, PhysicalSize, ScrollResult, WindowInternal, WindowInternalInit};
 use azul_core::window::WindowCreateOptions;
-use crate::app::{App, LazyFcCache};
+use objc2_core_foundation::CGFloat;
+use crate::app::{self, App, LazyFcCache};
 use crate::wr_translate::{wr_synchronize_updated_images, AsyncHitTester};
 use objc2::runtime::YES;
 use objc2::rc::{autoreleasepool, AutoreleasePool, Retained};
@@ -36,6 +37,7 @@ use objc2_app_kit::NSApplicationActivationPolicy;
 use std::{fmt, mem, os::raw::c_char, ptr, rc::Rc};
 use self::gl::GlFunctions;
 use objc2::rc::Id;
+use super::{MenuTarget, CommandMap};
 use azul_core::window::{RawWindowHandle, WindowId, WindowsHandle};
 use webrender::{
     api::{
@@ -65,7 +67,7 @@ pub(crate) struct GlContextGuard {
 
 pub(crate) struct MacApp {
     pub(crate) functions: Rc<GenericGlContext>,
-    pub(crate) active_menus: BTreeMap<menu::MenuTarget, menu::CommandMap>,
+    pub(crate) active_menus: BTreeMap<MenuTarget, CommandMap>,
     pub(crate) data: Arc<Mutex<AppData>>,
 }
 
@@ -739,7 +741,6 @@ fn create_observer(
     }
 }
 
-
 // Creates a class as a subclass of NSOpenGLView, and registers a "megastruct" ivar, which
 // holds a pointer to the NSObject
 fn ns_opengl_class() -> ClassBuilder {
@@ -962,24 +963,51 @@ fn key_up(this: *mut Object, _sel: Sel, event: *mut Object) {
     }
 }
 
-extern "C" 
-fn draw_rect(this: *mut AnyObject, _sel: Sel, _dirty_rect: NSRect) {
+/// The main "drawRect:" which we override from NSOpenGLView, hooking up the calls
+/// to do_resize / rebuild_display_list / gpu_scroll_render depending on the size.
+extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
+    use crate::shell::event::{do_resize, gpu_scroll_render};
     unsafe {
-        // Retrieve the pointer to our Arc<Mutex<AppData>> from the ivar
         let ptr = (*this).get_ivar::<*const c_void>("app");
         let ptr = *ptr as *const MacApp;
-        let ptr = &*ptr;
+        let mac_app = &*ptr;
         let windowid = *(*this).get_ivar::<i64>("windowid");
 
-        // REDRAWING: if the width / height of the window differ from the display list w / h,
-        // relayout the code here (yes, in the redrawing function)
+        // Grab the lock to get the Window
+        if let Ok(mut app_data) = mac_app.data.lock() {
+            let mut app_data = &mut *app_data;
+            let w = &mut app_data.windows;
+            let ud = &mut app_data.userdata;
+            if let Some(window) = w.get_mut(&WindowId { id: windowid }) {
 
-        let glc = Window::make_current_gl(msg_send![this, openGLContext]);
+                let bounds: NSRect = msg_send![this, bounds];
+                let bsf: CGFloat = msg_send![this, backingScaleFactor];
+                let bdpi = (bsf * 96.0).round() as u32;
+                let bw = bounds.size.width.round() as u32;
+                let bh = bounds.size.height.round() as u32;
 
-        const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
-        ptr.functions.clear_color(0.0, 1.0, 0.0, 1.0);
-        ptr.functions.clear(GL_COLOR_BUFFER_BIT); 
+                let stored_size = window.internal.current_window_state.size.dimensions;
+                let ssw = stored_size.width.round() as u32;
+                let ssh = stored_size.height.round() as u32;
+                let sdpi = window.internal.current_window_state.size.dpi;
 
-        Window::finish_gl(glc);
+                let glc = Window::make_current_gl(msg_send![this, openGLContext]);
+
+                const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
+                mac_app.functions.clear_color(1.0, 1.0, 1.0, 1.0);
+                mac_app.functions.clear(GL_COLOR_BUFFER_BIT); 
+
+                if bw != ssw || bh != ssh || sdpi != bdpi {
+                    do_resize(window, ud, bw, bh, bdpi, &glc);
+                    window.internal.current_window_state.size.dimensions.width = bw as f32;
+                    window.internal.current_window_state.size.dimensions.height = bh as f32;
+                    window.internal.current_window_state.size.dpi = bdpi as u32;
+                } else {
+                    gpu_scroll_render(window, ud, &glc);
+                }
+
+                Window::finish_gl(glc);
+            }
+        }
     }
 }
