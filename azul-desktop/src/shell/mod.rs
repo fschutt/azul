@@ -8,7 +8,14 @@ use webrender::Shaders as WrShaders;
 use std::rc::Rc;
 use std::cell::RefCell;
 
+// ID sent by WM_TIMER to re-generate the DOM
+const AZ_TICK_REGENERATE_DOM: usize = 1;
+// ID sent by WM_TIMER to check the thread results
+const AZ_THREAD_TICK: usize = 2;
+
 pub(crate) mod process;
+pub(crate) mod event;
+
 #[cfg(target_os = "windows")]
 pub mod win32;
 #[cfg(target_os = "linux")]

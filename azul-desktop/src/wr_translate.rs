@@ -339,7 +339,6 @@ pub(crate) fn synchronize_gpu_values(layout_results: &[LayoutResult], dpi: &DpiS
 
 pub(crate) fn wr_synchronize_updated_images(
     updated_images: Vec<UpdateImageResult>,
-    document_id: &DocumentId,
     txn: &mut WrTransaction
 ) {
 

@@ -89,18 +89,14 @@ use self::dpi::DpiFunctions;
 use self::gl::{GlFunctions, ExtraWglFunctions, ExtraWglFunctionsLoadError};
 use azul_css::FloatValue;
 use super::Notifier;
-
-type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
-
-// ID sent by WM_TIMER to re-generate the DOM
-const AZ_TICK_REGENERATE_DOM: usize = 1;
-// ID sent by WM_TIMER to check the thread results
-const AZ_THREAD_TICK: usize = 2;
+use super::{AZ_TICK_REGENERATE_DOM, AZ_THREAD_TICK};
 
 const AZ_REGENERATE_DOM: u32 = WM_APP + 1;
 const AZ_REGENERATE_DISPLAY_LIST: u32 = WM_APP + 2;
 const AZ_REDO_HIT_TEST: u32 = WM_APP + 3;
 const AZ_GPU_SCROLL_RENDER: u32 = WM_APP + 4;
+
+type TIMERPTR = winapi::shared::basetsd::UINT_PTR;
 
 const CLASS_NAME: &str = "AzulApplicationClass";
 

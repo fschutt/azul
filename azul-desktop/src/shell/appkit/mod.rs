@@ -4,17 +4,19 @@ use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use azul_core::app_resources::ImageCache;
 use azul_core::gl::OptionGlContextPtr;
 use azul_core::task::{Thread, ThreadId, Timer, TimerId};
+use azul_core::ui_solver::QuickResizeResult;
 use azul_core::window_state::NodesToCheck;
 use azul_core::{FastBTreeSet, FastHashMap};
 use gl_context_loader::GenericGlContext;
 use objc2::declare::ClassDecl;
 use objc2::runtime::{AnyClass, AnyObject, Class, ClassBuilder, Object, ProtocolObject, Sel};
 use objc2::*;
-use azul_core::window::{MacOSHandle, MonitorVec, ScrollResult, WindowInternal, WindowInternalInit};
+use azul_core::window::{MacOSHandle, MonitorVec, PhysicalSize, ScrollResult, WindowInternal, WindowInternalInit};
 use azul_core::window::WindowCreateOptions;
-use crate::app::App;
+use crate::app::{App, LazyFcCache};
 use crate::wr_translate::{wr_synchronize_updated_images, AsyncHitTester};
 use objc2::runtime::YES;
 use objc2::rc::{autoreleasepool, AutoreleasePool, Retained};
@@ -56,15 +58,20 @@ use webrender::{
 mod menu;
 mod gl;
 
+/// OpenGL context guard, to be returned by window.make_current_gl()
+pub(crate) struct GlContextGuard {
+    glc: *mut Object,
+}
+
 pub(crate) struct MacApp {
     pub(crate) functions: Rc<GenericGlContext>,
     pub(crate) active_menus: BTreeMap<menu::MenuTarget, menu::CommandMap>,
     pub(crate) data: Arc<Mutex<AppData>>,
 }
 
-struct AppData {
-    userdata: App,
-    windows: BTreeMap<WindowId, Window>
+pub(crate) struct AppData {
+    pub userdata: App,
+    pub windows: BTreeMap<WindowId, Window>
 }
 
 pub(crate) struct Window {
@@ -96,6 +103,83 @@ pub(crate) struct Window {
 }
 
 impl Window {
+
+    // --- functions necessary for event.rs handling
+
+    /// Utility for making the GL context current, returning a guard that resets it afterwards
+    pub(crate) fn make_current_gl(gl_context: *mut Object) -> GlContextGuard {
+        unsafe {
+            let _: () = msg_send![gl_context, makeCurrentContext];
+            GlContextGuard { glc: gl_context }
+        }
+    }
+
+    /// Function that flushes the buffer and "ends" the drawing code
+    pub(crate) fn finish_gl(guard: GlContextGuard) {
+        unsafe {
+            let _: () = msg_send![guard.glc, flushBuffer];
+        }
+    }
+    
+    /// On macOS, we might do something akin to `[self.ns_window setTitle:new_title]`
+    /// or update the menubar, etc.
+    pub(crate) fn update_menus(&mut self) {
+        // Called from `event::regenerate_dom` etc. after the DOM changes
+    }
+
+    /// After updating the display list, we want a new "hit tester" from webrender
+    pub(crate) fn request_new_hit_tester(&mut self) {
+        self.hit_tester = crate::wr_translate::AsyncHitTester::Requested(
+            self.render_api.request_hit_tester(crate::wr_translate::wr_translate_document_id(
+                self.internal.document_id
+            ))
+        );
+    }
+
+    /// Indicate that the window contents need repainting (setNeedsDisplay: YES)
+    pub(crate) fn request_redraw(&mut self) {
+        unsafe {
+            if let Some(s) = self.ns_window.as_deref() {
+                let s: *mut Object = msg_send![s, contentView];
+                let _: () = msg_send![s, setNeedsDisplay: YES];
+            }
+        }
+    }
+
+    /// Called internally from do_resize
+    /// 
+    /// If needed, do `wr_synchronize_updated_images(resize_result.updated_images, ...)`
+    /// and update the WebRender doc-view 
+    #[must_use]
+    pub(crate) fn do_resize_impl(
+        &mut self,
+        new_physical_size: PhysicalSize<u32>,
+        image_cache: &ImageCache,
+        fc_cache: &mut LazyFcCache,
+        gl_context_ptr: &OptionGlContextPtr,
+    ) -> QuickResizeResult {
+
+        let new_size = new_physical_size.to_logical(self.internal.current_window_state.size.get_hidpi_factor());
+        let old_state = self.internal.current_window_state.clone();
+        self.internal.current_window_state.size.dimensions = new_size;
+
+        let size = self.internal.current_window_state.size.clone();
+        let theme = self.internal.current_window_state.theme.clone();
+
+        fc_cache.apply_closure(|fc_cache| {
+            self.internal.do_quick_resize(
+                image_cache,
+                &crate::app::CALLBACKS,
+                azul_layout::do_the_relayout,
+                fc_cache,
+                gl_context_ptr,
+                &size,
+                theme,
+            )
+        })
+    }
+
+    // --- functions necessary for process.rs handling 
 
     pub(crate) fn start_stop_timers(
         &mut self,
@@ -436,7 +520,7 @@ fn create_nswindow(
         })
     };
 
-    wr_synchronize_updated_images(resize_result.updated_images, &document_id, &mut txn);
+    wr_synchronize_updated_images(resize_result.updated_images, &mut txn);
 
     // glContext can be deactivated now
     let _: () = unsafe { msg_send![gl_context, flushBuffer] };
@@ -890,15 +974,12 @@ fn draw_rect(this: *mut AnyObject, _sel: Sel, _dirty_rect: NSRect) {
         // REDRAWING: if the width / height of the window differ from the display list w / h,
         // relayout the code here (yes, in the redrawing function)
 
-        let gl_context: *mut Object = msg_send![this, openGLContext];
-        let _: () = msg_send![gl_context, makeCurrentContext];
+        let glc = Window::make_current_gl(msg_send![this, openGLContext]);
 
         const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
         ptr.functions.clear_color(0.0, 1.0, 0.0, 1.0);
         ptr.functions.clear(GL_COLOR_BUFFER_BIT); 
 
-        println!("redrawing window {windowid}");
-
-        let _: () = msg_send![gl_context, flushBuffer];
+        Window::finish_gl(glc);
     }
 }

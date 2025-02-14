@@ -204,8 +204,9 @@ pub(crate) fn process_callback_results(
 
         if !updated_images.is_empty() {
             let mut txn = WrTransaction::new();
-            wr_synchronize_updated_images(updated_images, &window.internal.document_id, &mut txn);
-            window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+            let did = wr_translate_document_id(window.internal.document_id);
+            wr_synchronize_updated_images(updated_images, &mut txn);
+            window.render_api.send_transaction(did, txn);
             result = result.max_self(ProcessEventResult::ShouldReRenderCurrentWindow);
         }
     }
@@ -306,7 +307,7 @@ pub(crate) fn process_callback_results(
 
         if !updated_images.is_empty() {
             let mut txn = WrTransaction::new();
-            wr_synchronize_updated_images(updated_images, &window.internal.document_id, &mut txn);
+            wr_synchronize_updated_images(updated_images, &mut txn);
             window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
         }
     }
