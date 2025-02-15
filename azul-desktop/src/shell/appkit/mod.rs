@@ -5,6 +5,7 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use azul_core::app_resources::ImageCache;
+use azul_core::callbacks::{DomNodeId, HitTestItem};
 use azul_core::gl::OptionGlContextPtr;
 use azul_core::task::{Thread, ThreadId, Timer, TimerId};
 use azul_core::ui_solver::QuickResizeResult;
@@ -14,7 +15,7 @@ use gl_context_loader::GenericGlContext;
 use objc2::declare::ClassDecl;
 use objc2::runtime::{AnyClass, AnyObject, Class, ClassBuilder, Object, ProtocolObject, Sel};
 use objc2::*;
-use azul_core::window::{MacOSHandle, MonitorVec, PhysicalSize, ScrollResult, WindowInternal, WindowInternalInit};
+use azul_core::window::{CursorPosition, MacOSHandle, Menu, MenuCallback, MonitorVec, MouseCursorType, PhysicalSize, ScrollResult, WindowInternal, WindowInternalInit};
 use azul_core::window::WindowCreateOptions;
 use objc2_core_foundation::CGFloat;
 use crate::app::{self, App, LazyFcCache};
@@ -106,7 +107,373 @@ pub(crate) struct Window {
 
 impl Window {
 
-    // --- functions necessary for event.rs handling
+    // Creates an NSWindow and hooks up an NSOpenGLView
+    fn create(
+        mtm: &MainThreadMarker,
+        mut options: WindowCreateOptions, 
+        ns_opengl_view: &AnyClass,
+        ns_menu_view: &AnyClass,
+        megaclass: &MacApp,
+    ) -> Result<(WindowId, Window), String> {
+
+        use crate::{
+            compositor::Compositor,
+            wr_translate::{
+                translate_document_id_wr,
+                translate_id_namespace_wr,
+                wr_translate_debug_flags,
+                wr_translate_document_id,
+            },
+        };
+        use azul_core::{
+            callbacks::PipelineId,
+            gl::GlContextPtr,
+            window::{
+                CursorPosition, HwAcceleration,
+                LogicalPosition, ScrollResult,
+                PhysicalSize, RendererType,
+                WindowInternalInit, FullHitTest,
+                WindowFrame,
+            },
+        };
+        use webrender::api::ColorF as WrColorF;
+        use webrender::ProgramCache as WrProgramCache;
+
+        // let parent_window = options.platform_specific_options.parent_window;
+        let width = options.state.size.dimensions.width as f64;
+        let height = options.state.size.dimensions.height as f64;
+        let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
+
+        let style_mask = NSWindowStyleMask::Titled
+            | NSWindowStyleMask::Closable
+            | NSWindowStyleMask::Resizable
+            | NSWindowStyleMask::Miniaturizable;
+
+        let mtm = MainThreadMarker::new().unwrap();
+        let window = NSWindow::alloc(mtm);
+        let window = unsafe {
+            NSWindow::initWithContentRect_styleMask_backing_defer(
+            window,
+            rect,
+            style_mask,
+            NSBackingStoreType::Buffered,
+            false,
+        ) };
+
+        window.center();
+        window.setTitle(&NSString::from_str(&options.state.title));
+
+        let dpi_factor = window.screen().map(|s| s.backingScaleFactor()).unwrap_or(1.0);
+        options.state.size.dpi = (dpi_factor * 96.0) as u32;
+
+        let physical_size = if options.size_to_content {
+            PhysicalSize {
+                width: 0,
+                height: 0,
+            }
+        } else {
+            PhysicalSize {
+                width: width as u32,
+                height: height as u32,
+            }
+        };
+
+        options.state.size.dimensions = physical_size.to_logical(dpi_factor as f32);
+
+        let (window_id, gl_view) = create_opengl_view(
+            rect, ns_opengl_view, megaclass
+        );
+
+        // Attach an observer for "will close" notifications
+        let data_clone2 = megaclass.data.clone();
+        let observer = unsafe {
+            create_observer(
+            &objc2_foundation::NSNotificationCenter::defaultCenter(),
+            &NSWindowWillCloseNotification,
+            move |notification| { window_will_close(Arc::clone(&data_clone2), window_id, mtm); },
+        ) };
+
+        // Make gl_view the content view of the window
+        unsafe { window.setContentView(Some(&*(gl_view as *const _ as *const NSView))) };
+
+        let rt = RendererType::Hardware;
+        let gl_context_ptr: OptionGlContextPtr = Some(unsafe {
+            let gl_context: *mut Object = msg_send![gl_view, openGLContext];
+            let _: () = msg_send![gl_context, makeCurrentContext];
+            let s = GlContextPtr::new(rt, megaclass.functions.clone());
+            let _: () = msg_send![gl_context, flushBuffer];
+            s
+        }).into();
+
+
+        // WindowInternal::new() may dispatch OpenGL calls,
+        // need to make context current before invoking
+        let gl_context: *mut Object = unsafe { msg_send![gl_view, openGLContext] };
+        let _: () = unsafe { msg_send![gl_context, makeCurrentContext] };
+
+        // Invoke callback to initialize UI for the first time
+        let wr = WrRenderer::new(
+            megaclass.functions.clone(),
+            Box::new(super::Notifier {}),
+            super::default_renderer_options(&options),
+            super::WR_SHADER_CACHE,
+        ).map_err(|e| format!("{e:?}"))?;
+
+        let (mut renderer, sender) = wr;
+
+        renderer.set_external_image_handler(Box::new(Compositor::default()));
+
+        let mut render_api = sender.create_api();
+        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+        let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
+        let pipeline_id = PipelineId::new();
+        let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
+        let hit_tester = render_api
+            .request_hit_tester(wr_translate_document_id(document_id))
+            .resolve();
+        let hit_tester_ref = &*hit_tester;
+        
+        let mut appdata_lock = match megaclass.data.lock() {
+            Ok(o) => o,
+            Err(e) => unsafe {
+                return Err(format!("failed to lock app data on startup {e:?}"))
+            },
+        };
+
+
+        let mut initial_resource_updates = Vec::new();
+        let mut internal = {
+
+            let appdata_lock = &mut *appdata_lock;
+            let fc_cache = &mut appdata_lock.userdata.fc_cache;
+            let image_cache = &appdata_lock.userdata.image_cache;
+            let data = &mut appdata_lock.userdata.data;
+
+            fc_cache.apply_closure(|fc_cache| {
+                WindowInternal::new(
+                    WindowInternalInit {
+                        window_create_options: options.clone(),
+                        document_id,
+                        id_namespace,
+                    },
+                    data,
+                    image_cache,
+                    &gl_context_ptr,
+                    &mut initial_resource_updates,
+                    &crate::app::CALLBACKS,
+                    fc_cache,
+                    azul_layout::do_the_relayout,
+                    |window_state, scroll_states, layout_results| {
+                        crate::wr_translate::fullhittest_new_webrender(
+                            hit_tester_ref,
+                            document_id,
+                            window_state.focused_node,
+                            layout_results,
+                            &window_state.mouse_state.cursor_position,
+                            window_state.size.get_hidpi_factor(),
+                        )
+                    },
+                )
+            })
+        };
+
+
+        /*
+            // Since the menu bar affects the window size, set it first,
+            // before querying the window size again
+            let mut menu_bar = None;
+            if let Some(m) = internal.get_menu_bar() {
+                let mb = WindowsMenuBar::new(m);
+                unsafe { SetMenu(hwnd, mb._native_ptr); }
+                menu_bar = Some(mb);
+            }
+        */
+
+        // If size_to_content is set, query the content size and adjust!
+        if options.size_to_content {
+            let content_size = internal.get_content_size();
+            // window.setWidth(content_size.width);
+            // window.setHeight(content_size.height);
+            internal.current_window_state.size.dimensions = content_size;
+        }
+
+        let mut txn = WrTransaction::new();
+
+        // re-layout the window content for the first frame
+        // (since the width / height might have changed)
+        let resize_result = {
+            let mut uc = &mut appdata_lock.userdata;
+            let fcc = &mut uc.fc_cache;
+            let ic = &uc.image_cache;
+            fcc.apply_closure(|mut fc_cache| {
+                let size = internal.current_window_state.size.clone();
+                let theme = internal.current_window_state.theme;
+
+                internal.do_quick_resize(
+                    ic,
+                    &crate::app::CALLBACKS,
+                    azul_layout::do_the_relayout,
+                    &mut fc_cache,
+                    &gl_context_ptr,
+                    &size,
+                    theme,
+                )
+            })
+        };
+
+        wr_synchronize_updated_images(resize_result.updated_images, &mut txn);
+
+        // glContext can be deactivated now
+        let _: () = unsafe { msg_send![gl_context, flushBuffer] };
+
+        txn.set_document_view(
+            WrDeviceIntRect::from_size(
+                WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
+            )
+        );
+        render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
+        render_api.flush_scene_builder();
+
+        // Build the display list and send it to webrender for the first time
+        crate::wr_translate::rebuild_display_list(
+            &mut internal,
+            &mut render_api,
+            &appdata_lock.userdata.image_cache,
+            initial_resource_updates,
+        );
+
+        render_api.flush_scene_builder();
+
+        crate::wr_translate::generate_frame(
+            &mut internal,
+            &mut render_api,
+            true,
+        );
+
+        render_api.flush_scene_builder();
+
+        /*
+            // Get / store mouse cursor position, now that the window position is final
+            let mut cursor_pos: POINT = POINT { x: 0, y: 0 };
+            unsafe { GetCursorPos(&mut cursor_pos); }
+            unsafe { ScreenToClient(hwnd, &mut cursor_pos) };
+            let cursor_pos_logical = LogicalPosition {
+                x: cursor_pos.x as f32 / dpi_factor,
+                y: cursor_pos.y as f32 / dpi_factor,
+            };
+            internal.current_window_state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
+                CursorPosition::Uninitialized
+            } else {
+                CursorPosition::InWindow(cursor_pos_logical)
+            };
+        */
+
+        // Update the hit-tester to account for the new hit-testing functionality
+        let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id));
+
+        // Done! Window is now created properly, display list has been built by
+        // WebRender (window is ready to render), menu bar is visible and hit-tester
+        // now contains the newest UI tree.
+
+        if options.hot_reload {
+            // SetTimer(regenerate_dom, 200ms);
+        }
+
+        // regenerate_dom (???) - necessary?
+        let mut window = Window {
+            id: window_id.clone(),
+            ns_window: Some(window),
+            internal,
+            render_api,
+            renderer: Some(renderer),
+            hit_tester: AsyncHitTester::Requested(hit_tester),
+            ns_close_observer: observer,
+            gl_context_ptr: gl_context_ptr,
+        };
+
+        // invoke the window create callback, if there is any
+        let (windows_to_create, windows_to_destroy) = 
+        if let Some(create_callback) = options.create_callback.as_mut() {
+
+            let _: () = unsafe { msg_send![gl_context, makeCurrentContext] };
+
+            let uc = &mut appdata_lock.userdata;
+            let fcc = &mut uc.fc_cache;
+            let ud = &mut uc.data;
+            let ic1 = &mut uc.image_cache;
+            let sysc = &uc.config.system_callbacks;
+
+            let ccr = fcc.apply_closure(|mut fc_cache| {
+
+                let raw_window_ptr = window.ns_window.take().map(|s| {
+                    Retained::<NSWindow>::into_raw(s)
+                }).unwrap_or_else(|| std::ptr::null_mut());
+
+                let s = window.internal.invoke_single_callback(
+                    create_callback,
+                    ud,
+                    &RawWindowHandle::MacOS(MacOSHandle {
+                        ns_view: gl_view as *mut c_void,
+                        ns_window: raw_window_ptr as *mut c_void,
+                    }),
+                    &window.gl_context_ptr,
+                    ic1,
+                    &mut fc_cache,
+                    sysc,
+                );
+
+                window.ns_window = unsafe { Retained::<NSWindow>::from_raw(raw_window_ptr) };
+
+                s
+            });
+
+            let ntc = NodesToCheck::empty(
+                window.internal.current_window_state.mouse_state.mouse_down(),
+                window.internal.current_window_state.focused_node.clone(),
+            );
+
+            let mut new_windows = Vec::new();
+            let mut destroyed_windows = Vec::new();
+
+            let ret = {
+                let mut ud = &mut appdata_lock.userdata;
+                let ic = &mut ud.image_cache;
+                let fc = &mut ud.fc_cache;
+                super::process::process_callback_results(
+                    ccr,
+                    &mut window,
+                    &ntc,
+                    ic,
+                    fc,
+                    &mut new_windows,
+                    &mut destroyed_windows,
+                )
+            };
+
+            let _: () = unsafe { msg_send![gl_context, flushBuffer] };
+
+            (new_windows, destroyed_windows)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        
+        mem::drop(appdata_lock);
+
+        create_windows(
+            &mtm, 
+            megaclass, 
+            windows_to_create, 
+            ns_opengl_view, 
+            ns_menu_view
+        );
+
+        destroy_windows(megaclass, windows_to_destroy);
+
+        Ok((window_id, window))
+    }
+
+
+    // functions necessary for the az_ event handling
 
     /// Utility for making the GL context current, returning a guard that resets it afterwards
     pub(crate) fn make_current_gl(gl_context: *mut Object) -> GlContextGuard {
@@ -114,6 +481,10 @@ impl Window {
             let _: () = msg_send![gl_context, makeCurrentContext];
             GlContextGuard { glc: gl_context }
         }
+    }
+
+    pub fn swap_buffers(&mut self, handle: &RawWindowHandle) {
+        // TODO 
     }
 
     /// Function that flushes the buffer and "ends" the drawing code
@@ -129,56 +500,37 @@ impl Window {
         // Called from `event::regenerate_dom` etc. after the DOM changes
     }
 
-    /// After updating the display list, we want a new "hit tester" from webrender
-    pub(crate) fn request_new_hit_tester(&mut self) {
-        self.hit_tester = crate::wr_translate::AsyncHitTester::Requested(
-            self.render_api.request_hit_tester(crate::wr_translate::wr_translate_document_id(
-                self.internal.document_id
-            ))
-        );
+    /// Mousse has entered the window
+    pub(crate) fn on_mouse_enter(&mut self, prev: CursorPosition, cur: CursorPosition) {
+        // TODO
     }
 
-    /// Indicate that the window contents need repainting (setNeedsDisplay: YES)
-    pub(crate) fn request_redraw(&mut self) {
-        unsafe {
-            if let Some(s) = self.ns_window.as_deref() {
-                let s: *mut Object = msg_send![s, contentView];
-                let _: () = msg_send![s, setNeedsDisplay: YES];
-            }
-        }
+    pub(crate) fn on_cursor_change(&mut self, prev: Option<MouseCursorType>, cur: MouseCursorType) {
+        // TODO
     }
 
-    /// Called internally from do_resize
-    /// 
-    /// If needed, do `wr_synchronize_updated_images(resize_result.updated_images, ...)`
-    /// and update the WebRender doc-view 
-    #[must_use]
-    pub(crate) fn do_resize_impl(
+    pub(crate) fn set_cursor(&mut self, handle: &RawWindowHandle, cursor: MouseCursorType) {
+        // TODO
+    }
+
+    pub(crate) fn create_and_open_context_menu(
+        &self, 
+        context_menu: &Menu, 
+        hit: &HitTestItem, 
+        node_id: DomNodeId, 
+        active_menus: &mut BTreeMap<MenuTarget, MenuCallback>
+    ) {
+        // TODO: on Windows, this creates a menu and calls TrackCursorPosition
+    }
+
+    pub(crate) fn destroy(
         &mut self,
-        new_physical_size: PhysicalSize<u32>,
-        image_cache: &ImageCache,
-        fc_cache: &mut LazyFcCache,
-        gl_context_ptr: &OptionGlContextPtr,
-    ) -> QuickResizeResult {
-
-        let new_size = new_physical_size.to_logical(self.internal.current_window_state.size.get_hidpi_factor());
-        let old_state = self.internal.current_window_state.clone();
-        self.internal.current_window_state.size.dimensions = new_size;
-
-        let size = self.internal.current_window_state.size.clone();
-        let theme = self.internal.current_window_state.theme.clone();
-
-        fc_cache.apply_closure(|fc_cache| {
-            self.internal.do_quick_resize(
-                image_cache,
-                &crate::app::CALLBACKS,
-                azul_layout::do_the_relayout,
-                fc_cache,
-                gl_context_ptr,
-                &size,
-                theme,
-            )
-        })
+        userdata: &mut App,
+        guard: &GlContextGuard,
+        handle: &RawWindowHandle,
+        gl_functions: Rc<GenericGlContext>,
+    ) {
+        // TODO: if necessary, deallocation of GL objects, called on window closing
     }
 
     // --- functions necessary for process.rs handling 
@@ -287,7 +639,7 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<(), String> {
 
         let app = NSApp(mtm);
         
-        let (window_id, window) = create_nswindow(
+        let (window_id, window) = Window::create(
             &mtm,
             root_window, 
             &any_opengl_class, 
@@ -308,372 +660,6 @@ pub fn run(app: App, root_window: WindowCreateOptions) -> Result<(), String> {
     })
 }
 
-// Creates an NSWindow and hooks up an NSOpenGLView
-fn create_nswindow(
-    mtm: &MainThreadMarker,
-    mut options: WindowCreateOptions, 
-    ns_opengl_view: &AnyClass,
-    ns_menu_view: &AnyClass,
-    megaclass: &MacApp,
-) -> Result<(WindowId, Window), String> {
-
-    use crate::{
-        compositor::Compositor,
-        wr_translate::{
-            translate_document_id_wr,
-            translate_id_namespace_wr,
-            wr_translate_debug_flags,
-            wr_translate_document_id,
-        },
-    };
-    use azul_core::{
-        callbacks::PipelineId,
-        gl::GlContextPtr,
-        window::{
-            CursorPosition, HwAcceleration,
-            LogicalPosition, ScrollResult,
-            PhysicalSize, RendererType,
-            WindowInternalInit, FullHitTest,
-            WindowFrame,
-        },
-    };
-    use webrender::api::ColorF as WrColorF;
-    use webrender::ProgramCache as WrProgramCache;
-
-    // let parent_window = options.platform_specific_options.parent_window;
-    let width = options.state.size.dimensions.width as f64;
-    let height = options.state.size.dimensions.height as f64;
-    let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
-
-    let style_mask = NSWindowStyleMask::Titled
-        | NSWindowStyleMask::Closable
-        | NSWindowStyleMask::Resizable
-        | NSWindowStyleMask::Miniaturizable;
-
-    let mtm = MainThreadMarker::new().unwrap();
-    let window = NSWindow::alloc(mtm);
-    let window = unsafe {
-        NSWindow::initWithContentRect_styleMask_backing_defer(
-        window,
-        rect,
-        style_mask,
-        NSBackingStoreType::Buffered,
-        false,
-    ) };
-
-    window.center();
-    window.setTitle(&NSString::from_str(&options.state.title));
-
-    let dpi_factor = window.screen().map(|s| s.backingScaleFactor()).unwrap_or(1.0);
-    options.state.size.dpi = (dpi_factor * 96.0) as u32;
-
-    let physical_size = if options.size_to_content {
-        PhysicalSize {
-            width: 0,
-            height: 0,
-        }
-    } else {
-        PhysicalSize {
-            width: width as u32,
-            height: height as u32,
-        }
-    };
-
-    options.state.size.dimensions = physical_size.to_logical(dpi_factor as f32);
-
-    let (window_id, gl_view) = create_opengl_view(
-        rect, ns_opengl_view, megaclass
-    );
-
-    // Attach an observer for "will close" notifications
-    let data_clone2 = megaclass.data.clone();
-    let observer = unsafe {
-        create_observer(
-        &objc2_foundation::NSNotificationCenter::defaultCenter(),
-        &NSWindowWillCloseNotification,
-        move |notification| { window_will_close(Arc::clone(&data_clone2), window_id, mtm); },
-    ) };
-
-    // Make gl_view the content view of the window
-    unsafe { window.setContentView(Some(&*(gl_view as *const _ as *const NSView))) };
-
-    let rt = RendererType::Hardware;
-    let gl_context_ptr: OptionGlContextPtr = Some(unsafe {
-        let gl_context: *mut Object = msg_send![gl_view, openGLContext];
-        let _: () = msg_send![gl_context, makeCurrentContext];
-        let s = GlContextPtr::new(rt, megaclass.functions.clone());
-        let _: () = msg_send![gl_context, flushBuffer];
-        s
-    }).into();
-
-
-    // WindowInternal::new() may dispatch OpenGL calls,
-    // need to make context current before invoking
-    let gl_context: *mut Object = unsafe { msg_send![gl_view, openGLContext] };
-    let _: () = unsafe { msg_send![gl_context, makeCurrentContext] };
-
-    // Invoke callback to initialize UI for the first time
-    let wr = WrRenderer::new(
-        megaclass.functions.clone(),
-        Box::new(super::Notifier {}),
-        super::default_renderer_options(&options),
-        super::WR_SHADER_CACHE,
-    ).map_err(|e| format!("{e:?}"))?;
-
-    let (mut renderer, sender) = wr;
-
-    renderer.set_external_image_handler(Box::new(Compositor::default()));
-
-    let mut render_api = sender.create_api();
-    let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-    let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
-    let pipeline_id = PipelineId::new();
-    let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-    let hit_tester = render_api
-        .request_hit_tester(wr_translate_document_id(document_id))
-        .resolve();
-    let hit_tester_ref = &*hit_tester;
-    
-    let mut appdata_lock = match megaclass.data.lock() {
-        Ok(o) => o,
-        Err(e) => unsafe {
-            return Err(format!("failed to lock app data on startup {e:?}"))
-        },
-    };
-
-
-    let mut initial_resource_updates = Vec::new();
-    let mut internal = {
-
-        let appdata_lock = &mut *appdata_lock;
-        let fc_cache = &mut appdata_lock.userdata.fc_cache;
-        let image_cache = &appdata_lock.userdata.image_cache;
-        let data = &mut appdata_lock.userdata.data;
-
-        fc_cache.apply_closure(|fc_cache| {
-            WindowInternal::new(
-                WindowInternalInit {
-                    window_create_options: options.clone(),
-                    document_id,
-                    id_namespace,
-                },
-                data,
-                image_cache,
-                &gl_context_ptr,
-                &mut initial_resource_updates,
-                &crate::app::CALLBACKS,
-                fc_cache,
-                azul_layout::do_the_relayout,
-                |window_state, scroll_states, layout_results| {
-                    crate::wr_translate::fullhittest_new_webrender(
-                        hit_tester_ref,
-                        document_id,
-                        window_state.focused_node,
-                        layout_results,
-                        &window_state.mouse_state.cursor_position,
-                        window_state.size.get_hidpi_factor(),
-                    )
-                },
-            )
-        })
-    };
-
-
-    /*
-        // Since the menu bar affects the window size, set it first,
-        // before querying the window size again
-        let mut menu_bar = None;
-        if let Some(m) = internal.get_menu_bar() {
-            let mb = WindowsMenuBar::new(m);
-            unsafe { SetMenu(hwnd, mb._native_ptr); }
-            menu_bar = Some(mb);
-        }
-    */
-
-    // If size_to_content is set, query the content size and adjust!
-    if options.size_to_content {
-        let content_size = internal.get_content_size();
-        // window.setWidth(content_size.width);
-        // window.setHeight(content_size.height);
-        internal.current_window_state.size.dimensions = content_size;
-    }
-
-    let mut txn = WrTransaction::new();
-
-    // re-layout the window content for the first frame
-    // (since the width / height might have changed)
-    let resize_result = {
-        let mut uc = &mut appdata_lock.userdata;
-        let fcc = &mut uc.fc_cache;
-        let ic = &uc.image_cache;
-        fcc.apply_closure(|mut fc_cache| {
-            let size = internal.current_window_state.size.clone();
-            let theme = internal.current_window_state.theme;
-
-            internal.do_quick_resize(
-                ic,
-                &crate::app::CALLBACKS,
-                azul_layout::do_the_relayout,
-                &mut fc_cache,
-                &gl_context_ptr,
-                &size,
-                theme,
-            )
-        })
-    };
-
-    wr_synchronize_updated_images(resize_result.updated_images, &mut txn);
-
-    // glContext can be deactivated now
-    let _: () = unsafe { msg_send![gl_context, flushBuffer] };
-
-    txn.set_document_view(
-        WrDeviceIntRect::from_size(
-            WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32),
-        )
-    );
-    render_api.send_transaction(wr_translate_document_id(internal.document_id), txn);
-    render_api.flush_scene_builder();
-
-    // Build the display list and send it to webrender for the first time
-    crate::wr_translate::rebuild_display_list(
-        &mut internal,
-        &mut render_api,
-        &appdata_lock.userdata.image_cache,
-        initial_resource_updates,
-    );
-
-    render_api.flush_scene_builder();
-
-    crate::wr_translate::generate_frame(
-        &mut internal,
-        &mut render_api,
-        true,
-    );
-
-    render_api.flush_scene_builder();
-
-    /*
-        // Get / store mouse cursor position, now that the window position is final
-        let mut cursor_pos: POINT = POINT { x: 0, y: 0 };
-        unsafe { GetCursorPos(&mut cursor_pos); }
-        unsafe { ScreenToClient(hwnd, &mut cursor_pos) };
-        let cursor_pos_logical = LogicalPosition {
-            x: cursor_pos.x as f32 / dpi_factor,
-            y: cursor_pos.y as f32 / dpi_factor,
-        };
-        internal.current_window_state.mouse_state.cursor_position = if cursor_pos.x <= 0 || cursor_pos.y <= 0 {
-            CursorPosition::Uninitialized
-        } else {
-            CursorPosition::InWindow(cursor_pos_logical)
-        };
-    */
-
-    // Update the hit-tester to account for the new hit-testing functionality
-    let hit_tester = render_api.request_hit_tester(wr_translate_document_id(document_id));
-
-    // Done! Window is now created properly, display list has been built by
-    // WebRender (window is ready to render), menu bar is visible and hit-tester
-    // now contains the newest UI tree.
-
-    if options.hot_reload {
-        // SetTimer(regenerate_dom, 200ms);
-    }
-
-    // regenerate_dom (???) - necessary?
-    let mut window = Window {
-        id: window_id.clone(),
-        ns_window: Some(window),
-        internal,
-        render_api,
-        renderer: Some(renderer),
-        hit_tester: AsyncHitTester::Requested(hit_tester),
-        ns_close_observer: observer,
-        gl_context_ptr: gl_context_ptr,
-    };
-
-    // invoke the window create callback, if there is any
-    let (windows_to_create, windows_to_destroy) = 
-    if let Some(create_callback) = options.create_callback.as_mut() {
-
-        let _: () = unsafe { msg_send![gl_context, makeCurrentContext] };
-
-        let uc = &mut appdata_lock.userdata;
-        let fcc = &mut uc.fc_cache;
-        let ud = &mut uc.data;
-        let ic1 = &mut uc.image_cache;
-        let sysc = &uc.config.system_callbacks;
-
-        let ccr = fcc.apply_closure(|mut fc_cache| {
-
-            let raw_window_ptr = window.ns_window.take().map(|s| {
-                Retained::<NSWindow>::into_raw(s)
-            }).unwrap_or_else(|| std::ptr::null_mut());
-
-            let s = window.internal.invoke_single_callback(
-                create_callback,
-                ud,
-                &RawWindowHandle::MacOS(MacOSHandle {
-                    ns_view: gl_view as *mut c_void,
-                    ns_window: raw_window_ptr as *mut c_void,
-                }),
-                &window.gl_context_ptr,
-                ic1,
-                &mut fc_cache,
-                sysc,
-            );
-
-            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(raw_window_ptr) };
-
-            s
-        });
-
-        let ntc = NodesToCheck::empty(
-            window.internal.current_window_state.mouse_state.mouse_down(),
-            window.internal.current_window_state.focused_node.clone(),
-        );
-
-        let mut new_windows = Vec::new();
-        let mut destroyed_windows = Vec::new();
-
-        let ret = {
-            let mut ud = &mut appdata_lock.userdata;
-            let ic = &mut ud.image_cache;
-            let fc = &mut ud.fc_cache;
-            super::process::process_callback_results(
-                ccr,
-                &mut window,
-                &ntc,
-                ic,
-                fc,
-                &mut new_windows,
-                &mut destroyed_windows,
-            )
-        };
-
-        let _: () = unsafe { msg_send![gl_context, flushBuffer] };
-
-        (new_windows, destroyed_windows)
-    } else {
-        (Vec::new(), Vec::new())
-    };
-    
-    mem::drop(appdata_lock);
-
-    create_windows(
-        &mtm, 
-        megaclass, 
-        windows_to_create, 
-        ns_opengl_view, 
-        ns_menu_view
-    );
-
-    destroy_windows(megaclass, windows_to_destroy);
-
-    Ok((window_id, window))
-}
-
-
 fn create_windows(
     mtm: &MainThreadMarker,
     app: &MacApp,
@@ -682,7 +668,7 @@ fn create_windows(
     any_menu_class: &AnyClass,
 ) {
     for opts in new {
-        let w = create_nswindow(
+        let w = Window::create(
             &mtm,
             opts, 
             &any_opengl_class, 
@@ -966,7 +952,6 @@ fn key_up(this: *mut Object, _sel: Sel, event: *mut Object) {
 /// The main "drawRect:" which we override from NSOpenGLView, hooking up the calls
 /// to do_resize / rebuild_display_list / gpu_scroll_render depending on the size.
 extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
-    use crate::shell::event::{do_resize, gpu_scroll_render};
     unsafe {
         let ptr = (*this).get_ivar::<*const c_void>("app");
         let ptr = *ptr as *const MacApp;
@@ -997,6 +982,7 @@ extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
                 mac_app.functions.clear_color(1.0, 1.0, 1.0, 1.0);
                 mac_app.functions.clear(GL_COLOR_BUFFER_BIT); 
 
+                /*
                 if bw != ssw || bh != ssh || sdpi != bdpi {
                     do_resize(window, ud, bw, bh, bdpi, &glc);
                     window.internal.current_window_state.size.dimensions.width = bw as f32;
@@ -1005,6 +991,7 @@ extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
                 } else {
                     gpu_scroll_render(window, ud, &glc);
                 }
+                */
 
                 Window::finish_gl(glc);
             }
