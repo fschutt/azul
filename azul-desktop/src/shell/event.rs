@@ -17,7 +17,12 @@ use crate::app::{self, App};
 use azul_core::app_resources::ResourceUpdate;
 use azul_core::callbacks::LayoutCallbackInfo;
 use azul_core::window_state::{NodesToCheck, StyleAndLayoutChanges};
-use azul_core::window::{CursorPosition, FullHitTest, LogicalPosition, LogicalSize, MenuCallback, MouseCursorType, OptionMouseCursorType, PhysicalSize, ProcessEventResult, RawWindowHandle, VirtualKeyCode, WindowFrame, WindowId};
+use azul_core::window::{
+    CursorPosition, FullHitTest, LogicalPosition, LogicalSize, MenuCallback, 
+    MouseCursorType, OptionMouseCursorType, PhysicalSize, ProcessEventResult, 
+    RawWindowHandle, VirtualKeyCode, WindowFrame, WindowId,
+    CursorTypeHitTest,
+};
 use gl_context_loader::GenericGlContext;
 use webrender::api::units::{DeviceIntRect, DeviceIntSize};
 use webrender::Transaction;
@@ -35,6 +40,8 @@ use crate::shell::win32::Window;
 use crate::shell::win32::AppData;
 
 fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+
+    println!("az_regenerate_dom");
 
     let mut ret = ProcessEventResult::DoNothing;
 
@@ -168,6 +175,8 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
 /// ```
 fn az_redo_hit_test(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard, handle: &RawWindowHandle) -> ProcessEventResult {
 
+    println!("az_redo_hit_test");
+
     let fc_cache = &mut userdata.fc_cache;
     let image_cache = &mut userdata.image_cache;
     let config = &userdata.config;
@@ -191,6 +200,8 @@ fn az_redo_hit_test(current_window: &mut Window, userdata: &mut App, _guard: &Gl
 
 fn az_regenerate_display_list(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
 
+    println!("az_regenerate_display_list");
+
     let image_cache = &userdata.image_cache;
 
     rebuild_display_list(
@@ -213,6 +224,8 @@ fn az_regenerate_display_list(current_window: &mut Window, userdata: &mut App, _
 }
 
 fn az_gpu_scroll_render(current_window: &mut Window, userdata: &mut App, _guard: &GlContextGuard) {
+    println!("az_gpu_scroll_render");
+
     generate_frame(
         &mut current_window.internal,
         &mut current_window.render_api,
@@ -222,6 +235,7 @@ fn az_gpu_scroll_render(current_window: &mut Window, userdata: &mut App, _guard:
 
 // Window has received focus
 pub(crate) fn wm_set_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) -> ProcessEventResult {
+    println!("wm_set_focus");
     current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
     current_window.internal.current_window_state.flags.has_focus = true;
     az_redo_hit_test(current_window, userdata, guard, handle)
@@ -229,6 +243,7 @@ pub(crate) fn wm_set_focus(current_window: &mut Window, userdata: &mut App, guar
 
 // Window has lost focus
 pub(crate) fn wm_kill_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) -> ProcessEventResult {
+    println!("wm_kill_focus");
     current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
     current_window.internal.current_window_state.flags.has_focus = false;
     az_redo_hit_test(current_window, userdata, guard, handle)
@@ -242,11 +257,7 @@ pub(crate) fn wm_mousemove(
     newpos: LogicalPosition,
 ) -> ProcessEventResult {
 
-    use azul_core::window::{
-        CursorTypeHitTest, LogicalPosition,
-        CursorPosition, OptionMouseCursorType,
-        FullHitTest,
-    };
+    println!("wm_mousemove {newpos:?}");
 
     let pos = CursorPosition::InWindow(newpos);
 
@@ -297,6 +308,8 @@ pub(crate) fn wm_keydown(
     vk: Option<VirtualKeyCode>,
 ) -> ProcessEventResult {
 
+    println!("wm_keydown {scancode} - {vk:?}");
+
     current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
     current_window.internal.current_window_state.keyboard_state.current_char = None.into();
     current_window.internal.current_window_state.keyboard_state.pressed_scancodes.insert_hm_item(scancode);
@@ -318,6 +331,8 @@ pub(crate) fn wm_char(
     c: char,
 ) -> ProcessEventResult {
 
+    println!("wm_char {c}");
+
     if c.is_control() {
         return ProcessEventResult::DoNothing;
     }
@@ -335,6 +350,9 @@ pub(crate) fn wm_keyup(
     scancode: u32,
     vk: Option<VirtualKeyCode>,
 ) -> ProcessEventResult {
+
+    println!("wm_keyup {scancode} - {vk:?}");
+
     current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
     current_window.internal.current_window_state.keyboard_state.current_char = None.into();
     current_window.internal.current_window_state.keyboard_state.pressed_scancodes.remove_hm_item(&scancode);
@@ -351,6 +369,8 @@ pub(crate) fn wm_mouseleave(
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
 ) -> ProcessEventResult {
+
+    println!("wm_mouseleave");
 
     let current_focus = current_window.internal.current_window_state.focused_node;
     let previous_state = current_window.internal.current_window_state.clone();
@@ -374,6 +394,7 @@ pub(crate) fn wm_rbuttondown(
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
 ) -> ProcessEventResult {
+    println!("wm_rbuttondown");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
     current_window.internal.current_window_state.mouse_state.right_down = true;
@@ -387,6 +408,7 @@ pub(crate) fn wm_rbuttonup(
     handle: &RawWindowHandle,
     active_menus: &mut BTreeMap<MenuTarget, CommandMap>,
 ) -> ProcessEventResult {
+    println!("wm_rbuttonup");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
 
@@ -405,6 +427,7 @@ pub(crate) fn wm_mbuttondown(
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
 ) -> ProcessEventResult {
+    println!("wm_mbuttondown");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
     current_window.internal.current_window_state.mouse_state.middle_down = true;
@@ -417,6 +440,7 @@ pub(crate) fn wm_mbuttonup(
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
 ) -> ProcessEventResult {
+    println!("wm_mbuttonup");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
     current_window.internal.current_window_state.mouse_state.middle_down = false;
@@ -429,6 +453,7 @@ pub(crate) fn wm_lbuttondown(
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
 ) -> ProcessEventResult {
+    println!("wm_lbuttondown");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
     current_window.internal.current_window_state.mouse_state.left_down = true;
@@ -442,6 +467,7 @@ pub(crate) fn wm_lbuttonup(
     handle: &RawWindowHandle,
     active_menus: &mut BTreeMap<MenuTarget, CommandMap>,
 ) -> ProcessEventResult {
+    println!("wm_lbuttonup");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
 
@@ -461,6 +487,7 @@ pub(crate) fn wm_mousewheel(
     handle: &RawWindowHandle,
     scroll_amount: f32,
 ) -> ProcessEventResult {
+    println!("wm_mousewheel {scroll_amount}");
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
     current_window.internal.current_window_state.mouse_state.scroll_y = Some(scroll_amount).into();
@@ -474,6 +501,7 @@ pub(crate) fn wm_dpichanged(
     handle: &RawWindowHandle,
     dpi: u32,
 ) -> ProcessEventResult {
+    println!("wm_dpichanged {dpi}");
     // TODO!
     ProcessEventResult::DoNothing
 }
@@ -488,6 +516,8 @@ pub(crate) fn wm_size(
     dpi: u32,
     frame: WindowFrame, // minimized, maximized, restored
 ) {
+
+    println!("wm_size {dpi} {frame:?} {new_size:?}");
 
     let mut new_window_state = current_window.internal.current_window_state.clone();
     new_window_state.size.dpi = dpi;
@@ -548,7 +578,7 @@ pub(crate) fn wm_size(
 pub(crate) fn wm_paint(
     current_window: &mut Window,
     userdata: &mut App,
-    guard: GlContextGuard,
+    guard: &GlContextGuard,
     handle: &RawWindowHandle,
     gl_functions: Rc<GenericGlContext>,
 ) {
@@ -557,6 +587,8 @@ pub(crate) fn wm_paint(
     // webrender to pain the scene
 
     // gl context is current (assured by GlContextGuard)
+
+    println!("wm_paint");
 
     let rect_size = current_window.internal.current_window_state.size.dimensions.to_physical(
         current_window.internal.current_window_state.size.get_hidpi_factor()
@@ -598,7 +630,6 @@ pub(crate) fn wm_paint(
     gl.bind_texture(gl_context_loader::gl::TEXTURE_2D, 0);
     gl.use_program(current_program[0] as u32);
 
-    Window::finish_gl(guard);
 }
 
 pub(crate) fn wm_quit(
@@ -608,6 +639,7 @@ pub(crate) fn wm_quit(
     handle: &RawWindowHandle,
     gl_functions: Rc<GenericGlContext>,
 ) {
+    println!("wm_quit");
     // TODO: execute quit callback
 }
 
@@ -618,6 +650,9 @@ pub(crate) fn wm_destroy(
     handle: &RawWindowHandle,
     gl_functions: Rc<GenericGlContext>,
 ) {
+
+    println!("wm_destroy");
+    
     // deallocate objects, etc.
 
     current_window.destroy(
@@ -626,4 +661,60 @@ pub(crate) fn wm_destroy(
         handle,
         gl_functions,
     );
+}
+
+/// A helper that matches on the `ProcessEventResult`.
+/// 
+/// - `window` (the current window)
+/// - `app` (mutable reference to your main app data)
+/// - `guard` (the already-current OpenGL context)
+/// - `raw` (the `RawWindowHandle`)
+/// 
+pub fn handle_process_event_result(
+    ret: ProcessEventResult,
+    all_windows: &mut BTreeMap<WindowId, Window>,
+    window_id: WindowId,
+    app: &mut App,
+    guard: &GlContextGuard,
+    raw: &RawWindowHandle,
+) -> Option<()> {
+
+    match ret {
+        ProcessEventResult::DoNothing => { },
+        ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
+            // Rebuild the DOM for this one window (OpenGL context is already current)
+            let cw = all_windows.get_mut(&window_id)?;
+            az_regenerate_dom(cw, app, guard);
+        }
+        ProcessEventResult::ShouldRegenerateDomAllWindows => {
+            for cw in all_windows.values_mut() {
+                az_regenerate_dom(cw, app, guard);
+            }
+        }
+        ProcessEventResult::ShouldUpdateDisplayListCurrentWindow => {
+            // Rebuild the display list, but not the DOM for this single window
+            let cw = all_windows.get_mut(&window_id)?;
+            az_regenerate_display_list(cw, app, guard);
+        }
+        ProcessEventResult::UpdateHitTesterAndProcessAgain => {
+            let cw = all_windows.get_mut(&window_id)?;
+
+            // Record old state
+            cw.internal.previous_window_state =
+                Some(cw.internal.current_window_state.clone());
+
+            // 1) Rebuild the display list
+            az_regenerate_display_list(cw, app, guard);
+
+            // 2) Then re-run the “redo hit test”
+            //    We have the same references, so just call it:
+            az_redo_hit_test(cw, app, guard, raw);
+        }
+        ProcessEventResult::ShouldReRenderCurrentWindow => {
+            let cw = all_windows.get_mut(&window_id)?;
+            az_gpu_scroll_render(cw, app, guard);
+        }
+    }
+
+    Some(())
 }

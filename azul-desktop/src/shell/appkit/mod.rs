@@ -915,7 +915,6 @@ fn window_will_close(ptr: Arc<Mutex<AppData>>, window_id: WindowId, mtm: MainThr
     }
 }
 
-
 extern "C" fn window_did_resize(
     ptr: Arc<Mutex<AppData>>,
     window_id: WindowId,
@@ -964,7 +963,7 @@ extern "C" fn window_did_resize(
         ns_window: nswr,
     });
 
-    crate::shell::event::wm_size(
+    let r = crate::shell::event::wm_size(
         window,
         &mut data.userdata,
         &guard,
@@ -974,9 +973,13 @@ extern "C" fn window_did_resize(
         WindowFrame::Normal, // Or detect Minimized / Fullscreen if needed
     );
 
-    Window::finish_gl(guard);
+    mem::drop(window);
 
-    window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+    if let Some(window) = dw.get_mut(&window_id) {
+        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+    }
+
+    Window::finish_gl(guard);
 }
 
 extern "C" fn window_did_become_key(
@@ -1019,11 +1022,24 @@ extern "C" fn window_did_become_key(
         ns_window: nswr,
     });
 
-    crate::shell::event::wm_set_focus(window, ud, &guard, &raw);
+    let r = crate::shell::event::wm_set_focus(window, ud, &guard, &raw);
+
+    mem::drop(window);
+
+    let _ = crate::shell::event::handle_process_event_result(
+        r,
+        dw,
+        window_id,
+        ud,
+        &guard,
+        &raw,
+    );
+
+    if let Some(window) = dw.get_mut(&window_id) {
+        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+    }
 
     Window::finish_gl(guard);
-
-    window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
 }
 
 extern "C" fn window_did_resign_key(
@@ -1066,11 +1082,24 @@ extern "C" fn window_did_resign_key(
         ns_window: nswr,
     });
 
-    crate::shell::event::wm_kill_focus(window, ud, &guard, &raw);
+    let r = crate::shell::event::wm_kill_focus(window, ud, &guard, &raw);
+
+    mem::drop(window);
+
+    let _ = crate::shell::event::handle_process_event_result(
+        r,
+        dw,
+        window_id,
+        ud,
+        &guard,
+        &raw,
+    );
+
+    if let Some(window) = dw.get_mut(&window_id) {
+        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+    }
 
     Window::finish_gl(guard);
-
-    window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
 }
 
 // ADDED: Called when the screen’s backing scale changes => “dpichange”
@@ -1114,11 +1143,24 @@ extern "C" fn window_did_change_backing(ptr: Arc<Mutex<AppData>>, window_id: Win
         ns_window: nswr,
     });
     
-    crate::shell::event::wm_dpichanged(window, ud, &guard, &raw, new_dpi);
+    let r = crate::shell::event::wm_dpichanged(window, ud, &guard, &raw, new_dpi);
+
+    mem::drop(window);
+
+    let _ = crate::shell::event::handle_process_event_result(
+        r,
+        dw,
+        window_id,
+        ud,
+        &guard,
+        &raw,
+    );
+
+    if let Some(window) = dw.get_mut(&window_id) {
+        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+    }
 
     Window::finish_gl(guard);
-
-    window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
 }
 
 //
@@ -1130,16 +1172,18 @@ extern "C" fn mouse_down(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
-        // Lock the AppData
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
+
         let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
 
         // Retrieve the Window
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1170,12 +1214,24 @@ extern "C" fn mouse_down(this: *mut Object, _sel: Sel, event: *mut Object) {
         });
 
         // Call your "wm_lbuttondown" event
-        crate::shell::event::wm_lbuttondown(window, &mut data.userdata, &guard, &raw);
+        let r = crate::shell::event::wm_lbuttondown(window, ud, &guard, &raw);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        // Restore the NSWindow
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1188,14 +1244,17 @@ extern "C" fn mouse_up(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1221,11 +1280,24 @@ extern "C" fn mouse_up(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_lbuttonup(window, &mut data.userdata, &guard, &raw, &mut data.active_menus);
+        let r = crate::shell::event::wm_lbuttonup(window, ud, &guard, &raw, &mut data.active_menus);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1239,14 +1311,17 @@ extern "C" fn rightMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1272,11 +1347,24 @@ extern "C" fn rightMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_rbuttondown(window, &mut data.userdata, &guard, &raw);
+        let r = crate::shell::event::wm_rbuttondown(window, ud, &guard, &raw);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1290,14 +1378,17 @@ extern "C" fn rightMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1323,11 +1414,24 @@ extern "C" fn rightMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_rbuttonup(window, &mut data.userdata, &guard, &raw, &mut data.active_menus);
+        let r = crate::shell::event::wm_rbuttonup(window, ud, &guard, &raw, &mut data.active_menus);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1341,14 +1445,17 @@ extern "C" fn otherMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1374,11 +1481,24 @@ extern "C" fn otherMouseDown(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_mbuttondown(window, &mut data.userdata, &guard, &raw);
+        let r = crate::shell::event::wm_mbuttondown(window, ud, &guard, &raw);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1392,14 +1512,17 @@ extern "C" fn otherMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&WindowId { id: windowid }) {
             Some(s) => s,
             None => return,
         };
@@ -1425,11 +1548,24 @@ extern "C" fn otherMouseUp(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_mbuttonup(window, &mut data.userdata, &guard, &raw);
+        let r = crate::shell::event::wm_mbuttonup(window, ud, &guard, &raw);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1447,14 +1583,17 @@ extern "C" fn mouseMoved(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&WindowId { id: windowid }) {
             Some(s) => s,
             None => return,
         };
@@ -1480,11 +1619,24 @@ extern "C" fn mouseMoved(this: *mut Object, _sel: Sel, event: *mut Object) {
             ns_window: nswr,
         });
 
-        crate::shell::event::wm_mousemove(window, &mut data.userdata, &guard, &raw, newpos);
+        let r = crate::shell::event::wm_mousemove(window, ud, &guard, &raw, newpos);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1499,14 +1651,17 @@ extern "C" fn scrollWheel(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1534,11 +1689,24 @@ extern "C" fn scrollWheel(this: *mut Object, _sel: Sel, event: *mut Object) {
 
         // If you want the scroll amount:
         let delta_y: f64 = msg_send![event, scrollingDeltaY];
-        crate::shell::event::wm_mousewheel(window, &mut data.userdata, &guard, &raw, delta_y as f32);
+        let r = crate::shell::event::wm_mousewheel(window, ud, &guard, &raw, delta_y as f32);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1547,6 +1715,7 @@ extern "C" fn scrollWheel(this: *mut Object, _sel: Sel, event: *mut Object) {
 //
 #[no_mangle]
 extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
+    println!("keyDown");
     unsafe {
         let keycode: u16 = msg_send![event, keyCode];
         let scancode = keycode as u32;
@@ -1556,14 +1725,17 @@ extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
         let mac_app = &*(*ptr as *const MacApp);
 
         let windowid = *(*this).get_ivar::<i64>("windowid");
-
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1590,11 +1762,24 @@ extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
         });
 
         // Possibly parse [event keyCode], etc., then call wm_keydown
-        crate::shell::event::wm_keydown(window, &mut data.userdata, &guard, &raw, scancode, vk);
+        let r = crate::shell::event::wm_keydown(window, ud, &guard, &raw, scancode, vk);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1603,6 +1788,7 @@ extern "C" fn keyDown(this: *mut Object, _sel: Sel, event: *mut Object) {
 //
 #[no_mangle]
 extern "C" fn keyUp(this: *mut Object, _sel: Sel, event: *mut Object) {
+    println!("keyUp");
     unsafe {
 
         let keycode: u16 = msg_send![event, keyCode];
@@ -1612,15 +1798,19 @@ extern "C" fn keyUp(this: *mut Object, _sel: Sel, event: *mut Object) {
         let ptr = (*this).get_ivar::<*const c_void>("app");
         let mac_app = &*(*ptr as *const MacApp);
 
-        let windowid = *(*this).get_ivar::<i64>("windowid");
 
+        let windowid = *(*this).get_ivar::<i64>("windowid");
+        let wid = WindowId { id: windowid };
         let mut data = match mac_app.data.lock().ok() {
             Some(d) => d,
             None => return,
         };
-        let data = &mut *data;
 
-        let mut window = match data.windows.get_mut(&WindowId { id: windowid }) {
+        let data = &mut *data;
+        let mut dw = &mut data.windows;
+        let mut ud = &mut data.userdata;
+
+        let mut window = match dw.get_mut(&wid) {
             Some(s) => s,
             None => return,
         };
@@ -1647,11 +1837,24 @@ extern "C" fn keyUp(this: *mut Object, _sel: Sel, event: *mut Object) {
         });
 
         // Possibly parse [event keyCode], then call wm_keyup
-        crate::shell::event::wm_keyup(window, &mut data.userdata, &guard, &raw, scancode, vk);
+        let r = crate::shell::event::wm_keyup(window, ud, &guard, &raw, scancode, vk);
+
+        mem::drop(window);
+
+        let _ = crate::shell::event::handle_process_event_result(
+            r,
+            dw,
+            wid,
+            ud,
+            &guard,
+            &raw,
+        );
+
+        if let Some(window) = dw.get_mut(&wid) {
+            window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+        }
 
         Window::finish_gl(guard);
-
-        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
     }
 }
 
@@ -1662,46 +1865,71 @@ extern "C" fn draw_rect(this: *mut AnyObject, _sel: Sel, dirty_rect: NSRect) {
         let ptr = (*this).get_ivar::<*const c_void>("app");
         let ptr = *ptr as *const MacApp;
         let mac_app = &*ptr;
+        let functions = mac_app.functions.clone();
         let windowid = *(*this).get_ivar::<i64>("windowid");
 
         // Grab the lock to get the Window
-        if let Ok(mut app_data) = mac_app.data.lock() {
-            let mut app_data = &mut *app_data;
-            let w = &mut app_data.windows;
-            let ud = &mut app_data.userdata;
-            if let Some(window) = w.get_mut(&WindowId { id: windowid }) {
+        let mut app_data = match mac_app.data.lock() {
+            Ok(o) => o,
+            Err(e) => return,
+        };
 
-                let bounds: NSRect = msg_send![this, bounds];
-                let bsf: CGFloat = msg_send![this, backingScaleFactor];
-                let bdpi = (bsf * 96.0).round() as u32;
-                let bw = bounds.size.width.round() as u32;
-                let bh = bounds.size.height.round() as u32;
+        let mut app_data = &mut *app_data;
+        let w = &mut app_data.windows;
+        let ud = &mut app_data.userdata;
+        let wid = WindowId { id: windowid };
+        let mut window = match w.get_mut(&wid) {
+            Some(s) => s,
+            None => return,
+        };
 
-                let stored_size = window.internal.current_window_state.size.dimensions;
-                let ssw = stored_size.width.round() as u32;
-                let ssh = stored_size.height.round() as u32;
-                let sdpi = window.internal.current_window_state.size.dpi;
+        let bounds: NSRect = msg_send![this, bounds];
+        let bsf: CGFloat = msg_send![this, backingScaleFactor];
+        let bdpi = (bsf * 96.0).round() as u32;
+        let bw = bounds.size.width.round() as u32;
+        let bh = bounds.size.height.round() as u32;
 
-                let glc = Window::make_current_gl(msg_send![this, openGLContext]);
+        let stored_size = window.internal.current_window_state.size.dimensions;
+        let ssw = stored_size.width.round() as u32;
+        let ssh = stored_size.height.round() as u32;
+        let sdpi = window.internal.current_window_state.size.dpi;
 
-                const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
-                mac_app.functions.clear_color(1.0, 1.0, 1.0, 1.0);
-                mac_app.functions.clear(GL_COLOR_BUFFER_BIT); 
+        let glc = Window::make_current_gl(msg_send![this, openGLContext]);
 
-                /*
-                if bw != ssw || bh != ssh || sdpi != bdpi {
-                    do_resize(window, ud, bw, bh, bdpi, &glc);
-                    window.internal.current_window_state.size.dimensions.width = bw as f32;
-                    window.internal.current_window_state.size.dimensions.height = bh as f32;
-                    window.internal.current_window_state.size.dpi = bdpi as u32;
-                } else {
-                    gpu_scroll_render(window, ud, &glc);
-                }
-                */
+        const GL_COLOR_BUFFER_BIT: u32 = 0x00004000;
+        mac_app.functions.clear_color(1.0, 1.0, 1.0, 1.0);
+        mac_app.functions.clear(GL_COLOR_BUFFER_BIT); 
 
-                Window::finish_gl(glc);
+        let mut nsw = match window.ns_window.take() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let mut cv = match nsw.contentView() {
+            Some(s) => s,
+            None => {
+                window.ns_window = Some(nsw);
+                return;
             }
-        }
+        };
+
+        let nswr = Retained::<NSWindow>::into_raw(nsw) as *mut _;
+        let raw = RawWindowHandle::MacOS(MacOSHandle {
+            ns_view: Retained::<NSView>::into_raw(cv) as *mut _,
+            ns_window: nswr,
+        });
+
+        crate::shell::event::wm_paint(
+            window,
+            ud,
+            &glc,
+            &raw,
+            functions,
+        );
+        
+        window.ns_window = unsafe { Retained::<NSWindow>::from_raw(nswr as *mut _) };
+
+        Window::finish_gl(glc);
     }
 }
 
