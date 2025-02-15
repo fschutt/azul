@@ -22,7 +22,7 @@ use gl_context_loader::GenericGlContext;
 use webrender::api::units::{DeviceIntRect, DeviceIntSize};
 use webrender::Transaction;
 use super::appkit::GlContextGuard;
-use super::{MenuTarget, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM};
+use super::{CommandMap, MenuTarget, AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM};
 
 #[cfg(target_os = "macos")]
 use crate::shell::appkit::Window;
@@ -221,20 +221,20 @@ fn az_gpu_scroll_render(current_window: &mut Window, userdata: &mut App, _guard:
 }
 
 // Window has received focus
-fn wm_set_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) {
+pub(crate) fn wm_set_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) -> ProcessEventResult {
     current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
     current_window.internal.current_window_state.flags.has_focus = true;
-    az_redo_hit_test(current_window, userdata, guard, handle);
+    az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
 // Window has lost focus
-fn wm_kill_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) {
+pub(crate) fn wm_kill_focus(current_window: &mut Window, userdata: &mut App, guard: &GlContextGuard, handle: &RawWindowHandle) -> ProcessEventResult {
     current_window.internal.previous_window_state = Some(current_window.internal.current_window_state.clone());
     current_window.internal.current_window_state.flags.has_focus = false;
-    az_redo_hit_test(current_window, userdata, guard, handle);
+    az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_mousemove(
+pub(crate) fn wm_mousemove(
     current_window: &mut Window, 
     userdata: &mut App, 
     guard: &GlContextGuard,
@@ -288,7 +288,7 @@ fn wm_mousemove(
     az_redo_hit_test(current_window, userdata, guard, handle)
 } 
 
-fn wm_keydown(
+pub(crate) fn wm_keydown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -310,7 +310,7 @@ fn wm_keydown(
 }
 
 // Composite text input
-fn wm_char(
+pub(crate) fn wm_char(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -327,7 +327,7 @@ fn wm_char(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_keyup(
+pub(crate) fn wm_keyup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -345,7 +345,7 @@ fn wm_keyup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_mouseleave(
+pub(crate) fn wm_mouseleave(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -368,7 +368,7 @@ fn wm_mouseleave(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_rbuttondown(
+pub(crate) fn wm_rbuttondown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -380,12 +380,12 @@ fn wm_rbuttondown(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_rbuttonup(
+pub(crate) fn wm_rbuttonup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
-    active_menus: &mut BTreeMap<MenuTarget, MenuCallback>,
+    active_menus: &mut BTreeMap<MenuTarget, CommandMap>,
 ) -> ProcessEventResult {
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
@@ -399,7 +399,7 @@ fn wm_rbuttonup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_mbuttondown(
+pub(crate) fn wm_mbuttondown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -411,7 +411,7 @@ fn wm_mbuttondown(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_mbuttonup(
+pub(crate) fn wm_mbuttonup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -423,7 +423,7 @@ fn wm_mbuttonup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_lbuttondown(
+pub(crate) fn wm_lbuttondown(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -435,12 +435,12 @@ fn wm_lbuttondown(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_lbuttonup(
+pub(crate) fn wm_lbuttonup(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
     handle: &RawWindowHandle,
-    active_menus: &mut BTreeMap<MenuTarget, MenuCallback>,
+    active_menus: &mut BTreeMap<MenuTarget, CommandMap>,
 ) -> ProcessEventResult {
     let previous_state = current_window.internal.current_window_state.clone();
     current_window.internal.previous_window_state = Some(previous_state);
@@ -454,7 +454,7 @@ fn wm_lbuttonup(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_mousewheel(
+pub(crate) fn wm_mousewheel(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -467,7 +467,7 @@ fn wm_mousewheel(
     az_redo_hit_test(current_window, userdata, guard, handle)
 }
 
-fn wm_dpichanged(
+pub(crate) fn wm_dpichanged(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -479,7 +479,7 @@ fn wm_dpichanged(
 }
 
 // NOTE: This will generate a new frame, but not paint it yet, call wm_paint() afterwards
-fn wm_size(
+pub(crate) fn wm_size(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -545,7 +545,7 @@ fn wm_size(
     );
 }
 
-fn wm_paint(
+pub(crate) fn wm_paint(
     current_window: &mut Window,
     userdata: &mut App,
     guard: GlContextGuard,
@@ -601,7 +601,7 @@ fn wm_paint(
     Window::finish_gl(guard);
 }
 
-fn wm_quit(
+pub(crate) fn wm_quit(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,
@@ -611,7 +611,7 @@ fn wm_quit(
     // TODO: execute quit callback
 }
 
-fn wm_destroy(
+pub(crate) fn wm_destroy(
     current_window: &mut Window,
     userdata: &mut App,
     guard: &GlContextGuard,

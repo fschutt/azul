@@ -162,7 +162,10 @@ extern "C" fn menu_item_clicked(this: *mut Object, _sel: Sel, sender: *mut Objec
         let ptr = &*ptr;
         let windowid = *(*this).get_ivar::<i64>("windowid");
 
-        let cb = ptr.active_menus.values()
+        let mut app_borrow = ptr.data.lock().unwrap();
+        let mut app_borrow = &mut *app_borrow;
+
+        let cb = app_borrow.active_menus.values()
         .find_map(|s| s.get(&CommandId(tag)));
     
         let callback = match cb {
@@ -170,8 +173,6 @@ extern "C" fn menu_item_clicked(this: *mut Object, _sel: Sel, sender: *mut Objec
             None => return,
         };
 
-        let mut app_borrow = ptr.data.lock().unwrap();
-        
         let mut ret = ProcessEventResult::DoNothing;
         // let mut new_windows = Vec::new();
         // let mut destroyed_windows = Vec::new();
