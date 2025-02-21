@@ -1428,8 +1428,6 @@ impl X11Window {
 
         let dpi_scale_factor = dpy.get_dpi_scale_factor();
         options.state.size.dpi = (dpi_scale_factor.max(0.0) * 96.0).round() as u32;
-        options.state.size.hidpi_factor = dpi_scale_factor;
-        options.state.size.system_hidpi_factor = dpi_scale_factor;
 
         let logical_size = options.state.size.dimensions;
         let physical_size = logical_size.to_physical(dpi_scale_factor);
@@ -1661,7 +1659,7 @@ impl X11Window {
                         window_state.focused_node,
                         layout_results,
                         &window_state.mouse_state.cursor_position,
-                        window_state.size.hidpi_factor,
+                        window_state.size.get_hidpi_factor(),
                     )
                 },
             )
