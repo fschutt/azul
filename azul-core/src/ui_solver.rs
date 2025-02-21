@@ -1594,6 +1594,20 @@ pub enum PositionInfo {
 
 
 impl PositionInfo {
+    /// Shift this node vertically by `offset_amount`.
+    /// i.e. add `offset_amount` to both the relative and static y-offsets.
+    pub fn translate_vertical(&mut self, offset_amount: f32) {
+        match self {
+            PositionInfo::Static(ref mut info)
+            | PositionInfo::Absolute(ref mut info)
+            | PositionInfo::Fixed(ref mut info)
+            | PositionInfo::Relative(ref mut info) => {
+                info.y_offset += offset_amount;
+                info.static_y_offset += offset_amount;
+            }
+        }
+    }
+
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         match self {
             PositionInfo::Static(p) => p.scale_for_dpi(scale_factor),

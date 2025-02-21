@@ -153,7 +153,7 @@ impl Node {
     }
 
     #[inline]
-    fn get_first_child(&self, current_node_id: NodeId) -> Option<NodeId> {
+    pub(crate) fn get_first_child(&self, current_node_id: NodeId) -> Option<NodeId> {
         // last_child and first_child are always set together
         self.last_child.map(|_| current_node_id + 1)
     }
