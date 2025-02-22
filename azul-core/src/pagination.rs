@@ -3,10 +3,9 @@ use crate::dom::NodeData;
 use crate::ui_solver::PositionedRectangle;
 use alloc::collections::BTreeMap;
 
-/// The per-page output: a partial `NodeHierarchy` plus the subset of `PositionedRectangle`s
-/// that appear on that page. Both arrays map 1:1 by index: if the partial-hierarchy
-/// has `n` nodes, then `page_rects.internal.len()` = `n` as well, and index #5 in the new
-/// hierarchy corresponds to index #5 in the `page_rects`.
+/// The per-page output: a partial `NodeHierarchy` plus the 
+/// subset of `PositionedRectangle`s that appear on that page. 
+/// Both arrays map 1:1 by index.
 pub struct PaginatedPage {
     pub node_hierarchy: NodeHierarchy,
     pub page_rects: NodeDataContainer<PositionedRectangle>,

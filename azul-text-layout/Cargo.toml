@@ -22,7 +22,3 @@ allsorts                = { version = "0.15.0", git = "https://github.com/fschut
 tinyvec                 = { version = "1.6.0", default-features = false }
 rayon                   = { version = "1.5.3", default-features = false }
 ttf-parser              = { version = "0.15.2", default-features = false, features = ["variable-fonts"] }
-
-[features]
-default = ["woff2"]
-woff2 = ["allsorts/brotli"]
