@@ -51,7 +51,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.69
+          toolchain: 1.84
       - name: Check that build.py is up to date
         run: |
           python3 ./build.py
