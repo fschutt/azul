@@ -100,7 +100,7 @@ jobs:
       - name: Build azulc
         run: cargo build --release --bin azulc --manifest-path azulc/Cargo.toml --features="xml, std, font_loading, image_loading, gif, jpeg, png, tiff, bmp, text_layout"
       - name: Upload Artifacts (Linux)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: matrix.build == 'linux-x64'
         with:
           name: 'azul-linux-amd64'
@@ -111,7 +111,7 @@ jobs:
           retention-days: 2
           if-no-files-found: error
       - name: Upload Artifacts (Windows)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: matrix.build == 'windows-x64'
         with:
           name: 'azul-windows-amd64'
@@ -123,7 +123,7 @@ jobs:
           retention-days: 2
           if-no-files-found: error
       - name: Upload Artifacts (Mac)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: matrix.build == 'macos-x64'
         with:
           name: 'azul-windows-amd64'
