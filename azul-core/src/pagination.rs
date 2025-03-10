@@ -7,6 +7,7 @@ use alloc::collections::BTreeMap;
 /// The per-page output: a partial `NodeHierarchy` plus the 
 /// subset of `PositionedRectangle`s that appear on that page. 
 /// Both arrays map 1:1 by index.
+#[derive(Debug)]
 pub struct PaginatedPage {
     /// A newly-built array of NodeHierarchyItem, one entry per retained node,
     /// in the same relative order as `page_rects`.
