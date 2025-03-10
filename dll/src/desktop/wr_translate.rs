@@ -285,7 +285,7 @@ pub(crate) fn synchronize_gpu_values(
         PropertyValue as WrPropertyValue,
     };
 
-    use crate::wr_translate::wr_translate_layout_transform;
+    use crate::desktop::wr_translate::wr_translate_layout_transform;
 
     let transforms = layout_results
         .iter()
@@ -367,7 +367,7 @@ pub(crate) fn rebuild_display_list(
 ) {
     use azul_core::{callbacks::PipelineId, styled_dom::DomId, ui_solver::LayoutResult};
 
-    use crate::wr_translate::{
+    use crate::desktop::wr_translate::{
         wr_translate_display_list, wr_translate_document_id, wr_translate_epoch,
         wr_translate_pipeline_id, wr_translate_resource_update,
     };
@@ -428,7 +428,7 @@ pub(crate) fn generate_frame(
 ) {
     use azul_core::callbacks::PipelineId;
 
-    use crate::wr_translate::{wr_translate_document_id, wr_translate_pipeline_id};
+    use crate::desktop::wr_translate::{wr_translate_document_id, wr_translate_pipeline_id};
 
     let mut txn = WrTransaction::new();
 

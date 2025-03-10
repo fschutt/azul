@@ -3,7 +3,6 @@ use core::{
     fmt,
     hash::{Hash, Hasher},
 };
-
 use azul_css::{
     AzString, Css, CssPath, CssProperty, CssPropertyType, LayoutAlignContentValue,
     LayoutAlignItemsValue, LayoutBorderBottomWidthValue, LayoutBorderLeftWidthValue,
@@ -2752,10 +2751,12 @@ impl StyledDom {
         // inject self.root as the nth node
         let inject_as_id = 0;
 
-        println!(
-            "inject scroll bars:\r\n{}",
-            dom_to_inject.get_html_string("", "", true)
-        );
+        #[cfg(feature = "std")] {
+            println!(
+                "inject scroll bars:\r\n{}",
+                dom_to_inject.get_html_string("", "", true)
+            );
+        }
 
         // *self = new_styled_dom;
     }

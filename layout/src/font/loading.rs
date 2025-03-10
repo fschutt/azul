@@ -38,7 +38,7 @@ impl Clone for FontReloadError {
     }
 }
 
-impl_display!(FontReloadError, {
+azul_core::impl_display!(FontReloadError, {
     Io(err, path_buf) => format!("Could not load \"{}\" - IO error: {}", path_buf.as_str(), err),
     FontNotFound(id) => format!("Could not locate system font: \"{:?}\" found", id),
     FontLoadingNotActive(id) => format!("Could not load system font: \"{:?}\": crate was not compiled with --features=\"font_loading\"", id)

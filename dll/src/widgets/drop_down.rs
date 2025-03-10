@@ -5,7 +5,7 @@ use azul_core::{
     dom::{CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter},
     window::{PhysicalPosition, PhysicalPositionI32, WindowState},
 };
-use azul_desktop::{
+use azul_core::{
     callbacks::{CallbackInfo, LayoutCallback, LayoutCallbackInfo, RefAny, Update},
     css::{AzString, *},
     dom::{
@@ -15,7 +15,7 @@ use azul_desktop::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    resources::{ImageRef, OptionImageRef},
+    app_resources::{ImageRef, OptionImageRef},
     styled_dom::StyledDom,
 };
 

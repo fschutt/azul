@@ -38,14 +38,14 @@
 
 pub use azul_css::*;
 #[cfg(feature = "css_parser")]
-use azul_css_parser::{self, CssParseError};
+use azul_css::parser::{self, CssParseError};
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
-    pub use azul_css_parser::*;
+    pub use azul_css::parser::*;
 }
 
 // azul_css::Css and azul_css_parser::CssApiWrapper
 // have the exact same binary layout. However, we
 // don't want the azul_css crate to depend on a CSS parser
 // which requires this workaround for static linking.
-pub use azul_css_parser::CssApiWrapper as Css;
+pub use azul_css::parser::CssApiWrapper as Css;

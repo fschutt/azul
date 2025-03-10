@@ -28,7 +28,7 @@ use objc2_foundation::NSString;
 use once_cell::sync::Lazy;
 
 use super::{AppData, MacApp, WindowId};
-use crate::shell::{CommandId, CommandMap, MacOsMenuCommands, MenuTarget};
+use crate::desktop::shell::{CommandId, CommandMap, MacOsMenuCommands, MenuTarget};
 
 // If the app_data.active_menus[target] differs from the `menu`, creates a new
 // NSMenu and returns it. Should only be called on the main thread.

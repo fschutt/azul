@@ -5,7 +5,8 @@ use core::{
     fmt,
     sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
 };
-
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use azul_css::{
     ColorU as StyleColorU, CssPropertyValue, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
     LayoutBorderRightWidth, LayoutBorderTopWidth, LayoutBottom, LayoutBoxSizing, LayoutDisplay,

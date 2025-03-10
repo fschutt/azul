@@ -8,7 +8,8 @@ use core::{
 };
 #[cfg(feature = "std")]
 use std::hash::Hash;
-
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use azul_css::{
     AnimationInterpolationFunction, AzString, CssPath, CssProperty, CssPropertyType, FontRef,
     InterpolateResolver, LayoutRect, LayoutSize,
@@ -498,7 +499,7 @@ impl Clone for RefAny {
 
 impl Drop for RefAny {
     fn drop(&mut self) {
-        use std::ptr;
+        use core::ptr;
 
         self.run_destructor = false;
 
@@ -1734,6 +1735,7 @@ impl CallbackInfo {
         }
     }
 
+    #[cfg(feature = "std")]
     pub fn send_thread_msg(&mut self, thread_id: ThreadId, msg: ThreadSendMsg) -> bool {
         if let Some(thread) = self.internal_get_threads().get_mut(&thread_id) {
             if let Some(s) = thread.ptr.lock().ok() {

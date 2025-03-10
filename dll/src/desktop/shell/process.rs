@@ -12,10 +12,10 @@ use azul_core::{
 use webrender::Transaction as WrTransaction;
 
 #[cfg(target_os = "macos")]
-use crate::shell::appkit::Window;
+use crate::desktop::shell::appkit::Window;
 #[cfg(target_os = "windows")]
 use crate::shell::win32::Window;
-use crate::{app::LazyFcCache, wr_translate::wr_synchronize_updated_images};
+use crate::{desktop::app::LazyFcCache, desktop::wr_translate::wr_synchronize_updated_images};
 
 // Assuming that current_window_state and the previous_window_state of the window
 // are set correctly and the hit-test has been performed, will call the callbacks
@@ -134,36 +134,43 @@ pub(crate) fn process_threads(
     new_windows: &mut Vec<WindowCreateOptions>,
     destroyed_windows: &mut Vec<WindowId>,
 ) -> ProcessEventResult {
-    use azul_core::window::{RawWindowHandle, WindowsHandle};
 
-    let callback_result = fc_cache.apply_closure(|fc_cache| {
-        let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
-        window.internal.run_all_threads(
-            data,
-            &window_handle,
-            &window.gl_context_ptr,
+    #[cfg(feature = "std")] {
+        use azul_core::window::{RawWindowHandle, WindowsHandle};
+
+        let callback_result = fc_cache.apply_closure(|fc_cache| {
+            let frame_start = (config.system_callbacks.get_system_time_fn.cb)();
+            window.internal.run_all_threads(
+                data,
+                &window_handle,
+                &window.gl_context_ptr,
+                image_cache,
+                fc_cache,
+                &config.system_callbacks,
+            )
+        });
+    
+        process_callback_results(
+            callback_result,
+            window,
+            &NodesToCheck::empty(
+                window
+                    .internal
+                    .current_window_state
+                    .mouse_state
+                    .mouse_down(),
+                window.internal.current_window_state.focused_node,
+            ),
             image_cache,
             fc_cache,
-            &config.system_callbacks,
+            new_windows,
+            destroyed_windows,
         )
-    });
+    }
 
-    return process_callback_results(
-        callback_result,
-        window,
-        &NodesToCheck::empty(
-            window
-                .internal
-                .current_window_state
-                .mouse_state
-                .mouse_down(),
-            window.internal.current_window_state.focused_node,
-        ),
-        image_cache,
-        fc_cache,
-        new_windows,
-        destroyed_windows,
-    );
+    #[cfg(not(feature = "std"))] {
+        ProcessEventResult::DoNothing
+    }
 }
 
 #[must_use]
@@ -181,7 +188,7 @@ pub(crate) fn process_callback_results(
         window_state::{NodesToCheck, StyleAndLayoutChanges},
     };
 
-    use crate::wr_translate::wr_translate_document_id;
+    use crate::desktop::wr_translate::wr_translate_document_id;
 
     let mut result = ProcessEventResult::DoNothing;
 
@@ -284,7 +291,7 @@ pub(crate) fn process_callback_results(
     );
 
     if let Some(rsn) = style_layout_changes.nodes_that_changed_size.as_ref() {
-        let updated_images = fc_cache.apply_closure(|fc_cache| {
+        let updated_images = fc_cache.apply_closure(|fc_cache: &mut FcFontCache| {
             LayoutResult::resize_images(
                 window.internal.id_namespace,
                 window.internal.document_id,
@@ -297,7 +304,7 @@ pub(crate) fn process_callback_results(
                 &mut window.internal.renderer_resources,
                 &crate::app::CALLBACKS,
                 azul_layout::do_the_relayout,
-                fc_cache,
+                &*fc_cache,
                 &window.internal.current_window_state.size,
                 window.internal.current_window_state.theme,
                 &rsn,

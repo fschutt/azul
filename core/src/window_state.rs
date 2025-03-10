@@ -71,7 +71,8 @@ use alloc::{
 
 use azul_css::{AzString, CssProperty, LayoutPoint, LayoutRect, LayoutSize};
 use rust_fontconfig::FcFontCache;
-
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use crate::{
     FastBTreeSet, FastHashMap,
     app_resources::{ImageCache, RendererResources},

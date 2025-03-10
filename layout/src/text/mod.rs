@@ -64,36 +64,13 @@
 //! println!("{:#?}", layouted_glyphs); // get the final glyph positions relative to the origin
 //! ```
 
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
-)]
 #![allow(warnings)]
 
 // #![no_std] // doable once allsorts PR is merged
 
-extern crate core;
-#[macro_use]
-extern crate alloc;
-
-#[macro_use]
-extern crate azul_css;
-extern crate allsorts;
-extern crate azul_core;
-extern crate unicode_normalization;
-#[macro_use]
-extern crate tinyvec;
-
-use alloc::boxed::Box;
-use core::ffi::c_void;
-
-use azul_css::{FontData, FontRef};
-
-use crate::text_shaping::ParsedFont;
-
 pub mod script;
-pub mod text_layout;
-pub mod text_shaping;
+pub mod layout;
+pub mod shaping;
 
 use azul_core::{
     app_resources::{LoadedFontSource, ShapedWords, Words},
@@ -103,7 +80,11 @@ use azul_core::{
     ui_solver::{InlineTextLayout, ResolvedTextLayoutOptions},
 };
 
-use crate::text_layout::FontMetrics;
+use alloc::boxed::Box;
+use core::ffi::c_void;
+use azul_css::{FontData, FontRef};
+use self::shaping::ParsedFont;
+use self::layout::FontMetrics;
 
 #[derive(Debug, Clone)]
 pub struct InlineText<'a> {
@@ -119,9 +100,9 @@ impl<'a> GetTextLayout for InlineText<'a> {
         text_layout_options: &ResolvedTextLayoutOptions,
     ) -> InlineTextLayout {
         let layouted_text_block =
-            text_layout::position_words(self.words, self.shaped_words, text_layout_options);
+            self::layout::position_words(self.words, self.shaped_words, text_layout_options);
         // TODO: Cache the layouted text block on the &mut self
-        text_layout::word_positions_to_inline_text_layout(&layouted_text_block)
+        self::layout::word_positions_to_inline_text_layout(&layouted_text_block)
     }
 }
 
@@ -132,7 +113,7 @@ fn parsed_font_destructor(ptr: *mut c_void) {
 }
 
 pub fn parse_font_fn(source: LoadedFontSource) -> Option<FontRef> {
-    crate::text_layout::parse_font(
+    self::layout::parse_font(
         source.data.as_ref(),
         source.index as usize,
         source.load_outlines,

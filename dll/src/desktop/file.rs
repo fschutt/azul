@@ -57,7 +57,7 @@ impl PartialOrd for File {
     }
 }
 
-impl_option!(File, OptionFile, copy = false, [Clone, Debug]);
+azul_css::impl_option!(File, OptionFile, copy = false, [Clone, Debug]);
 
 impl File {
     fn new(f: fs::File, path: AzString) -> Self {

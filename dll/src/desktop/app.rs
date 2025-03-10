@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 use std::{fmt, sync::Mutex, thread::JoinHandle};
-
+use azul_css::{impl_option, impl_option_inner};
 use azul_core::{
     app_resources::{AppConfig, ImageCache, ImageRef},
     callbacks::{Dummy, RefAny, Update},
@@ -15,8 +15,8 @@ use rust_fontconfig::FcFontCache;
 pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
     insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
     layout_fn: azul_layout::do_the_layout,
-    load_font_fn: azulc_lib::font_loading::font_source_get_bytes,
-    parse_font_fn: azul_text_layout::parse_font_fn,
+    load_font_fn: azul_layout::font::font_source_get_bytes,
+    parse_font_fn: azul_layout::text::parse_font_fn,
 };
 
 #[derive(Debug, Clone)]
@@ -111,12 +111,12 @@ impl App {
         #[cfg(feature = "logging")]
         {
             if app_config.enable_logging_on_panic {
-                crate::logging::set_up_panic_hooks();
+                crate::desktop::logging::set_up_panic_hooks();
             }
 
             if app_config.enable_visual_panic_hook {
                 use std::sync::atomic::Ordering;
-                crate::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
+                crate::desktop::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
             }
         }
 
@@ -306,8 +306,8 @@ pub mod extra {
 
     #[cfg(feature = "xml")]
     pub fn styled_dom_from_file(path: &str) -> StyledDom {
-        use azulc_lib::xml::XmlComponentMap;
-        azulc_lib::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
+        use azul_layout::xml::XmlComponentMap;
+        azul_layout::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
     }
 
     #[cfg(not(feature = "xml"))]
@@ -324,7 +324,7 @@ pub mod extra {
 
     #[cfg(feature = "xml")]
     pub fn styled_dom_from_str(s: &str) -> StyledDom {
-        use azulc_lib::xml::XmlComponentMap;
-        azulc_lib::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
+        use azul_layout::xml::XmlComponentMap;
+        azul_layout::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
     }
 }

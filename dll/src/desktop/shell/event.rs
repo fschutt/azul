@@ -19,22 +19,22 @@ use webrender::{
 use super::{
     AZ_THREAD_TICK, AZ_TICK_REGENERATE_DOM, CommandMap, MenuTarget, appkit::GlContextGuard,
 };
-use crate::app::{self, App};
+use crate::desktop::app::{self, App};
 #[cfg(target_os = "macos")]
-use crate::shell::appkit::AppData;
+use crate::desktop::shell::appkit::AppData;
 #[cfg(target_os = "macos")]
-use crate::shell::appkit::Window;
+use crate::desktop::shell::appkit::Window;
 #[cfg(target_os = "windows")]
-use crate::shell::win32::AppData;
+use crate::desktop::shell::win32::AppData;
 #[cfg(target_os = "windows")]
-use crate::shell::win32::Window;
+use crate::desktop::shell::win32::Window;
 ///! This module encapsulates the different "event actions" that were formerly
 ///! triggered by Windows messages such as `AZ_REGENERATE_DOM`, `AZ_REDO_HIT_TEST`,
 ///! and so on.
 ///
 ///! Instead of sending `PostMessageW(...)`, we call these event functions directly.
 ///! This way, the same logic is reusable for both Win32 and macOS.
-use crate::wr_translate::{
+use crate::desktop::wr_translate::{
     AsyncHitTester, generate_frame, rebuild_display_list, wr_synchronize_updated_images,
     wr_translate_document_id,
 };
@@ -676,7 +676,7 @@ pub(crate) fn wm_size(
             &image_cache,
             &crate::app::CALLBACKS,
             azul_layout::do_the_relayout,
-            &mut fc_cache,
+            &mut *fc_cache,
             &current_window.gl_context_ptr,
             &new_window_state.size,
             new_window_state.theme,

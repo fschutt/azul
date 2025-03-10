@@ -1,4 +1,4 @@
-# azul-text-layout
+# azul-layout
 
 General crate for text layout / text shaping
 

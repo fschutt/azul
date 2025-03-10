@@ -7,9 +7,16 @@ extern crate alloc;
 extern crate azul_core;
 
 #[cfg(not(target_arch = "wasm32"))]
-extern crate azul_desktop as azul_impl;
+pub mod desktop;
 #[cfg(target_arch = "wasm32")]
-extern crate azul_web as azul_impl;
+pub mod web;    
+
+pub mod azul_impl {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use super::desktop::*;
+    #[cfg(target_arch = "wasm32")]
+    pub use self::web::*;
+}
 
 use core::ffi::c_void;
 #[cfg(all(
@@ -8406,7 +8413,7 @@ pub extern "C" fn AzColorPickerDialog_open(
 ) -> AzOptionColorU {
     azul_impl::dialogs::color_picker_dialog(
         title.as_str(),
-        default_color.into_option().map(|s| s.into()),
+        default_color.into_option(),
     )
     .into()
 }

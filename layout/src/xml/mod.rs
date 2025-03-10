@@ -5,10 +5,13 @@ use core::fmt;
 #[cfg(feature = "std")]
 use std::path::Path;
 
+#[cfg(feature = "svg")]
+pub mod svg;
+
 pub use azul_core::xml::*;
 use azul_core::{dom::Dom, impl_from, styled_dom::StyledDom, window::StringPairVec};
 use azul_css::{AzString, Css, OptionAzString, U8Vec};
-use azul_css_parser::{CssApiWrapper, CssParseError};
+use azul_css::parser::{CssApiWrapper, CssParseError};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]

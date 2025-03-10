@@ -309,19 +309,19 @@ impl ttf_parser::OutlineBuilder for GlyphOutlineBuilder {
     }
 }
 
-impl_vec!(
+azul_css::impl_vec!(
     GlyphOutlineOperation,
     GlyphOutlineOperationVec,
     GlyphOutlineOperationVecDestructor
 );
-impl_vec_clone!(
+azul_css::impl_vec_clone!(
     GlyphOutlineOperation,
     GlyphOutlineOperationVec,
     GlyphOutlineOperationVecDestructor
 );
-impl_vec_debug!(GlyphOutlineOperation, GlyphOutlineOperationVec);
-impl_vec_partialord!(GlyphOutlineOperation, GlyphOutlineOperationVec);
-impl_vec_partialeq!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+azul_css::impl_vec_debug!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+azul_css::impl_vec_partialord!(GlyphOutlineOperation, GlyphOutlineOperationVec);
+azul_css::impl_vec_partialeq!(GlyphOutlineOperation, GlyphOutlineOperationVec);
 
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -572,7 +572,7 @@ const fn tag(chars: [u8; 4]) -> u32 {
 /// Estimate the language and the script from the text (uses trigrams)
 #[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
-    use crate::script::Script; // whatlang::Script
+    use crate::text::script::Script; // whatlang::Script
 
     // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
 
@@ -756,7 +756,7 @@ pub fn estimate_script_and_language(text: &str) -> (u32, Option<u32>) {
 
     // let lang = tag_mod::from_string(&lang.code().to_string().to_uppercase()).unwrap();
 
-    let script = match crate::script::detect_script(text).unwrap_or(Script::Latin) {
+    let script = match crate::text::script::detect_script(text).unwrap_or(Script::Latin) {
         Script::Arabic => TAG_ARAB,
         Script::Bengali => TAG_BENG,
         Script::Cyrillic => TAG_CYRL,

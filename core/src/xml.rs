@@ -1,8 +1,11 @@
 //! XML structure definitions
 
 use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::boxed::Box;
+use core::hash::Hash;
 use core::fmt;
-
 use azul_css::{
     AzString, Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssProperty,
     CssRuleBlock, NodeTypeTag, NormalizedLinearColorStopVec, NormalizedRadialColorStopVec,
@@ -10,9 +13,7 @@ use azul_css::{
     StyleBackgroundRepeatVec, StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec,
 };
 use azul_css::parser::ErrorLocation;
-#[cfg(feature = "css_parser")]
 use azul_css::parser::{CssApiWrapper, CssParseErrorOwned};
-
 use crate::{
     css::VecContents,
     dom::Dom,
@@ -2172,7 +2173,7 @@ pub struct CssMatcher {
 
 impl CssMatcher {
     fn get_hash(&self) -> u64 {
-        use std::hash::Hash;
+        use core::hash::Hash;
 
         use highway::{HighwayHash, HighwayHasher, Key};
 

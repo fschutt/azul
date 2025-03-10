@@ -10,7 +10,8 @@ use core::{
     ops,
     sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering},
 };
-
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use azul_css::{
     AzString, ColorU, CssPath, CssProperty, FloatValue, LayoutPoint, LayoutRect, LayoutSize,
     OptionAzString, OptionF32, OptionI32, U8Vec,
@@ -189,13 +190,13 @@ impl ProcessEventResult {
 }
 
 impl PartialOrd for ProcessEventResult {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         self.order().partial_cmp(&other.order())
     }
 }
 
 impl Ord for ProcessEventResult {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.order().cmp(&other.order())
     }
 }
@@ -1391,6 +1392,7 @@ impl WindowInternal {
         return ret;
     }
 
+    #[cfg(feature = "std")]
     pub fn run_all_threads(
         &mut self,
         data: &mut RefAny,

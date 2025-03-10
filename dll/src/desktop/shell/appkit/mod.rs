@@ -64,7 +64,7 @@ use webrender::{
 
 use self::gl::GlFunctions;
 use super::{CommandMap, MenuTarget};
-use crate::{
+use crate::desktop::{
     app::{self, App, LazyFcCache},
     compositor::Compositor,
     wr_translate::{
@@ -73,8 +73,8 @@ use crate::{
     },
 };
 
-mod gl;
-mod menu;
+pub mod gl;
+pub mod menu;
 
 /// OpenGL context guard, to be returned by window.make_current_gl()
 pub(crate) struct GlContextGuard {
@@ -295,14 +295,14 @@ impl Window {
 
         // Now do a quick resize
         let mut txn = WrTransaction::new();
-        let resize_result = fcc.apply_closure(|mut fc_cache| {
+        let resize_result = fcc.apply_closure(|mut fc_cache: &mut FcFontCache| {
             let size = internal.current_window_state.size.clone();
             let theme = internal.current_window_state.theme;
             internal.do_quick_resize(
                 ic1,
                 &crate::app::CALLBACKS,
                 azul_layout::do_the_relayout,
-                &mut fc_cache,
+                &*fc_cache,
                 &gl_context_ptr,
                 &size,
                 theme,
@@ -348,7 +348,7 @@ impl Window {
                 let _: () = msg_send![gl_context, makeCurrentContext];
             }
 
-            let ccr = fcc.apply_closure(|mut fc_cache| {
+            let ccr = fcc.apply_closure(|mut fc_cache: &mut FcFontCache| {
                 let raw_window_ptr = window
                     .ns_window
                     .take()
@@ -364,7 +364,7 @@ impl Window {
                     }),
                     &window.gl_context_ptr,
                     ic1,
-                    &mut fc_cache,
+                    &mut *fc_cache,
                     sysc,
                 );
 

@@ -11,33 +11,5 @@ repository = "https://github.com/maps4print/azul"
 edition = "2021"
 autoexamples = false
 
-[[bin]]
-name = "awb"
-path = "src/main.rs"
-
 [dependencies]
-azul-core               = { path = "../core", version = "0.0.2", default-features = false }
-azul-css                = { path = "../css", version = "0.0.1", default-features = false, features = ["parser"]}
-azul-layout             = { path = "../layout", default-features = false, features = ["text_layout"]}
-gl-context-loader       = { version ="0.1.8", default-features = false }
-xmlparser               = { version = "0.13.3",          default-features = false }
-image                   = { version = "0.24.3",         default-features = false,       optional = true }
-rust-fontconfig         = { version = "0.1.13",          default-features = false,       optional = true }
-lyon                    = { version = "0.17.10",  default-features = false, optional = true }
-usvg                    = { version = "0.22.0",   default-features = false, optional = true, features = ["export"] }
-resvg                   = { version = "0.22.0",   default-features = false, optional = true }
-roxmltree               = { version = "0.14.0",   default-features = false, optional = true }
-tiny-skia               = { version = "0.6.5",    default-features = false, optional = true, features = ["libm"] }
-xmlwriter               = { version = "0.1.0",    default-features = false }
-geo-booleanop           = { version = "0.2.1", default-features = false }
-geo                     = { version = "0.26.0", default-features = false }
-base64 = "0.22.1"
-
-[features]
-default = ["std", "text_layout"]
-std = ["azul-core/std", "azul-layout/std", "rust-fontconfig/std"]
-
-font_loading = []
-text_layout = ["azul-layout/text_layout", "rust-fontconfig", "std"]
-svg = ["lyon", "tiny-skia", "usvg", "resvg", "xml"]
-xml = ["roxmltree"]
+azul               = { path = "../api/rust", version = "1.0.0-beta1", default-features = false }

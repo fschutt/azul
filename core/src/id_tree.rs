@@ -7,6 +7,8 @@ use core::{
 pub use self::node_id::NodeId;
 use crate::styled_dom::NodeHierarchyItem;
 pub type NodeDepths = Vec<(usize, NodeId)>;
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 
 // Since private fields are module-based, this prevents any module from accessing
 // `NodeId.index` directly. To get the correct node index is by using `NodeId::index()`,

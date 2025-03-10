@@ -10,22 +10,3 @@ members = [
     "examples/rust",
     "examples/rust/ios"
 ]
-
-[profile.dev]
-opt-level = 'z'
-lto = false
-panic = "abort"
-debug = true
-strip = false
-
-[profile.release]
-opt-level = 3
-lto = true
-panic = "abort"
-codegen-units = 1
-debug = false
-debug-assertions = false
-overflow-checks = false
-incremental = false
-rpath = false
-strip = false

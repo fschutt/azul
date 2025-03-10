@@ -3,10 +3,9 @@
 
 use std::vec::Vec;
 
-use azul_desktop::{
+use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     css::{AzString, *},
-    dialogs::OptionFileTypeList,
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,
@@ -14,9 +13,9 @@ use azul_desktop::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    resources::{ImageRef, OptionImageRef},
+    app_resources::{ImageRef, OptionImageRef},
 };
-
+use crate::desktop::dialogs::OptionFileTypeList;
 use crate::widgets::button::{Button, ButtonOnClick, ButtonOnClickCallback};
 
 #[derive(Debug, Clone, PartialEq)]

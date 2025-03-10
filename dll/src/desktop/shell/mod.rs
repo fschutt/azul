@@ -17,8 +17,8 @@ const AZ_TICK_REGENERATE_DOM: usize = 1;
 // ID sent by WM_TIMER to check the thread results
 const AZ_THREAD_TICK: usize = 2;
 
-pub(crate) mod event;
-pub(crate) mod process;
+pub mod event;
+pub mod process;
 
 #[cfg(target_os = "macos")]
 pub mod appkit;
@@ -31,7 +31,7 @@ pub mod x11;
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
 
 fn default_renderer_options(options: &WindowCreateOptions) -> WrRendererOptions {
-    use crate::wr_translate::wr_translate_debug_flags;
+    use crate::desktop::wr_translate::wr_translate_debug_flags;
     WrRendererOptions {
         resource_override_path: None,
         use_optimized_shaders: true,

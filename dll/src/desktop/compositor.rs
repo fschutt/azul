@@ -16,7 +16,7 @@ impl WrExternalImageHandler for Compositor {
         _channel_index: u8,
         _rendering: WrImageRendering,
     ) -> WrExternalImage {
-        use crate::wr_translate::translate_external_image_id_wr;
+        use crate::desktop::wr_translate::translate_external_image_id_wr;
 
         let twh = get_opengl_texture(&translate_external_image_id_wr(key)).map(|(tex, (w, h))| {
             (

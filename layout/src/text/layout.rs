@@ -18,8 +18,7 @@ pub use azul_core::{
     window::{LogicalPosition, LogicalRect, LogicalSize},
 };
 pub use azul_css::FontRef;
-
-pub use crate::text_shaping::ParsedFont;
+pub use super::shaping::ParsedFont;
 
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
@@ -139,9 +138,8 @@ pub fn split_text_into_words(text: &str) -> Words {
 /// Takes a text broken into semantic items and shape all the words
 /// (does NOT scale the words, only shapes them)
 pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
-    use crate::text_shaping;
 
-    let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
+    let (script, lang) = super::shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph
     let space_advance = font
@@ -156,7 +154,7 @@ pub fn shape_words(words: &Words, font: &ParsedFont) -> ShapedWords {
         .iter()
         .filter(|w| w.word_type == WordType::Word)
         .map(|word| {
-            use crate::text_shaping::ShapedTextBufferUnsized;
+            use super::shaping::ShapedTextBufferUnsized;
 
             let chars = &words.internal_chars.as_ref()[word.start..word.end];
             let shaped_word = font.shape(chars, script, lang);

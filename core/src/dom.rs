@@ -6,9 +6,9 @@ use core::{
     mem,
     sync::atomic::{AtomicUsize, Ordering},
 };
-
 use azul_css::{AzString, Css, CssProperty, FontRef, NodeTypeTag, OptionAzString};
-
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 pub use crate::id_tree::{Node, NodeHierarchy, NodeId};
 use crate::{
     app_resources::{ImageCallback, ImageMask, ImageRef, ImageRefHash, RendererResources},
@@ -1587,7 +1587,6 @@ impl Dom {
         self.estimated_total_children + 1
     }
 
-    #[cfg(feature = "css_parser")]
     pub fn style(&mut self, css: azul_css::parser::CssApiWrapper) -> StyledDom {
         StyledDom::new(self, css)
     }

@@ -1,4 +1,4 @@
-use azul_desktop::{
+use azul_core::{
     callbacks::{Callback, CallbackInfo, CallbackType, RefAny, Update},
     css::{AzString, *},
     dom::{
@@ -208,7 +208,7 @@ impl CheckBox {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        use azul_desktop::{
+        use azul_core::{
             callbacks::Callback,
             dom::{CallbackData, Dom, DomVec, EventFilter, HoverEventFilter},
         };
@@ -241,7 +241,7 @@ impl CheckBox {
 // handle input events for the checkbox
 mod input {
 
-    use azul_desktop::{
+    use azul_core::{
         callbacks::{CallbackInfo, RefAny, Update},
         css::{CssProperty, StyleOpacity},
     };

@@ -3,6 +3,8 @@
 use azul_css::{AzString, U8Vec};
 use rust_fontconfig::FcFontCache;
 
+mod loading;
+
 // serif
 #[cfg(target_os = "windows")]
 const KNOWN_SYSTEM_SERIF_FONTS: &[&str] = &["Times New Roman"];

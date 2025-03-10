@@ -1779,6 +1779,7 @@ struct NewIframeScrollState {
 }
 
 // Adds the image and font resources to the app_resources but does NOT add them to the RenderAPI
+#[cfg(feature = "text_layout")]
 pub fn do_the_layout(
     styled_dom: StyledDom,
     image_cache: &ImageCache,
@@ -2538,7 +2539,7 @@ fn position_nodes<'a>(
                 if nodes_that_need_to_redraw_text.contains(&child_node_id) {
                     #[cfg(feature = "text_layout")]
                     {
-                        use azul_text_layout::InlineText;
+                        use crate::text::InlineText;
 
                         let mut inline_text_layout = InlineText {
                             words,
@@ -2645,7 +2646,7 @@ fn position_nodes<'a>(
 fn create_word_cache<'a>(
     node_data: &NodeDataContainerRef<'a, NodeData>,
 ) -> BTreeMap<NodeId, Words> {
-    use azul_text_layout::text_layout::split_text_into_words;
+    use crate::text::layout::split_text_into_words;
 
     let word_map = node_data
         .internal
@@ -2675,7 +2676,7 @@ pub fn callback_info_shape_text(
 ) -> Option<InlineText> {
     let font_ref = callbackinfo.get_font_ref(node_id)?;
     let text_layout_options = callbackinfo.get_text_layout_options(node_id)?;
-    Some(azul_text_layout::text_layout::shape_text(
+    Some(crate::text::layout::shape_text(
         &font_ref,
         text.as_str(),
         &text_layout_options,
@@ -2688,7 +2689,7 @@ pub fn create_shaped_words<'a>(
     words: &BTreeMap<NodeId, Words>,
     styled_dom: &'a StyledDom,
 ) -> BTreeMap<NodeId, ShapedWords> {
-    use azul_text_layout::{text_layout::shape_words, text_shaping::ParsedFont};
+    use crate::text::{layout::shape_words, shaping::ParsedFont};
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let styled_nodes = styled_dom.styled_nodes.as_container();
@@ -2733,7 +2734,8 @@ fn create_word_positions<'a>(
         app_resources::font_size_to_au,
         ui_solver::{DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING, ResolvedTextLayoutOptions},
     };
-    use azul_text_layout::text_layout::position_words;
+
+    use crate::text::layout::position_words;
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
@@ -3209,6 +3211,7 @@ pub fn do_the_relayout(
     let mut node_ids_that_changed_text_content = BTreeSet::new();
 
     // Update words cache and shaped words cache
+    #[cfg(feature = "text_layout")]
     if let Some(words_to_relayout) = words_to_relayout {
         for (node_id, new_string) in words_to_relayout.iter() {
             use azul_core::{
@@ -3217,12 +3220,12 @@ pub fn do_the_relayout(
                     DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING, ResolvedTextLayoutOptions,
                 },
             };
-            use azul_text_layout::{
-                text_layout::{
+            use crate::text::{
+                layout::{
                     position_words, shape_words, split_text_into_words,
                     word_positions_to_inline_text_layout,
                 },
-                text_shaping::ParsedFont,
+                shaping::ParsedFont,
             };
 
             if layout_result.words_cache.get(&node_id).is_none() {

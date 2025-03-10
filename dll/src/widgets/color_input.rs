@@ -2,7 +2,7 @@
 
 use std::vec::Vec;
 
-use azul_desktop::{
+use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     css::{AzString, *},
     dom::{
@@ -119,7 +119,7 @@ impl ColorInput {
 
     #[inline]
     pub fn dom(mut self) -> Dom {
-        use azul_desktop::{
+        use azul_core::{
             callbacks::Callback,
             dom::{CallbackData, EventFilter, HoverEventFilter, IdOrClass::Class},
         };
@@ -146,7 +146,7 @@ impl ColorInput {
 }
 
 extern "C" fn on_color_input_clicked(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use azul_desktop::dialogs::color_picker_dialog;
+    use crate::desktop::dialogs::color_picker_dialog;
 
     let mut color_input = match data.downcast_mut::<ColorInputStateWrapper>() {
         Some(s) => s,

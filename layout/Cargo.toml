@@ -19,15 +19,31 @@ edition = "2021"
 autoexamples = false
 
 [dependencies]
-azul-css            = { path = "../css", version = "0.0.1", default-features = false, features = ["parser"] }
-azul-core           = { path = "../core", version = "0.0.2", default-features = false }
-rust-fontconfig     = { version = "0.1.13", default-features = false }
-image               = { version = "0.25", default-features = false }
+azul-css                = { path = "../css", version = "0.0.1", default-features = false, features = ["parser"] }
+azul-core               = { path = "../core", version = "0.0.2", default-features = false }
+image                   = { version = "0.25", default-features = false }
+rust-fontconfig         = { version = "0.1.13", default-features = false }
+
+unicode-normalization   = { version = "0.1.21",  default-features = false, optional = true }
+allsorts                = { version = "0.15.0", git = "https://github.com/fschutt/allsorts", branch = "optional-brotli", default-features = false, features = ["flate2_rust"], optional = true  }
+tinyvec                 = { version = "1.6.0", default-features = false, optional = true  }
+ttf-parser              = { version = "0.15.2", default-features = false, features = ["variable-fonts"], optional = true  }
+lyon                    = { version = "0.17.10",  default-features = false, optional = true }
+usvg                    = { version = "0.22.0",   default-features = false, optional = true, features = ["export"] }
+resvg                   = { version = "0.22.0",   default-features = false, optional = true }
+tiny-skia               = { version = "0.6.5",    default-features = false, optional = true, features = ["libm"] }
+geo-booleanop           = { version = "0.2.1", default-features = false, optional = true }
+geo                     = { version = "0.26.0", default-features = false, optional = true }
+roxmltree               = { version = "0.14.0",   default-features = false, optional = true }
+xmlwriter               = { version = "0.1.0",    default-features = false, optional = true }
+xmlparser               = { version = "0.13.3",   default-features = false, optional = true }
+base64                  = { version = "0.22.1", default-features = false, optional = true }
+gl-context-loader       = { version = "0.1.8", default-features = false, optional = true }
 
 [features]
-default = ["std", "text_layout"]
+default = ["std", "text_layout", "font_loading", "svg", "xml"]
 std = []
-text_layout = []
+text_layout = ["unicode-normalization", "allsorts", "tinyvec", "ttf-parser"]
 gif = ["image/gif"]
 jpeg = ["image/jpeg"]
 png = ["image/png"]
@@ -38,3 +54,6 @@ tga = ["image/tga"]
 hdr = ["image/hdr"]
 webp = ["image/webp"]
 pnm = ["image/pnm"]
+font_loading = ["base64"]
+xml = ["roxmltree", "xmlwriter", "xmlparser"]
+svg = ["lyon", "tiny-skia", "usvg", "resvg", "xml", "geo-booleanop", "geo", "gl-context-loader"]

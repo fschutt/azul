@@ -9,6 +9,7 @@ use core::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
 };
+#[cfg(feature = "std")]
 use std::sync::Mutex;
 #[cfg(feature = "std")]
 use std::sync::mpsc::{Receiver, Sender};
@@ -18,7 +19,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration as StdDuration;
 #[cfg(feature = "std")]
 use std::time::Instant as StdInstant;
-
+#[cfg(not(feature = "std"))]
+use alloc::string::{String, ToString};
 use azul_css::{AzString, CssProperty};
 use rust_fontconfig::FcFontCache;
 
@@ -116,7 +118,7 @@ impl Instant {
     /// Returns a number from 0.0 to 1.0 indicating the current
     /// linear interpolation value between (start, end)
     pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {
-        use std::mem;
+        use core::mem;
 
         if end < start {
             mem::swap(&mut start, &mut end);
@@ -848,6 +850,16 @@ impl Drop for ThreadSender {
 }
 
 impl ThreadSender {
+
+    #[cfg(not(feature = "std"))]
+    pub fn new(t: ThreadSenderInner) -> Self {
+        Self {
+            ptr: core::ptr::null(),
+            run_destructor: false,
+        }
+    }
+
+    #[cfg(feature = "std")]
     pub fn new(t: ThreadSenderInner) -> Self {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(t))),
@@ -855,7 +867,13 @@ impl ThreadSender {
         }
     }
 
+    #[cfg(not(feature = "std"))]
+    pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
+        false
+    }
+
     // send data from the user thread to the main thread
+    #[cfg(feature = "std")]
     pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
         let ts = match self.ptr.lock().ok() {
             Some(s) => s,
@@ -891,6 +909,16 @@ impl Drop for ThreadReceiver {
 }
 
 impl ThreadReceiver {
+
+    #[cfg(not(feature = "std"))]
+    pub fn new(t: ThreadReceiverInner) -> Self {
+        Self {
+            ptr: core::ptr::null(),
+            run_destructor: false,
+        }
+    }
+
+    #[cfg(feature = "std")]
     pub fn new(t: ThreadReceiverInner) -> Self {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(t))),
@@ -898,7 +926,13 @@ impl ThreadReceiver {
         }
     }
 
+    #[cfg(not(feature = "std"))]
+    pub fn recv(&mut self) -> OptionThreadSendMsg {
+        None.into()
+    }
+
     // receive data from the main thread
+    #[cfg(feature = "std")]
     pub fn recv(&mut self) -> OptionThreadSendMsg {
         let ts = match self.ptr.lock().ok() {
             Some(s) => s,
@@ -1029,8 +1063,20 @@ pub struct ExternalSystemCallbacks {
     pub get_system_time_fn: GetSystemTimeCallback,
 }
 
-#[cfg(feature = "std")]
 impl ExternalSystemCallbacks {
+    #[cfg(not(feature = "std"))]
+    pub fn rust_internal() -> Self {
+        Self {
+            create_thread_fn: CreateThreadCallback {
+                cb: create_thread_libstd,
+            },
+            get_system_time_fn: GetSystemTimeCallback {
+                cb: get_system_time_libstd,
+            },
+        }
+    }
+
+    #[cfg(feature = "std")]
     pub fn rust_internal() -> Self {
         Self {
             create_thread_fn: CreateThreadCallback {
@@ -1156,14 +1202,23 @@ impl Drop for Thread {
 }
 
 impl Thread {
+    #[cfg(feature = "std")]
     pub fn new(ti: ThreadInner) -> Self {
         Self {
             ptr: Box::new(Arc::new(Mutex::new(ti))),
             run_destructor: true,
         }
     }
+    #[cfg(not(feature = "std"))]
+    pub fn new(ti: ThreadInner) -> Self {
+        Self {
+            ptr: core::ptr::null(),
+            run_destructor: false,
+        }
+    }
 }
 
+#[cfg(feature = "std")]
 impl ThreadInner {
     /// Returns true if the Thread has been finished, false otherwise
     pub(crate) fn is_finished(&self) -> bool {
@@ -1176,6 +1231,22 @@ impl ThreadInner {
 
     pub(crate) fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
         (self.receive_thread_msg_fn.cb)(self.receiver.as_ref() as *const _ as *const c_void)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl ThreadInner {
+    /// Returns true if the Thread has been finished, false otherwise
+    pub(crate) fn is_finished(&self) -> bool {
+        true
+    }
+
+    pub(crate) fn sender_send(&mut self, msg: ThreadSendMsg) -> bool {
+        false
+    }
+
+    pub(crate) fn receiver_try_recv(&mut self) -> OptionThreadReceiveMsg {
+        None.into()
     }
 }
 
@@ -1221,6 +1292,11 @@ pub struct ThreadInner {
 #[cfg(feature = "std")]
 pub extern "C" fn get_system_time_libstd() -> Instant {
     StdInstant::now().into()
+}
+
+#[cfg(not(feature = "std"))]
+pub extern "C" fn get_system_time_libstd() -> Instant {
+    Instant::Tick(SystemTick::new(0))
 }
 
 #[cfg(feature = "std")]
@@ -1292,6 +1368,18 @@ impl Drop for ThreadInner {
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub extern "C" fn create_thread_libstd(
+    thread_initialize_data: RefAny,
+    writeback_data: RefAny,
+    callback: ThreadCallback,
+) -> Thread {
+    Thread {
+        ptr: core::ptr::null(),
+        run_destructor: false,
+    }
+}
+
 #[cfg(feature = "std")]
 extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
     let thread = unsafe { &mut *thread };
@@ -1302,11 +1390,19 @@ extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) {
     }
 }
 
+#[cfg(not(feature = "std"))]
+extern "C" fn default_thread_destructor_fn(thread: *mut ThreadInner) { }
+
 #[cfg(feature = "std")]
 extern "C" fn library_send_thread_msg_fn(sender: *const c_void, msg: ThreadSendMsg) -> bool {
     unsafe { &*(sender as *const Sender<ThreadSendMsg>) }
         .send(msg)
         .is_ok()
+}
+
+#[cfg(not(feature = "std"))]
+extern "C" fn library_send_thread_msg_fn(sender: *const c_void, msg: ThreadSendMsg) -> bool {
+    false
 }
 
 #[cfg(feature = "std")]
@@ -1317,11 +1413,21 @@ extern "C" fn library_receive_thread_msg_fn(receiver: *const c_void) -> OptionTh
         .into()
 }
 
+#[cfg(not(feature = "std"))]
+extern "C" fn library_receive_thread_msg_fn(receiver: *const c_void) -> OptionThreadReceiveMsg {
+    None.into()
+}
+
 #[cfg(feature = "std")]
 extern "C" fn default_send_thread_msg_fn(sender: *const c_void, msg: ThreadReceiveMsg) -> bool {
     unsafe { &*(sender as *const Sender<ThreadReceiveMsg>) }
         .send(msg)
         .is_ok()
+}
+
+#[cfg(not(feature = "std"))]
+extern "C" fn default_send_thread_msg_fn(sender: *const c_void, msg: ThreadReceiveMsg) -> bool {
+    false
 }
 
 #[cfg(feature = "std")]
@@ -1332,6 +1438,12 @@ extern "C" fn default_receive_thread_msg_fn(receiver: *const c_void) -> OptionTh
         .into()
 }
 
+
+#[cfg(not(feature = "std"))]
+extern "C" fn default_receive_thread_msg_fn(receiver: *const c_void) -> OptionThreadSendMsg {
+    None.into()
+}
+
 #[cfg(feature = "std")]
 extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
     unsafe { &*(dropcheck as *const Weak<()>) }
@@ -1339,8 +1451,20 @@ extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
         .is_none()
 }
 
+#[cfg(not(feature = "std"))]
+extern "C" fn default_check_thread_finished(dropcheck: *const c_void) -> bool {
+    true
+}
+
 #[cfg(feature = "std")]
 extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
 
+
+#[cfg(not(feature = "std"))]
+extern "C" fn thread_sender_drop(_: *mut ThreadSenderInner) {}
+
 #[cfg(feature = "std")]
+extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) {}
+
+#[cfg(not(feature = "std"))]
 extern "C" fn thread_receiver_drop(_: *mut ThreadReceiverInner) {}

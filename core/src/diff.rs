@@ -4,6 +4,8 @@ use core::{
 use alloc::vec::Vec;
 use alloc::string::String;
 use alloc::collections::btree_set::BTreeSet;
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use crate::{
     id_tree::{NodeId, NodeDataContainer},
     dom::{CompactDom, NodeData},

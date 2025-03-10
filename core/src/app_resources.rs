@@ -11,7 +11,8 @@ use azul_css::{
     StyleFontFamily, StyleFontFamilyVec, StyleFontSize, U8Vec, U16Vec, U32Vec,
 };
 use rust_fontconfig::FcFontCache;
-
+#[cfg(not(feature = "std"))]
+use alloc::string::ToString;
 use crate::{
     FastBTreeSet, FastHashMap,
     callbacks::{

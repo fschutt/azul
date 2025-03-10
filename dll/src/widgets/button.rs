@@ -1,6 +1,6 @@
 use std::vec::Vec;
-
-use azul_desktop::{
+use azul_css::impl_option;
+use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
     css::{AzString, *},
     dom::{
@@ -10,7 +10,7 @@ use azul_desktop::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    resources::{ImageRef, OptionImageRef},
+    app_resources::{ImageRef, OptionImageRef},
 };
 
 #[repr(C)]
@@ -425,7 +425,7 @@ impl Button {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        use azul_desktop::{
+        use crate::desktop::{
             callbacks::Callback,
             dom::{CallbackData, EventFilter, HoverEventFilter},
         };
@@ -482,8 +482,8 @@ mod ui_test {
 
     #[test]
     fn test_button_ui_1() {
-        use azul_desktop::css::Css;
 
+        use azul_css::Css;
         use crate::widgets::button::Button;
 
         let button = Button::new("Hello".into()).dom().style(Css::empty());

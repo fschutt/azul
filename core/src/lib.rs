@@ -7,9 +7,7 @@
 extern crate core;
 #[macro_use]
 extern crate alloc;
-
 extern crate libm;
-
 #[macro_use]
 extern crate azul_css;
 extern crate gl_context_loader;

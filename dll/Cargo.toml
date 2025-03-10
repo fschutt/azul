@@ -24,12 +24,70 @@ doc = false
 
 [dependencies]
 azul-core = { path = "../core", version = "0.0.2", default-features = false }
+azul-css = { path = "../css", version = "0.0.1", default-features = false, optional = true }
+azul-layout = { path = "../layout", version = "0.0.4", default-features = false, features = ["font_loading", "text_layout", "svg", "xml"], optional = true }
 pyo3 = { version = "0.16.5", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 log  = { version = "0.4.17",  default-features = false, optional = true }
 pyo3-log = { version = "0.6.0", default-features = false, optional = true }
+tinyfiledialogs         = { version = "3.9.1",  default-features = false, optional = true }
+clipboard2              = { version = "0.1.1",  default-features = false, optional = true }
+raw-window-handle       = { version = "0.5.0", default-features = false, optional = true }
+fern                    = { version = "0.6.1",  default-features = false, optional = true }
+backtrace               = { version = "0.3.66", optional = true }
+rust-fontconfig         = { version = "0.1.13", default-features = false, features = ["std", "parsing"], optional = true }
+strfmt                  = { version = "0.1.6", default-features = false, optional = true }
+libm                    = { version = "0.2.2", default-features = false, optional = true }
+gl-context-loader       = { version ="0.1.8", default-features = false, optional = true }
+webrender               = { version = "0.62.2", package = "azul-webrender", default-features = false, features = ["freetype-lib"], optional = true }
+once_cell = { version = "1.17.1", optional = true }
+dispatch2 = { version = "0.2.0", optional = true }
+bitflags = { version = "2.8.0", optional = true }
+block2 = { version = "0.6.0", optional = true }
+
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3.9", default-features = false, features = [
+    "windowsx", 
+    "libloaderapi", 
+    "errhandlingapi", 
+    "winuser", 
+    "uxtheme", 
+    "dwmapi", 
+    "wingdi", 
+    "commdlg"
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cgl = "0.3.2"
+dispatch2 = { version = "0.2.0", default-features = false, features = [
+    "std",
+    "objc2",
+] }
+objc2 = "0.6.0"
+objc2-core-foundation = { version = "0.3.0", default-features = true, features = [
+    "std",
+    "CFBase",
+    "CFString",
+    "CFBundle",
+] }
+objc2-foundation = { version = "0.3.0", default-features = true, features = [
+    "std",
+    "NSArray",
+    "NSThread",
+] }
+objc2-app-kit = { version = "0.3.0", default-features = true, features = [
+    "std",
+    "objc2-core-foundation",
+    "NSApplication",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+    "NSOpenGL",
+    "NSOpenGLView",
+] }
 
 [features]
-default = ["std", "logging", "css_parser", "ico", "tga", "hdr", "jpeg", "webp", "pnm", "font_loading", "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp", "link-static"]
+default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layout", "svg", "xml", "all_img_formats", "link-static"]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
 # this will be fixed in the future
@@ -39,20 +97,22 @@ logging = ["log"]
 use_fern_logger = ["logging"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
-gif = []
-jpeg = []
-png = []
-tiff = []
-bmp = []
-ico = []
-tga = []
-hdr = []
-webp = []
-pnm = []
-svg = []
-xml = []
-font_loading = []
-text_layout = []
+all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "jpeg", "png", "tiff", "bmp"]
+desktop = ["tinyfiledialogs", "azul-css", "azul-layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "dispatch2", "bitflags", "block2"]
+gif = ["azul-layout", "azul-layout/gif"]
+jpeg = ["azul-layout", "azul-layout/jpeg"]
+png = ["azul-layout", "azul-layout/png"]
+tiff = ["azul-layout", "azul-layout/tiff"]
+bmp = ["azul-layout", "azul-layout/bmp"]
+ico = ["azul-layout", "azul-layout/ico"]
+tga = ["azul-layout", "azul-layout/tga"]
+hdr = ["azul-layout", "azul-layout/hdr"]
+webp = ["azul-layout", "azul-layout/webp"]
+pnm = ["azul-layout", "azul-layout/pnm"]
+svg = ["azul-layout", "azul-layout/svg"]
+xml = ["azul-layout", "azul-layout/xml"]
+font_loading = ["azul-layout", "azul-layout/font_loading"]
+text_layout = ["azul-layout", "azul-layout/text_layout"]
 cdylib = []
 rlib = []
 staticlib = []
@@ -60,10 +120,10 @@ link-static = ["rlib"]
 link-dynamic = ["cdylib", "staticlib"]
 
 # Predefined target configurations
-desktop-cdylib = ["cdylib", "use_fern_logger"]
-desktop-staticlib = ["staticlib", "use_fern_logger"]
-rust-static = ["rlib", "use_fern_logger"]
-python-extension = ["cdylib", "pyo3", "use_pyo3_logger"]
+desktop-cdylib = ["desktop", "cdylib", "use_fern_logger"]
+desktop-staticlib = ["desktop", "staticlib", "use_fern_logger"]
+rust-static = ["desktop", "rlib", "use_fern_logger"]
+python-extension = ["desktop", "cdylib", "pyo3", "use_pyo3_logger"]
 
 [package.metadata.deb]
 maintainer = "Felix Schütt <felix.schuett@maps4print.com>"

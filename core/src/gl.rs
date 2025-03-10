@@ -7,10 +7,10 @@ use alloc::{
 };
 use core::{
     fmt,
+    ffi,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
-
 use azul_css::{AzString, ColorF, ColorU, StringVec, U8Vec};
 pub use gl_context_loader::{
     GLbitfield, GLboolean, GLchar, GLclampd, GLclampf, GLeglImageOES, GLenum, GLfloat, GLint,
@@ -3085,7 +3085,7 @@ impl VertexBuffer {
             gl::ARRAY_BUFFER,
             (mem::size_of::<T>() * vertices.len()) as isize,
             GlVoidPtrConst {
-                ptr: vertices.as_ptr() as *const std::ffi::c_void,
+                ptr: vertices.as_ptr() as *const core::ffi::c_void,
                 run_destructor: true,
             },
             gl::STATIC_DRAW,
@@ -3097,7 +3097,7 @@ impl VertexBuffer {
             gl::ELEMENT_ARRAY_BUFFER,
             (mem::size_of::<u32>() * indices.len()) as isize,
             GlVoidPtrConst {
-                ptr: indices.as_ptr() as *const std::ffi::c_void,
+                ptr: indices.as_ptr() as *const core::ffi::c_void,
                 run_destructor: true,
             },
             gl::STATIC_DRAW,
@@ -3567,39 +3567,41 @@ impl GlShader {
         );
         gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
 
-        let fb_check = gl_context.check_frame_buffer_status(gl::FRAMEBUFFER);
-        match fb_check {
-            gl::FRAMEBUFFER_COMPLETE => {}
-            gl::FRAMEBUFFER_UNDEFINED => {
-                println!("GL_FRAMEBUFFER_UNDEFINED");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_ATTACHMENT => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_READ_BUFFER => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER");
-            }
-            gl::FRAMEBUFFER_UNSUPPORTED => {
-                println!("GL_FRAMEBUFFER_UNSUPPORTED");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
-            }
-            gl::FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS => {
-                println!("GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS");
-            }
-            o => {
-                println!("glFramebufferStatus returned unknown return code: {}", o);
-            }
+        #[cfg(feature = "std")] {
+            let fb_check = gl_context.check_frame_buffer_status(gl::FRAMEBUFFER);
+            match fb_check {
+                gl::FRAMEBUFFER_COMPLETE => {}
+                gl::FRAMEBUFFER_UNDEFINED => {
+                    println!("GL_FRAMEBUFFER_UNDEFINED");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_ATTACHMENT => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_READ_BUFFER => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER");
+                }
+                gl::FRAMEBUFFER_UNSUPPORTED => {
+                    println!("GL_FRAMEBUFFER_UNSUPPORTED");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
+                }
+                gl::FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS => {
+                    println!("GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS");
+                }
+                o => {
+                    println!("glFramebufferStatus returned unknown return code: {}", o);
+                }
+            }    
         }
 
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);

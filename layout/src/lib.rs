@@ -10,15 +10,16 @@
 extern crate alloc;
 extern crate core;
 
-extern crate azul_core;
-extern crate azul_css;
+pub mod solver;
+pub mod image;
+#[cfg(feature = "font_loading")]
+pub mod font;
 #[cfg(feature = "text_layout")]
-extern crate azul_text_layout as text_layout;
+pub mod text;
+#[cfg(feature = "xml")]
+pub mod xml;
 
-mod layout_solver;
-
 #[cfg(feature = "text_layout")]
-pub use azul_text_layout::parse_font_fn;
+pub use solver::{do_the_layout, do_the_relayout, callback_info_shape_text};
 #[cfg(feature = "text_layout")]
-pub use layout_solver::callback_info_shape_text;
-pub use layout_solver::{do_the_layout, do_the_relayout};
+pub use text::parse_font_fn;

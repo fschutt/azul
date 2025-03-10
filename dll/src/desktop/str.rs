@@ -57,11 +57,11 @@ pub struct FmtArg {
     pub value: FmtValue,
 }
 
-impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor);
-impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
-impl_vec_debug!(FmtArg, FmtArgVec);
-impl_vec_partialeq!(FmtArg, FmtArgVec);
-impl_vec_partialord!(FmtArg, FmtArgVec);
+azul_css::impl_vec!(FmtArg, FmtArgVec, FmtArgVecDestructor);
+azul_css::impl_vec_clone!(FmtArg, FmtArgVec, FmtArgVecDestructor);
+azul_css::impl_vec_debug!(FmtArg, FmtArgVec);
+azul_css::impl_vec_partialeq!(FmtArg, FmtArgVec);
+azul_css::impl_vec_partialord!(FmtArg, FmtArgVec);
 
 pub fn fmt_string(format: AzString, args: FmtArgVec) -> String {
     use strfmt::Format;

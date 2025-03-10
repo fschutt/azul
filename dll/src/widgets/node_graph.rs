@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use core::fmt;
-
+use azul_css::impl_option;
 use azul_core::{
     app_resources::{ImageRef, RawImageFormat},
     svg::{SvgLine, SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},

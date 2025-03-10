@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use log::LevelFilter;
 
-use crate::dialogs::msg_box_ok;
+use crate::desktop::dialogs::msg_box_ok;
 
 pub(crate) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
@@ -97,7 +97,7 @@ pub(crate) fn set_up_panic_hooks() {
         }
 
         // TODO: invoke external app crash handler with the location to the log file
-        error!("{}", error_str);
+        log::error!("{}", error_str);
 
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
             #[cfg(not(target_os = "linux"))]

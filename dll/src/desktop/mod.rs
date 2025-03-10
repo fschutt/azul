@@ -1,48 +1,12 @@
 //! Desktop implementation of the Azul GUI toolkit
 
-#![doc(
-    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
-    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico"
-)]
+
 #![allow(dead_code)]
 #![deny(unused_must_use)]
 #![deny(unreachable_patterns)]
 #![deny(missing_copy_implementations)]
 #![deny(clippy::all)]
 #![allow(warnings)]
-
-extern crate core;
-#[macro_use]
-extern crate alloc;
-
-extern crate libm;
-
-extern crate gl_context_loader;
-#[cfg(target_os = "windows")]
-extern crate winapi;
-
-#[macro_use]
-extern crate azul_css;
-#[macro_use(impl_from)]
-extern crate azul_core;
-#[cfg(feature = "css_parser")]
-extern crate azul_css_parser;
-#[cfg(feature = "logging")]
-extern crate backtrace;
-#[cfg(all(feature = "use_fern_logger"))]
-extern crate fern;
-#[cfg(feature = "logging")]
-#[cfg_attr(feature = "logging", macro_use(error, warn))]
-extern crate log;
-
-extern crate azul_text_layout;
-extern crate azulc_lib;
-extern crate clipboard2;
-extern crate raw_window_handle;
-extern crate rust_fontconfig;
-extern crate strfmt;
-extern crate tinyfiledialogs;
-extern crate webrender;
 
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app
 /// state
@@ -63,7 +27,7 @@ pub use azul_core::{dom, gl, style, styled_dom};
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     pub use azul_core::app_resources::*;
-    pub use azulc_lib::{font::*, image::*};
+    pub use azul_layout::{font::*, image::*};
 }
 
 pub mod ui_solver {
@@ -86,23 +50,23 @@ pub mod traits {
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
     pub use azul_layout::callback_info_shape_text;
-    pub use azul_text_layout::{InlineText, text_layout::*, text_shaping::*, *};
+    pub use azul_layout::text::{InlineText, layout::*, shaping::*, *};
 }
 
 /// SVG parsing + rendering
 pub mod svg {
-    pub use azulc_lib::svg::*;
+    pub use azul_layout::xml::svg::*;
 }
 
 /// XML parsing
 pub mod xml {
-    pub use azulc_lib::xml::*;
+    pub use azul_layout::xml::*;
 }
 
 /// Re-exports of errors
 pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
-    pub use azulc_lib::font_loading::FontReloadError;
+    pub use azul_layout::font::loading::FontReloadError;
     pub use clipboard2::ClipboardError;
 }
 

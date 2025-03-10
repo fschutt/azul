@@ -590,7 +590,7 @@ pub enum TextInputSelection {
     FromTo(TextInputSelectionRange),
 }
 
-impl_option!(
+azul_css::impl_option!(
     TextInputSelection,
     OptionTextInputSelection,
     copy = false,
