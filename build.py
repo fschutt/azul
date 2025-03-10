@@ -469,7 +469,7 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
 # ---------------------------------------------------------------------------------------------
 
 
-# Generates the azul-dll/lib.rs file
+# Generates the dll/lib.rs file
 #
 # Returns an array:
 #
@@ -489,7 +489,7 @@ def generate_rust_dll(api_data):
     code += "#![deny(improper_ctypes_definitions)]\r\n"
     code += "\r\n"
 
-    code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
+    code += read_file(root_folder + "/api/_patches/dll/header.rs")
 
     code += "\r\n"
     code += "pub mod widgets;\r\n"
@@ -1243,7 +1243,7 @@ def generate_rust_dll_bindings(api_data, structs_map, functions_map):
 
     return code
 
-# Generates the azul-dll/python.rs file (pyo3 bindings)
+# Generates the dll/python.rs file (pyo3 bindings)
 def generate_python_api(api_data, structs_map, functions_map):
 
     version = list(api_data.keys())[-1]
@@ -1251,7 +1251,7 @@ def generate_python_api(api_data, structs_map, functions_map):
     pyo3_code = ""
     pyo3_code += "#![allow(non_snake_case)]\r\n"
     pyo3_code += "\r\n"
-    pyo3_code += read_file(root_folder + "/api/_patches/azul-dll/header.rs")
+    pyo3_code += read_file(root_folder + "/api/_patches/dll/header.rs")
     pyo3_code += "\r\n"
     pyo3_code += "use core::mem;\r\n"
     pyo3_code += "use pyo3::prelude::*;\r\n"
@@ -3087,7 +3087,7 @@ def generate_size_test(api_data, structs_map):
     test_str += "#[allow(dead_code)]\r\n"
     test_str += "mod test_sizes {\r\n"
 
-    test_str += read_file(root_folder + "/api/_patches/azul-dll/test-sizes.rs")
+    test_str += read_file(root_folder + "/api/_patches/dll/test-sizes.rs")
 
     test_str += generated_structs
     test_str += "    use core::ffi::c_void;\r\n"
@@ -3143,10 +3143,10 @@ def generate_api():
     functions_map = rust_dll_result[2]
     forward_declarations = rust_dll_result[3]
 
-    write_file(rust_dll_result[0], root_folder + "/azul-dll/src/lib.rs")
+    write_file(rust_dll_result[0], root_folder + "/dll/src/lib.rs")
     write_file(generate_rust_api(apiData, structs_map, functions_map.copy()), root_folder + "/api/rust/src/lib.rs")
     write_file(generate_c_api(apiData, structs_map), root_folder + "/api/c/azul.h")
-    write_file(generate_python_api(apiData, structs_map, functions_map.copy()), root_folder + "/azul-dll/src/python.rs")
+    write_file(generate_python_api(apiData, structs_map, functions_map.copy()), root_folder + "/dll/src/python.rs")
     write_file(generate_cpp_api(apiData, structs_map), root_folder + "/api/cpp/azul.hpp")
 
 # Build the library with release settings
@@ -3156,19 +3156,20 @@ def build_dll():
     # d = dict(os.environ)
     # d['CC'] = 'clang'
     # d['CXX'] = 'clang'
-    # cwd = root_folder + "/azul-dll"
+    # cwd = root_folder + "/dll"
 
     if platform == "linux" or platform == "linux2": # TODO: freebsd?
         #             rustup toolchain install stable-x86_64-unknown-linux-gnu  &&
         #             rustup override set stable-x86_64-unknown-linux-gnu  &&
         os.system("""
-            cd azul-dll  &&
+            cd dll  &&
             RUSTLFLAGS="-Ctarget-feature=-crt-static" cargo build --lib --target=x86_64-unknown-linux-gnu --all-features --release  &&
             cd ..
         """)
     elif platform == "darwin":
         os.system("""
-            cd azul-dll
+            cd dll
+            rustup target add stable-x86_64-unknown-darwin-gnu
             rustup toolchain install stable-x86_64-unknown-darwin-gnu
             rustup override set stable-x86_64-unknown-darwin-gnu
             rustup override set stable-x86_64-unknown-darwin-gnu
@@ -3177,7 +3178,7 @@ def build_dll():
         """)
     elif platform == "win32":
         os.system("""
-            cd azul-dll
+            cd dll
             rustup toolchain install stable-x86_64-pc-windows-msvc
             rustup override set stable-x86_64-pc-windows-msvc
             RUSTFLAGS="-Ctarget-feature=-crt-static" cargo build --lib --target=x86_64-pc-windows-msvc --all-features --release
@@ -3191,7 +3192,7 @@ def run_size_test():
     d['CC'] = 'clang-cl'
     d['CXX'] = 'clang-cl'
     d['RUSTFLAGS'] = '-C target-feature=+crt-static'
-    cwd = root_folder + "/azul-dll"
+    cwd = root_folder + "/dll"
     subprocess.Popen(['cargo', 'test', '--all-features', '--release'], env=d, cwd=cwd).wait()
 
 def build_examples():
@@ -3219,17 +3220,11 @@ def build_examples():
 
 def release_on_cargo():
     # Publish packages in the correct order of dedpendencies
-    os.system("cd \"" + root_folder + "/azul-css\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-css-parser\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-core\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-text-layout\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azulc\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-layout\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-desktop\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-web\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-dll\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/css\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/core\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/layout\" && cargo check && cargo test && cargo publish")
+    os.system("cd \"" + root_folder + "/dll\" && cargo check && cargo test && cargo publish")
     os.system("cd \"" + root_folder + "/azul\" && cargo check && cargo test && cargo publish")
-    os.system("cd \"" + root_folder + "/azul-widgets\" && cargo check && cargo test && cargo publish")
 
 def make_debian_release_package():
     # copy the files such that file is Debian deploy-able
@@ -3822,7 +3817,7 @@ def generate_license():
     ])
 
     try:
-        os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json')
+        os.system('cd "' + root_folder + '/dll" && cargo license --filter-platform=x86_64-pc-windows-msvc --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-WINDOWS.json')
         license_template = read_file(root_folder + "/LICENSE")
         license_authors = read_file(root_folder + "/LICENSE-WINDOWS.json")
         license_json = json.loads(license_authors)
@@ -3832,7 +3827,7 @@ def generate_license():
         write_file(final_license_text, root_folder + "/LICENSE-WINDOWS.txt")
         remove_path(root_folder + "/LICENSE-WINDOWS.json")
 
-        os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-unknown-linux-gnu --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-LINUX.json')
+        os.system('cd "' + root_folder + '/dll" && cargo license --filter-platform=x86_64-unknown-linux-gnu --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-LINUX.json')
         license_template = read_file(root_folder + "/LICENSE")
         license_authors = read_file(root_folder + "/LICENSE-LINUX.json")
         license_json = json.loads(license_authors)
@@ -3842,7 +3837,7 @@ def generate_license():
         write_file(final_license_text, root_folder + "/LICENSE-LINUX.txt")
         remove_path(root_folder + "/LICENSE-LINUX.json")
 
-        os.system('cd "' + root_folder + '/azul-dll" && cargo license --filter-platform=x86_64-apple-darwin --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-MAC.json')
+        os.system('cd "' + root_folder + '/dll" && cargo license --filter-platform=x86_64-apple-darwin --avoid-build-deps --avoid-dev-deps -j > ../LICENSE-MAC.json')
         license_template = read_file(root_folder + "/LICENSE")
         license_authors = read_file(root_folder + "/LICENSE-MAC.json")
         license_json = json.loads(license_authors)
@@ -3888,14 +3883,10 @@ def format_license_authors(license_json):
 def remove_unused_crates(license_json, vendor_path):
     license_txt = ""
     added = [
-        "azul-dll",
-        "azul-desktop",
-        "azulc",
-        "azul-css",
-        "azul-core",
-        "azul-layout",
-        "azul-text-layout",
-        "azul-css-parser",
+        "dll",
+        "css",
+        "core",
+        "layout",
     ]
 
     # early exit if path does not exist
@@ -3932,14 +3923,14 @@ def remove_unused_crates(license_json, vendor_path):
                     os.remove(os.path.join(root, file))
 
 def full_test():
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --all-features')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --examples')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --verbose --release --all-features')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features --features="svg"')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features --features="image_loading"')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo check --no-default-features --features="font_loading"')
-    os.system('cd "' + root_folder + '/azul-dll" && cargo test --verbose --all-features')
+    os.system('cd "' + root_folder + '/dll" && cargo check --verbose --all-features')
+    os.system('cd "' + root_folder + '/dll" && cargo check --verbose --examples')
+    os.system('cd "' + root_folder + '/dll" && cargo check --no-default-features')
+    os.system('cd "' + root_folder + '/dll" && cargo check --verbose --release --all-features')
+    os.system('cd "' + root_folder + '/dll" && cargo check --no-default-features --features="svg"')
+    os.system('cd "' + root_folder + '/dll" && cargo check --no-default-features --features="image_loading"')
+    os.system('cd "' + root_folder + '/dll" && cargo check --no-default-features --features="font_loading"')
+    os.system('cd "' + root_folder + '/dll" && cargo test --verbose --all-features')
     os.system('cd "' + root_folder + "/examples && cargo run --bin layout_tests -- --nocapture")
 
 def debug_test_compile_c():
@@ -3959,17 +3950,15 @@ def main():
     generate_api()
     print("generating documentation in /target/html...")
     generate_docs()
-    print("building azulc (release mode)...")
-    # build_azulc()
-    print("building azul-dll (release mode)...")
-    # build_dll()
-    print("checking azul-dll for struct size integrity...")
-    # run_size_test()
+    print("building dll (release mode)...")
+    build_dll()
+    print("checking dll for struct size integrity...")
+    run_size_test()
     print("building examples...")
-    # build_examples()
+    build_examples()
     print("building and linking C examples from /examples/c/...")
-    # debug_test_compile_c()
-    # full_test()
+    debug_test_compile_c()
+    full_test()
     # release_on_cargo()
     # make_debian_release_package()
     # make_release_zip_files()
