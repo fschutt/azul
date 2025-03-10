@@ -7,6 +7,9 @@
 extern crate alloc;
 extern crate core;
 
+#[cfg(feature = "parser")]
+pub mod parser;
+
 use alloc::{
     string::{String, ToString},
     vec::Vec,

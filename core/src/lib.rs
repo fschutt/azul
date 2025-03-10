@@ -12,8 +12,6 @@ extern crate libm;
 
 #[macro_use]
 extern crate azul_css;
-#[cfg(feature = "css_parser")]
-extern crate azul_css_parser;
 extern crate gl_context_loader;
 
 /// Useful macros for implementing Azul APIs without duplicating code

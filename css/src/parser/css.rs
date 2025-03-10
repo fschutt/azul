@@ -2,7 +2,7 @@
 use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
 use core::{fmt, num::ParseIntError};
 
-use azul_css::{
+use crate::{
     AzString, CombinedCssPropertyType, Css, CssDeclaration, CssKeyMap, CssNthChildSelector,
     CssNthChildSelector::*, CssPath, CssPathPseudoSelector, CssPathSelector, CssPropertyType,
     CssRuleBlock, DynamicCssProperty, NodeTypeTag, NodeTypeTagParseError,
@@ -11,8 +11,7 @@ use azul_css::{
 pub use azul_simplecss::Error as CssSyntaxError;
 use azul_simplecss::Tokenizer;
 
-use crate::css_parser;
-pub use crate::css_parser::{CssParsingError, CssParsingErrorOwned};
+pub use crate::parser::{CssParsingError, CssParsingErrorOwned};
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
 #[repr(transparent)]
@@ -27,7 +26,7 @@ impl CssApiWrapper {
 
     pub fn from_string(s: AzString) -> Self {
         Self {
-            css: crate::new_from_str(s.as_str()).unwrap_or_default(),
+            css: crate::parser::new_from_str(s.as_str()).unwrap_or_default(),
         }
     }
 }
@@ -386,7 +385,7 @@ fn parse_nth_child_selector<'a>(
 fn parse_nth_child_pattern<'a>(
     value: &'a str,
 ) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
-    use azul_css::CssNthChildPattern;
+    use crate::CssNthChildPattern;
 
     let value = value.trim();
 
@@ -904,7 +903,7 @@ fn unparsed_css_blocks_to_stylesheet<'a>(
 ) -> Result<(Stylesheet, Vec<CssParseWarnMsg<'a>>), CssParseError<'a>> {
     // Actually parse the properties (TODO: this could be done in parallel and in a separate
     // function)
-    let css_key_map = azul_css::get_css_key_map();
+    let css_key_map = crate::get_css_key_map();
 
     let mut warnings = Vec::new();
 
@@ -961,7 +960,7 @@ pub fn parse_css_declaration<'a>(
         } else {
             // margin: 10px;
             let parsed_css_properties =
-                css_parser::parse_combined_css_property(combined_key, unparsed_css_value)
+                crate::parser::parse_combined_css_property(combined_key, unparsed_css_value)
                     .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.extend(
@@ -974,7 +973,7 @@ pub fn parse_css_declaration<'a>(
         if let Some(css_var) = check_if_value_is_css_var(unparsed_css_value) {
             // margin-left: var(--my-variable);
             let (css_var_id, css_var_default) = css_var?;
-            let parsed_default_value = css_parser::parse_css_property(normal_key, css_var_default)
+            let parsed_default_value = crate::parser::parse_css_property(normal_key, css_var_default)
                 .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
@@ -983,7 +982,7 @@ pub fn parse_css_declaration<'a>(
             }));
         } else {
             // margin-left: 10px;
-            let parsed_css_value = css_parser::parse_css_property(normal_key, unparsed_css_value)
+            let parsed_css_value = crate::parser::parse_css_property(normal_key, unparsed_css_value)
                 .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Static(parsed_css_value));
@@ -1007,7 +1006,7 @@ fn check_if_value_is_css_var<'a>(
 ) -> Option<Result<(&'a str, &'a str), CssParseErrorInner<'a>>> {
     const DEFAULT_VARIABLE_DEFAULT: &str = "none";
 
-    let (_, brace_contents) = css_parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
+    let (_, brace_contents) = crate::parser::parse_parentheses(unparsed_css_value, &["var"]).ok()?;
 
     // value is a CSS variable, i.e. var(--main-bg-color)
     Some(match parse_css_variable_brace_contents(brace_contents) {

@@ -1,14 +1,12 @@
 [workspace]
+resolver = "2"
 members = [
     "api/rust",
-    "azul-dll",
-    "azul-desktop",
-    "azulc",
-    "azul-css",
-    "azul-core",
-    "azul-layout",
-    "azul-text-layout",
-    "azul-css-parser",
+    "dll",
+    "workbench",
+    "css",
+    "core",
+    "layout",
     "examples/rust",
     "examples/rust/ios"
 ]

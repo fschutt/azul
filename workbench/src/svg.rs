@@ -1474,10 +1474,6 @@ pub fn tessellate_svgpathelement_stroke(
 
 #[cfg(feature = "svg")]
 pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNode {
-    use rayon::iter::{
-        IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator,
-        ParallelIterator,
-    };
 
     let mut index_offset = 0;
 
@@ -1494,13 +1490,13 @@ pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNod
 
     let all_vertices = nodes
         .as_ref()
-        .par_iter()
+        .iter()
         .flat_map(|t| t.vertices.clone().into_library_owned_vec())
         .collect::<Vec<_>>();
 
     let all_indices = nodes
         .as_ref()
-        .par_iter()
+        .iter()
         .enumerate()
         .flat_map(|(buffer_index, t)| {
             // since the vertex buffers are now joined,
@@ -1514,7 +1510,7 @@ pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNod
 
             let mut indices = t.indices.clone().into_library_owned_vec();
             if vertex_buffer_offset != 0 {
-                indices.par_iter_mut().for_each(|i| {
+                indices.iter_mut().for_each(|i| {
                     if *i != GL_RESTART_INDEX {
                         *i += vertex_buffer_offset;
                     }
@@ -1537,10 +1533,6 @@ pub fn join_tessellated_nodes(nodes: &[TessellatedSvgNode]) -> TessellatedSvgNod
 pub fn join_tessellated_colored_nodes(
     nodes: &[TessellatedColoredSvgNode],
 ) -> TessellatedColoredSvgNode {
-    use rayon::iter::{
-        IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator,
-        ParallelIterator,
-    };
 
     let mut index_offset = 0;
 
@@ -1557,13 +1549,13 @@ pub fn join_tessellated_colored_nodes(
 
     let all_vertices = nodes
         .as_ref()
-        .par_iter()
+        .iter()
         .flat_map(|t| t.vertices.clone().into_library_owned_vec())
         .collect::<Vec<_>>();
 
     let all_indices = nodes
         .as_ref()
-        .par_iter()
+        .iter()
         .enumerate()
         .flat_map(|(buffer_index, t)| {
             // since the vertex buffers are now joined,
@@ -1577,7 +1569,7 @@ pub fn join_tessellated_colored_nodes(
 
             let mut indices = t.indices.clone().into_library_owned_vec();
             if vertex_buffer_offset != 0 {
-                indices.par_iter_mut().for_each(|i| {
+                indices.iter_mut().for_each(|i| {
                     if *i != GL_RESTART_INDEX {
                         *i += vertex_buffer_offset;
                     }
@@ -1610,12 +1602,11 @@ pub fn join_tessellated_colored_nodes(
 
 #[cfg(feature = "svg")]
 pub fn tessellate_node_fill(node: &SvgNode, fs: SvgFillStyle) -> TessellatedSvgNode {
-    use rayon::prelude::*;
     match &node {
         SvgNode::MultiPolygonCollection(ref mpc) => {
             let tessellated_multipolygons = mpc
                 .as_ref()
-                .par_iter()
+                .iter()
                 .map(|mp| tessellate_multi_polygon_fill(mp, fs))
                 .collect::<Vec<_>>();
             join_tessellated_nodes(&tessellated_multipolygons)
@@ -1635,12 +1626,11 @@ pub fn tessellate_node_fill(node: &SvgNode, fs: SvgFillStyle) -> TessellatedSvgN
 
 #[cfg(feature = "svg")]
 pub fn tessellate_node_stroke(node: &SvgNode, ss: SvgStrokeStyle) -> TessellatedSvgNode {
-    use rayon::prelude::*;
     match &node {
         SvgNode::MultiPolygonCollection(ref mpc) => {
             let tessellated_multipolygons = mpc
                 .as_ref()
-                .par_iter()
+                .iter()
                 .map(|mp| tessellate_multi_polygon_stroke(mp, ss))
                 .collect::<Vec<_>>();
             let mut all_vertices = Vec::new();

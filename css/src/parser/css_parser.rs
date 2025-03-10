@@ -6,7 +6,7 @@ use core::{
     num::{ParseFloatError, ParseIntError},
 };
 
-use azul_css::{
+use crate::{
     AngleMetric, AngleValue, AzString, BackgroundPositionHorizontal, BackgroundPositionVertical,
     BorderStyle, BoxShadowClipMode, ColorU, CombinedCssPropertyType, ConicGradient, CssProperty,
     CssPropertyType, CssPropertyValue, Direction, DirectionCorner, DirectionCorners, ExtendMode,
@@ -3479,7 +3479,7 @@ pub fn parse_style_filter_vec<'a>(
 }
 
 pub fn parse_style_filter<'a>(input: &'a str) -> Result<StyleFilter, CssStyleFilterParseError<'a>> {
-    use azul_css::{StyleBlur, StyleColorMatrix, StyleCompositeFilter, StyleFilterOffset};
+    use crate::{StyleBlur, StyleColorMatrix, StyleCompositeFilter, StyleFilterOffset};
 
     let (filter_type, filter_values) = parse_parentheses(
         input,
@@ -3759,7 +3759,7 @@ pub fn parse_style_transform_vec<'a>(
 pub fn parse_style_transform<'a>(
     input: &'a str,
 ) -> Result<StyleTransform, CssStyleTransformParseError<'a>> {
-    use azul_css::{
+    use crate::{
         StyleTransformMatrix2D, StyleTransformMatrix3D, StyleTransformRotate3D,
         StyleTransformScale2D, StyleTransformScale3D, StyleTransformSkew2D,
         StyleTransformTranslate2D, StyleTransformTranslate3D,
@@ -4826,7 +4826,7 @@ pub fn parse_linear_color_stop<'a>(
 pub fn parse_radial_color_stop<'a>(
     input: &'a str,
 ) -> Result<RadialColorStop, CssGradientStopParseError<'a>> {
-    use azul_css::OptionAngleValue;
+    use crate::OptionAngleValue;
 
     use self::CssGradientStopParseError::*;
 

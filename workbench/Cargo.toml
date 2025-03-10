@@ -1,41 +1,29 @@
 [package]
-name = "azulc"
+name = "azul-workbench"
 version = "0.0.3"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MPL-2.0"
-description = '''
-    Azul XML-to-Rust compiler (and library)
-'''
+description = "GUI (and CLI) toolkit for building Azul applications"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface"]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-edition = "2018"
+edition = "2021"
 autoexamples = false
 
-[lib]
-name = "azulc_lib"
-path = "src/lib.rs"
-
 [[bin]]
-name = "azulc"
+name = "awb"
 path = "src/main.rs"
-required-features = [
-    "xml", "std", "font_loading", "image_loading",
-    "gif", "jpeg", "png", "tiff", "bmp", "text_layout"
-]
 
 [dependencies]
+azul-core               = { path = "../core", version = "0.0.2", default-features = false }
+azul-css                = { path = "../css", version = "0.0.1", default-features = false, features = ["parser"]}
+azul-layout             = { path = "../layout", default-features = false, features = ["text_layout"]}
 gl-context-loader       = { version ="0.1.8", default-features = false }
 xmlparser               = { version = "0.13.3",          default-features = false }
-azul-core               = { path = "../azul-core",       version = "0.0.2",          default-features = false }
-azul-css                = { path = "../azul-css",        version = "0.0.1",          default-features = false }
-azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",          default-features = false }
-azul-layout             = { path = "../azul-layout",     default-features = false }
 image                   = { version = "0.24.3",         default-features = false,       optional = true }
 rust-fontconfig         = { version = "0.1.13",          default-features = false,       optional = true }
 lyon                    = { version = "0.17.10",  default-features = false, optional = true }
-rayon                   = { version = "1.5.3",    default-features = false, optional = true }
 usvg                    = { version = "0.22.0",   default-features = false, optional = true, features = ["export"] }
 resvg                   = { version = "0.22.0",   default-features = false, optional = true }
 roxmltree               = { version = "0.14.0",   default-features = false, optional = true }
@@ -48,19 +36,8 @@ base64 = "0.22.1"
 [features]
 default = ["std", "text_layout"]
 std = ["azul-core/std", "azul-layout/std", "rust-fontconfig/std"]
-image_loading = ["image", "std"]
-gif = ["image_loading", "image/gif"]
-jpeg = ["image_loading", "image/jpeg", "image/jpeg_rayon"]
-png = ["image_loading", "image/png"]
-tiff = ["image_loading", "image/tiff"]
-bmp = ["image_loading", "image/bmp"]
-ico = ["image_loading", "image/ico"]
-tga = ["image_loading", "image/tga"]
-hdr = ["image_loading", "image/hdr"]
-dxt = ["image_loading", "image/dxt"]
-webp = ["image_loading", "image/webp"]
-pnm = ["image_loading", "image/pnm"]
-font_loading = ["rust-fontconfig", "std"]
-text_layout = ["azul-layout/text_layout"]
-svg = ["lyon", "tiny-skia", "rayon", "usvg", "resvg", "xml"]
+
+font_loading = []
+text_layout = ["azul-layout/text_layout", "rust-fontconfig", "std"]
+svg = ["lyon", "tiny-skia", "usvg", "resvg", "xml"]
 xml = ["roxmltree"]

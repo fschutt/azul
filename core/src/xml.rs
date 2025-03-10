@@ -9,9 +9,9 @@ use azul_css::{
     OptionAzString, StyleBackgroundContentVec, StyleBackgroundPositionVec,
     StyleBackgroundRepeatVec, StyleBackgroundSizeVec, StyleFontFamilyVec, StyleTransformVec, U8Vec,
 };
-use azul_css_parser::ErrorLocation;
+use azul_css::parser::ErrorLocation;
 #[cfg(feature = "css_parser")]
-use azul_css_parser::{CssApiWrapper, CssParseErrorOwned};
+use azul_css::parser::{CssApiWrapper, CssParseErrorOwned};
 
 use crate::{
     css::VecContents,
@@ -1354,7 +1354,7 @@ pub fn str_to_rust_code<'a>(
         if let Some(style_node) = find_node_by_type(head_node.children.as_ref(), "style") {
             if let Some(text) = style_node.text.as_ref().map(|s| s.as_str()) {
                 let parsed_css =
-                    azul_css_parser::new_from_str(&text).map_err(|e| e.to_contained())?;
+                    azul_css::parser::new_from_str(&text).map_err(|e| e.to_contained())?;
                 global_style = parsed_css;
             }
         }
@@ -1705,7 +1705,7 @@ pub fn set_attributes(
                 Some(s) => s,
                 None => continue,
             };
-            azul_css_parser::parse_css_declaration(
+            azul_css::parser::parse_css_declaration(
                 key.trim(),
                 value.trim(),
                 (ErrorLocation::default(), ErrorLocation::default()),
@@ -2044,7 +2044,7 @@ pub fn render_component_inner<'a>(
     let mut css = match find_node_by_type(xml_node.children.as_ref(), "style")
         .and_then(|style_node| style_node.text.as_ref().map(|s| s.as_str()))
     {
-        Some(text) => azul_css_parser::new_from_str(&text).map_err(|e| e.to_contained())?,
+        Some(text) => azul_css::parser::new_from_str(&text).map_err(|e| e.to_contained())?,
         None => Css::empty(),
     };
 

@@ -11,7 +11,7 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-edition = "2018"
+edition = "2021"
 autoexamples = false
 
 [dependencies]

@@ -1,0 +1,24 @@
+# build a new version of azul and output all artifacts
+name: Deploy
+
+on:
+    workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.build }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: macos-x64
+            os: macos-11
+          - build: windows-x64
+            os: windows-2019
+          - build: linux-x64
+            os: ubuntu-22.04
+  steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: actions/upload-artifact@v4

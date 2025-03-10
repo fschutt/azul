@@ -15,7 +15,7 @@ repository = "https://github.com/fschutt/azul"
 readme = "../../README.md"
 exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
-edition = "2018"
+edition = "2021"
 build = "build.rs"
 links = "azul"
 
@@ -25,7 +25,7 @@ serde_derive = { version = "1", optional = true, default-features = false }
 
 [dependencies.azul-dll]
 version = "0.0.1"
-path = "../../azul-dll"
+path = "../../dll"
 default-features = false
 features = ["rlib"]
 optional = true
@@ -45,7 +45,6 @@ link-static = [
     "azul-dll/text_layout",
     "azul-dll/svg",
     "azul-dll/xml",
-    "azul-dll/image_loading",
     "azul-dll/gif",
     "azul-dll/jpeg",
     "azul-dll/png",
@@ -54,12 +53,11 @@ link-static = [
     "azul-dll/ico",
     "azul-dll/tga",
     "azul-dll/hdr",
-    "azul-dll/dxt",
     "azul-dll/webp",
     "azul-dll/pnm",
     "azul-dll/link-static"
 ]
-# # currently blocked on gleam, allsorts, rayon and webrender not being no_std
+# # currently blocked on gleam, allsorts and webrender not being no_std
 # no_std = ["link-static", "azul-dll/css_parser", "azul-dll/text_layout"]
 # minifb = ["azul-dll/std", "link-static"]
 

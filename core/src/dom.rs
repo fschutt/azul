@@ -619,7 +619,7 @@ pub enum NodeDataInlineCssProperty {
 macro_rules! parse_from_str {
     ($s:expr, $prop_type:ident) => {{
         use azul_css::{CssDeclaration, CssKeyMap};
-        use azul_css_parser::ErrorLocation;
+        use azul_css::parser::ErrorLocation;
 
         let s = $s.trim();
         let css_key_map = CssKeyMap::get();
@@ -633,7 +633,7 @@ macro_rules! parse_from_str {
                 let mut declarations = Vec::new();
                 let mut warnings = Vec::new();
 
-                azul_css_parser::parse_css_declaration(
+                azul_css::parser::parse_css_declaration(
                     key,
                     value,
                     (ErrorLocation::default(), ErrorLocation::default()),
@@ -1588,7 +1588,7 @@ impl Dom {
     }
 
     #[cfg(feature = "css_parser")]
-    pub fn style(&mut self, css: azul_css_parser::CssApiWrapper) -> StyledDom {
+    pub fn style(&mut self, css: azul_css::parser::CssApiWrapper) -> StyledDom {
         StyledDom::new(self, css)
     }
     #[inline(always)]

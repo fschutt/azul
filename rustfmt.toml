@@ -1,4 +1,4 @@
-style_edition = "2024"
+style_edition = "2021"
 overflow_delimited_expr = false
 reorder_imports = true
 indent_style = "Block"

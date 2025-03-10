@@ -8,62 +8,57 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-edition = "2018"
+edition = "2021"
 autoexamples = false
 
 [[bin]]
 name = "azul-dll"
 path = "main.rs"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "azul"
-edition = "2018"
+edition = "2021"
 crate-type = ["cdylib", "staticlib", "rlib"]
 doc = false
 
 [dependencies]
-azul-core = { path = "../azul-core", version = "0.0.2", default-features = false }
+azul-core = { path = "../core", version = "0.0.2", default-features = false }
 pyo3 = { version = "0.16.5", default-features = false, features = ["abi3", "multiple-pymethods", "extension-module", "macros", "auto-initialize"], optional = true }
 log  = { version = "0.4.17",  default-features = false, optional = true }
 pyo3-log = { version = "0.6.0", default-features = false, optional = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false }
-
 [features]
-default = ["std", "logging", "css_parser", "image_loading", "ico", "tga", "hdr", "jpeg", "dxt", "webp", "pnm", "font_loading", "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp", "link-static"]
+default = ["std", "logging", "css_parser", "ico", "tga", "hdr", "jpeg", "webp", "pnm", "font_loading", "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp", "link-static"]
 # these are the features that currently HAVE to be present
 # removing any of these features will lead to compile error
 # this will be fixed in the future
-minimal = ["std", "css_parser", "font_loading", "text_layout", "no_static_freetype"]
-std = ["azul-core/std", "azul-desktop/std"]
-logging = ["azul-desktop/logging", "log"]
-use_fern_logger = ["azul-desktop/use_fern_logger", "logging"]
-use_pyo3_logger = ["azul-desktop/use_pyo3_logger", "pyo3-log", "logging"]
-css_parser = ["azul-desktop/css_parser"]
-image_loading = ["azul-desktop/image_loading"]
-gif = ["image_loading", "azul-desktop/gif"]
-jpeg = ["image_loading", "azul-desktop/jpeg"]
-png = ["image_loading", "azul-desktop/png"]
-tiff = ["image_loading", "azul-desktop/tiff"]
-bmp = ["image_loading", "azul-desktop/bmp"]
-ico = ["image_loading", "azul-desktop/ico"]
-tga = ["image_loading", "azul-desktop/tga"]
-hdr = ["image_loading", "azul-desktop/hdr"]
-dxt = ["image_loading", "azul-desktop/dxt"]
-webp = ["image_loading", "azul-desktop/webp"]
-pnm = ["image_loading", "azul-desktop/pnm"]
-font_loading = ["azul-desktop/font_loading"]
-text_layout = ["azul-desktop/text_layout"]
-svg = ["azul-desktop/svg"]
-xml = ["azul-desktop/xml"]
-no_static_freetype = ["azul-desktop/no_static_freetype"]
+minimal = ["std", "css_parser", "font_loading", "text_layout"]
+std = ["azul-core/std"]
+logging = ["log"]
+use_fern_logger = ["logging"]
+use_pyo3_logger = ["pyo3-log", "logging"]
+css_parser = []
+gif = []
+jpeg = []
+png = []
+tiff = []
+bmp = []
+ico = []
+tga = []
+hdr = []
+webp = []
+pnm = []
+svg = []
+xml = []
+font_loading = []
+text_layout = []
 cdylib = []
 rlib = []
 staticlib = []
 link-static = ["rlib"]
 link-dynamic = ["cdylib", "staticlib"]
+
 # Predefined target configurations
 desktop-cdylib = ["cdylib", "use_fern_logger"]
 desktop-staticlib = ["staticlib", "use_fern_logger"]
@@ -88,7 +83,7 @@ assets = [
 no-default-features = true
 features = [
     "std", "logging", "css_parser", "image_loading", "ico", "tga",
-    "hdr", "jpeg", "dxt", "webp", "pnm", "font_loading",
+    "hdr", "jpeg", "webp", "pnm", "font_loading",
     "text_layout", "svg", "xml", "gif", "jpeg", "png", "tiff", "bmp",
     "rlib", "use_fern_logger"
 ]

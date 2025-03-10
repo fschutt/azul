@@ -155,8 +155,6 @@ pub mod encode {
     use image::error::{LimitError, LimitErrorKind};
     #[cfg(feature = "bmp")]
     use image_crate::codecs::bmp::BmpEncoder;
-    #[cfg(feature = "dxt")]
-    use image_crate::codecs::dxt::DxtEncoder;
     #[cfg(feature = "gif")]
     use image_crate::codecs::gif::GifEncoder;
     #[cfg(feature = "hdr")]

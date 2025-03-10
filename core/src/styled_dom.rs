@@ -27,7 +27,7 @@ use azul_css::{
     StyleTextColor, StyleTextColorValue, StyleTransformOriginValue, StyleTransformVecValue,
     StyleWordSpacingValue,
 };
-use azul_css_parser::CssApiWrapper;
+use azul_css::parser::CssApiWrapper;
 
 use crate::{
     FastBTreeSet, FastHashMap,
@@ -2650,7 +2650,7 @@ impl StyledDom {
     /// this way scrollbars aren't treated as "special" objects (the event
     /// handling for scrollbars are just regular callback handlers).
     pub fn inject_scroll_bars(&mut self) {
-        use azul_css_parser::CssApiWrapper;
+        use azul_css::parser::CssApiWrapper;
 
         // allocate 14 nodes for every node
         //
@@ -2762,7 +2762,7 @@ impl StyledDom {
 
     /// Inject a menu bar into the root component
     pub fn inject_menu_bar(mut self, menu_bar: &Menu) -> Self {
-        use azul_css_parser::CssApiWrapper;
+        use azul_css::parser::CssApiWrapper;
 
         use crate::window::MenuItem;
 

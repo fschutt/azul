@@ -30,7 +30,6 @@ use azul_core::{
     window::{FullWindowState, LogicalPosition, LogicalRect, LogicalSize},
 };
 use azul_css::*;
-use rayon::prelude::*;
 use rust_fontconfig::FcFontCache;
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 0.0;
@@ -58,7 +57,6 @@ pub struct HeightConfig {
 }
 
 fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig> {
-    use rayon::prelude::*;
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
@@ -68,7 +66,7 @@ fn precalculate_wh_config(styled_dom: &StyledDom) -> NodeDataContainer<WhConfig>
             .styled_nodes
             .as_container()
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, styled_node)| {
                 let node_id = NodeId::new(node_id);
@@ -529,7 +527,7 @@ macro_rules! typed_arena {
                 // 1. Set all child elements to their minimum required width or 0.0
                 // if there is no min width
                 let mut children_flex_grow = children
-                    .par_iter()
+                    .iter()
                     .map(|child_id| {
                         if layout_positions[*child_id] != LayoutPosition::Absolute {
                             // so that node.min_width + node.flex_grow_px = exact_width
@@ -588,7 +586,7 @@ macro_rules! typed_arena {
                 //    height Exclude position: absolute items from being added into the sum since
                 //    they are taken out of the regular layout flow
                 let space_taken_up: f32 = children
-                    .par_iter()
+                    .iter()
                     .enumerate()
                     .filter(|(_, child_id)| {
                         layout_positions[**child_id] != LayoutPosition::Absolute
@@ -616,7 +614,7 @@ macro_rules! typed_arena {
                 // Get the node ids that have to be expanded, exclude
                 // fixed-width and absolute childrens
                 let mut variable_width_childs = children
-                    .par_iter()
+                    .iter()
                     .enumerate()
                     .filter(|(_, id)| {
                         !width_calculated_arena[**id]
@@ -643,7 +641,7 @@ macro_rules! typed_arena {
                     // NOTE: variable_width_childs can change its length,
                     // have to recalculate every loop!
                     let children_combined_flex_grow: f32 = variable_width_childs
-                        .par_iter()
+                        .iter()
                         .map(|(child_id, _)| layout_flex_grows[*child_id])
                         .sum();
 
@@ -655,7 +653,7 @@ macro_rules! typed_arena {
 
                     // Grow all variable children by the same amount.
                     let new_iteration = variable_width_childs
-                        .par_iter()
+                        .iter()
                         .map(|(variable_child_id, index_in_parent)| {
                             let flex_grow_of_child = layout_flex_grows[*variable_child_id];
                             let added_space_for_one_child = size_per_child * flex_grow_of_child;
@@ -756,7 +754,7 @@ macro_rules! typed_arena {
                 };
 
                 children
-                    .par_iter()
+                    .iter()
                     .map(|child_id| {
                         let parent_node_inner_width =
                             if layout_positions[*child_id] == LayoutPosition::Absolute {
@@ -849,7 +847,7 @@ macro_rules! typed_arena {
 
                 // calculate the new flex_grow
                 let flex_grows_in_this_depth = parent_ids
-                    .par_iter()
+                    .iter()
                     .map(|parent_id| {
                         let children = parent_id.az_children_collect(&node_hierarchy);
                         let flex_axis = layout_directions[*parent_id].get_axis();
@@ -1403,7 +1401,7 @@ pub fn get_layout_positions<'a>(styled_dom: &StyledDom) -> NodeDataContainer<Lay
     NodeDataContainer {
         internal: styled_nodes
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, styled_node)| {
                 cache
@@ -1433,7 +1431,7 @@ pub fn get_layout_justify_contents<'a>(
     NodeDataContainer {
         internal: styled_nodes
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, styled_node)| {
                 cache
@@ -1463,7 +1461,7 @@ pub fn get_layout_flex_directions<'a>(
     NodeDataContainer {
         internal: styled_nodes
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, styled_node)| {
                 cache
@@ -1492,7 +1490,7 @@ pub fn get_layout_flex_grows<'a>(styled_dom: &StyledDom) -> NodeDataContainer<f3
     NodeDataContainer {
         internal: styled_nodes
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, styled_node)| {
                 cache
@@ -1522,7 +1520,7 @@ pub fn get_layout_displays<'a>(
     NodeDataContainer {
         internal: styled_nodes
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id, styled_node)| {
                 cache
@@ -1539,7 +1537,6 @@ pub fn get_layout_displays<'a>(
 }
 
 fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffsets> {
-    use rayon::prelude::*;
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
@@ -1549,7 +1546,7 @@ fn precalculate_all_offsets(styled_dom: &StyledDom) -> NodeDataContainer<AllOffs
     NodeDataContainer {
         internal: styled_nodes
             .internal
-            .par_iter()
+            .iter()
             .enumerate()
             .map(|(node_id_usize, styled_node)| {
                 let node_id = NodeId::new(node_id_usize);
@@ -2652,7 +2649,7 @@ fn create_word_cache<'a>(
 
     let word_map = node_data
         .internal
-        .par_iter()
+        .iter()
         .enumerate()
         .map(|(node_id, node)| {
             let node_id = NodeId::new(node_id);
@@ -2737,13 +2734,12 @@ fn create_word_positions<'a>(
         ui_solver::{DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING, ResolvedTextLayoutOptions},
     };
     use azul_text_layout::text_layout::position_words;
-    use rayon::prelude::*;
 
     let css_property_cache = styled_dom.get_css_property_cache();
     let node_data_container = styled_dom.node_data.as_container();
 
     let collected = words
-        .par_iter()
+        .iter()
         .filter_map(|(node_id, words)| {
             use azul_core::styled_dom::StyleFontFamiliesHash;
 
@@ -2908,7 +2904,7 @@ fn get_nodes_that_need_scroll_clip(
 
     // brute force: calculate all immediate children sum rects of all parents
     let mut all_direct_overflows = parents
-        .par_iter()
+        .iter()
         .filter_map(|ParentWithNodeDepth { depth: _, node_id }| {
             let parent_id = node_id.into_crate_internal()?;
             let parent_rect = layouted_rects[parent_id].get_approximate_static_bounds();

@@ -8,20 +8,17 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-edition = "2018"
+edition = "2021"
 autoexamples = false
 build = "build.rs"
 
 [dependencies]
+azul-css                = { path = "../css", version = "0.0.1",  default-features = false, features = ["parser"]}
+azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false }
+azul-layout             = { path = "../azul-layout", version = "0.0.4",  default-features = false, features = ["text_layout"] }
 tinyfiledialogs         = { version = "3.9.1",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
 raw-window-handle       = { version = "0.5.0", default-features = false }
-azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["image_loading", "font_loading"] }
-azul-css                = { path = "../azul-css", version = "0.0.1",  default-features = false }
-azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false }
-azul-layout             = { path = "../azul-layout", version = "0.0.4",  default-features = false, features = ["text_layout"] }
-azul-text-layout        = { path = "../azul-text-layout", version = "0.0.5", default-features = false }
-azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",  default-features = false, optional = true }
 log                     = { version = "0.4.17",  default-features = false, optional = true }
 fern                    = { version = "0.6.1",  default-features = false, optional = true }
 backtrace               = { version = "0.3.66" }
@@ -87,7 +84,5 @@ bmp = ["image_loading", "azulc/bmp"]
 ico = ["image_loading", "azulc/ico"]
 tga = ["image_loading", "azulc/tga"]
 hdr = ["image_loading", "azulc/hdr"]
-dxt = ["image_loading", "azulc/dxt"]
 webp = ["image_loading", "azulc/webp"]
 pnm = ["image_loading", "azulc/pnm"]
-no_static_freetype = ["webrender/no_static_freetype"]

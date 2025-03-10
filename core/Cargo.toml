@@ -10,13 +10,12 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface"]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-edition = "2018"
+edition = "2021"
 autoexamples = false
 
 [dependencies]
-azul-css                = { path = "../azul-css",        version = "0.0.1", default-features = false }
+azul-css                = { path = "../css", version = "0.0.1", default-features = false }
 libm                    = { version = "0.2.2",   default-features = false                   }
-azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1", optional = true }
 gl-context-loader       = { version ="0.1.8", default-features = false }
 highway                 = { version = "0.8.0", default-features = false }
 rust-fontconfig         = { version = "0.1.13", default-features = false }
@@ -24,6 +23,6 @@ rust-fontconfig         = { version = "0.1.13", default-features = false }
 [features]
 default = ["std"]
 # Enables the CSS parser
-css_parser = ["azul-css-parser"]
+css_parser = ["azul-css/parser"]
 # Enables hashing for timing and threading
 std = ["css_parser"]
