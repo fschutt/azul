@@ -1,10 +1,9 @@
 //! Rectangular input that, when clicked, spawns a color dialog
 
 use std::vec::Vec;
-
+use azul_css::*;
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, NodeDataInlineCssProperty, NodeDataInlineCssProperty::Normal,
         NodeDataInlineCssPropertyVec,

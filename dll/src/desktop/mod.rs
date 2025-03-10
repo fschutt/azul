@@ -21,8 +21,6 @@ pub mod css;
 pub mod dialogs;
 /// Extra functions for file IO (for C / C++ developers)
 pub mod file;
-/// Extra functions for string handling (for C / C++ developers)
-pub mod str;
 pub use azul_core::{dom, gl, style, styled_dom};
 /// Font & image resource handling, lookup and caching
 pub mod resources {
@@ -66,6 +64,7 @@ pub mod xml {
 /// Re-exports of errors
 pub mod errors {
     // TODO: re-export the sub-types of ClipboardError!
+    #[cfg(all(feature = "font_loading", feature = "std"))]
     pub use azul_layout::font::loading::FontReloadError;
     pub use clipboard2::ClipboardError;
 }

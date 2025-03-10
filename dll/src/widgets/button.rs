@@ -1,8 +1,7 @@
 use std::vec::Vec;
-use azul_css::impl_option;
+use azul_css::*;
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,
@@ -464,6 +463,8 @@ impl Button {
 
 #[cfg(test)]
 mod ui_test {
+    use azul_css::parser::CssApiWrapper;
+
 
     static EXPECTED_1: &str =
         "
@@ -483,10 +484,9 @@ mod ui_test {
     #[test]
     fn test_button_ui_1() {
 
-        use azul_css::Css;
         use crate::widgets::button::Button;
 
-        let button = Button::new("Hello".into()).dom().style(Css::empty());
+        let button = Button::new("Hello".into()).dom().style(CssApiWrapper::empty());
         let button_html = button.get_html_string("", "", true);
 
         assert_lines(EXPECTED_1.trim(), button_html.as_str().trim());

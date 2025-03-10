@@ -1,13 +1,10 @@
 use std::vec::Vec;
-
+use azul_css::{parser::CssApiWrapper, *};
 use azul_core::{
     callbacks::{Callback, FocusTarget, MarshaledLayoutCallback, MarshaledLayoutCallbackInner},
     dom::{CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, WindowEventFilter},
     window::{PhysicalPosition, PhysicalPositionI32, WindowState},
-};
-use azul_core::{
     callbacks::{CallbackInfo, LayoutCallback, LayoutCallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, DomVec, IdOrClass,
         IdOrClass::Class,
@@ -1149,7 +1146,7 @@ extern "C" fn dropdownWindowLayoutFn(
             }]
             .into(),
         )
-        .style(Css::empty())
+        .style(CssApiWrapper::empty())
 }
 
 extern "C" fn on_choice_change(data: &mut RefAny, info: &mut CallbackInfo) -> Update {

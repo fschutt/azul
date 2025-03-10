@@ -14,7 +14,7 @@ use webrender::Transaction as WrTransaction;
 #[cfg(target_os = "macos")]
 use crate::desktop::shell::appkit::Window;
 #[cfg(target_os = "windows")]
-use crate::shell::win32::Window;
+use crate::desktop::shell::win32::Window;
 use crate::{desktop::app::LazyFcCache, desktop::wr_translate::wr_synchronize_updated_images};
 
 // Assuming that current_window_state and the previous_window_state of the window
@@ -197,7 +197,7 @@ pub(crate) fn process_callback_results(
             &window.internal.layout_results,
             callback_results.images_changed.unwrap_or_default(),
             callback_results.image_masks_changed.unwrap_or_default(),
-            &crate::app::CALLBACKS,
+            &crate::desktop::app::CALLBACKS,
             &*image_cache,
             &mut window.internal.gl_texture_cache,
             window.internal.document_id,
@@ -253,9 +253,9 @@ pub(crate) fn process_callback_results(
     }
 
     #[cfg(target_os = "macos")]
-    crate::shell::appkit::synchronize_window_state_with_os(&window);
+    crate::desktop::shell::appkit::synchronize_window_state_with_os(&window);
     #[cfg(target_os = "windows")]
-    crate::shell::win32::synchronize_window_state_with_os(&window);
+    crate::desktop::shell::win32::synchronize_window_state_with_os(&window);
 
     let layout_callback_changed = window
         .internal
@@ -291,7 +291,7 @@ pub(crate) fn process_callback_results(
     );
 
     if let Some(rsn) = style_layout_changes.nodes_that_changed_size.as_ref() {
-        let updated_images = fc_cache.apply_closure(|fc_cache: &mut FcFontCache| {
+        let updated_images = fc_cache.apply_closure(|fc_cache| {
             LayoutResult::resize_images(
                 window.internal.id_namespace,
                 window.internal.document_id,
@@ -302,7 +302,7 @@ pub(crate) fn process_callback_results(
                 &mut window.internal.layout_results,
                 &mut window.internal.gl_texture_cache,
                 &mut window.internal.renderer_resources,
-                &crate::app::CALLBACKS,
+                &crate::desktop::app::CALLBACKS,
                 azul_layout::do_the_relayout,
                 &*fc_cache,
                 &window.internal.current_window_state.size,

@@ -264,7 +264,7 @@ pub(crate) fn fullhittest_new_webrender(
 pub(crate) fn scroll_all_nodes(scroll_states: &ScrollStates, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
 
-    use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
+    use crate::desktop::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
     for (key, value) in scroll_states.0.iter() {
         txn.scroll_node_with_id(
             wr_translate_logical_position(value.get()),

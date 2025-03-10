@@ -2,10 +2,9 @@
 //! opens a file dialog instead
 
 use std::vec::Vec;
-
+use azul_css::*;
 use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,
@@ -185,7 +184,7 @@ impl FileInput {
 }
 
 extern "C" fn fileinput_on_click(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
-    use azul_desktop::dialogs::open_file_dialog;
+    use crate::desktop::dialogs::open_file_dialog;
 
     let mut fileinputstatewrapper = match data.downcast_mut::<FileInputStateWrapper>() {
         Some(s) => s,

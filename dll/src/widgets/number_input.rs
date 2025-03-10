@@ -2,10 +2,9 @@
 
 use core::ops::{Deref, DerefMut};
 use std::string::String;
-
-use azul_desktop::{
+use azul_css::*;
+use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{AzString, impl_option, impl_option_inner},
     dom::{Dom, NodeDataInlineCssPropertyVec},
 };
 

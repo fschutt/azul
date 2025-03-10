@@ -65,11 +65,11 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
             gl_context,
             &mut resource_updates,
             internal.get_dpi_scale_factor(),
-            &crate::app::CALLBACKS,
+            &crate::desktop::app::CALLBACKS,
             fc_cache,
             azul_layout::do_the_relayout,
             |window_state, scroll_states, layout_results| {
-                crate::wr_translate::fullhittest_new_webrender(
+                crate::desktop::wr_translate::fullhittest_new_webrender(
                     &*hit_tester.resolve(),
                     document_id,
                     window_state.focused_node,
@@ -107,7 +107,7 @@ fn az_regenerate_dom(current_window: &mut Window, userdata: &mut App, _guard: &G
     current_window.hit_tester =
         AsyncHitTester::Requested(current_window.render_api.request_hit_tester(wr_document_id));
 
-    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+    let hit_test = crate::desktop::wr_translate::fullhittest_new_webrender(
         &*current_window.hit_tester.resolve(),
         current_window.internal.document_id,
         current_window.internal.current_window_state.focused_node,
@@ -199,7 +199,7 @@ fn az_redo_hit_test(
     let mut new_windows = Vec::new();
     let mut destroyed_windows = Vec::new();
 
-    crate::shell::process::process_event(
+    crate::desktop::shell::process::process_event(
         handle,
         current_window,
         fc_cache,
@@ -315,7 +315,7 @@ pub(crate) fn wm_mousemove(
         .cursor_position = pos;
 
     // mouse moved, so we need a new hit test
-    let hit_test = crate::wr_translate::fullhittest_new_webrender(
+    let hit_test = crate::desktop::wr_translate::fullhittest_new_webrender(
         &*current_window.hit_tester.resolve(),
         current_window.internal.document_id,
         current_window.internal.current_window_state.focused_node,
@@ -674,7 +674,7 @@ pub(crate) fn wm_size(
     let resize_result = fc_cache.apply_closure(|mut fc_cache| {
         current_window.internal.do_quick_resize(
             &image_cache,
-            &crate::app::CALLBACKS,
+            &crate::desktop::app::CALLBACKS,
             azul_layout::do_the_relayout,
             &mut *fc_cache,
             &current_window.gl_context_ptr,

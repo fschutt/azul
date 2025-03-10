@@ -1,9 +1,8 @@
 use alloc::vec::Vec;
-
-use azul_core::window::{LogicalPosition, LogicalSize, Menu, OptionMenu};
-use azul_desktop::{
+use azul_css::*;
+use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{AzString, *},
+    window::{LogicalPosition, LogicalSize, Menu, OptionMenu},
     dom::{
         Dom, DomVec, IdOrClass,
         IdOrClass::{Class, Id},

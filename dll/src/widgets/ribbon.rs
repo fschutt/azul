@@ -1,6 +1,6 @@
-use azul_desktop::{
+use azul_css::*;
+use azul_core::{
     callbacks::{Callback, CallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
         IdOrClass::{Class, Id},

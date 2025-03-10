@@ -2,15 +2,12 @@
 
 use alloc::{string::String, vec::Vec};
 use core::ops::Range;
-
+use azul_css::*;
 use azul_core::{
     callbacks::{Animation, AnimationRepeatCount, DomNodeId, InlineText},
     task::SystemTimeDiff,
     window::{KeyboardState, LogicalPosition, VirtualKeyCode},
-};
-use azul_desktop::{
     callbacks::{Callback, CallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Focus, Hover, Normal},
@@ -19,7 +16,6 @@ use azul_desktop::{
     styled_dom::StyledDom,
     task::OptionTimerId,
 };
-use azul_impl::text_layout::text_layout;
 
 const BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
@@ -740,8 +736,9 @@ impl TextInput {
     }
 
     pub fn dom(mut self) -> Dom {
-        use azul_desktop::dom::{
-            CallbackData, EventFilter, FocusEventFilter, HoverEventFilter, IdOrClass::Class,
+        use azul_core::dom::{
+            CallbackData, EventFilter, FocusEventFilter, 
+            HoverEventFilter, IdOrClass::Class,
             TabIndex,
         };
 

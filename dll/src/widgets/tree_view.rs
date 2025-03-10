@@ -1,8 +1,7 @@
 use std::vec::Vec;
-
-use azul_desktop::{
+use azul_css::*;
+use azul_core::{
     callbacks::{CallbackInfo, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, DomVec, IdOrClass,
         IdOrClass::Class,
@@ -10,7 +9,7 @@ use azul_desktop::{
         NodeDataInlineCssProperty::{Active, Focus, Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
     },
-    resources::{ImageRef, OptionImageRef},
+    app_resources::{ImageRef, OptionImageRef},
 };
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("sans-serif");

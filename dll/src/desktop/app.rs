@@ -15,7 +15,7 @@ use rust_fontconfig::FcFontCache;
 pub(crate) const CALLBACKS: RenderCallbacks = RenderCallbacks {
     insert_into_active_gl_textures_fn: azul_core::gl::insert_into_active_gl_textures,
     layout_fn: azul_layout::do_the_layout,
-    load_font_fn: azul_layout::font::font_source_get_bytes,
+    load_font_fn: azul_layout::font::loading::font_source_get_bytes,
     parse_font_fn: azul_layout::text::parse_font_fn,
 };
 
@@ -145,17 +145,17 @@ impl App {
     pub fn get_monitors(&self) -> MonitorVec {
         #[cfg(target_os = "windows")]
         {
-            crate::shell::win32::get_monitors(self)
+            crate::desktop::shell::win32::get_monitors(self)
         }
 
         #[cfg(target_os = "linux")]
         {
-            crate::shell::x11::get_monitors(self)
+            crate::desktop::shell::x11::get_monitors(self)
         }
 
         #[cfg(target_os = "macos")]
         {
-            crate::shell::appkit::get_monitors(self)
+            crate::desktop::shell::appkit::get_monitors(self)
         }
     }
 
@@ -165,16 +165,16 @@ impl App {
     #[cfg(feature = "std")]
     pub fn run(mut self, root_window: WindowCreateOptions) {
         #[cfg(target_os = "windows")]
-        let err = crate::shell::win32::run(self, root_window);
+        let err = crate::desktop::shell::win32::run(self, root_window);
 
         #[cfg(target_os = "linux")]
-        let err = crate::shell::x11::run(self, root_window);
+        let err = crate::desktop::shell::x11::run(self, root_window);
 
         #[cfg(target_os = "macos")]
-        let err = crate::shell::appkit::run(self, root_window);
+        let err = crate::desktop::shell::appkit::run(self, root_window);
 
         if let Err(e) = err {
-            crate::dialogs::msg_box(&format!("{:?}", e));
+            crate::desktop::dialogs::msg_box(&format!("{:?}", e));
             println!("{:?}", e);
         }
     }
@@ -277,54 +277,3 @@ impl Drop for Clipboard {
     }
 }
 
-pub mod extra {
-
-    use azul_core::{
-        dom::{Dom, NodeType},
-        styled_dom::StyledDom,
-    };
-    use azul_css::{ColorU, Css};
-
-    pub fn coloru_from_str(s: &str) -> ColorU {
-        azul_css_parser::parse_css_color(s)
-            .ok()
-            .unwrap_or(ColorU::BLACK)
-    }
-
-    // extra functions that can't be implemented in azul_core
-    #[cfg(not(feature = "xml"))]
-    pub fn styled_dom_from_file(_: &str) -> StyledDom {
-        Dom::body()
-            .with_children(
-                vec![Dom::text(format!(
-                    "library was not compiled with --feature=\"xml\""
-                ))]
-                .into(),
-            )
-            .style(&mut Css::empty())
-    }
-
-    #[cfg(feature = "xml")]
-    pub fn styled_dom_from_file(path: &str) -> StyledDom {
-        use azul_layout::xml::XmlComponentMap;
-        azul_layout::xml::domxml_from_file(path, &mut XmlComponentMap::default()).parsed_dom
-    }
-
-    #[cfg(not(feature = "xml"))]
-    pub fn styled_dom_from_str(_: &str) -> StyledDom {
-        Dom::body()
-            .with_children(
-                vec![Dom::text(format!(
-                    "library was not compiled with --feature=\"xml\""
-                ))]
-                .into(),
-            )
-            .style(&mut Css::empty())
-    }
-
-    #[cfg(feature = "xml")]
-    pub fn styled_dom_from_str(s: &str) -> StyledDom {
-        use azul_layout::xml::XmlComponentMap;
-        azul_layout::xml::domxml_from_str(s, &mut XmlComponentMap::default()).parsed_dom
-    }
-}

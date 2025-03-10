@@ -1,6 +1,5 @@
 use azul_core::{
     callbacks::{Callback, CallbackInfo, CallbackType, RefAny, Update},
-    css::{AzString, *},
     dom::{
         Dom, EventFilter, IdOrClass,
         IdOrClass::Class,
@@ -9,6 +8,7 @@ use azul_core::{
         NodeDataInlineCssPropertyVec, TabIndex,
     },
 };
+use azul_css::*;
 
 static CHECKBOX_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-checkbox-container",
@@ -241,9 +241,9 @@ impl CheckBox {
 // handle input events for the checkbox
 mod input {
 
+    use azul_css::{CssProperty, StyleOpacity};
     use azul_core::{
         callbacks::{CallbackInfo, RefAny, Update},
-        css::{CssProperty, StyleOpacity},
     };
 
     use super::{CheckBoxOnToggle, CheckBoxStateWrapper};

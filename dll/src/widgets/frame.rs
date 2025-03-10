@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
-
-use azul_desktop::{
-    css::{AzString, *},
+use azul_css::*;
+use crate::desktop::{
+    css::AzString,
     dom::{
         Dom, DomVec, IdOrClass,
         IdOrClass::{Class, Id},

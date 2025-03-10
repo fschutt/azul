@@ -1,5 +1,5 @@
-use azul_desktop::{
-    css::{AzString, *},
+use azul_css::*;
+use azul_core::{
     dom::{
         Dom, IdOrClass,
         IdOrClass::Class,

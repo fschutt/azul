@@ -1,24 +1,21 @@
 use alloc::vec::Vec;
 use core::fmt;
-use azul_css::impl_option;
+use crate::extra::coloru_from_str;
+use azul_css::*;
 use azul_core::{
-    app_resources::{ImageRef, RawImageFormat},
-    svg::{SvgLine, SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
-    window::{
-        CursorPosition::InWindow, LogicalPosition, LogicalRect, LogicalSize, Menu, MenuItem,
-        PhysicalSizeU32, StringMenuItem,
-    },
-};
-use azul_desktop::{
-    app::extra::coloru_from_str,
     callbacks::{Callback, CallbackInfo, RefAny, RenderImageCallbackInfo, Update},
-    css::{AzString, *},
     dom::{
         CallbackData, Dom, DomVec, EventFilter, HoverEventFilter, IdOrClass,
         IdOrClass::{Class, Id},
         IdOrClassVec, NodeDataInlineCssProperty,
         NodeDataInlineCssProperty::{Hover, Normal},
         NodeDataInlineCssPropertyVec, TabIndex,
+    },
+    app_resources::{ImageRef, RawImageFormat},
+    svg::{SvgLine, SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
+    window::{
+        CursorPosition::InWindow, LogicalPosition, LogicalRect, LogicalSize, Menu, MenuItem,
+        PhysicalSizeU32, StringMenuItem,
     },
     gl::Texture,
 };
@@ -1037,8 +1034,8 @@ fn render_node(
     mut node_local_dataset: NodeLocalDataset,
     scale_factor: f32,
 ) -> Dom {
-    use azul_desktop::{
-        css::{AzString, *},
+    use azul_css::*;
+    use azul_core::{
         dom::{
             Dom, DomVec, IdOrClass,
             IdOrClass::{Class, Id},
@@ -2858,8 +2855,8 @@ fn draw_connection_inner(
     info: &mut RenderImageCallbackInfo,
     texture_size: PhysicalSizeU32,
 ) -> Option<ImageRef> {
-    use azul_core::svg::SvgMultiPolygon;
-    use azul_desktop::svg::{tessellate_multi_polygon_stroke, tessellate_path_stroke};
+
+    use azul_layout::xml::svg::tessellate_path_stroke;
 
     let data = data.downcast_ref::<ConnectionLocalDataset>()?;
     let data = &*data;

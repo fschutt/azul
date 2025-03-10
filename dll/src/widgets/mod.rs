@@ -37,7 +37,7 @@ macro_rules! impl_callback {
             pub cb: $callback_ty,
         }
 
-        impl_option!(
+        azul_css::impl_option!(
             $callback_wrapper,
             $option_callback_wrapper,
             copy = false,

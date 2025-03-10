@@ -92,13 +92,13 @@ default = ["std", "desktop", "logging", "css_parser", "font_loading", "text_layo
 # removing any of these features will lead to compile error
 # this will be fixed in the future
 minimal = ["std", "css_parser", "font_loading", "text_layout"]
-std = ["azul-core/std"]
+std = ["azul-core/std", "azul-layout/std"]
 logging = ["log"]
 use_fern_logger = ["logging"]
 use_pyo3_logger = ["pyo3-log", "logging"]
 css_parser = []
 all_img_formats = ["ico", "tga", "hdr", "jpeg", "webp", "pnm", "gif", "jpeg", "png", "tiff", "bmp"]
-desktop = ["tinyfiledialogs", "azul-css", "azul-layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "dispatch2", "bitflags", "block2"]
+desktop = ["std", "tinyfiledialogs", "azul-css", "azul-layout", "font_loading", "text_layout", "clipboard2", "raw-window-handle", "backtrace", "rust-fontconfig", "strfmt", "libm", "gl-context-loader", "webrender", "once_cell", "dispatch2", "bitflags", "block2"]
 gif = ["azul-layout", "azul-layout/gif"]
 jpeg = ["azul-layout", "azul-layout/jpeg"]
 png = ["azul-layout", "azul-layout/png"]
